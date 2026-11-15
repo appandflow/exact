@@ -1,4 +1,4 @@
-// The package's two receivers, declared in its `exact.json` and written into the manifest by the
+// The package's two receivers (LLP 1133.021 D14), declared in its `exact.json` and written into the manifest by the
 // build: they run with no session, in a process the system may have started for them alone.
 package exact.geofencing
 

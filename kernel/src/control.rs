@@ -1,4 +1,4 @@
-//! Form controls by their HTML names: which widget a
+//! Form controls by their HTML names (LLP 1069.001): which widget a
 //! `Control` node is, the size a host shows before it reports its own, and a
 //! `select`'s options as every host reads them.
 //!
@@ -21,7 +21,7 @@ pub enum ControlKind {
     /// `input type="radio"` (x2apps survey #2): one of the radios of its
     /// `name` ([`Kernel::radio_group`]).
     Radio,
-    /// `input type="file"`.
+    /// `input type="file"` (LLP 1069.002).
     File,
     /// `select`, its options the node's children.
     Select,
@@ -33,14 +33,14 @@ pub enum ControlKind {
     Time,
     /// `input type="datetime-local"`: a date, `T`, a time; no zone.
     DateTimeLocal,
-    /// `button appearance="auto"`: the platform's button,
+    /// `button appearance="auto"`: the platform's button (LLP 1069.011),
     /// its title and image its children.
     Button,
     /// `progress` with no `value`: HTML's indeterminate progress, shown as
-    /// the platform's activity indicator.
+    /// the platform's activity indicator (LLP 1069.001, amended 2026-10-07).
     Progress,
     /// `progress` with a `value`: HTML's determinate progress bar, the
-    /// platform's own ([`Progress`]).
+    /// platform's own ([`Progress`]; LLP 1116 D8).
     ProgressBar,
 }
 
@@ -70,12 +70,12 @@ impl ControlKind {
         })
     }
 
-    /// The content size a host that reports none shows,
+    /// The content size a host that reports none shows (LLP 1069.001 D3),
     /// for a control whose font size is `em`.
     ///
     /// A checkbox, a radio, a switch and a range's height are the look's
-    /// this process draws, rows of the schema's `metrics`. Under the neutral
-    /// look they follow the control's font size (a
+    /// this process draws, rows of the schema's `metrics` (LLP 1115.000
+    /// D17). Under the neutral look they follow the control's font size (a
     /// mark is the line's height, 20 px at 16), as the page's sheet sizes
     /// them, so the kernel and a page lay the same box out. In every other
     /// column they are Chrome's bare control under the web reset, and the
@@ -84,7 +84,7 @@ impl ControlKind {
     ///
     /// The rest are the same in every look: an empty select, the page's
     /// 36 px tall select (its line, padding and line), and a date, time or
-    /// local date-time control in the same field look,
+    /// local date-time control in the same field look (LLP 1116.001 D1),
     /// Chrome's on macOS with an empty value. A host that knows any
     /// control's size reports it.
     pub fn default_size(self, em: f32) -> (f32, f32) {
@@ -102,11 +102,12 @@ impl ControlKind {
             ControlKind::Date => (164.0, 36.0),
             ControlKind::Time => (131.796_88, 36.0),
             ControlKind::DateTimeLocal => (247.0, 36.0),
-            // UIKit's medium button, rounded (63.33 × 34.33 for a short
-            // title): frame one until the host reports.
+            // UIKit's medium button, rounded (LLP 1069.011 §2: 63.33 × 34.33
+            // for a short title): frame one until the host reports.
             ControlKind::Button => (64.0, 34.0),
             // UIKit's medium activity indicator, 20 × 20, on every host: it
-            // is the size, not a host's report.
+            // is the size, not a host's report (LLP 1069.001, amended
+            // 2026-10-07).
             ControlKind::Progress => (20.0, 20.0),
             // `10em` by `1em` at CSS's 16 px. Layout reads the node's own
             // font size ([`progress_size`]), never this.
@@ -122,12 +123,26 @@ impl ControlKind {
             return true;
         }
         match self {
-            ControlKind::Date => valid_date(value),
-            ControlKind::Time => valid_time(value),
-            ControlKind::DateTimeLocal => value
-                .split_once('T')
-                .is_some_and(|(d, t)| valid_date(d) && valid_time(t)),
+            ControlKind::Date | ControlKind::Time | ControlKind::DateTimeLocal => {
+                self.date_value(value).is_some()
+            }
             _ => true,
+        }
+    }
+
+    /// HTML's numeric date/time value: milliseconds since 1970-01-01,
+    /// or since midnight for `time`, without a time-zone conversion.
+    /// Empty or invalid strings and other control kinds have no number.
+    /// `i128` holds milliseconds for every year the date parser accepts.
+    pub fn date_value(self, value: &str) -> Option<i128> {
+        match self {
+            ControlKind::Date => date_value(value),
+            ControlKind::Time => time_value(value),
+            ControlKind::DateTimeLocal => {
+                let (date, time) = value.split_once(['T', ' '])?;
+                Some(date_value(date)? + time_value(time)?)
+            }
+            _ => None,
         }
     }
 }
@@ -147,7 +162,7 @@ pub(crate) fn mark_key(arena: &crate::arena::NodeArena, slot: u32) -> Option<(Co
 
 /// The size `slot`'s host last reported for a mark of its kind and font
 /// size, which stands for it until it reports its own. The kind's default
-/// is the look's, and an Apple host's checkbox is not:
+/// (LLP 1069.001 D3) is the look's, and an Apple host's checkbox is not:
 /// every new list row with one was laid out at 13 points, reported 22 and
 /// laid out again, in a batch of its own.
 pub(crate) fn shared_size(arena: &crate::arena::NodeArena, slot: u32) -> Option<(f32, f32)> {
@@ -167,49 +182,61 @@ fn digits(s: &str, n: usize) -> Option<u32> {
 
 /// `yyyy-mm-dd`, the year four or more digits and never 0, the day one the
 /// month has (February's 29th in a leap year).
-fn valid_date(s: &str) -> bool {
+fn date_value(s: &str) -> Option<i128> {
     let mut parts = s.rsplitn(3, '-');
-    let (Some(d), Some(m), Some(y)) = (parts.next(), parts.next(), parts.next()) else {
-        return false;
-    };
-    let (Some(d), Some(m)) = (digits(d, 2), digits(m, 2)) else {
-        return false;
-    };
-    let Some(y) = (y.len() >= 4)
+    let (d, m, y) = (parts.next()?, parts.next()?, parts.next()?);
+    let (d, m) = (digits(d, 2)?, digits(m, 2)?);
+    let y = (y.len() >= 4)
         .then(|| digits(y, y.len()))
         .flatten()
-        .filter(|y| *y > 0)
-    else {
-        return false;
-    };
+        .filter(|y| *y > 0)?;
     let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
-    let days = match m {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if leap => 29,
-        2 => 28,
-        _ => return false,
-    };
-    (1..=days).contains(&d)
+    let months = [
+        31,
+        28 + u32::from(leap),
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    if !(1..=12).contains(&m) || !(1..=months[(m - 1) as usize]).contains(&d) {
+        return None;
+    }
+    let years = i128::from(y - 1);
+    let days = 365 * years + years / 4 - years / 100
+        + years / 400
+        + i128::from(months[..(m - 1) as usize].iter().sum::<u32>() + d - 1);
+    // 719162 days precede 1970-01-01 in the proleptic Gregorian calendar.
+    Some((days - 719_162) * 86_400_000)
 }
 
 /// `hh:mm`, `hh:mm:ss` or `hh:mm:ss.sss` (one to three fraction digits).
-fn valid_time(s: &str) -> bool {
+fn time_value(s: &str) -> Option<i128> {
     let mut parts = s.splitn(3, ':');
-    let (Some(h), Some(m)) = (parts.next(), parts.next()) else {
-        return false;
-    };
-    let hm = digits(h, 2).is_some_and(|h| h < 24) && digits(m, 2).is_some_and(|m| m < 60);
-    match parts.next() {
-        None => hm,
+    let h = digits(parts.next()?, 2).filter(|h| *h < 24)?;
+    let m = digits(parts.next()?, 2).filter(|m| *m < 60)?;
+    let seconds = match parts.next() {
+        None => 0,
         Some(sec) => {
             let (whole, fraction) = sec.split_once('.').unwrap_or((sec, ""));
-            hm && digits(whole, 2).is_some_and(|s| s < 60)
-                && (fraction.is_empty() && !sec.ends_with('.')
-                    || (1..=3).contains(&fraction.len())
-                        && fraction.bytes().all(|b| b.is_ascii_digit()))
+            let whole = digits(whole, 2).filter(|s| *s < 60)?;
+            let fraction = if fraction.is_empty() && !sec.ends_with('.') {
+                0
+            } else if (1..=3).contains(&fraction.len()) {
+                digits(fraction, fraction.len())? * 10_u32.pow(3 - fraction.len() as u32)
+            } else {
+                return None;
+            };
+            whole * 1000 + fraction
         }
-    }
+    };
+    Some(i128::from((h * 60 + m) * 60_000 + seconds))
 }
 
 /// A range's `min`, `max` and `step` by HTML's rules (the value
@@ -271,7 +298,7 @@ impl Range {
 /// A determinate progress's `value` and `max` by HTML's rules (the
 /// `progress` element's current value and maximum): `max` is 1 unless it
 /// reads as a number above 0; `value` is 0 unless it reads as one, and
-/// then held to 0 and `max`.
+/// then held to 0 and `max` (LLP 1116 D8).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Progress {
     /// The current value.
@@ -298,7 +325,7 @@ impl Progress {
     }
 }
 
-/// A determinate `progress`'s box. It is
+/// A determinate `progress`'s box (LLP 1116 D8; LLP 1115.000 D10.2). It is
 /// HTML's `<progress>` made a block: a box with no content of its own whose
 /// intrinsic size is `10em` by `1em` ([`progress_size`]; on the page,
 /// `contain-intrinsic-size`), so with `width: auto` it fills a block
@@ -340,9 +367,9 @@ pub(crate) fn progress_size(arena: &crate::arena::NodeArena, slot: u32) -> (f32,
 /// A range whose `width` is a percentage shrinks below its intrinsic width
 /// in a flex row, as Chrome's does (CSS Sizing 3 §5.2.2: a form control
 /// with a percentage width is compressible, its automatic minimum zero): a
-/// range is `width: 100%` unless its author says otherwise, and beside a row's
-/// other children it takes what they leave. An authored `min-width` is the
-/// author's.
+/// range is `width: 100%` unless its author says otherwise (LLP 1115.000
+/// D10.2), and beside a row's other children it takes what they leave.
+/// An authored `min-width` is the author's.
 pub(crate) fn range_box(arena: &crate::arena::NodeArena, slot: u32, s: &mut taffy::Style) {
     let style = arena.style(slot);
     if matches!(style.width, crate::Dimension::Percent(_))
@@ -357,9 +384,9 @@ pub(crate) fn range_box(arena: &crate::arena::NodeArena, slot: u32, s: &mut taff
 pub struct Choice {
     /// The option's node.
     pub view: ViewId,
-    /// Its `value`, or its label when it has none (HTML).
+    /// Its `value`, or its text content with HTML whitespace collapsed, before CSS.
     pub value: String,
-    /// Its text, white space stripped and collapsed (HTML's `option.text`).
+    /// Its display text, with HTML whitespace stripped and collapsed.
     pub label: String,
     /// Whether it may not be chosen.
     pub disabled: bool,
@@ -376,16 +403,16 @@ pub struct ButtonRasterImage {
     pub size: Option<(f32, f32)>,
 }
 
-/// A button's face: what every host projection shows
+/// A button's face (LLP 1069.011.000 D1): what every host projection shows
 /// of it — a toolbar item, a tab, a menu row, a swipe action, a shortcut —
 /// read live from its direct children, a custom `button` (`Pressable`) and a
 /// native one (`ControlKind::Button`) alike.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PressFace {
-    /// Its first `text` child's text, white space collapsed; a blank title is
-    /// none.
+    /// Its first `text` child's text, processed by its effective `white-space`
+    /// style; none when empty.
     pub title: Option<String>,
-    /// The second text, the platform's semantic subtitle.
+    /// The second text, the platform's semantic subtitle (LLP 1069.011.001 D3).
     pub subtitle: Option<String>,
     /// Axis and child order resolved to the platform's image placement.
     pub placement: crate::ButtonImagePlacement,
@@ -402,9 +429,14 @@ pub struct PressFace {
     /// Its `aria-label`.
     pub label: Option<String>,
     /// Whether projections can show its direct children: at most one `text`
-    /// and one `image`, with nothing else. A native
+    /// and one `image`, with nothing else (LLP 1069.011.000 D1). A native
     /// button can additionally carry `subtitle` without fitting a projection.
     pub fits: bool,
+    /// A tab's badge (LLP 1075.003 §9.9): the text of the one shown, filled
+    /// box beside a tab's face that holds only a text, which a tab bar shows
+    /// as its item's badge. None for every other button, and where a tab has
+    /// no such box or two.
+    pub badge: Option<String>,
 }
 
 /// Whether `node` is an `option`: a text node the `option` tag made.
@@ -417,8 +449,48 @@ pub fn is_option_node(node_type: NodeType, props: &crate::PropList) -> bool {
     node_type == NodeType::Text && props.str(PropId::SemanticTag) == Some("option")
 }
 
+/// Collapse HTML's ASCII whitespace in an option's text.
+pub fn option_label(text: &str) -> String {
+    text.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Where an arrow, Home or End at a member of a painted group goes
+/// (`Kernel::role_step_order`, LLP 1166.000 D2): to the first of `order` the
+/// host can focus; with none, the key is consumed where it is. For a host
+/// the kernel cannot ask while it decides: the Apple host's views live on
+/// the main thread, its runtime on another.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoleStep {
+    /// The group whose key it is.
+    pub group: ViewId,
+    /// The group's role, a row of the `roles` table.
+    pub role: &'static str,
+    /// The eligible members the key moves to, in the order they are tried.
+    /// Home's and End's hold the focused member in its place when it is
+    /// eligible: reached first, it is that end and the key moves nothing.
+    pub order: Vec<ViewId>,
+    /// Whether a move presses the member it reaches.
+    pub press: bool,
+}
+
+/// A painted group's one Tab stop (`Kernel::role_tab_order`, LLP 1166.000
+/// D2). A menu has no stop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoleStop {
+    /// The member's group.
+    pub group: ViewId,
+    /// The group's role, a row of the `roles` table.
+    pub role: &'static str,
+    /// A member has the focus: the first of `order` is the stop whatever
+    /// the host can focus, and none when that member's `tabindex` is negative.
+    pub held: bool,
+    /// The members that can be the stop, in the order they are tried: the
+    /// first the host can focus is the stop.
+    pub order: Vec<ViewId>,
+}
+
 impl Kernel {
-    /// A select's options in order, from its children;
+    /// A select's options in order, from its children (LLP 1069.001 D2);
     /// empty for any other node.
     pub fn select_choices(&self, view: ViewId) -> Vec<Choice> {
         let Some(select) = self.node(view) else {
@@ -433,20 +505,35 @@ impl Kernel {
             .into_iter()
             .filter_map(|id| self.node(id))
             .filter(is_option)
-            .map(|option| {
-                let text: String = option.text_runs().iter().map(|r| &*r.text).collect();
-                let label = text.split_whitespace().collect::<Vec<_>>().join(" ");
-                Choice {
-                    view: option.id,
-                    value: option
-                        .props
-                        .str(PropId::Value)
-                        .map_or_else(|| label.clone(), str::to_owned),
-                    label,
-                    disabled: disabled || option.props.bool(PropId::Disabled) == Some(true),
-                }
+            .map(|option| Choice {
+                view: option.id,
+                value: option
+                    .props
+                    .str(PropId::Value)
+                    .map_or_else(|| self.option_text(option.id, false), str::to_owned),
+                label: self.option_text(option.id, true),
+                disabled: disabled || option.props.bool(PropId::Disabled) == Some(true),
             })
             .collect()
+    }
+
+    // HTML's option text: the text content of the option and its
+    // descendants, whitespace collapsed. Its value reads it before CSS
+    // transforms; its label (`shown`) as each node's `text-transform` shows it.
+    fn option_text(&self, view: ViewId, shown: bool) -> String {
+        let mut text = String::new();
+        let mut pending = vec![view];
+        while let Some(id) = pending.pop() {
+            if let Some(node) = self.node(id) {
+                let own = node.props.str(PropId::Text).unwrap_or("");
+                match node.shown_text().filter(|_| shown) {
+                    Some(transformed) => text.push_str(&transformed),
+                    None => text.push_str(own),
+                }
+                pending.extend(node.children().into_iter().rev());
+            }
+        }
+        option_label(&text)
     }
 
     /// A radio's group, HTML's radio button group: every attached radio of
@@ -502,6 +589,262 @@ impl Kernel {
             })
     }
 
+    fn role_member(&self, view: ViewId, row: &crate::RoleKeys) -> bool {
+        let Some(node) = self.node(view) else {
+            return false;
+        };
+        // A native radio's role is the lowering's; its group is HTML's, by
+        // `name` (`radio_group`), and its keys `radio_step`'s.
+        if ControlKind::of(node.node_type, node.props) == Some(ControlKind::Radio) {
+            return false;
+        }
+        let role = node.props.str(PropId::AccessibilityRole).unwrap_or("");
+        // A member tag names the element the web makes of the node
+        // (`host/web/src/element.rs`, `element`): a pressable or an inline
+        // run with an `href` is an `a`; any other pressable, and a native
+        // button, a `button`.
+        let link = node.props.str(PropId::Href).is_some()
+            && (node.node_type == NodeType::Pressable || node.is_inline_run());
+        row.member_roles.iter().any(|member| {
+            member
+                .strip_suffix('*')
+                .map_or(role == *member, |prefix| role.starts_with(prefix))
+        }) || row.member_tags.iter().any(|tag| match *tag {
+            "button" => {
+                !link
+                    && (node.node_type == NodeType::Pressable
+                        && node
+                            .props
+                            .str(PropId::SemanticTag)
+                            .is_none_or(|t| t == "button")
+                        || ControlKind::of(node.node_type, node.props) == Some(ControlKind::Button))
+            }
+            "a[href]" => link,
+            _ => false,
+        })
+    }
+
+    fn role_group(
+        &self,
+        view: ViewId,
+        children: bool,
+    ) -> Option<(ViewId, &'static crate::RoleKeys)> {
+        let member = self.node(view)?;
+        let mut at = member.parent;
+        if children {
+            let parent = at.and_then(|id| self.node(id))?;
+            return crate::ROLE_KEYS
+                .iter()
+                .find(|r| {
+                    !r.descendants
+                        && parent.props.str(PropId::AccessibilityRole) == Some(r.role)
+                        && self.role_member(view, r)
+                })
+                .map(|row| (parent.id, row));
+        }
+        if crate::ROLE_KEYS
+            .iter()
+            .any(|r| r.descendants && member.props.str(PropId::AccessibilityRole) == Some(r.role))
+        {
+            return None;
+        }
+        while let Some(id) = at {
+            let node = self.node(id)?;
+            if let Some(row) = crate::ROLE_KEYS.iter().find(|r| {
+                r.descendants && node.props.str(PropId::AccessibilityRole) == Some(r.role)
+            }) {
+                return self.role_member(view, row).then_some((id, row));
+            }
+            at = node.parent;
+        }
+        None
+    }
+
+    fn role_members(&self, group: ViewId, row: &crate::RoleKeys) -> Vec<ViewId> {
+        let Some(node) = self.node(group) else {
+            return Vec::new();
+        };
+        let candidates = if row.descendants {
+            self.preorder_where(&node.children(), |_, _| true)
+        } else {
+            node.children()
+        };
+        candidates
+            .into_iter()
+            .filter(|id| {
+                self.role_group(*id, !row.descendants)
+                    .is_some_and(|(owner, _)| owner == group)
+            })
+            .collect()
+    }
+
+    /// Eligibility from what the kernel holds (LLP 1166.000 D1); the host's
+    /// "can focus" is applied to the orders below.
+    fn role_eligible(&self, view: ViewId) -> bool {
+        let Some(node) = self.node(view) else {
+            return false;
+        };
+        if node.props.bool(PropId::Disabled) == Some(true)
+            || node.props.bool(PropId::AccessibilityDisabled) == Some(true)
+            || node.computed_row(StyleId::Visibility, |s| s.visibility)
+                != crate::Visibility::Visible
+        {
+            return false;
+        }
+        let mut at = Some(view);
+        while let Some(id) = at {
+            let Some(node) = self.node(id) else {
+                return false;
+            };
+            if node.style.display == crate::Display::None
+                || node.props.bool(PropId::Inert) == Some(true)
+            {
+                return false;
+            }
+            at = node.parent;
+        }
+        true
+    }
+
+    /// A painted group's key destination and whether to press it (LLP 1166.000 D2).
+    /// `axis` overrides orientation for a host's sidebar. Direction is the group's
+    /// computed CSS direction. `None` means the view or key is not the group's;
+    /// a destination equal to `view` consumes the key without a press.
+    pub fn role_step(
+        &self,
+        view: ViewId,
+        key: &str,
+        axis: Option<crate::RoleAxis>,
+        mut can_focus: impl FnMut(ViewId) -> bool,
+    ) -> Option<(ViewId, bool)> {
+        let step = self.role_step_order(view, key, axis)?;
+        let to = step
+            .order
+            .into_iter()
+            .find(|id| can_focus(*id))
+            .unwrap_or(view);
+        Some((to, step.press && to != view))
+    }
+
+    /// `role_step` for a host that applies its "can focus" itself: the
+    /// eligible members the key moves to, in the order they are tried.
+    pub fn role_step_order(
+        &self,
+        view: ViewId,
+        key: &str,
+        axis: Option<crate::RoleAxis>,
+    ) -> Option<RoleStep> {
+        use crate::{Direction, RoleAxis};
+        let (group, row, forward) = [true, false].into_iter().find_map(|children| {
+            let (group, row) = self.role_group(view, children)?;
+            let node = self.node(group)?;
+            let vertical = row.orientation
+                && node.props.str(PropId::AccessibilityOrientation) == Some("vertical");
+            let axis = axis.unwrap_or(if vertical {
+                RoleAxis::Vertical
+            } else {
+                row.axis
+            });
+            let rtl = node.computed_row(StyleId::Direction, |s| s.direction) == Direction::Rtl;
+            let forward = match key {
+                "ArrowDown" if axis != RoleAxis::Horizontal => Some(true),
+                "ArrowUp" if axis != RoleAxis::Horizontal => Some(false),
+                "ArrowRight" if axis != RoleAxis::Vertical => Some(!rtl),
+                "ArrowLeft" if axis != RoleAxis::Vertical => Some(rtl),
+                "Home" | "End" if row.ends => None,
+                _ => return None,
+            };
+            Some((group, row, forward))
+        })?;
+        let members = self.role_members(group, row);
+        let at = members.iter().position(|id| *id == view)?;
+        let (before, after) = (&members[..at], &members[at + 1..]);
+        // Past one end, around from the other when the row wraps.
+        let around = |part: &[ViewId]| if row.wraps { part.to_vec() } else { Vec::new() };
+        let order: Vec<ViewId> = match forward {
+            Some(true) => after.iter().copied().chain(around(before)).collect(),
+            Some(false) => before
+                .iter()
+                .rev()
+                .copied()
+                .chain(around(after).into_iter().rev())
+                .collect(),
+            // Home and End go to the first and last eligible member the host
+            // can focus (D1), which only the host's predicate settles: every
+            // member from that end, the focused one in its place. Reached
+            // first, it is that end and the key moves nothing.
+            None if key == "Home" => members,
+            None => members.into_iter().rev().collect(),
+        };
+        Some(RoleStep {
+            group,
+            role: row.role,
+            order: order
+                .into_iter()
+                .filter(|id| self.role_eligible(*id))
+                .collect(),
+            press: row.press && forward.is_some(),
+        })
+    }
+
+    /// Whether a painted member is its group's one Tab stop (LLP 1166.000 D2).
+    /// `None` leaves the Tab rule to the host: for a nonmember, and for a
+    /// member of a group that sets no stop (a menu).
+    /// A focused member suppresses the others even when it is ineligible or
+    /// has an authored negative `tabindex`, which never becomes a stop.
+    pub fn role_tab_stop(
+        &self,
+        view: ViewId,
+        focused: Option<ViewId>,
+        mut can_focus: impl FnMut(ViewId) -> bool,
+    ) -> Option<bool> {
+        let stop = self.role_tab_order(view, focused)?;
+        let stop = if stop.held {
+            stop.order.first().copied()
+        } else {
+            stop.order.into_iter().find(|id| can_focus(*id))
+        };
+        Some(stop == Some(view))
+    }
+
+    /// `role_tab_stop` for a host that applies its "can focus" itself:
+    /// `view`'s group and the members that can be its stop, in the order
+    /// they are tried.
+    pub fn role_tab_order(&self, view: ViewId, focused: Option<ViewId>) -> Option<RoleStop> {
+        let (group, row) = self
+            .role_group(view, true)
+            .or_else(|| self.role_group(view, false))?;
+        let stop = |held, order| RoleStop {
+            group,
+            role: row.role,
+            held,
+            order,
+        };
+        // A row with no entry (a menu) sets no stop: its members keep the host's rule.
+        let entry = row.tab_entry?;
+        let allowed = |id| {
+            self.node(id).is_some_and(|n| {
+                n.props
+                    .get(PropId::TabIndex)
+                    .and_then(|v| v.as_int())
+                    .is_none_or(|i| i >= 0)
+            })
+        };
+        let all = self.role_members(group, row);
+        if let Some(at) = focused.filter(|at| all.contains(at)) {
+            return Some(stop(true, allowed(at).then_some(at).into_iter().collect()));
+        }
+        // The named member first, then the rest in tree order.
+        let (named, rest): (Vec<_>, Vec<_>) = all
+            .into_iter()
+            .filter(|id| allowed(*id) && self.role_eligible(*id))
+            .partition(|id| {
+                self.node(*id)
+                    .is_some_and(|n| n.props.bool(entry) == Some(true))
+            });
+        Some(stop(false, named.into_iter().chain(rest).collect()))
+    }
+
     /// A radio's value, HTML's: its `value`, or `on` when it has none.
     pub fn radio_value(&self, view: ViewId) -> String {
         self.node(view)
@@ -509,7 +852,7 @@ impl Kernel {
             .unwrap_or_else(|| "on".into())
     }
 
-    /// A button's face, its children read as they now
+    /// A button's face (LLP 1069.011.000 D1), its children read as they now
     /// stand (an `if` between them included); `None` for a node that is not
     /// a custom or native button.
     pub fn press_face(&self, view: ViewId) -> Option<PressFace> {
@@ -643,6 +986,8 @@ mod tests {
             (Time, "14:30:15"),
             (Time, "14:30:15.5"),
             (DateTimeLocal, "2026-09-27T14:30"),
+            (DateTimeLocal, "2026-09-27 14:30"),
+            (DateTimeLocal, "2026-09-27T14:30:45.500"),
         ] {
             assert!(kind.valid_value(ok), "{kind:?} {ok}");
         }
@@ -654,10 +999,41 @@ mod tests {
             (Time, "24:00"),
             (Time, "9:30"),
             (Time, "14:30:15."),
-            (DateTimeLocal, "2026-09-27 14:30"),
+            (DateTimeLocal, "2026-09-27  14:30"),
             (DateTimeLocal, "2026-09-27"),
         ] {
             assert!(!kind.valid_value(bad), "{kind:?} {bad}");
+        }
+    }
+
+    #[test]
+    fn date_numbers_are_milliseconds_without_a_time_zone() {
+        use ControlKind::*;
+        for (kind, text, number) in [
+            (Date, "0001-01-01", -62_135_596_800_000),
+            (Date, "1969-12-31", -86_400_000),
+            (Date, "1970-01-01", 0),
+            (Date, "10000-01-01", 253_402_300_800_000),
+            (Date, "010000-01-01", 253_402_300_800_000),
+            (Time, "09:00", 32_400_000),
+            (Time, "09:00:00", 32_400_000),
+            (Time, "09:00:00.1", 32_400_100),
+            (Time, "09:00:00.10", 32_400_100),
+            (Time, "09:00:00.100", 32_400_100),
+            (Time, "23:59:59.999", 86_399_999),
+            (DateTimeLocal, "1969-12-31T23:59:59.999", -1),
+            (DateTimeLocal, "1970-01-01T00:00:00.001", 1),
+        ] {
+            assert_eq!(kind.date_value(text), Some(number), "{kind:?} {text}");
+        }
+        for (year, days) in [(1900, 1), (2000, 2), (2024, 2), (2100, 1), (u32::MAX, 1)] {
+            let before = Date.date_value(&format!("{year}-02-28")).unwrap();
+            let after = Date.date_value(&format!("{year}-03-01")).unwrap();
+            assert_eq!(after - before, days * 86_400_000, "{year}");
+        }
+        for kind in [Date, Time, DateTimeLocal, Range] {
+            assert_eq!(kind.date_value(""), None);
+            assert_eq!(kind.date_value("invalid"), None);
         }
     }
 
@@ -732,6 +1108,100 @@ mod tests {
             ControlKind::of(NodeType::Control, k.node(2).unwrap().props),
             Some(ControlKind::Select)
         );
+    }
+
+    #[test]
+    fn option_labels_collapse_only_html_whitespace() {
+        let mut k = select();
+        let label = "\u{a0}b\u{a0}c\u{b}\u{2003}";
+        k.apply(
+            0,
+            2,
+            &[
+                Op::SetProp {
+                    id: 4,
+                    prop: PropId::Text,
+                    value: PropValue::Str(format!("\t\n {label}\r\u{c}").into()),
+                },
+                Op::SetProp {
+                    id: 2,
+                    prop: PropId::Value,
+                    value: PropValue::Str(label.into()),
+                },
+            ],
+        )
+        .unwrap();
+        let choices = k.select_choices(2);
+        assert_eq!(choices[1].label, label);
+        assert_eq!(choices[1].value, label);
+        assert_eq!(k.select_chosen(2).map(|c| c.view), Some(4));
+    }
+
+    #[test]
+    fn option_values_ignore_text_transform() {
+        let mut k = select();
+        let mut style = crate::StyleProps::default();
+        style
+            .set_dynamic(
+                StyleId::TextTransform,
+                &crate::StyleValue::Text("uppercase".into()),
+            )
+            .unwrap();
+        k.apply(
+            0,
+            2,
+            &[
+                Op::SetStyle {
+                    id: 1,
+                    patch: Box::new(style),
+                },
+                Op::SetProp {
+                    id: 2,
+                    prop: PropId::Value,
+                    value: "Dark".into(),
+                },
+            ],
+        )
+        .unwrap();
+        let choices = k.select_choices(2);
+        assert_eq!(choices[0].value, "s");
+        assert_eq!(choices[1].label, "DARK");
+        assert_eq!(choices[1].value, "Dark");
+        assert_eq!(k.select_chosen(2).map(|c| c.view), Some(4));
+    }
+
+    #[test]
+    fn option_values_include_own_text_and_descendants() {
+        let mut k = select();
+        k.apply(
+            0,
+            2,
+            &[
+                Op::CreateView {
+                    id: 5,
+                    node_type: NodeType::Text,
+                },
+                Op::SetProp {
+                    id: 5,
+                    prop: PropId::Text,
+                    value: "er".into(),
+                },
+                Op::SetChildren {
+                    id: 4,
+                    children: vec![5],
+                },
+                Op::SetProp {
+                    id: 2,
+                    prop: PropId::Value,
+                    value: "Darker".into(),
+                },
+            ],
+        )
+        .unwrap();
+        let choices = k.select_choices(2);
+        assert_eq!(choices[1].value, "Darker");
+        assert_eq!(choices[1].label, "Darker", "the label reads the same text");
+        assert_eq!(k.select_chosen(2).map(|c| c.view), Some(4));
     }
 
     #[test]

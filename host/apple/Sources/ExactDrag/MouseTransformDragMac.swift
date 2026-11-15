@@ -77,7 +77,7 @@ final class MouseTransformDrag {
         DispatchQueue.main.async { previous?.cancel() }
     }
 
-    // The trackpad: a magnify gesture pinches the pair about
+    // The trackpad (LLP 1057.001 §4): a magnify gesture pinches the pair about
     // the pointer, and while the photo is zoomed a two-finger scroll pans it,
     // as Preview does; unzoomed, the scroll stays the scroll view's.
     private var trackpad: (hold: TransformDragHold, origin: TransformDragPosition, focal: CGPoint, factor: Double, pan: CGPoint)?

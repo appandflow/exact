@@ -14,7 +14,7 @@ impl DataSource for NoData {
 /// including callers that supply no preferences word.
 #[test]
 fn a_web_boot_uses_neutral_roles_and_marks_without_a_look_fact() {
-    // A file control's picker is a capability the app links.
+    // A file control's picker is a capability the app links (LLP 1047).
     exact_web::link(exact_web_capabilities::ALL);
     let plan = contract::compile(
         r##"component App
@@ -157,11 +157,11 @@ fn a_web_boot_uses_neutral_roles_and_marks_without_a_look_fact() {
     // A select whose author wrote its height, which the sheet fills at the normal leading.
     assert!(created(&neutral, "sized-select").contains("\"data-exact-said\":\"height\""));
     assert!(!created(&neutral, "bare-select").contains("data-exact-said"));
-    // A list whose rows are cells carries Contract's mark
+    // LLP 1115.000 D16: a list whose rows are cells carries Contract's mark
     // on every boot, a list whose author opted out does not, and a row is
     // told which of its edges its author wrote (`none` is written too), so
     // the sheet draws no separator of its own there.
-    // Contract's mark on a button that styles its own disabled state.
+    // LLP 1115.000 D6: Contract's mark on a button that styles its own disabled state.
     assert!(
         created(&neutral, "own-off").contains("\"data-disabledstyled\":\"true\""),
         "{}",

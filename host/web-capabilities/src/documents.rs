@@ -1,5 +1,5 @@
-//! `saveFile` and the three file pickers on the web: the
-//! runner's decisions, linked when the plan runs one.
+//! `saveFile` and the three file pickers on the web (LLP 1069.010): the
+//! runner's rulings, linked when the plan runs one.
 
 use exact_web::Linked;
 

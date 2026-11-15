@@ -5,7 +5,7 @@ impl Kernel {
     /// A kernel that keeps nothing: each batch is counted and answered with
     /// an empty receipt, and no node is created, checked or stored. For a
     /// render that writes its document from the runner's instance tree
-    /// instead of from a kernel's nodes, which checks what the
+    /// instead of from a kernel's nodes (LLP 1048.004), which checks what the
     /// kernel would have refused as it writes, and falls back to a kernel
     /// render when it finds one. Its runner reads no nodes back.
     pub fn detached() -> Self {
@@ -192,7 +192,7 @@ impl Kernel {
             self.epoch = receipt.epoch;
         }
         receipt.epoch = self.epoch;
-        // Timeline names resolve against the tree
+        // @ref LLP 1057.003 D4 — timeline names resolve against the tree
         // this commit left.
         receipt.timelines = crate::timeline::refresh(&mut self.arena, &receipt);
         if self.receipts.len() == RECEIPT_RING {

@@ -1,4 +1,4 @@
-// @exact/gamepad on the web: the browser's own
+// @exact/gamepad on the web (LLP 1133.022 D1, D5, D12): the browser's own
 // registry, `navigator.getGamepads()`, in the interface's shapes. The page
 // runtime (host/web-js/modules.js) calls it outside the agent.
 //
@@ -16,7 +16,7 @@
 // - Effects are `vibrationActuator`'s where the engine has one (Chromium,
 //   Safari on macOS; not Firefox or Safari on iOS); no pad has a light here.
 
-/** The labels by family; the interface's `tables.labels` (a test checks they agree). */
+/** D2's labels by family; the interface's `tables.labels` (a test checks they agree). */
 export const LABELS = {
   xbox: ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'View', 'Menu', 'LS', 'RS', 'Up', 'Down', 'Left', 'Right', 'Xbox'],
   playstation: ['Cross', 'Circle', 'Square', 'Triangle', 'L1', 'R1', 'L2', 'R2', 'Create', 'Options', 'L3', 'R3', 'Up', 'Down', 'Left', 'Right', 'PS'],
@@ -30,9 +30,12 @@ const VENDORS = { '045e': 'xbox', '054c': 'playstation', '057e': 'nintendo' };
 export function family(id) {
   const vendor = /Vendor:\s*([0-9a-f]{4})/i.exec(id)?.[1] ?? /^([0-9a-f]{4})-[0-9a-f]{4}-/i.exec(id)?.[1];
   if (vendor && VENDORS[vendor.toLowerCase()]) return VENDORS[vendor.toLowerCase()];
-  if (/dualsense|dualshock|playstation|wireless controller/i.test(id)) return 'playstation';
+  if (/dualsense|dualshock|playstation/i.test(id)) return 'playstation';
   if (/xbox|xinput/i.test(id)) return 'xbox';
   if (/nintendo|pro controller|joy-con/i.test(id)) return 'nintendo';
+  // Sony's pads call themselves "Wireless Controller", which other names contain ("Xbox Wireless Controller"), so it
+  // is checked after every family's own name.
+  if (/wireless controller/i.test(id)) return 'playstation';
   return 'generic';
 }
 

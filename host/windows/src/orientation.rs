@@ -1,4 +1,4 @@
-//! `orientationlock` on Windows: the process's
+//! `orientationlock` on Windows (LLP 1133.029 D8): the process's
 //! [`SetDisplayAutoRotationPreferences`](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setdisplayautorotationpreferences),
 //! which a convertible or a tablet follows when it turns and a desktop
 //! monitor never needs. The presenter tells the session's lock when it
@@ -7,7 +7,7 @@
 //! readback is `GetDisplayAutoRotationPreferences`.
 #![allow(unsafe_code)]
 
-use exact_linux::Presenter;
+use exact_painted::Presenter;
 use exact_runner::orientation::{conflict_line, Session, ORIENTATIONS};
 use exact_runner::DataSource;
 use windows_sys::Win32::Devices::Display::{

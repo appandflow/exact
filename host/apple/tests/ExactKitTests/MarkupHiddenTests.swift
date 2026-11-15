@@ -1,5 +1,5 @@
 // A Markdown editor's link destinations, hidden by the web editor's rules.
-// The destination takes no space; a caret steps over
+// @ref LLP 1045 D1, D5 — the destination takes no space; a caret steps over
 // it; deletion, replacement, copy, undo, composition and accessibility keep
 // source offsets. No claim about a physical keyboard or a phone's gestures.
 import XCTest

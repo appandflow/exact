@@ -3,8 +3,9 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const DIR = resolve(new URL('.', import.meta.url).pathname);
+const DIR = resolve(fileURLToPath(new URL('.', import.meta.url)));
 let s = 49979;
 const rnd = () => ((s = (s * 1103515245 + 12345) % 2147483648) / 2147483648);
 const int = (a, b) => a + Math.floor(rnd() * (b - a + 1));

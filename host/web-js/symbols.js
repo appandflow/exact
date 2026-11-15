@@ -1,19 +1,20 @@
-// Symbol images on the JS target (`image "symbol:<role>"`): the
+// Symbol images on the JS target (`image "symbol:<role>"`, LLP 1011): the
 // web host's rendering (`glue.js` `refreshSymbols`) — the role's path as a
-// mask in the node's `color` (as the Apple hosts draw a
+// mask in the node's `color` (LLP 1081 stage 2, as the Apple hosts draw a
 // page symbol; a native face or a bar sets its own ink),
 // sized by its font — after each commit and each change of a root's sidebar. A
 // dynamic source names a role from `table`, the plan's own strings that are
-// roles, or, for one its data names, from every role,
+// roles, or, for one its data names (ledger diary F10), from every role,
 // loaded once (`symbol-roles.js`, the build's). Imported by an app's module
 // only when its plan draws a symbol, binds an image's source, or names an
 // `app:/` file (below).
 import { After, PropHooks, Hooks, inflight, journal, clock, data, onEnd } from "./rt.js";
 // The images a commit's pass visits (`refresh`): those built or adopted with a symbol or `app:/` source (rt.js `h`,
 // through `Hooks.image`) and those a binding gives one, each until the scope that built it ends. A set walked in
-// place of two document-wide queries a commit.
+// place of two document-wide queries a commit (LLP 1071.001 A7).
 const Images = new Set();
-const image = Hooks.image = e => { if (!Images.has(e)) { Images.add(e); onEnd(() => Images.delete(e)); } };
+const image = e => { if (!Images.has(e)) { Images.add(e); onEnd(() => Images.delete(e)); } };
+Hooks.image = e => { const s = e.getAttribute("data-symbol-source"); if (s?.startsWith("symbol:icon|")) draw(e, s.slice(7)); else image(e); };
 
 let Table = {}, All = null; // every role: not asked for, loading, or loaded (true)
 let Pending = false;
@@ -28,9 +29,9 @@ function schedule() {
     try { refresh(); } finally { inflight.n--; }
   });
 }
-// A role, or an icon token: by name, by `sf/<name>`, or the build's own form,
+// A role, or an icon token (LLP 1121 D10): by name, by `sf/<name>`, or the build's own form,
 // `icon|sf|viewBox|path|svg`; an icon's SVG that is no template is shown as the file. An
-// even-odd icon's path starts with the even-odd marker. `iconForm` is the page's
+// even-odd icon's path starts with the even-odd marker (stage 14 C2). `iconForm` is the page's
 // only reader of an icon form (the module exports `symbols` alone; a source it is handed goes
 // to `draw`, which hands an icon form here and looks a role's name up as written), the reading of a
 // source form, exact_kernel::Icon::parse in JavaScript, held to the same cases
@@ -53,7 +54,7 @@ const draw = (e, name) => {
   image(e);
   // A form that is no icon draws nothing: no path, viewBox or rule.
   const form = name.startsWith("icon|") ? iconForm(name) : undefined;
-  const [path, filled, box, file, evenOdd] = form === undefined ? Table[name] ?? [""] : form ?? ["", 0, "", "", 0];
+  const [path, filled, box, file, evenOdd] = form === undefined ? (Object.hasOwn(Table, name) ? Table[name] : [""]) : form ?? ["", 0, "", "", 0];
   e.toggleAttribute("data-symbol-file", !!file);
   // A file shown as written: no path, viewBox, rule or mask of a path drawn before.
   if (file) {
@@ -64,8 +65,8 @@ const draw = (e, name) => {
   e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled);
   // An icon's paths are each filled nonzero under its own viewBox (`d`s joined by `;`), or
   // even-odd where its SVG says so (the mask's `fill-rule`, `refresh`).
-  e.toggleAttribute("data-symbol-nonzero", !!box && !evenOdd);
-  e.toggleAttribute("data-symbol-evenodd", !!box && !!evenOdd);
+  e.toggleAttribute("data-symbol-nonzero", (!!form || !!box) && !evenOdd);
+  e.toggleAttribute("data-symbol-evenodd", (!!form || !!box) && !!evenOdd);
   if (box) e.setAttribute("data-symbol-viewbox", box); else e.removeAttribute("data-symbol-viewbox");
 };
 function everyRole() {
@@ -76,7 +77,7 @@ function everyRole() {
     refresh();
   }).finally(() => inflight.n--);
 }
-const STYLE = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:currentcolor}:where(img[data-symbol-path][data-symbol-color]){--exact-tint:currentcolor}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,contain);mask-origin:content-box;mask-clip:content-box}';
+const STYLE = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:currentcolor}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,contain);mask-origin:content-box;mask-clip:content-box}';
 /** `table`: role → [path, filled], for sources a binding names. */
 export function symbols(table) {
   Table = table;
@@ -92,11 +93,11 @@ export function symbols(table) {
     if (!v?.startsWith("symbol:")) unsymbol(e);
     if (e.localName === "img" && v?.startsWith("app:/")) { appSource(e, v); return true; }
     if (e.localName === "img" && e.$app) { e.$app = null; e.removeAttribute("data-app-src"); }
-    // A `data:` source past its bound shows nothing, as on every host (exact_raster::MAX_DATA_URL_BYTES).
+    // A `data:` source past its bound shows nothing, as on every host (LLP 1011 §2; exact_raster::MAX_DATA_URL_BYTES).
     if (e.localName === "img" && v?.startsWith("data:") && v.length > DATA_LIMIT) { journal.push(`t=${clock.now} image refused: a data: source is over ${DATA_LIMIT} bytes`); e.removeAttribute("src"); return true; }
     if (e.localName !== "img" || !v?.startsWith("symbol:")) { template(e, v); return false; }
     template(e, null);
-    if (!Table[v.slice(7)] && !All && !v.startsWith("symbol:icon|")) everyRole();
+    if (!Object.hasOwn(Table, v.slice(7)) && !All && !v.startsWith("symbol:icon|")) everyRole();
     e.setAttribute("data-symbol-source", v); draw(e, v.slice(7));
     // Decorative unless its author named it (`alt`, `aria-label`), as the template writes it.
     if (!e.getAttribute("alt")) e.alt = "";
@@ -122,7 +123,7 @@ function unsymbol(e) {
   if (e.getAttribute("src") === e.symbolPlaceholder) e.removeAttribute("src");
   e.symbolKey = e.symbolMask = e.symbolPlaceholder = e.symbolRefusal = null;
 }
-// An `app:/` source: the app's own file — a picked one, or
+// An `app:/` source (LLP 1069.002 D7): the app's own file — a picked one, or
 // one its data module kept in `app:/data` — shown as an object URL by the web
 // host's picker glue (`appURL`), as on the wasm host; counted in flight, so
 // `clock settle` waits for it. A literal source arrives as `data-app-src`.
@@ -137,13 +138,13 @@ function appSource(e, v) {
     .then(url => { if (e.$app === v && e.getAttribute("src") !== url) { if (url) e.setAttribute("src", url); else e.removeAttribute("src"); template(e, url || null); } })
     .catch(() => {}).finally(() => inflight.n--);
 }
-// A raster with a `-exact-tint-color` is a template (element.rs `host_css`):
-// its alpha masks the tint. A source that becomes a raster takes
+// A raster with a `-exact-tint-color` is a template (element.rs `host_css`, LLP
+// 1011 §3): its alpha masks the tint. A source that becomes a raster takes
 // the mask; one that becomes a symbol (or no tint) drops it.
 const TEMPLATE = ["mask-image", "mask-size", "mask-repeat", "mask-position", "mask-origin", "mask-clip", "object-position"];
 // The selectors whose rules declare `--exact-tint` (the class rules nest under the root's selector, as `& .c1`), read
 // from the sheets once, and again when a sheet is added (this module's own, a loaded piece's): the scan per image
-// built was 6% of a scrolling feed's task time.
+// built was 6% of a scrolling feed's task time (LLP 1071.001 A5).
 let Tints = null, Sheets = 0;
 const collect = (rules, into) => { for (const r of rules) { if (r.selectorText && r.style?.getPropertyValue("--exact-tint")) into.add(r.selectorText.replace(/^&\s*/, "")); if (r.cssRules) collect(r.cssRules, into); } };
 const tints = () => { const n = document.styleSheets.length; if (!Tints || n !== Sheets) { Sheets = n; Tints = new Set(); for (const sh of document.styleSheets) { try { collect(sh.cssRules, Tints); } catch {} } } return Tints; };
@@ -157,24 +158,6 @@ function template(e, v) {
   e.$template = true;
   if (fit === "scale-down") { const set = () => { const cs = getComputedStyle(e); e.style.setProperty("--exact-tint-fit", e.naturalWidth <= e.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) && e.naturalHeight <= e.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) ? "auto" : "contain"); }; if (e.complete) set(); else e.addEventListener("load", set, { once: true }); }
 }
-// Whether a symbol under a bound `color` or a mode boundary draws in its colour
-// (style.rs `symbol_marks`): the nearest of its `n` such nodes
-// (`data-exact-ink`) that sets the row decides. A boundary's implied row (modes.js
-// `$xs`), which no author wrote, first: it stands where its own binding clears or is
-// refused, as the runner installs it; else a bound one while its binding has a value,
-// a clear included (`$ink`, rows.rs), as its author wrote it or not. With none, the
-// decision past them.
-const inked = (e, ink) => {
-  let n = +ink.slice(0, -1);
-  for (let p = e; p && n; p = p.parentElement) {
-    const w = p.getAttribute("data-exact-ink");
-    if (w == null) continue;
-    n--;
-    if (w.endsWith("b") && p.$xs?.[0] != null) return false;
-    if (w !== "b" && (p.$ink ?? !!p.style.getPropertyValue("color"))) return w[0] === "1";
-  }
-  return ink.endsWith("1");
-};
 function refresh() {
   if (typeof window === "undefined" || globalThis.__exactRender) return; // the render host's document answers no query and computes no style; the page's glue sizes its symbols
   const symbols = [];
@@ -182,10 +165,6 @@ function refresh() {
     if (!el.isConnected) continue;
     if (el.$app === undefined && el.hasAttribute("data-app-src")) appSource(el, el.getAttribute("data-app-src"));
     if (el.hasAttribute("data-symbol-path")) symbols.push(el);
-  }
-  for (const el of symbols) {
-    const ink = el.getAttribute("data-symbol-ink");
-    if (ink) el.toggleAttribute("data-symbol-color", inked(el, ink));
   }
   // Batch reads before writes; computed styles are live, so keep only scalar values.
   const titles = symbols.flatMap(el => {
@@ -215,7 +194,7 @@ function refresh() {
   const fits = configs.map(({ el, point, objectFit }) => {
     const cs = objectFit === "scale-down" ? getComputedStyle(el) : null;
     const fits = cs && point <= el.clientWidth - (parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)) && point <= el.clientHeight - (parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom));
-    // `fill`, CSS's initial `object-fit`, keeps a symbol's aspect, as on the Apple hosts.
+    // `fill`, CSS's initial `object-fit`, keeps a symbol's aspect, as on the Apple hosts (LLP 1011 §4).
     return [el, objectFit === "none" || (objectFit === "scale-down" && fits) ? `${point}px ${point}px` : objectFit === "scale-down" || objectFit === "fill" ? "contain" : objectFit];
   });
   for (const [el, fit] of fits) el.style.setProperty("--exact-symbol-fit", fit);

@@ -9,7 +9,7 @@ import AppKit
 @testable import ExactKit
 
 /// `perf frames track` (exact.frame-health.track/1): an agent's bounded, leased scroll track, fed only from the
-/// host's existing scroll callbacks, read in pages that fit the 4000-byte envelope.
+/// host's existing scroll callbacks, read in pages that fit #1141's 4000-byte envelope.
 final class FrameHealthTrackTests: XCTestCase {
     private func pages(_ track: FrameHealthTrack, from cursor: String? = nil) throws -> [[String: Any]] {
         var out: [[String: Any]] = [], next = cursor
@@ -304,7 +304,7 @@ final class FrameHealthTrackTests: XCTestCase {
         let session = ExactApp.shared.makeSession(label: "track-ios")
         defer { session.destroy() }
         session.clock = nil
-        // A development build samples from boot; the track must not start the sampler again, as a frame-health capture does not.
+        // A development build samples from boot; the track must not start the sampler again (as #1141's capture).
         session.sampler?.stop(); session.sampler = nil
         let p = session.presenter
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { throw missing("scene", "a scroller animates frame by frame only in a scene's window") }
@@ -357,7 +357,7 @@ final class FrameHealthTrackTests: XCTestCase {
         let session = ExactApp.shared.makeSession(label: "track-mac")
         defer { session.destroy() }
         session.clock = nil
-        // A development build samples from boot; the track must not start the sampler again, as a frame-health capture does not.
+        // A development build samples from boot; the track must not start the sampler again (as #1141's capture).
         session.sampler?.stop(); session.sampler = nil
         let p = session.presenter
         p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 800)

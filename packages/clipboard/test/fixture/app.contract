@@ -1,4 +1,4 @@
-// The conformance fixture: each button's
+// The conformance fixture (LLP 1133.006 §9, stage 1 item 7): each button's
 // mutation writes the clipboard from data code (app.ts), and shows what the
 // write answered by testId; a drive reads what landed in
 // `state.extensions.clipboard`.

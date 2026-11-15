@@ -1,4 +1,4 @@
-// @exact/gamepad's declared substitute on the web JS target:
+// @exact/gamepad's declared substitute on the web JS target (LLP 1133.022 §9):
 // the fixture app driven under the agent with no implementation bound, so
 // the web runtime's substitute answers as the runner's does natively
 // (`contract/cli/tests/it/gamepad.rs`): pads the drive prefers, filled with

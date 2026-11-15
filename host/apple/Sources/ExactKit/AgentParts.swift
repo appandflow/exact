@@ -1,4 +1,4 @@
-// `tap <node>/<part>`: a part a hatch drew
+// `tap <node>/<part>` (@ref LLP 1075.003.000.001 §3.5): a part a hatch drew
 // is reached only as real platform input at its place, never by calling it.
 // The host's side is the aim and the evidence; the driver delivers between
 // them, a touch or a pointer event at the aimed point, as it does for a node.
@@ -11,8 +11,8 @@
 //         bound view, the same incarnation; a part replaced or a view swapped between the
 //         aim and the delivery is refused as stale.
 //
-// The aim changes nothing. Nothing is activated by name, so the agent's
-// rule stands: every path is a touch at a place.
+// The aim changes nothing. Nothing is activated by name, so LLP 1012's
+// sentence stands: every path is a touch at a place.
 import Foundation
 #if os(macOS)
 import AppKit
@@ -40,7 +40,7 @@ extension Agent {
         #endif
     }
 
-    /// A package view's own part: the view a view
+    /// A package view's own part (LLP 1133.021 §9 item 3): the view a view
     /// in the node's box answers to `exactPart:`, as a map's marker. The
     /// package's Swift cannot name ExactKit's types, so the seam is the
     /// selector.
@@ -52,6 +52,26 @@ extension Agent {
             stack.append(contentsOf: v.subviews)
         }
         return nil
+    }
+
+    /// Declared package parts (LLP 1133.021 §9 item 3), resolved through the
+    /// same view lookup a tap uses; an offscreen part stays listed without a frame.
+    static func packageParts(in node: PlatformView) -> [[String: Any]] {
+        let ask = NSSelectorFromString("exactPartIds")
+        var stack = [node]
+        while let v = stack.popLast() {
+            if v.responds(to: ask), let ids = v.perform(ask)?.takeUnretainedValue() as? [String] {
+                return ids.map { id in
+                    let view = packagePart(id, in: v)
+                    let live = view?.window != nil
+                    var part: [String: Any] = ["id": id, "live": live]
+                    if live, let view { part["frame"] = AgreementReport.rect(view.convert(view.bounds, to: nil)) }
+                    return part
+                }
+            }
+            stack.append(contentsOf: v.subviews)
+        }
+        return []
     }
 
     /// The part a package view hit-tests itself at `point` (in the window):

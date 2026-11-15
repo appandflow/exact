@@ -9,7 +9,7 @@ above, or hand it to the app from a terminal:
 
 ```sh
 mdview README.md
-mdview ~/notes
+mdview ~/projects/exact2/llp
 ```
 
 Everything below is what this reader draws.

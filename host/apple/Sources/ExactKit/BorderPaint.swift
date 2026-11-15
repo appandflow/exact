@@ -1,5 +1,5 @@
-// A box's border as the web paints it, on both Apple platforms: each side
-// in its own colour, over the area between the border box's
+// A box's border as the web paints it, on both Apple platforms (LLP 1053
+// G2): each side in its own colour, over the area between the border box's
 // curve and the padding box's, with the corners joined where Chrome joins
 // them. The iOS layer keeps the uniform case (`applyBoxLayer`); everything
 // else — sides that differ in colour or width, over square or rounded
@@ -50,14 +50,17 @@ package enum BorderPaint {
     }
 
     /// A replaced element's content edge: reduce at the border edge first,
-    /// then remove each adjacent border/padding inset from that corner.
+    /// remove each adjacent border/padding inset from that corner, then
+    /// reduce again in the content box, as `paint` reduces the padding
+    /// edge's in the padding box. So the content meets the border's inner
+    /// curve, as in Chrome, which reduces both inner curves.
     static func contentRadii(_ radii: [CGSize], outer: CGRect, inner: CGRect) -> [CGSize] {
         let r = reduced(radii, in: outer)
         let left = inner.minX - outer.minX, right = outer.maxX - inner.maxX
         let top = inner.minY - outer.minY, bottom = outer.maxY - inner.maxY
-        return zip(r, [CGSize(width: left, height: top), CGSize(width: right, height: top),
-                       CGSize(width: right, height: bottom), CGSize(width: left, height: bottom)])
-            .map { CGSize(width: max(0, $0.width - $1.width), height: max(0, $0.height - $1.height)) }
+        return reduced(zip(r, [CGSize(width: left, height: top), CGSize(width: right, height: top),
+                               CGSize(width: right, height: bottom), CGSize(width: left, height: bottom)])
+            .map { CGSize(width: max(0, $0.width - $1.width), height: max(0, $0.height - $1.height)) }, in: inner)
     }
 
     /// Circle-to-cubic control distance for a quarter arc.
@@ -76,7 +79,7 @@ package enum BorderPaint {
     }
 
     /// A rectangle with an elliptical radius per corner, clockwise on screen;
-    /// with a `corner-shape`, the kernel's outline.
+    /// with a `corner-shape`, the kernel's outline (LLP 1077 D1).
     package static func roundedRect(_ r: CGRect, _ radii: [CGSize], shape: CornerShape? = nil) -> CGMutablePath {
         if let shape { return shape.outline(r, radii) }
         let p = CGMutablePath()

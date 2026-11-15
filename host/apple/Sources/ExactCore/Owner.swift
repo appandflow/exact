@@ -1,5 +1,5 @@
 // The one thread that owns every Rust runtime in the process.
-// The registry, runners, kernels and data sources
+// @ref LLP 1072 T1/T2/T5 — the registry, runners, kernels and data sources
 // live here from `exact_create` to `exact_destroy`; main submits each call as
 // one job and waits for it. The owner reaches main only through `callMain`,
 // which main serves from its wait loop, so neither ever waits on the other
@@ -33,7 +33,7 @@ package final class Owner: @unchecked Sendable {
     private let lock = NSLock()
     private let work = DispatchSemaphore(value: 0)
     private var jobs: [Job] = []
-    /// Notifications: run after the job that posted them.
+    /// Notifications (T5): run after the job that posted them.
     private var later: [Job] = []
     private var mailbox: [MainCall] = []
     /// Wakes `sync` waited on, kept for the next: a semaphore makes its
@@ -45,7 +45,7 @@ package final class Owner: @unchecked Sendable {
     /// The job main is waiting on: a call for main wakes it.
     private var mainWaits: Job?
     private var thread: pthread_t?
-    /// Main is running a call the owner waits on: it cannot wait on
+    /// Main is running a call the owner waits on (T5): it cannot wait on
     /// the owner. Touched on main only.
     private var serving = 0
 
@@ -99,11 +99,11 @@ package final class Owner: @unchecked Sendable {
         if isOwner { return body() }
         let main = Thread.isMainThread
         if main && serving > 0 {
-            NSLog("exact: a runtime call from inside a callback the owner is waiting on was refused")
+            NSLog("exact: a runtime call from inside a callback the owner is waiting on was refused (LLP 1072 T5)")
             return busy()
         }
         if main { HostPhases.shared.count(.ownerSync) }
-        // Main's wait is the runtime phase of a late frame.
+        // Main's wait is the runtime phase of a late frame (LLP 1142 D1).
         let phase = main ? HostPhases.shared.begin(.runtime) : false
         defer { HostPhases.shared.end(phase) }
         return withoutActuallyEscaping(body) { body in
@@ -138,11 +138,11 @@ package final class Owner: @unchecked Sendable {
     }
 
     private static func unserved<T>() -> T {
-        preconditionFailure("exact: a runtime call from inside a callback the owner is waiting on")
+        preconditionFailure("exact: a runtime call from inside a callback the owner is waiting on (LLP 1072 T5)")
     }
 
     /// Run `body` on the owner after the jobs before it, without waiting
-    /// (the collection fill). What it produces goes back to
+    /// (LLP 1072 T3: the collection fill). What it produces goes back to
     /// main by its own publication.
     package func post(_ body: @escaping () -> Void) {
         lock.lock()
@@ -159,13 +159,13 @@ package final class Owner: @unchecked Sendable {
         post { releaseStackBelowCaller() }
     }
 
-    /// A notification: on the owner, now; from anywhere else, queued
+    /// A notification (T5): on the owner, now; from anywhere else, queued
     /// in order behind the jobs before it, never waited for.
     package func notify(_ body: @escaping () -> Void) {
         if isOwner { body() } else { post(body) }
     }
 
-    /// A notification: synchronous, unless main is serving a callback
+    /// A notification (T5): synchronous, unless main is serving a callback
     /// the owner waits on; then it runs after the owner's current job.
     package func syncOrLater(_ body: @escaping () -> Void) {
         if isOwner { body(); return }
@@ -180,7 +180,7 @@ package final class Owner: @unchecked Sendable {
     }
 
     /// Run `body` on main and wait for it. From the owner this is the one
-    /// door: main serves it from its wait loop, or from a main-queue
+    /// door (T5): main serves it from its wait loop, or from a main-queue
     /// hop when it is not waiting. From main, inline; from any other thread,
     /// as `DispatchQueue.main.sync` always did.
     package func callMain<T>(_ body: () -> T) -> T {

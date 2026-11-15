@@ -1,6 +1,8 @@
 //! The store under damage and crashes: records that cannot be read, entries
-//! that rot, and what a client may still trust afterwards: anti-rollback,
-//! crash recovery, and the fall back to entry zero.
+//! that rot, and what a client may still trust afterwards (the 2026-09-22
+//! review's probes, as tests).
+//!
+//! @ref LLP 1026 D11 (anti-rollback, crash recovery) / LLP 1030 D9
 
 use crate::support::*;
 use exact_update::Check;
@@ -9,7 +11,10 @@ use exact_update::Check;
 /// damaged, and the client carries on updating rather than freezing as it
 /// does for a newer binary's (numeric) codec.
 #[test]
-#[cfg_attr(windows, ignore = "Windows durable store is not qualified")]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_record_without_an_integer_codec_is_damaged_not_foreign() {
     for codec in ["\"2\"", "null", "\"newer\"", "2.5", "-1", "{}"] {
         let temp = Temp::new("codec-damaged");
@@ -38,7 +43,10 @@ fn a_record_without_an_integer_codec_is_damaged_not_foreign() {
 /// or a file where another needs a directory, is refused before anything is
 /// downloaded, and so is a name a filesystem may normalize.
 #[test]
-#[cfg_attr(windows, ignore = "Windows durable store is not qualified")]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn colliding_or_unportable_asset_names_are_refused_before_download() {
     let refused: [(&[&str], &str); 7] = [
         (&["Logo.png", "logo.png"], "differ only by case"),
@@ -61,8 +69,8 @@ fn colliding_or_unportable_asset_names_are_refused_before_download() {
         assert!(refusal.contains(why), "{names:?}: {refusal}");
         assert_eq!(
             origin.asked.len(),
-            1,
-            "{names:?}: only the head was fetched"
+            2,
+            "{names:?}: only the head and its asset index were fetched"
         );
         assert!(entry_names(&temp).is_empty());
     }
@@ -94,7 +102,10 @@ fn colliding_or_unportable_asset_names_are_refused_before_download() {
 /// stage again, or the client is stranded on entry zero until a later seq
 /// exists. Another bundle at that seq is still equivocation.
 #[test]
-#[cfg_attr(windows, ignore = "Windows durable store is not qualified")]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_corrupted_selection_is_restaged_from_the_head_it_accepted() {
     let temp = Temp::new("restage");
     let bundle = Bundle::new(4, b"plan four").asset("mark.png", b"a mark");
@@ -130,7 +141,10 @@ fn a_corrupted_selection_is_restaged_from_the_head_it_accepted() {
 /// the origin, was accepted again. The floor now comes back from the signed
 /// entries on disk, and is written back.
 #[test]
-#[cfg_attr(windows, ignore = "Windows durable store is not qualified")]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_crash_truncated_record_keeps_the_rollback_floor() {
     let temp = Temp::new("truncated");
     let four = Bundle::new(4, b"plan four");
@@ -160,8 +174,49 @@ fn a_crash_truncated_record_keeps_the_rollback_floor() {
     }
 }
 
+/// The floor comes from the signed head alone: an entry whose asset index
+/// was lost or damaged still says which seq was accepted when the record
+/// must be recovered too.
 #[test]
-#[cfg_attr(windows, ignore = "Windows durable store is not qualified")]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
+fn a_damaged_asset_index_keeps_the_rollback_floor() {
+    let temp = Temp::new("index-floor");
+    let four = Bundle::new(4, b"plan four").asset("mark.png", b"four");
+    let six = Bundle::new(6, b"plan six").asset("mark.png", b"six");
+    let mut store = open(&temp);
+    let Check::Staged { entry, .. } = Origin::of(&six).check(&mut store).unwrap() else {
+        panic!("stage");
+    };
+    drop(store);
+    let index = temp.path().join("entries").join(&entry).join("assets.json");
+    let record = temp.path().join("record.json");
+    for damage in ["remove", "corrupt"] {
+        // The index is a link to its blob: replaced, not written through.
+        std::fs::remove_file(&index).unwrap();
+        if damage == "corrupt" {
+            std::fs::write(&index, b"{\"assets\":[]}").unwrap();
+        }
+        std::fs::write(&record, b"").unwrap();
+        let mut store = open(&temp);
+        let refusal = Origin::of(&four).check(&mut store).unwrap_err();
+        assert!(
+            refusal.contains("below the accepted seq 6"),
+            "{damage}: {refusal}"
+        );
+        // Staging the accepted head again restores the entry whole.
+        assert!(Origin::of(&six).check(&mut store).is_ok(), "{damage}");
+        assert_eq!(std::fs::read(&index).unwrap(), six.index(), "{damage}");
+    }
+}
+
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn oversized_local_plan_falls_back_without_losing_the_floor() {
     let temp = Temp::new("oversized-plan");
     let six = Bundle::new(6, b"plan six");
@@ -189,7 +244,10 @@ fn oversized_local_plan_falls_back_without_losing_the_floor() {
 }
 
 #[test]
-#[cfg_attr(windows, ignore = "Windows durable store is not qualified")]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn oversized_record_and_envelope_recover_with_bounded_reads() {
     let temp = Temp::new("oversized-metadata");
     let six = Bundle::new(6, b"plan six");
@@ -381,4 +439,105 @@ fn a_current_witness_can_later_supply_a_binary_with_different_embedded_bytes() {
         &*prepared.assets.resolve("mark.png").unwrap().unwrap(),
         b"mark"
     );
+}
+
+/// Assets staged through the index (issue #91): the head stays a pointer
+/// card whatever the count (`envelope.rs` parses an index of 600), the index
+/// it names is staged in the entry beside the assets, and an entry whose
+/// index rotted on disk is refused at launch rather than read as an app with
+/// no assets. A hundred keeps the durable writes quick.
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
+fn assets_stage_through_the_index_and_a_rotten_index_refuses_the_entry() {
+    let temp = Temp::new("index");
+    let mut bundle = Bundle::new(4, b"plan four");
+    for n in 0..100 {
+        bundle = bundle.asset(
+            &format!("textures/die-{n}.png"),
+            format!("die {n}").as_bytes(),
+        );
+    }
+    let (head, _) = bundle.publish();
+    assert!(head.len() < 1024, "the head is {} bytes", head.len());
+    let mut origin = Origin::of(&bundle);
+    let mut store = open(&temp);
+    let Check::Staged { entry, .. } = origin.check(&mut store).unwrap() else {
+        panic!("stage");
+    };
+    assert_eq!(origin.asked.len(), 103, "head, index, plan, every asset");
+    let dir = temp.path().join("entries").join(&entry);
+    assert_eq!(
+        std::fs::read(dir.join("assets.json")).unwrap(),
+        bundle.index()
+    );
+    assert_eq!(
+        std::fs::read(dir.join("assets/textures/die-99.png")).unwrap(),
+        b"die 99"
+    );
+    drop(store);
+    let mut store = open(&temp);
+    assert_eq!(store.select().entry, Some(entry.clone()));
+    let prepared = store.prepare_selected().unwrap().unwrap();
+    assert_eq!(prepared.assets.names().len(), 100);
+    drop(prepared);
+    drop(store);
+
+    // The index is a link to its blob: replaced, not written through.
+    std::fs::remove_file(dir.join("assets.json")).unwrap();
+    std::fs::write(dir.join("assets.json"), b"{\"assets\":[]}").unwrap();
+    let mut store = open(&temp);
+    assert_eq!(store.select().entry, None);
+    let lower = Origin::of(&Bundle::new(3, b"plan three"))
+        .check(&mut store)
+        .unwrap_err();
+    assert!(lower.contains("below the accepted seq 4"), "{lower}");
+}
+
+/// A held (`app-decides`) entry is first read when the app prepares it, so a
+/// plan that rots while it waits must not make its head current forever: the
+/// check writes it again, and a preparation that finds the damage unstages it
+/// so the next check does.
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
+fn a_held_entry_whose_plan_rotted_is_staged_again() {
+    let temp = Temp::new("held-rot");
+    let mut origin = Origin::of(&Bundle::new(4, b"plan four"));
+    let mut store = open(&temp);
+    store.hold_staged(true);
+    let Ok(Check::Staged { entry, .. }) = origin.check(&mut store) else {
+        panic!("the head stages");
+    };
+    // The plan is a link to its blob: replaced, not written through.
+    let plan = temp.path().join("entries").join(&entry).join("app.plan");
+    let rot = || {
+        std::fs::remove_file(&plan).unwrap();
+        std::fs::write(&plan, b"plan FOUR").unwrap();
+    };
+
+    rot();
+    assert!(
+        matches!(origin.check(&mut store), Ok(Check::Current { .. })),
+        "still the held bundle, written again"
+    );
+    let prepared = store.prepare_activation().unwrap().unwrap();
+    assert_eq!(&*prepared.plan, b"plan four");
+
+    rot();
+    assert!(store.prepare_activation().is_err());
+    assert!(
+        !store.status().staged,
+        "the damaged entry is no longer held"
+    );
+    assert!(matches!(
+        origin.check(&mut store),
+        Ok(Check::Staged { seq: 4, .. })
+    ));
+    let prepared = store.prepare_activation().unwrap().unwrap();
+    assert_eq!(&*prepared.plan, b"plan four");
 }

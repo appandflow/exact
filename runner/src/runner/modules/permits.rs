@@ -1,19 +1,19 @@
 //! Permission states and what setting one does (module doc, **Permission**).
-//! An interface may declare several permissions (reading the library and
-//! adding to it): one status source answers each one's
+//! An interface may declare several permissions (LLP 1133.019 D4: reading
+//! the library and adding to it): one status source answers each one's
 //! state in its own `field`, a permission another's grant includes
 //! (`grantedBy`) reads `granted` while that one does, and a permission's
-//! `choices` are answers besides `allow` and `deny` (`limited`),
+//! `choices` are answers besides `allow` and `deny` (`limited`, D11 item 3),
 //! each setting the status fields it names. A name that shows the person a
-//! choice (`choose`) is held under its own ticket, whose `type @t`
+//! choice (`choose`, §10) is held under its own ticket, whose `type @t`
 //! answer becomes the agent word it names.
 //!
-//! A sheet (`choose`) may also take taps besides
+//! A sheet (`choose`, LLP 1133.018 D13 item 4) may also take taps besides
 //! `cancel` (`choices`), refuse a typed answer (`typed: false`), and hold
 //! several typed ids only where an option allows them (`many`); its answer
 //! reaches the implementation as the call's `preferred`, `{"tap": choice}`
-//! or `{"typed": [ids]}`. A request that names what it asks (`asks`: the
-//! grant lines, narrowest first, that satisfy the call) is
+//! or `{"typed": [ids]}`. A request that names what it asks (`asks`, D13
+//! item 3: the grant lines, narrowest first, that satisfy the call) is
 //! granted what it asked: `allow` sets the status's fields to the values of
 //! the first of those lines the app declares, where otherwise the longest
 //! line the app grants wins.
@@ -78,25 +78,40 @@ impl<D: DataSource> Runner<D> {
 
     /// Permission `name`'s state: what the agent or a ticket set, else the
     /// state its declaration starts in (`initial`: `granted` where every
-    /// native platform grants without asking), else
+    /// native platform grants without asking, LLP 1133.013 §9), else
     /// `prompt`.
     /// A permission that another's grant includes (`grantedBy`: Apple's
-    /// read-write access includes adding) reads `granted`
+    /// read-write access includes adding, LLP 1133.019 D5) reads `granted`
     /// while that one does.
     ///
-    /// A permission that requires others on this target (`requires`) reads
-    /// the least of its own state and theirs:
+    /// A permission that requires others on this target (`requires`, LLP
+    /// 1133.030 D12 item 1) reads the least of its own state and theirs:
     /// `denied`, then `prompt`, then `unknown`, then `granted`.
     pub(super) fn permission_state(&self, name: &str) -> String {
+        self.permission_state_on(name, &mut Vec::new())
+    }
+
+    /// [`Self::permission_state`] where `path` holds the permissions whose
+    /// states are reading this one's. A name already on it is not read
+    /// again: the compiler refuses a cycle within one interface, but one
+    /// through a permission another interface declares (LLP 1133.026 D19
+    /// item 2) reaches the runner.
+    fn permission_state_on(&self, name: &str, path: &mut Vec<String>) -> String {
         let declared = self.permission_or_status(name);
-        let own = self.own_permission_state(name, &declared);
-        (self.required(&declared).iter())
-            .filter(|r| *r != name)
-            .fold(own, |state, r| least(state, self.permission_state(r)))
+        path.push(name.to_owned());
+        let mut state = self.own_state_on(name, &declared, path);
+        for r in self.required(&declared) {
+            if !path.contains(&r) {
+                state = least(state, self.permission_state_on(&r, path));
+            }
+        }
+        path.pop();
+        state
     }
 
     /// Permission `name` as declared, or as a status source names it: a
-    /// permission another one requires may be declared only there.
+    /// permission another one requires may be declared only there (LLP
+    /// 1133.030 D12 item 1).
     fn permission_or_status(&self, name: &str) -> Json {
         let declared = self.declared_permission(name);
         if !declared.is_null() {
@@ -120,8 +135,8 @@ impl<D: DataSource> Runner<D> {
         .collect()
     }
 
-    /// A permission that adds to another (`base`: background location to
-    /// location) granted grants its base too; its
+    /// A permission that adds to another (`base`, LLP 1133.021 §12:
+    /// background location to location) granted grants its base too; its
     /// base set to `prompt` or `denied` sets it the same. Each direction
     /// sets states only toward its own, so the two never loop.
     fn couple_base(&mut self, name: &str, state: &str) {
@@ -160,15 +175,21 @@ impl<D: DataSource> Runner<D> {
 
     /// Permission `name`'s own state, before what it requires.
     pub(super) fn own_permission_state(&self, name: &str, declared: &Json) -> String {
-        if let Some(by) = declared["grantedBy"].as_str().filter(|by| *by != name) {
-            if self.permission_state(by) == "granted" {
+        self.own_state_on(name, declared, &mut vec![name.to_owned()])
+    }
+
+    /// [`Self::own_permission_state`], `path` as [`Self::permission_state_on`]'s.
+    fn own_state_on(&self, name: &str, declared: &Json, path: &mut Vec<String>) -> String {
+        let by = declared["grantedBy"].as_str();
+        if let Some(by) = by.filter(|by| !path.iter().any(|p| p == by)) {
+            if self.permission_state_on(by, path) == "granted" {
                 return "granted".into();
             }
         }
         if let Some(state) = self.extensions.permission.get(name) {
             return state.clone();
         }
-        // By target where it differs (`{"android": "prompt", "*": "granted"}`).
+        // By target where it differs (`{"android": "prompt", "*": "granted"}`, LLP 1133.037 D17).
         let initial = &declared["initial"];
         (initial.as_str())
             .or(initial[self.host_target()].as_str())
@@ -232,11 +253,11 @@ impl<D: DataSource> Runner<D> {
         if state != "prompt" {
             self.status_fields(&rows, name, which, asked);
         }
-        // The answerless sends held on it are done or refused.
+        // The answerless sends held on it are done or refused (LLP 1133.004 §7).
         self.settle_effects(name, state);
         // An implementation bound under the agent hears the states and the
-        // status it now answers beside (a picture of a photo the person
-        // took back is revoked).
+        // status it now answers beside (LLP 1133.019 §10: a picture of a
+        // photo the person took back is revoked).
         let told: std::collections::BTreeSet<String> = (rows.iter())
             .filter(|r| self.route(r) == Route::Agent)
             .map(|r| self.plan.str(r.extension).to_owned())
@@ -276,7 +297,7 @@ impl<D: DataSource> Runner<D> {
                 ("granted" | "unknown" | "denied", Waits::Permission) if admits || !fails => {
                     self.retire_hold(hold);
                     // A call that needs another permission too asks it next
-                    // (`getUserMedia(audio=true, video=true)`).
+                    // (`getUserMedia(audio=true, video=true)`, LLP 1133.009 D3).
                     if admits && self.ask_next(&row, send, token, name, &args) {
                         continue;
                     }
@@ -327,7 +348,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Permission `name`'s answer `which` sets the status fields it names,
     /// as a preferred status: `allow` (granted), a choice of its `choices`
-    /// (`limited`), or `deny`. A field's value may
+    /// (`limited`, LLP 1133.019 D11 item 3), or `deny`. A field's value may
     /// be by the app's grant line (its approximate grant reads
     /// `approximate`); `asked` names the line a request asked for.
     pub(super) fn status_fields(
@@ -371,8 +392,8 @@ impl<D: DataSource> Runner<D> {
     /// by `prefer permission`, is the most the app could have asked); else
     /// the longest (the approximate one where both are). A target's own
     /// `allowOn` replaces `allow` (Android grants a calendar ask of either
-    /// level in full), and `denyOn` `deny` (the platform's
-    /// own word for a denial). `None` where it sets none.
+    /// level in full, LLP 1133.018 D11), and `denyOn` `deny` (the platform's
+    /// own word for a denial, LLP 1133.030 D5). `None` where it sets none.
     pub(super) fn answer_fields(
         &self,
         permission: &Json,
@@ -425,8 +446,8 @@ impl<D: DataSource> Runner<D> {
         (self.data.grants().lines()).any(|g| g.split_whitespace().next() == Some(line))
     }
 
-    /// The grant line a request of `row` asks (`asks`): the first of the
-    /// lines it names that the app declares.
+    /// The grant line a request of `row` asks (`asks`, LLP 1133.018 D13 item
+    /// 3): the first of the lines it names that the app declares.
     pub(super) fn asked_line(&self, row: &ModulesRow) -> Option<String> {
         let sub = self.substitute(row);
         (sub["asks"].as_array().into_iter().flatten())
@@ -442,8 +463,9 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A send that answers another source's value under the agent, raising
-    /// it while that value matches `raise.when` (write-only raised to full):
-    /// held under the raise's ticket, else that value now.
+    /// it while that value matches `raise.when` and the app declares the
+    /// optional `raise.grant` (LLP 1133.002 D7; LLP 1133.018 D5): held under
+    /// the raise's ticket, else that value now.
     /// `None` for a send that declares no raise.
     pub(super) fn decide_raise(&self, row: &ModulesRow, send: bool) -> Option<Decision> {
         let sub = self.substitute(row);
@@ -455,7 +477,11 @@ impl<D: DataSource> Runner<D> {
             return Some(Decision::Now(json!({ "error": "NotSupportedError" })));
         };
         let when = sub["raise"]["when"].as_object();
-        let matches = when.is_some_and(|w| w.iter().all(|(k, v)| value.get(k) == Some(v)));
+        let granted = sub["raise"]["grant"]
+            .as_str()
+            .is_none_or(|line| self.declares(line));
+        let matches =
+            granted && when.is_some_and(|w| w.iter().all(|(k, v)| value.get(k) == Some(v)));
         Some(match matches {
             true => Decision::Hold(Waits::Raise),
             false => Decision::Now(value),
@@ -485,9 +511,9 @@ impl<D: DataSource> Runner<D> {
         Ok(())
     }
 
-    /// A sheet's taps besides `cancel`, less those
+    /// A sheet's taps besides `cancel` (LLP 1133.018 D13 item 4), less those
     /// its `unless` rules out while a field of its status holds a value
-    /// (Apple's age sheet has no decline where the region
+    /// (LLP 1133.028 §7: Apple's age sheet has no decline where the region
     /// requires the signal), `{"decline": {"status", "field", "has"}}`, the
     /// field a dotted path, a list holding the value or the value itself.
     pub(super) fn sheet_choices(&self, row: &ModulesRow) -> Vec<String> {
@@ -513,14 +539,14 @@ impl<D: DataSource> Runner<D> {
 
     /// Whether this target is one the name's declaration says it does not
     /// exist on (`unsupported`): it fails `NotSupportedError` there, under
-    /// the agent too.
+    /// the agent too (LLP 1133.002 D14 step 2).
     pub(super) fn unsupported_here(&self, row: &ModulesRow) -> bool {
         let target = self.host_target();
-        (self.substitute(row)["unsupported"]
-            .as_array()
-            .into_iter()
-            .flatten())
-        .any(|t| t == target)
+        let sub = self.substitute(row);
+        if row.send && !self.implementation_here(row) {
+            return true;
+        }
+        (sub["unsupported"].as_array().into_iter().flatten()).any(|t| t == target)
     }
 }
 

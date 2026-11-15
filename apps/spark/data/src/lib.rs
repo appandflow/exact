@@ -152,6 +152,6 @@ impl DataSource for Profiles {
     }
 
     fn app_id(&self) -> &str {
-        "com.exact.spark"
+        "com.ccheever.spark"
     }
 }

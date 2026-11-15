@@ -1,4 +1,5 @@
-//! The looks Exact draws itself, as data: the schema's `metrics`, each a name, a kind and its value
+//! The looks Exact draws itself, as data (LLP 1115.002 D6, D8.4; LLP
+//! 1115.000 D17): the schema's `metrics`, each a name, a kind and its value
 //! in each column.
 //!
 //! A `style` row is one a sheet the compiler writes (the grouped list's,
@@ -21,13 +22,15 @@
 //! look says so with the role table's switch (`roles::set_column`), the one
 //! switch for that look's colours and its metrics: every web build (the wasm
 //! host and the JS target), so the browser reads the neutral column, and a
-//! host that paints its own controls. Android's reader reads its own
-//! Material column, with `web` only as that column's
+//! host that paints its own controls (D17). Android's reader reads its own
+//! Material column (LLP 1115.001.001), with `web` only as that column's
 //! fallback for a row it lacks. The `web` column is read only by a process
-//! that says no column (headless and test runs).
-//! The terminal's column is the `web` column's in
+//! that says no column (headless and test runs; D17 as corrected).
+//! The terminal's column (LLP 1121 stage 11 B) is the `web` column's in
 //! every metric, as it read before it had one; it differs in the base scale
 //! (`style::scale`), whose spacings it reads in cells.
+//! @ref LLP 1115.002 D6, D8.4
+//! @ref LLP 1115.000 D17
 
 use crate::generated::{Metric, MetricKind, MetricValue, StyleCodec, StyleId, METRICS};
 use crate::style::{roles, StyleValue};
@@ -36,7 +39,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 /// The metric table's columns: a platform or a look whose shapes Exact draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Column {
-    /// The `web` column (the web's first look): read only by a process
+    /// The `web` column (LLP 1116 D1's first look): read only by a process
     /// that says no column (headless and test runs), and as Material's
     /// fallback for a row it lacks. The browser reads [`Column::Neutral`]
     /// (every web build throws the neutral switch); the base scale has no
@@ -46,14 +49,14 @@ pub enum Column {
     Ios,
     /// The Mac's.
     Mac,
-    /// The neutral look's: the browser's (every
+    /// The neutral look's (LLP 1115.000 D4 part B, D17): the browser's (every
     /// web build), and a host's that paints its own controls.
     Neutral,
-    /// Android's Material look, which Android's
+    /// Android's Material look (LLP 1115.001.001 D2.4), which Android's
     /// reader reads: Compose Material 3's values at the pinned version, and
     /// the `web` column's where a row has none of its own.
     Material,
-    /// The terminal's, which its host says: the `web`
+    /// The terminal's (LLP 1121 stage 11 B), which its host says: the `web`
     /// column's in every metric (as it read before it had a column), and
     /// its own in the base scale (cells; no corners).
     Terminal,
@@ -234,7 +237,7 @@ mod tests {
     }
 
     /// iOS's and the web's columns are the grouped sheet's numbers as they
-    /// stood before they were data (neither moves), and the
+    /// stood before they were data (LLP 1115.002 D6: neither moves), and the
     /// Mac's are the measured form's.
     #[test]
     fn the_columns_hold_each_platforms_grouped_form() {
@@ -302,9 +305,10 @@ mod tests {
                 assert_eq!(m.web, m.ios, "{}", m.name);
             }
         }
-        // The neutral look's grouped list is a web page's: edged cards with a
-        // surface's corners on the page's own ground, headed in the label's
-        // ink, a readable width at most, spaced as a web form's sections are.
+        // The neutral look's grouped list is a web page's (LLP 1115.000 D4
+        // part B, D4.16): edged cards with a surface's corners on the page's
+        // own ground, headed in the label's ink, a readable width at most,
+        // spaced as a web form's sections are.
         for m in METRICS.iter().filter(|m| m.kind == MetricKind::Style) {
             let neutral = match m.name {
                 "grouped-ground"
@@ -340,7 +344,7 @@ mod tests {
         }
     }
 
-    /// A row code reads. The neutral look sizes a mark by
+    /// A row code reads (LLP 1115.000 D17). The neutral look sizes a mark by
     /// its control's font size; every other column holds the sizes the
     /// kernel had before they were rows, so no host that is not neutral
     /// moves. A row of the neutral look alone has no value elsewhere.
@@ -391,7 +395,7 @@ mod tests {
     }
 
     /// The rows the grouped sheet writes a `style` metric on, by its name, as
-    /// the row test found them before the schema had a unit flag: the oracle the
+    /// the row test found them before theme2's unit flag: the oracle the
     /// flag is held to ([`the_length_marker_is_the_names_length_rows`]).
     fn written_on(name: &str) -> &'static [StyleId] {
         use StyleId::*;
@@ -450,7 +454,7 @@ mod tests {
         ]
     };
 
-    /// The unit flag: the `style` rows the schema
+    /// theme2's unit flag (LLP 1121 stage 11 B): the `style` rows the schema
     /// marks as lengths (`style length`, [`Metric::length`]) are exactly
     /// those the names said are written on a length property, so the marker
     /// moves nothing the kernel reads.

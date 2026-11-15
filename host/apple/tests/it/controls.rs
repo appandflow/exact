@@ -1,4 +1,4 @@
-//! A control's viewless contents (a native button's face, a
+//! LLP 1069.011 §9: a control's viewless contents (a native button's face, a
 //! select's options) cross as no op on any view, so the batch that changes
 //! them says `"controls":true` and the presenter configures its controls;
 //! a batch that changes nothing a control reads does not.

@@ -25,7 +25,7 @@ export const opWords = (o: any): string =>
 /** A param or token as a person names it: a param's `component.param` (never its declaring path, `@exact/cards/x.contract#Card.fill`). */
 export const shortName = (name: string): string => name.includes('#') ? name.slice(name.lastIndexOf('#') + 1) : name;
 
-/** A held proposal's title: the tokens and params its operations edit, then the ones it
+/** A held proposal's title (stage 15 D4 batch 1 #4): the tokens and params its operations edit, then the ones it
  * changes only because they read those, counted and named; everything it changes when no operation names one. */
 export function heldTitle(ops: any[], changed: { file: string; token: string }[], design = ''): string {
   // What each operation names, by its file where it says one: a rename both its names, a param's add or removal its

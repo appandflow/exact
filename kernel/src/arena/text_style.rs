@@ -1,4 +1,4 @@
-//! A platform text style's weight and leading: where a
+//! A platform text style's weight and leading (LLP 1115.000 D12.2): where a
 //! node's `font-size` names a style (`-exact-headline`) and the node does not
 //! write `font-weight` or `line-height`, the style's, for this process's
 //! column (the Mac's `headline` is bold, its leadings its own). Named through
@@ -24,12 +24,11 @@ static STARTS: LazyLock<Vec<[StyleProps; 4]>> = LazyLock::new(|| {
         .iter()
         .map(|style| {
             std::array::from_fn(|column| {
-                let mut rows = StyleProps {
-                    font_weight: style.weights[column],
-                    line_height: style.leadings[column]
-                        .map_or(LineHeight::Normal, LineHeight::Number),
-                    ..StyleProps::default()
-                };
+                let mut rows = StyleProps::default().with_rows(|rows| {
+                    rows.font_weight = style.weights[column];
+                    rows.line_height =
+                        style.leadings[column].map_or(LineHeight::Normal, LineHeight::Number);
+                });
                 rows.mask.set(StyleId::FontWeight);
                 rows.mask.set(StyleId::LineHeight);
                 rows
@@ -40,10 +39,11 @@ static STARTS: LazyLock<Vec<[StyleProps; 4]>> = LazyLock::new(|| {
 
 use crate::style::relative::column_index as index;
 
-/// The weight Bold Text gives `weight` in the system font, as UIKit's: one
-/// step, measured on an iOS 27 simulator (UIFontMetrics with `legibilityWeight`
-/// bold): 100 to 200, 200 to 300, 300 to 400, 400 to 600, 500 to 700, 600 to
-/// 800, 700 and on to 900; between two hundreds, between their steps.
+/// The weight Bold Text gives `weight` in the system font (LLP 1115.000
+/// D12.3), as UIKit's: one step, measured on an iOS 27 simulator
+/// (UIFontMetrics with `legibilityWeight` bold): 100 to 200, 200 to 300, 300
+/// to 400, 400 to 600, 500 to 700, 600 to 800, 700 and on to 900; between two
+/// hundreds, between their steps.
 pub fn bolder(weight: u16) -> u16 {
     const STEPS: [u16; 11] = [100, 200, 300, 400, 600, 700, 800, 900, 900, 900, 1000];
     let w = weight.clamp(1, 1000);
@@ -82,9 +82,9 @@ impl NodeArena {
     }
 
     /// A run's rows inside its paragraph (`rows`, its parent's): its own
-    /// over them, and its text style's where it names one: a shorthand's
-    /// beneath its own rows, a bare one's only where nothing at or above it
-    /// says the row.
+    /// over them, and its text style's where it names one (LLP 1115.000
+    /// D12.2): a shorthand's beneath its own rows, a bare one's only where
+    /// nothing at or above it says the row.
     pub(crate) fn run_style_rows(
         &self,
         slot: u32,
@@ -142,15 +142,15 @@ impl NodeArena {
             .is_some_and(|starts| starts.iter().any(|s| std::ptr::eq(s, source)))
     }
 
-    /// `weight` as Bold Text draws it on `slot` in stack `family`: heavier in
-    /// the system font, the generic stacks, when the person turned it on; a
-    /// family the app ships is left alone, and so is what UIKit weights itself
-    /// on iOS: a native button whose title is in UIKit's own font (neither it
-    /// nor its title writes a size or a weight). A symbol is stepped (its
-    /// configuration names the weight). A host that paints its controls
-    /// (Android's) is stepped here, and so is a weight an author gives a
-    /// control in the platform's control font; not the weight that font has as
-    /// iOS's host gave it (UIKit's body font, bold already).
+    /// `weight` as Bold Text draws it on `slot` in stack `family` (LLP
+    /// 1115.000 D12.3): heavier in the system font, the generic stacks, when
+    /// the person turned it on; a family the app ships is left alone, and so
+    /// is what UIKit weights itself on iOS: a native button whose title is in
+    /// UIKit's own font (neither it nor its title writes a size or a weight).
+    /// A symbol is stepped (its configuration names the weight). A host that
+    /// paints its controls (Android's) is stepped here, and so is a weight an
+    /// author gives a control in the platform's control font; not the weight
+    /// that font has as iOS's host gave it (UIKit's body font, bold already).
     pub(crate) fn emboldened(&self, slot: u32, weight: u16, family: u16) -> u16 {
         if self.takes_bold_text(slot, family) {
             bolder(weight)
@@ -286,7 +286,7 @@ impl crate::NodeRef<'_> {
     }
 
     /// Whether own row `id` is a heading's implied size or weight: the
-    /// compiler's, no author's.
+    /// compiler's, no author's (LLP 1115.000 D12.2).
     pub fn heading_implies(&self, id: StyleId) -> bool {
         matches!(id, StyleId::FontSize | StyleId::FontWeight)
             && self.style.mask.has(id)
@@ -294,8 +294,8 @@ impl crate::NodeRef<'_> {
             && self.props.str(crate::PropId::AccessibilityRole) == Some("heading")
     }
 
-    /// The node whose platform text style supplies inherited row `id` here:
-    /// its weight or leading, named through the `font`
+    /// The node whose platform text style supplies inherited row `id` here
+    /// (LLP 1115.000 D12.2): its weight or leading, named through the `font`
     /// shorthand with nothing written below it, or by a bare `font-size` with
     /// nothing above saying the row. `None` when no style does.
     pub fn style_source_of(&self, id: StyleId) -> Option<crate::ViewId> {
@@ -305,7 +305,7 @@ impl crate::NodeRef<'_> {
     }
 
     /// Row `id` as this node's own text style gives it, when the style is
-    /// named here: for a writer that declares a style's
+    /// named here (LLP 1115.000 D12.2): for a writer that declares a style's
     /// weight and leading where it is named and lets them inherit, as the
     /// JS target's stylesheet does.
     pub fn style_given(&self, id: StyleId) -> Option<StyleProps> {

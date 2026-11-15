@@ -1,10 +1,10 @@
-// @exact/media-capture on the web: the browser's
+// @exact/media-capture on the web (LLP 1133.009 D1, D3, D6): the browser's
 // `getUserMedia`, `enumerateDevices` and `permissions`, answered in the
 // interface's shapes, with every track in the session's track table
 // (`context.tracks`) so a package that consumes a track (`@exact/recording`)
 // reaches it by id.
 //
-// - A track holds a lease on its capture while it has a consumer. Its
+// - A track holds a lease on its capture while it has a consumer (D6). Its
 //   first consumer takes the lease; after use, a track whose last consumer
 //   went is `idle` (muted) and its browser track stopped, and only a start
 //   (`subscribe(…, {start: true})`, `setTrackEnabled(enabled=true)`) opens it
@@ -16,10 +16,10 @@
 // - Under the agent no device is opened and nothing is asked: a stream with
 //   one track, "Agent microphone", whose capture is the session clock's
 //   synthetic signal (recording's), and whose mute follows the agent's
-//   preferred `mediaStreamTrack`.
-// - Constraints are bare values, Media Capture's ideals; what applied is
+//   preferred `mediaStreamTrack` (D10 item 11).
+// - Constraints are bare values, Media Capture's ideals (D1); what applied is
 //   the browser's `getSettings()`.
-// - The page's Audio Session is `play-and-record` while a lease is held.
+// - The page's Audio Session is `play-and-record` while a lease is held (D7).
 
 import { video } from './video.js';
 
@@ -27,7 +27,7 @@ const GRACE = 1000; // ms a fresh browser track waits for its first consumer
 /** What a read of no track (`track=""`) answers: an app reads before it holds one. */
 const NO_TRACK = { id: '', kind: 'audio', label: '', enabled: false, muted: true, muteReason: null, readyState: 'ended', settings: {}, apple: null, android: null };
 
-/** The written constraints, and only those. */
+/** The written constraints, and only those (D2). */
 function constraints(args) {
   const c = args?.audioConstraints ?? {}, out = {};
   for (const [k, v] of Object.entries(c)) if (v != null) out[k] = v;
@@ -39,7 +39,7 @@ const failure = e => ({ error: typeof e?.name === 'string' && /Error$/.test(e.na
 export function implementation({ changed, agent, log, tracks, audioSession, foreground: shown = () => true }) {
   const media = typeof navigator === 'object' ? navigator.mediaDevices : undefined;
   let next = 0, opened = false, overlay = null, devices = null;
-  // The cameras (video.js).
+  // The cameras (video.js, LLP 1133.008).
   const cameras = video({ changed, agent, log, tracks, nextId: () => ++next, media, shown });
   /** Each track this implementation opened: its record. */
   const own = new Map();
@@ -77,18 +77,22 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
   };
   const stopSource = t => { clearTimeout(t.grace); t.source?.stop(); t.source = null; };
 
-  /** Take the lease: the capture runs. */
+  /** Take the lease: the capture runs (D6). */
   async function activate(t) {
     t.active = true; t.used = true;
+    // This activation's lease: one given back and taken again while the device opens is another, whose own open adopts.
+    const lease = t.lease = (t.lease ?? 0) + 1;
     t.claim ??= audioSession?.claim();
     if (!agent && (!t.source || t.source.readyState === 'ended')) {
       try {
         const stream = await media.getUserMedia({ audio: t.constraints });
-        if (!t.active || t.readyState !== 'live') { for (const s of stream.getTracks()) s.stop(); return; }
+        if (!t.active || t.lease !== lease || t.readyState !== 'live') { for (const s of stream.getTracks()) s.stop(); return; }
         adopt(t, stream.getAudioTracks()[0]);
         say(`${t.id}: opened again`);
       } catch (e) {
         say(`${t.id}: could not open again: ${failure(e).error}`);
+        // A superseded open's failure is not the track's: a later lease's open may already have adopted.
+        if (t.lease !== lease) return;
         t.active = false;
         return end(t, failure(e).error);
       }
@@ -99,7 +103,7 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
   }
   /** Give the lease back: the capture stops and the track is idle. */
   function deactivate(t) {
-    t.active = false;
+    t.active = false; t.lease = (t.lease ?? 0) + 1;
     if (!agent) stopSource(t);
     t.claim?.release(); t.claim = null;
     mute(t, 'idle');
@@ -123,8 +127,8 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
       if (t.readyState === 'ended') { consumer.ended?.(); return () => {}; }
       t.consumers.add(consumer);
       const origin = how.origin ?? 'app';
-      // The first consumer leases; after use only a start does, and never a tool's or a wake's.
-      // While a recognizer holds the microphone exclusively, a track stays idle.
+      // The first consumer leases; after use only a start does, and never a tool's or a wake's (D6, D9).
+      // While a recognizer holds the microphone exclusively, a track stays idle (LLP 1133.012 D8).
       const leases = origin === 'app' && t.enabled && (!t.used || how.start) && !tracks.held?.('audio');
       if (t.active) {
         if (t.source || agent) consumer.live?.(t.source);
@@ -137,7 +141,7 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
         if (!t.consumers.size && t.active) deactivate(t);
       };
     },
-    /** Whether `id`'s capture runs: an exclusive hold is refused while one does. */
+    /** Whether `id`'s capture runs: an exclusive hold is refused while one does (LLP 1133.012 D12 item 4). */
     leased: id => own.get(id)?.active === true,
   };
 
@@ -149,13 +153,13 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
 
   const agentSettings = { deviceId: 'agent-microphone', groupId: 'agent', sampleRate: 48000, sampleSize: 16, channelCount: 1, echoCancellation: false, autoGainControl: false, noiseSuppression: false, latency: 0.01 };
 
-  /** A stream of the tracks `getUserMedia` asked for: the microphone's, then the camera's. */
+  /** A stream of the tracks `getUserMedia` asked for: the microphone's, then the camera's (LLP 1133.008 D1). */
   async function getUserMedia(args) {
     const audio = args?.audio || args?.audioConstraints, camera = args?.video || args?.videoConstraints;
     // No kind asked for is Media Capture's TypeError, before anything opens.
     if (!audio && !camera) return { error: 'TypeError' };
     if (!camera) return openAudio(args);
-    // Both kinds are one platform request, so the browser asks once.
+    // Both kinds are one platform request, so the browser asks once (LLP 1133.008 D3).
     let given = {};
     if (audio && !agent && media?.getUserMedia) {
       if (tracks.held?.('audio')) return { error: 'NotReadableError' };
@@ -171,7 +175,7 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
       made.push(...a.tracks);
     }
     const v = await cameras.open(args, stream, given.video);
-    // What opened first is let go when the camera fails.
+    // What opened first is let go when the camera fails (LLP 1133.009 D3).
     if (v.error) { for (const t of made) own.has(t.id) && end(own.get(t.id), 'the camera failed'); return v; }
     made.push(v);
     tracks.add({ id: stream, kind: 'stream', tracks: made.map(t => t.id), extension: 'media-capture' });
@@ -239,7 +243,7 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
       if (!t) return { error: 'NotFoundError' };
       t.enabled = enabled;
       if (t.source) t.source.enabled = enabled;
-      // Turning a track back on is a start: it reopens an idle one that has consumers.
+      // Turning a track back on is a start: it reopens an idle one that has consumers (D6).
       if (enabled && !t.active && t.consumers.size && t.readyState === 'live') await activate(t);
       announce();
       return shape(t);
@@ -264,7 +268,7 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
       } catch { /* a browser that does not name `microphone` */ }
       return { available: true, state, apple: null, android: null };
     },
-    /** Under the agent: a preferred `mediaStreamTrack` is the platform's change to every live track. */
+    /** Under the agent: a preferred `mediaStreamTrack` is the platform's change to every live track (D10 item 11). */
     preferred(values) {
       overlay = values?.mediaStreamTrack ?? null;
       const reason = overlay?.muted ? overlay.muteReason ?? 'interrupted' : null;
@@ -275,7 +279,7 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
       }
       cameras.preferred(overlay);
     },
-    /** Handles a dropped reply carried: the stream's tracks end. */
+    /** Handles a dropped reply carried: the stream's tracks end (D6). */
     dispose(ids) {
       for (const id of ids) {
         const entry = tracks.lookup(id);
@@ -286,7 +290,7 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
       }
     },
     foreground: visible => cameras.foreground(visible),
-    /** What `state.extensions` lists as this implementation's. */
+    /** What `state.extensions` lists as this implementation's (LLP 1133.008 D8 item 9). */
     state: () => ({ videoTracks: cameras.disclosed() }),
   };
 }

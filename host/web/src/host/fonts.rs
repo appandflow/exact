@@ -1,18 +1,18 @@
-//! The plan's declared fonts: the faces, their CSS family names
+//! The plan's declared fonts (LLP 1019): the faces, their CSS family names
 //! and the catalog the glue loads before first paint.
 
 use super::*;
 
 /// One declared face, under the family name the host's CSS uses
-/// (`ExactPlanStack<i>`); the JS target declares the same.
+/// (`ExactPlanStack<i>`); the JS target declares the same (LLP 1071 §7).
 pub struct FontFace {
     /// The CSS family: `ExactPlanStack<stack index>`.
     pub family: String,
-    /// The family's declared name, which canvas text names.
+    /// The family's declared name, which canvas text names (LLP 1056 D8).
     pub declared: String,
     /// The face's file, relative to the app.
     pub source: String,
-    /// Its weights, low and high; one weight is both.
+    /// Its weights, low and high; one weight is both (LLP 1019 D2).
     pub weight: [u16; 2],
     /// Its widths in tenths of a percent, low and high.
     pub stretch: [u16; 2],

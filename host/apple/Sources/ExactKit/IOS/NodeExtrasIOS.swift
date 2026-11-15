@@ -1,5 +1,5 @@
-// The fields a node's view rarely sets, apart from the view (a list's
-// memory is its rows'). Every accessor reads and writes as the
+// The fields a node's view rarely sets, apart from the view (LLP 1010 §6:
+// a list's memory is its rows'). Every accessor reads and writes as the
 // stored property it replaces did.
 #if os(iOS) || os(tvOS)
 import UIKit
@@ -14,6 +14,7 @@ import UIKit
 struct AimedGradient {
     weak var layer: CAGradientLayer?
     let source: BatchValue, dark: Bool, bounds: CGRect, box: CGRect
+    let tint: UIColor?
     let gradient: Gradient, stops: ([CGFloat], [CGColor])
 }
 
@@ -51,6 +52,7 @@ final class NodeAside {
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
     var content = CGSize.zero
+    var fitContentHeight: CGFloat?
     var image: UIImage?
     var raster: NativeRasterLease?
     var imageLayer: CALayer?
@@ -63,16 +65,16 @@ final class NodeAside {
 
 /// A box's gradient and shadows, apart from `NodeExtras`: most nodes that
 /// have one need none of its other fields, and an extras object is 1.5 KB
-/// (in one app's launch 43 of its 47 extras held only these).
+/// (euxy's launch: 43 of its 47 extras held only these).
 final class NodePaintExtras {
     var boxFill: CALayer?
-    /// A `background-image` gradient Core Animation paints.
+    /// A `background-image` gradient Core Animation paints (LLP 1066).
     var boxGradient: CAGradientLayer?
     /// What a fixed gradient was last aimed with (`reaimFixedGradient`).
     var aimedGradient: AimedGradient?
     /// `box-shadow` and the clip it casts outside (`BoxShadow.swift`).
     var shadowCaster: ShadowCaster?
-    /// Inset `box-shadow`s.
+    /// Inset `box-shadow`s (LLP 1077 D4).
     var insetCaster: InsetShadowCaster?
 }
 
@@ -88,12 +90,12 @@ final class NodeExtras {
     var clipPath: CGPath?
     var clipRule: CGPathFillRule = .winding
     var clipBox: PlainView?
-    /// The box layout moved it from.
+    /// The box layout moved it from (LLP 1063).
     var layoutOffset: CGPoint = .zero
-    /// How far its scroller's scroll moves a sticky box (`Sticky.swift`).
+    /// How far its scroller's scroll moves a sticky box (LLP 1083, `Sticky.swift`).
     var stickyOffset: CGPoint = .zero
     var keyboardLift: CGFloat = 0
-    /// How far its surface's size stands from the laid-out size.
+    /// How far its surface's size stands from the laid-out size (LLP 1063).
     var layoutResize: CGSize = .zero
     /// Its surface at a layout transition's size (`Surface.swift`).
     var surface: SurfaceLayer?
@@ -163,10 +165,14 @@ final class NodeExtras {
     var followedScroll: (top: CGFloat, end: Bool, start: Bool)?
     var followsEndAfterInteraction = false
     var followingEndAnimated = false
+    /// Until when a `scrollTop` write UIKit animates (`scroll-behavior: smooth`) counts as running: UIKit does not always
+    /// report the end of an animation another write stops, so, as a reveal, for `ElementScrolls.revealBound` at most.
+    var authoredScrollUntil: CFTimeInterval = 0
     var anchoredScrollTop: CGFloat?
     var retainedScrollTop: CGFloat?
     var materialKind: String?
     var materialInteractive: Bool = false
+    var materialTint: CGColor?
     var hiddenBeforePlacement = false
     var placementHidden = false
     var materialView: UIVisualEffectView?
@@ -176,7 +182,7 @@ final class NodeExtras {
     var pendingScrollLeft: Double?
     var pendingScrollTop: Double?
     var pendingScrollTransfer = false
-    /// A collapsing title's scroller: its expanded
+    /// A collapsing title's scroller (LLP 1075.003 Stage 3): its expanded
     /// title's inset, where `scrollTop` 0 rests; 0 for every other scroller.
     var controlRide: CGFloat = 0
     var scrollOrigin: CGFloat = 0
@@ -188,19 +194,22 @@ final class NodeExtras {
     /// Content room implemented as native insets, not a smaller CSS viewport.
     var nativeScrollContentInsets = UIEdgeInsets.zero
     /// The status bar's and the home indicator's bands its scroll view
-    /// reaches into past its box, inset by as much.
+    /// reaches into past its box, inset by as much (LLP 1130 D3).
     var pageBand = UIEdgeInsets.zero
-    /// The part of the band its scroll view's `contentInset` holds.
+    /// The part of the band its scroll view's `contentInset` holds (LLP 1131 D2).
     var bandInset = UIEdgeInsets.zero
     /// The bottom inset a keyboard toolbar gives its scroll view (`KeyboardToolbarIOS.swift`).
     var keyboardInset: CGFloat = 0
-    /// A control bar over a scroller's content: the scroller's paint rank, which it is placed
+    /// A control bar over a scroller's content (LLP 1131 D3, D4): the scroller's paint rank, which it is placed
     /// above, and UIKit's edge effect.
     var bandOver: Int64?
+    /// A child beside the routes or below their tab panels: it paints over
+    /// the whole-view native container (`NavigationHost.clearBesideRoutes`).
+    var clearsNavigation = false
     var edgeInteraction: AnyObject?
     var scrollWritten: String?
     /// A hatched node whose hatch undoes its own additions: its row may be
-    /// reused.
+    /// reused (LLP 1075.003.000.000 §8).
     var hatchReusable = false
     var readingAnchors: [(node: NodeView, y: CGFloat)] = []
     weak var activeReadingAnchor: NodeView?
@@ -235,7 +244,7 @@ extension NodeView {
         let made = NodeAside(); aside = made
         return made
     }
-    /// `translate`: its lengths, and its percentages of the box.
+    /// `translate`: its lengths, and its percentages of the box (chess diary #4).
     var translatePx: CGPoint { get { aside?.translatePx ?? .zero } set { if newValue != .zero || aside != nil { asideMade.translatePx = newValue } } }
     var translatePercent: CGPoint { get { aside?.translatePercent ?? .zero } set { if newValue != .zero || aside != nil { asideMade.translatePercent = newValue } } }
     package var scale: CGFloat { get { aside?.scale ?? 1 } set { if newValue != 1 || aside != nil { asideMade.scale = newValue } } }
@@ -243,6 +252,7 @@ extension NodeView {
     /// A scroll container's content extent (the `content` op), before the
     /// axes that do not scroll are held to the box.
     var content: CGSize { get { aside?.content ?? .zero } set { if newValue != .zero || aside != nil { asideMade.content = newValue } } }
+    var fitContentHeight: CGFloat? { get { aside?.fitContentHeight } set { if newValue != nil || aside != nil { asideMade.fitContentHeight = newValue } } }
     /// An image node's picture, once loaded (decoded off the main thread),
     /// the source it came from, and which load is current: a completion
     /// from an older load, or for a view that was destroyed, is dropped.
@@ -320,9 +330,9 @@ extension NodeView {
             if newValue.isIdentity { presenter?.contextNodes.remove(id) } else { presenter?.contextNodes.insert(id) }
         }
     }
-    /// While it flies as a shared element: where its image is drawn.
+    /// While it flies as a shared element (LLP 1013.000 D4): where its image is drawn.
     var flightLook: FlightLook? { get { extras?.flightLook } set { if newValue != nil || extras != nil { more.flightLook = newValue } } }
-    /// Fragments or columns.
+    /// LLP 1093 D7: fragments or columns.
     var columnRecord: ColumnRecord? { get { extras?.columnRecord } set { if newValue != nil || extras != nil { more.columnRecord = newValue } } }
     var liveText: String? { get { extras?.liveText } set { if newValue != nil || extras != nil { more.liveText = newValue } } }
     var swipeOrigin: Double { get { extras?.swipeOrigin ?? 0 } set { if newValue != 0 || extras != nil { more.swipeOrigin = newValue } } }
@@ -351,7 +361,44 @@ extension NodeView {
     package var overlay: PlainView? { get { extras?.overlay } set { if newValue != nil || extras != nil { more.overlay = newValue } } }
     package var needsCapture: Bool { get { extras?.needsCapture ?? false } set { if newValue || extras != nil { more.needsCapture = newValue } } }
     package var paintedThisTurn: Bool { get { extras?.paintedThisTurn ?? false } set { if newValue || extras != nil { more.paintedThisTurn = newValue } } }
-    package var placement: [Double]? { get { extras?.placement } set { if newValue != nil || extras != nil { more.placement = newValue }; if newValue != nil { Self.placedViews.add(self) } } }
+    /// A canvas child its surface places: the surface draws it, and UIKit
+    /// does not (`NodeLayer.drawnElsewhere`). What reads UIKit's drawing, and
+    /// focus, which would find it at its own box, skip it.
+    package var drawnBySurface: Bool { placement != nil }
+    package var placement: [Double]? {
+        get { extras?.placement }
+        set {
+            if newValue != nil || extras != nil { more.placement = newValue }
+            if newValue != nil { Self.placedViews.add(self) }
+            (layer as? NodeLayer)?.drawnElsewhere = newValue != nil
+        }
+    }
+    /// It became transparent or stopped being: a canvas whose children it is
+    /// among lists them for accessibility again (`readPlacements`), after
+    /// the capture that brings its next frame, as UIKit's own walk would see
+    /// the change at once.
+    func transparencyChanged() {
+        guard let overlay = superview, let canvas = overlay.canvasOverlayOwner else { return }
+        canvas.needsCapture = true
+        canvases?.scheduleCapture()
+    }
+    /// Its filter's pixels or layer effect changed: its canvas captures again.
+    func filterPublished() {
+        guard let canvas = canvasAbove else { return }
+        canvas.needsCapture = true
+        canvases?.scheduleCapture()
+    }
+    /// A filtered box's picture (`BoxFilter`), which stands beside the box,
+    /// not in it: what shows it on screen, and what a capture draws.
+    package var filterPicture: CALayer? { boxFilter.flatMap { $0.casts || $0.picture.superlayer == nil ? nil : $0.picture } }
+    /// The picture shown as the box is: hidden with it, and while the box is
+    /// placed, when only its surface shows it. Called once a placement's
+    /// fields are all set (`readPlacements`), and as the box leaves one.
+    package func followPlacement() {
+        guard let picture = filterPicture else { return }
+        let hidden = isHidden || drawnBySurface
+        if picture.isHidden != hidden { CATransaction.begin(); CATransaction.setDisableActions(true); picture.isHidden = hidden; CATransaction.commit() }
+    }
     var symbolView: UIImageView? { get { extras?.symbolView } set { if newValue != nil || extras != nil { more.symbolView = newValue } } }
     var symbolFound: Bool { get { extras?.symbolFound ?? false } set { if newValue || extras != nil { more.symbolFound = newValue } } }
     var symbolKey: String? { get { extras?.symbolKey } set { if newValue != nil || extras != nil { more.symbolKey = newValue } } }
@@ -383,12 +430,18 @@ extension NodeView {
     var followedScroll: (top: CGFloat, end: Bool, start: Bool)? { get { extras?.followedScroll } set { if newValue != nil || extras != nil { more.followedScroll = newValue } } }
     var followingEndAnimated: Bool { get { extras?.followingEndAnimated ?? false } set { if newValue || extras != nil { more.followingEndAnimated = newValue } } }
     var followsEndAfterInteraction: Bool { get { extras?.followsEndAfterInteraction ?? false } set { if newValue || extras != nil { more.followsEndAfterInteraction = newValue } } }
+    /// A smooth `scrollTop` write is running: the app's scroll, which the end-follow leaves alone (LLP 1070.000 §15).
+    var authoredScrollAnimating: Bool {
+        get { (extras?.authoredScrollUntil ?? 0) > CACurrentMediaTime() }
+        set { if newValue || extras != nil { more.authoredScrollUntil = newValue ? CACurrentMediaTime() + ElementScrolls.revealBound : 0 } }
+    }
     var anchoredScrollTop: CGFloat? { get { extras?.anchoredScrollTop } set { if newValue != nil || extras != nil { more.anchoredScrollTop = newValue } } }
     var retainedScrollTop: CGFloat? { get { extras?.retainedScrollTop } set { if newValue != nil || extras != nil { more.retainedScrollTop = newValue } } }
     var materialKind: String? { get { extras?.materialKind } set { if newValue != nil || extras != nil { more.materialKind = newValue } } }
     var glassGroupView: GlassGroupView? { get { extras?.glassGroupView } set { if newValue != nil || extras != nil { more.glassGroupView = newValue } } }
     var glassSlot: GlassSlot? { get { extras?.glassSlot } set { if newValue != nil || extras != nil { more.glassSlot = newValue } } }
     var materialInteractive: Bool { get { extras?.materialInteractive ?? false } set { if newValue || extras != nil { more.materialInteractive = newValue } } }
+    var materialTint: CGColor? { get { extras?.materialTint } set { if newValue != nil || extras != nil { more.materialTint = newValue } } }
     var readingAnchors: [(node: NodeView, y: CGFloat)] {
         get { extras?.readingAnchors ?? [] }
         set { if !newValue.isEmpty || extras != nil { more.readingAnchors = newValue } }
@@ -411,6 +464,7 @@ extension NodeView {
     var scrollCollapsed: CGFloat { get { extras?.scrollCollapsed ?? 0 } set { if newValue != 0 || extras != nil { more.scrollCollapsed = newValue } } }
     var scrollWritten: String? { get { extras?.scrollWritten } set { if newValue != nil || extras != nil { more.scrollWritten = newValue } } }
     var hatchReusable: Bool { get { extras?.hatchReusable ?? false } set { if newValue || extras != nil { more.hatchReusable = newValue } } }
+    var clearsNavigation: Bool { get { extras?.clearsNavigation ?? false } set { if newValue || extras != nil { more.clearsNavigation = newValue } } }
     /// Where CSS's `scrollTop` 0 is in UIKit's offsets: past the scroller's
     /// top inset when UIKit insets it — a collapsing title's bar, or the bar
     /// over a route's bottom-edge scroller (`reachBottom`), which stays
@@ -426,6 +480,21 @@ extension NodeView {
     var bandInset: UIEdgeInsets { extras?.bandInset ?? .zero }
     var bandOver: Int64? { get { extras?.bandOver } set { if newValue != nil || extras != nil { more.bandOver = newValue } } }
     var edgeInteraction: AnyObject? { get { extras?.edgeInteraction } set { if newValue != nil || extras != nil { more.edgeInteraction = newValue } } }
+    /// Whether a touch at `point` can reach this box's children. Overflow
+    /// that is not visible clips them at the padding edge (CSS Overflow 3
+    /// §3), so a touch on the border is the box's own, as a browser hit-tests
+    /// it. A scroller's border is its scroll view's, which takes the touch
+    /// for its pan.
+    func reachesChildren(at point: CGPoint) -> Bool {
+        let x = (style["overflow_x"]?.string ?? "visible") != "visible", y = (style["overflow_y"]?.string ?? "visible") != "visible"
+        guard x || y, scrollView == nil else { return true }
+        if clipsOneAxis { return oneAxisClipContains(point) }
+        let uniform = number("border_width")
+        let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
+        if x && y { return innerOutline(widths, in: bounds).contains(point) }
+        return x ? point.x >= bounds.minX + widths[3] && point.x <= bounds.maxX - widths[1]
+            : point.y >= bounds.minY + widths[0] && point.y <= bounds.maxY - widths[2]
+    }
     /// Its scroll view's frame: its bounds, and the band past them.
     package var scrollFrame: CGRect { bounds.inset(by: UIEdgeInsets(top: -pageBand.top, left: 0, bottom: -pageBand.bottom, right: 0)) }
     /// Native padding and footer space are content, unlike a bar or keyboard.
@@ -443,7 +512,7 @@ extension NodeView {
     }
     /// The least content height UIKit takes: the box, or for a scroller
     /// UIKit insets, the port between the insets the kernel lays its content
-    /// out in, so a page shorter than that port does not
+    /// out in (LLP 1116.000 D1.2), so a page shorter than that port does not
     /// scroll by the bar and the home indicator, as a table view's does not.
     /// A keyboard toolbar's inset leaves the port too: a short transcript
     /// rises only by what the keyboard would cover of its rows, as a
@@ -455,10 +524,10 @@ extension NodeView {
     }
 }
 extension UIColor {
-    /// What an unset background is, the platform's —
+    /// LLP 1115 D2: what an unset background is, the platform's —
     /// `systemBackground` (tvOS has none; white stands in) — or the theme's
-    /// where it replaces the page's ground.
-    /// `view`'s presenter's theme.
+    /// where it replaces the page's ground (LLP 1095 D4).
+    /// `view`'s presenter's theme (LLP 1121 stage 5).
     package static func platformBackground(in view: UIView?) -> UIColor {
         #if os(tvOS)
         return ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view, or: .white)
@@ -469,10 +538,10 @@ extension UIColor {
 }
 extension NodeView {
     /// Whether this is a modal route on the system background the compiler
-    /// gave it, its author having said none: on iOS that
+    /// gave it (LLP 1116.009 D3), its author having said none: on iOS that
     /// ground is its sheet's surface, which the presentation paints
     /// (`ModalController.paintSurface`), so that below its large detent the
-    /// sheet is UIKit's glass.
+    /// sheet is UIKit's glass (LLP 1141.001 D3).
     var groundIsSheets: Bool {
         #if os(iOS)
         guard props["navigationPresentation"] == "modal", !wrote("background_color"),
@@ -482,7 +551,22 @@ extension NodeView {
         return false
         #endif
     }
-    /// Whether the author wrote the row `key` on this node,
+    /// Whether this is a full-screen route whose author wrote its background
+    /// (a colour, or an image; `transparent` and an explicit clear, `""` or
+    /// `unset`, included: LLP 1115.000 D2). Its presentation and
+    /// its controller then leave their views clear, so a translucent
+    /// background, or one fading out, shows the page it covers, as CSS
+    /// composites it (Charlie, 2026-11-10); a hand-built viewer is a clear
+    /// view presented `overFullScreen` likewise. A full-screen route that
+    /// paints nothing stays on the platform's background (LLP 1115 D2).
+    var paintsOverPage: Bool {
+        #if os(iOS)
+        props["navigationPresentation"] == "fullscreen" && (wrote("background_color") || wrote("background_image"))
+        #else
+        false
+        #endif
+    }
+    /// LLP 1115.000 D2: whether the author wrote the row `key` on this node,
     /// as an attribute or a row of its class. The style says so row by row
     /// (`written`); it is false of a value the node only inherits and of a
     /// row the compiler implied (a sheet's, a heading's, a tag's own).
@@ -490,12 +574,13 @@ extension NodeView {
         guard case .array(let rows)? = style["written"] else { return false }
         return rows.contains(.string(key))
     }
-    /// What the author writes wins: the colour row `key` when
+    /// LLP 1115 §2, "what the author writes wins": the colour row `key` when
     /// its author wrote it on this node, a platform colour and one equal to
-    /// its parent's included. Nil leaves the control the platform's.
+    /// its parent's included. Nil leaves the control the platform's (D4).
     func ownColor(_ key: String) -> BatchValue? { wrote(key) ? style[key] : nil }
     /// A field's text: its own `color`, else the design's `FieldText`, else
-    /// the platform's; an inherited colour never tints a field.
+    /// the platform's; an inherited colour never tints a field (LLP 1115 D4,
+    /// LLP 1121 D9).
     /// A field of the author's own (`appearance="none"`) is their box, and
     /// inherits as text does.
     var fieldInk: UIColor {

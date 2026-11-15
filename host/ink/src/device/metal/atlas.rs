@@ -1,4 +1,4 @@
-//! Glyph pages share one staging buffer and command.
+//! Glyph pages share one staging buffer and command. @ref LLP 1149.001 M10.
 use super::*;
 use crate::device::TextureUpload;
 

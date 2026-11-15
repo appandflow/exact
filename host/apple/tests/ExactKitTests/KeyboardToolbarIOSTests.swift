@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// Under `interactive-widget="overlays-content"` a keyboard
+/// LLP 1008 §9.1: under `interactive-widget="overlays-content"` a keyboard
 /// toolbar rides the keyboard by a transform, and the scroller that ends at
 /// its top keeps its content clear by a content inset, staying at its end;
 /// nothing is laid out again, and both come back when the keyboard goes.

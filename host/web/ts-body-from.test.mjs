@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // The file-body module (ts-body-from.js) loads on an exactBodyFrom fetch's first
 // use: the request is the call's, and its deadline and abort hold while it loads.
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const realHelpers = `export { ownWithout, redirectOf, signalDeadline, within } from ${JSON.stringify(pathToFileURL(resolve(ROOT, 'host/web-js/admission.js')).href)}; `;
+const realHelpers = `export { ownWithout, redirectOf, signalDeadline, socketProtocols, within } from ${JSON.stringify(pathToFileURL(resolve(ROOT, 'host/web-js/admission.js')).href)}; `;
 
 test('an exactBodyFrom fetch captures its options before loading the file-body module', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-options-'));
@@ -21,8 +21,8 @@ test('an exactBodyFrom fetch captures its options before loading the file-body m
     const first = appFetch('https://x.test/up', options);
     options.method = 'PUT'; options.exactBodyFrom = 'app:/data/b'; options.exactTimeout = 1000;
     const second = appFetch('https://x.test/up', options);
-    // Beside an `AbortSignal.timeout` as long, the `exactTimeout` gives way to the signal's deadline
-    answering.page = { clock: { now: 0, timers: [], agent: true }, journal: [], drive() {} };
+    // Beside an `AbortSignal.timeout` as long, the `exactTimeout` gives way to the signal's deadline (LLP 1146 §2.1)
+    answering.page = { clock: { now: 0, timers: [], agent: true }, journal: [], drive() {}, time() {} };
     answering.call = {};
     const signal = AppAbortSignal.timeout(5000);
     answering.call = null;
@@ -54,8 +54,8 @@ test('an exactBodyFrom fetch times out and aborts while its module is loading', 
     timed = appFetch('https://x.test/up', { method: 'POST', exactBodyFrom: 'app:/data/a', exactTimeout: 10 }).catch(e => e);
     const controller = new AbortController(); aborted = appFetch('https://x.test/up', { method: 'POST', exactBodyFrom: 'app:/data/b', signal: controller.signal }).catch(e => e);
     controller.abort(new Error('stopped'));
-    // An `AbortSignal.timeout`'s deadline holds too, and beside an `exactTimeout` as long it is the request's
-    answering.page = { clock: { now: 0, timers: [], agent: true }, journal: [], drive() {} };
+    // An `AbortSignal.timeout`'s deadline holds too, and beside an `exactTimeout` as long it is the request's (LLP 1146 §2.1)
+    answering.page = { clock: { now: 0, timers: [], agent: true }, journal: [], drive() {}, time() {} };
     answering.call = {};
     const signal = AppAbortSignal.timeout(10), tiedSignal = AppAbortSignal.timeout(10), stoppedSignal = AppAbortSignal.timeout(10);
     answering.call = null;
@@ -97,7 +97,7 @@ test("an exactBodyTo fetch's signal deadline holds while its file opens, past an
   globalThis.setTimeout = (run, ms, ...args) => { if (ms === 10 && !deadline) { deadline = run; return 0; } return realSet(run, ms, ...args); };
   try {
     const { fetch: appFetch, AbortSignal: AppAbortSignal, answering } = await import(pathToFileURL(resolve(dir, 'ts-fetch.js')).href);
-    answering.page = { clock: { now: 0, timers: [], agent: true }, journal: [], drive() {} };
+    answering.page = { clock: { now: 0, timers: [], agent: true }, journal: [], drive() {}, time() {} };
     answering.call = {};
     const signal = AppAbortSignal.timeout(10);
     answering.call = null;
@@ -141,7 +141,7 @@ test("an exactBodyTo fetch's write is refused once its deadline has passed by th
     globalThis.publishing = undefined;
     globalThis.setTimeout = (run, ms, ...args) => (ms === 5000 ? 4242 : realSet(run, ms, ...args));
     globalThis.clearTimeout = id => { cleared.push(id); realClear(id); };
-    answering.page = { clock: { now: 0, timers: [], agent: true }, journal: [], drive() {} };
+    answering.page = { clock: { now: 0, timers: [], agent: true }, journal: [], drive() {}, time() {} };
     answering.call = {};
     const signal = AppAbortSignal.timeout(5000);
     answering.call = null;

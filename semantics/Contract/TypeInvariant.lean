@@ -255,7 +255,7 @@ theorem runAction_slotsOK {p : Program} {o c name args rows c' out} (hp : SlotTy
   · simp only [Prod.mk.injEq] at h; rw [← h.1]; exact hok
   · simp only [Prod.mk.injEq] at h; rw [← h.1]; exact hok
 
-/-- A queued send's commit keeps every root slot of its
+/-- A queued send's commit (LLP 1092 D3) keeps every root slot of its
 type: it writes its mutation's slot with an answer of the mutation's shape. -/
 theorem nextCommit_slotsOK {p : Program} {o c m c' out} (hp : SlotTyped p) (hq : isQueue p m = true)
     (hc : SlotsOK p c.slots) (h : nextCommit p o c m = (c', out)) : SlotsOK p c'.slots := by

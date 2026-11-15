@@ -1,4 +1,4 @@
-// An image in a paragraph's text, between its words: its box
+// LLP 1011.002: an image in a paragraph's text, between its words: its box
 // takes its place in the line, the line grows to hold it, and
 // `vertical-align` places it against the baseline.
 component App

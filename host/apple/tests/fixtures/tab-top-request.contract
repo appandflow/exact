@@ -1,5 +1,5 @@
 // The selected tab tapped again over a list its press may ask a row of
-// (NavigationTabsIOSTests): Home's press asks for row
+// (NavigationTabsIOSTests, LLP 1070.000 §2.6): Home's press asks for row
 // `target` of the feed at the start, or for nothing at -1. "unload" takes
 // the feed away and "name-aside" names another list the screen's; Home's
 // press makes the feed again and names it the screen's.

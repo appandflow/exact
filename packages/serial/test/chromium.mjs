@@ -1,4 +1,4 @@
-// The three device packages' web conformance harness: a page in Chromium that serves a
+// The three device packages' web conformance harness (LLP 1133.037 §16 stage 1): a page in Chromium that serves a
 // package's directory, installs the suite's fake `navigator.serial`, `.hid` or `.usb` before anything loads, and
 // imports the web implementation (`web/index.js`) as the page runtime would, with a `changed` that records each
 // topic. The fakes implement the specifications' interfaces over the suite's own streams and records, so a suite

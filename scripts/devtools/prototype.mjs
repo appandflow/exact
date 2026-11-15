@@ -1,11 +1,11 @@
-// Throwaway DevTools prototype. Synthetic observations, no app or host connection.
-// Two platform candidates (`computed` and `rule`) are compared; neither is a native CSS cascade.
+// Throwaway LLP 1155 Stage 0a prototype. Synthetic observations, no app or host connection.
+// D3's two platform candidates are compared; neither is a native CSS cascade.
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const excerpt = readFileSync(new URL('./prototype.contract', import.meta.url), 'utf8');
-const sourceURL = 'exact://prototype/prototype.contract';
+const sourceURL = 'exact://stage0/prototype.contract';
 const range = (line, start = 0, end = 1) => ({ startLine: line, startColumn: start, endLine: line, endColumn: end });
 const property = (name, value) => ({ name, value });
 const style = (properties, sheet) => ({ cssProperties: properties, shorthandEntries: [], ...(sheet ? { styleSheetId: sheet } : {}) });
@@ -28,7 +28,7 @@ export function prototype({ directory, port = 0, platform = 'computed' }) {
   let socket, claimed = false;
   const record = (direction, message, category) => appendFileSync(transcript, JSON.stringify({ direction, category, message }) + '\n');
   const nodes = new Map([
-    [100, { nodeId: 100, backendNodeId: 100, nodeType: 9, nodeName: '#document', localName: '', nodeValue: '', documentURL: 'exact://prototype/', baseURL: 'exact://prototype/', childNodeCount: 1 }],
+    [100, { nodeId: 100, backendNodeId: 100, nodeType: 9, nodeName: '#document', localName: '', nodeValue: '', documentURL: 'exact://stage0/', baseURL: 'exact://stage0/', childNodeCount: 1 }],
     [1, { nodeId: 1, backendNodeId: 1, parentId: 100, nodeType: 1, nodeName: 'MAIN', localName: 'main', nodeValue: '', attributes: ['id', 'page'], childNodeCount: 1 }],
     [2, { nodeId: 2, backendNodeId: 2, parentId: 1, nodeType: 1, nodeName: 'BUTTON', localName: 'button', nodeValue: '', attributes: ['id', 'tinted-control'], childNodeCount: 0 }],
   ]);
@@ -41,7 +41,7 @@ export function prototype({ directory, port = 0, platform = 'computed' }) {
   };
   const inherited = rule('prototype.contract:3:5', [property('color', 'rgb(190, 30, 45)')], 'contract', 2);
   const authored = rule('prototype.contract:4:7', [property('font-size', '24px')], 'contract', 3);
-  const frame = { id: 'stub', loaderId: 'stub', url: 'exact://prototype/', domainAndRegistry: '', securityOrigin: 'exact://prototype', mimeType: 'text/plain', secureContextType: 'Secure', crossOriginIsolatedContextType: 'NotIsolated', gatedAPIFeatures: [] };
+  const frame = { id: 'stub', loaderId: 'stub', url: 'exact://stage0/', domainAndRegistry: '', securityOrigin: 'exact://stage0', mimeType: 'text/plain', secureContextType: 'Secure', crossOriginIsolatedContextType: 'NotIsolated', gatedAPIFeatures: [] };
   const emit = (ws, method, params) => { const message = { method, params }; record('event', message, 'essential'); ws.send(JSON.stringify(message)); };
   const methods = {
     'DOM.enable': () => ({}),
@@ -51,7 +51,7 @@ export function prototype({ directory, port = 0, platform = 'computed' }) {
     },
     // The RFC explicitly allows a declared context that refuses every evaluation.
     'Runtime.enable': (_, ws) => {
-      emit(ws, 'Runtime.executionContextCreated', { context: { id: 1, origin: 'exact://prototype', name: 'Synthetic Exact tree (no JavaScript)', uniqueId: 'exact-prototype', auxData: { isDefault: true, type: 'default', frameId: 'stub' } } });
+      emit(ws, 'Runtime.executionContextCreated', { context: { id: 1, origin: 'exact://stage0', name: 'Synthetic Exact tree (no JavaScript)', uniqueId: 'exact-stage0', auxData: { isDefault: true, type: 'default', frameId: 'stub' } } });
       return {};
     },
     'Page.getResourceTree': () => ({ frameTree: { frame, resources: [] } }),
@@ -70,7 +70,7 @@ export function prototype({ directory, port = 0, platform = 'computed' }) {
     },
     'CSS.getComputedStyleForNode': ({ nodeId }) => {
       node(nodeId);
-      // font-family is deliberately unavailable: omitting a property is allowed, invalid CSS is not.
+      // font-family is deliberately unavailable. D3 permits omission, not invalid CSS.
       return { computedStyle: nodeId === 2 ? [property('font-size', '24px'), property('color', 'rgb(0, 122, 255)')] : [property('color', 'rgb(190, 30, 45)')], extraFields: { isAppearanceBase: false } };
     },
     'CSS.getStyleSheetText': ({ styleSheetId }) => { if (styleSheetId !== 'contract') throw new Error('unknown prototype sheet'); return { text: excerpt }; },
@@ -87,8 +87,8 @@ export function prototype({ directory, port = 0, platform = 'computed' }) {
       if (req.method !== 'GET') return new Response('read only', { status: 405 });
       if (Date.now() >= until || claimed && !socket) return new Response('capability expired or revoked', { status: 410 });
       const ws = `ws://${host}${path}`;
-      if (url.pathname === `${parent}/json/list`) return Response.json([{ id: 'stub', type: 'page', title: 'Exact prototype — synthetic mounted tree', url: 'exact://prototype/', webSocketDebuggerUrl: ws, devtoolsFrontendUrl: `devtools://devtools/bundled/inspector.html?ws=${host}${path}` }]);
-      if (url.pathname === `${parent}/json/version`) return Response.json({ Browser: 'Exact-Prototype', 'Protocol-Version': '1.3' });
+      if (url.pathname === `${parent}/json/list`) return Response.json([{ id: 'stub', type: 'page', title: 'Exact Stage 0a — synthetic mounted tree', url: 'exact://stage0/', webSocketDebuggerUrl: ws, devtoolsFrontendUrl: `devtools://devtools/bundled/inspector.html?ws=${host}${path}` }]);
+      if (url.pathname === `${parent}/json/version`) return Response.json({ Browser: 'Exact-Stage0a', 'Protocol-Version': '1.3' });
       if (url.pathname === path && !claimed && server.upgrade(req)) { claimed = true; return; }
       return new Response('not found', { status: 404 });
     },

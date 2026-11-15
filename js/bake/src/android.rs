@@ -1,5 +1,5 @@
 //! The build script of an app's Android crate, the library the Canvas reader
-//! loads (`host/android`): the Linux bake, which the Canvas
+//! loads (LLP 1076 §3.3, `host/android`): the Linux bake, which the Canvas
 //! host shares, then what the APK's build reads beside the plan.
 
 use crate::{build, BakeError};
@@ -10,6 +10,15 @@ use std::path::{Path, PathBuf};
 /// beside it (`contract::native::android_entry`). Off Android the crate is
 /// empty and nothing is baked.
 pub fn build_android(app: &Path) -> Result<(), BakeError> {
+    android(app, |app| build(app, "linux"))
+}
+
+/// Off Android, nothing; on it, `bake` (a Linux bake of the app at the canonical path it is given), then what
+/// `build_android` writes beside the plan.
+pub(crate) fn android(
+    app: &Path,
+    bake: impl FnOnce(&Path) -> Result<(), BakeError>,
+) -> Result<(), BakeError> {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("android") {
         return Ok(());
     }
@@ -17,7 +26,7 @@ pub fn build_android(app: &Path) -> Result<(), BakeError> {
     let app = app
         .canonicalize()
         .map_err(|e| BakeError(format!("{}: {e}", app.display())))?;
-    build(&app, "linux")?;
+    bake(&app)?;
     println!("cargo:rerun-if-changed={}", app.join("app.json").display());
     let out = PathBuf::from(
         std::env::var_os("OUT_DIR").ok_or_else(|| BakeError("build requires OUT_DIR".into()))?,

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import {randomUUID} from 'node:crypto';
 import {readFileSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {proof, captureWorld, diffWorlds, formatWorldDiff, equal, axNames} from '../../proof.mjs';
@@ -30,7 +31,18 @@ export function compare(rows, {root}) {
   console.log('TAPS first affected tick and world hash agree across hosts');
 }
 
-if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, host, pin, pinSave, say}) => {
+export function storedSessions(openSession) {
+  const suffix = randomUUID();
+  return async (options = {}) => {
+    const s = await openSession({...options, storage:`${options.storage ?? 'beacons-proof'}-${suffix}`,
+      env:{...(options.storage ? {} : {EXACT_AGENT_STORAGE_FRESH:'1'}), ...options.env}});
+    await s.clock('settle');
+    return s;
+  };
+}
+
+if (import.meta.main) await proof(import.meta, async ({open: openSession, check, equal, out, host, pin, pinSave, say}) => {
+  const open = storedSessions(openSession);
   const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
   const world = s => s.world('world');
   const snapshot = s => world(s).snapshot();
@@ -209,7 +221,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
   const held = await speed();
   await world(restored).key_up('ShiftLeft'); await world(restored).run(50);
   check('a 200 ms Shift hold runs and its release walks', equal([early, held, await speed()], [4, 7, 4]), [early, held]);
-  // From one checkpoint, a held key and the agent's full pad
+  // LLP 1127.003 §4: from one checkpoint, a held key and the agent's full pad
   // stick reach the same world; a partial stick (the negative control) another.
   await world(restored).settle();
   const base = resolve(out, 'pad-base.world');
@@ -231,12 +243,68 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     stick.delivery === 'synthesized' && stick.tick === keyed.tick && stick.hash === keyed.hash, {keyed, stick});
   check('and a partial stick reaches another (the negative control)', partial.tick === keyed.tick && partial.hash !== keyed.hash, {keyed, partial});
   // The wasm web host has no extension modules yet, the agent's substitute
-  // included: tilt is driven where they run.
+  // included (QUEUE.md): tilt is driven where they run.
   if (host !== 'web') await tiltLeg({open, check, node, world});
   else say('SKIP tilt on web: the wasm host has no extension modules; run this proof on linux, macos or ios.');
+  await bindingLeg({open, check, node, world, out});
 });
 
-/// The map, as `exact_game::tilt_stick` computes it (game/engine/src/input/sensor.rs).
+async function bindingLeg({open, check, node, world, out}) {
+  const savedJ = resolve(out, 'jump-j.world'), savedSpace = resolve(out, 'jump-space.world');
+  const launch = options => open({fresh:true, storage:'binding-preference', ...options});
+  const preference = async s => node(await s.tree(), 'jump-preference')?.props.checked;
+  const jumps = async (s, key) => {
+    await world(s).tap(key); await world(s).run(100);
+    const jumped = (await world(s).local_position('player'))[1] > 0.9;
+    await world(s).run(1500);
+    return jumped;
+  };
+  const controls = async (s, active, inactive) => {
+    check(`${active} jumps and ${inactive} does not`, !await jumps(s, inactive) && await jumps(s, active));
+    check('the south pad button still jumps', await jumps(s, 'GamepadSouth'));
+  };
+  const change = async (s, on) => {
+    await s.tap('pause');
+    const before = await world(s).snapshot();
+    await s.tap('jump-preference'); await s.clock('settle');
+    check(`jump preference saved as ${on ? 'J' : 'Space'}`, await preference(s) === on && !node(await s.tree(), 'binding-error'));
+    check('saving a preference leaves the paused world intact', equal(before, await world(s).snapshot()));
+    await s.tap('pause');
+  };
+  const first = await launch({env:{EXACT_AGENT_STORAGE_FRESH:'1'}});
+  check('an empty store starts with Space', await preference(first) === false);
+  await first.tap('jump-preference'); await first.clock('settle');
+  check('the title saves J', await preference(first) === true && !node(await first.tree(), 'binding-error'));
+  await first.tap('play');
+  await controls(first, 'KeyJ', 'Space');
+  await world(first).save(savedJ);
+  await change(first, false);
+  await controls(first, 'KeyJ', 'Space');
+  await first.close();
+
+  const second = await launch({world:savedJ});
+  check('relaunch reads the saved Space preference', await preference(second) === false);
+  await second.tap('play');
+  check('the J save is restored', (await second.state()).world[0].restored === true);
+  await controls(second, 'KeyJ', 'Space');
+  await second.tap('pause'); await second.tap('new-game');
+  await controls(second, 'Space', 'KeyJ');
+  await world(second).save(savedSpace);
+  await change(second, true);
+  await controls(second, 'Space', 'KeyJ');
+  await second.close();
+
+  const third = await launch({world:savedSpace});
+  check('relaunch reads the saved J preference', await preference(third) === true);
+  await third.tap('play');
+  check('the Space save is restored', (await third.state()).world[0].restored === true);
+  await controls(third, 'Space', 'KeyJ');
+  await third.tap('pause'); await third.tap('new-game');
+  await controls(third, 'KeyJ', 'Space');
+  await third.close();
+}
+
+/// D6's map, as `exact_game::tilt_stick` computes it (game/engine/src/input/sensor.rs).
 export function tiltStick(g, n, max = 20, dead = 2) {
   const deg = (v, i) => Math.asin(v[i] / Math.hypot(...v)) * 180 / Math.PI;
   const raw = [-(deg(g, 0) - deg(n, 0)) / max, -(deg(g, 1) - deg(n, 1)) / max];
@@ -252,7 +320,7 @@ export function rampFromRest(speed, ticks) {
   return Array.from({length:ticks}, (_, k) => Math.min(speed, 0.2 * (k + 1)) / 60).reduce((a, b) => a + b, 0);
 }
 
-/// Tilt to move under the agent's substitute.
+/// LLP 1133.013 §10, drives 1–5: tilt to move under the agent's substitute.
 async function tiltLeg({open, check, node, world}) {
   const t = await open({fresh:true});
   const motion = async () => (await t.state()).extensions?.motion ?? {};
@@ -266,7 +334,7 @@ async function tiltLeg({open, check, node, world}) {
   await t.tap(`@${pending[0]?.ticket}`, {choice:'allow'});
   await t.clock('settle');
   check('tilt 1: allowed, the level reads flat', await angles() === '0° · 0°', await angles());
-  // Tilt on: the world's canvas holds `current`.
+  // LLP 1133.029 §9.1 drive 1: tilt on, the world's canvas holds `current`.
   const lock = async () => (await t.state()).orientationlock;
   const held = await lock();
   check('orientation 1: tilt on, the canvas holds the orientation as it is',

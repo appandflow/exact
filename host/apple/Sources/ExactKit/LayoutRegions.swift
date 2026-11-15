@@ -1,6 +1,6 @@
 import CoreGraphics
 
-/// The layout regions' `env()` names, in the kernel's
+/// The layout regions' `env()` names (LLP 1123 D10), in the kernel's
 /// `Region` order (`kernel/src/style/env.rs`), each followed by an edge.
 enum LayoutRegions {
     static let prefixes = [
@@ -26,7 +26,7 @@ enum LayoutRegions {
 }
 
 extension ExactSession {
-    /// The layout regions' insets, what `env(-exact-<region>-inset-<edge>)`
+    /// The layout regions' insets (LLP 1123 D10), what `env(-exact-<region>-inset-<edge>)`
     /// reads: twenty, five regions of top, right, bottom, left, or none when every region is
     /// the safe area.
     public func regions(_ insets: [CGFloat]?) {

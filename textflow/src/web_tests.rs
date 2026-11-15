@@ -1,4 +1,4 @@
-//! Native tests of the exported browser protocol.
+//! @ref LLP 1043.000 §3 D6/D7 — native tests of the exported browser protocol.
 use super::*;
 
 fn segments(flow: &mut TextFlow, id: u32, text: &str, mode: u32) -> String {
@@ -203,7 +203,7 @@ fn invalid_advances_and_store_bounds_refuse_without_replacing_preparation() {
 
 #[test]
 fn giant_and_multibyte_sources_refuse_without_replacing_accepted_geometry() {
-    // The exclusions walker is not a giant-text fallback.
+    // LLP 1044.001 §7.4: the exclusions walker is not a giant-text fallback.
     // In particular, a UTF-16 count below the ceiling does not admit UTF-8
     // above it, and a refused candidate must not evict the accepted source.
     let mut flow = TextFlow::default();
@@ -388,7 +388,7 @@ fn short_source_headers_return_errors_instead_of_panicking() {
     }
 }
 
-// Pan, media and reorder share a dispatcher, never an ID.
+// @ref LLP 1043.000 §3 D8 — Pan, media and reorder share a dispatcher, never an ID.
 
 #[test]
 fn exclusion_admission_is_bounded_transactional_and_reset_releases_everything() {

@@ -1,4 +1,4 @@
-// The serial monitor's log: every byte a port sends, read at 100 ms through `serialInput`,
+// The serial monitor's log (LLP 1133.037 §12.2): every byte a port sends, read at 100 ms through `serialInput`,
 // decoded as UTF-8 across answers (a code point split between two stays whole), split into lines, and kept here,
 // the last 10,000 per connection. Contract reads the visible window and sends lines with the chosen ending.
 import { serialInput, write } from '@exact/serial';
@@ -11,7 +11,7 @@ const KEPT = 10_000, SHOWN = 500;
 type Log = { decoder: TextDecoder; partial: string; lines: LogLine[]; next: number; done: boolean; error: string };
 const logs = new Map<string, Log>();
 
-/** "— break —" and its kin: the non-fatal errors, marked in the log where they arrived. */
+/** "— break —" and its kin: D9's non-fatal errors, marked in the log where they arrived. */
 const MARKS: Record<string, string> = {
   BreakError: 'break', FramingError: 'framing error', ParityError: 'parity error', BufferOverrunError: 'overrun',
   UnknownError: 'read error',

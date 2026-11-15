@@ -11,7 +11,7 @@
 //!   `(k*101) % 10000` (the first at or after it that has reactions), and
 //!   answers the feed.
 //!
-//! Record sharing: every answer is a fresh list, but its
+//! Record sharing (LLP 1053 §0, G8): every answer is a fresh list, but its
 //! items are the previous answer's `Rc` records for every message that did
 //! not change, so the runner's identity checks (`compare::same`) hold for
 //! them. A tick builds exactly two records: the inserted `live-k` (which

@@ -1,4 +1,4 @@
-// The system's ways into an app on the JS target, as the runner's
+// The system's ways into an app on the JS target (LLP 1133.023 §10), as the runner's
 // `modules/declared/reach.rs`: under the agent the page keeps the icon's menu and the content index the host's
 // stores would, and tells no platform anything.
 //
@@ -67,7 +67,7 @@ export function reach({ say, announce, preferred }) {
         const mine = o => o.kind === kind, given = o => entries.some(e => e.id === o.id);
         for (const e of entries) { const o = next.find(o => o.id === e.id); if (!o) added.push(e.id); else if (!same(o, e)) updated.push(e.id); }
         for (const o of next.filter(mine)) if (!given(o)) deleted.push(o.id);
-        // The kind's entries take the place of its first, in the order given.
+        // The kind's entries take the place of its first, in the order given (D9).
         const first = next.findIndex(mine), at = next.slice(0, first < 0 ? next.length : first).filter(o => !given(o)).length;
         const rest = next.filter(o => !mine(o) && !given(o));
         next = [...rest.slice(0, at), ...entries, ...rest.slice(at)];
@@ -80,7 +80,7 @@ export function reach({ say, announce, preferred }) {
       if (keys.length) announce(keys);
       return null;
     },
-    /** `requestPinShortcut`. */
+    /** `requestPinShortcut` (D11). */
     pin(row, args) {
       const why = shortcutRefused(args.shortcut);
       if (why) return refused(row, "TypeError", why);
@@ -91,7 +91,7 @@ export function reach({ say, announce, preferred }) {
     },
     /** A source declared `"index": "entries"`: every entry; undefined for any other. */
     value: row => row.sub.index === "entries" ? index.map(e => ({ ...e })) : undefined,
-    /** The entries of `kind` whose title or description holds `matching`, folded. */
+    /** The entries of `kind` whose title or description holds `matching`, folded (D9). */
     entities: (kind, matching) => index.filter(e => e.kind === kind && (matching == null
       || [e.title, e.description].some(t => typeof t === "string" && fold(t).includes(fold(matching))))),
     /** The reach's fields of an extension's `state.extensions` entry, from its rows. */

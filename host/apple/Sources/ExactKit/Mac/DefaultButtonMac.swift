@@ -1,4 +1,4 @@
-// Return and the default button in a dialog. A `dialog`
+// Return and the default button in a dialog (LLP 1115.000 D7.3). A `dialog`
 // with exactly one `filled`, non-destructive button has a default: AppKit
 // draws it so, and Return presses it wherever the focus is in the dialog.
 // With none, or with several, there is no default, and Return does only what
@@ -15,17 +15,21 @@ extension NodeView {
     /// A focused menu's row or listbox option chooses on Return as on Space:
     /// an `NSMenu` takes Return at its highlighted item, and a pop-up
     /// button's menu at its selected one. That is what this control does
-    /// with Return, so it comes before a dialog's default
+    /// with Return (LLP 1115.000 D7.3), so it comes before a dialog's default
     /// button, as an open menu has the keys before its window does.
     var choosesOnReturn: Bool {
-        (isButton || pressable) && Self.choiceRoles.contains(props["accessibilityRole"] ?? "")
+        guard isButton || pressable else { return false }
+        // Menu rows may be ordinary buttons; their item role is optional (LLP 1021 D3).
+        if Self.choiceRoles.contains(props["accessibilityRole"] ?? "") { return true }
+        guard isButton, let menu = owningMenu else { return false }
+        return menu.menuRowsThroughSections.contains { $0 === self }
     }
     private static let choiceRoles: Set<String> = ["menuitem", "menuitemradio", "menuitemcheckbox", "option"]
 
     /// Return presses this control as Space does: a menu's row, or any
     /// button under an ancestor whose author asked for Chromium's keys with
     /// `-exact-return-presses="descendants"`, as Chromium presses a focused
-    /// `<button>` on Enter. Either comes before a dialog's
+    /// `<button>` on Enter (LLP 1115.000 D7.3). Either comes before a dialog's
     /// default button. The ancestors are the ones a key bubbles to, so a
     /// dialog or popover declared under the node counts as under it.
     var pressesOnReturn: Bool {

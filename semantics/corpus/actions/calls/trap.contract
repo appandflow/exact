@@ -1,4 +1,4 @@
-// A trap in a callee refuses the whole commit: the caller's
+// A trap in a callee refuses the whole commit (LLP 1089 D2): the caller's
 // writes, before and after the call, do not land.
 component App
   state a = 1

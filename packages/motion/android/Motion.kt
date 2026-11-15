@@ -1,10 +1,10 @@
-// @exact/motion on Android: the platform's SensorManager, answered in the interface's
+// @exact/motion on Android (LLP 1133.013 D2, D4, D5, D8): the platform's SensorManager, answered in the interface's
 // shapes. The build makes one per host when the app binds the extension, outside the agent; under the agent the
 // runner's substitute answers and none is made.
 //
-// - One registration per sensor serves every reader of the names it feeds, at the fastest frequency they ask
+// - One registration per sensor serves every reader of the names it feeds (D4), at the fastest frequency they ask
 //   (50 Hz, `SENSOR_DELAY_GAME`'s, when one names none; `deviceMotion` always at it). Each reader group (a name with one `frequency`, `referenceFrame` and `history`) keeps
-//   a ring of its own thinned samples, numbered, answered from the cursor the runner passes as `after`.
+//   a ring of its own thinned samples, numbered, answered from the cursor the runner passes as `after` (D5).
 // - Android's units, sign and Earth frame are the W3C's (m/s², rad/s, µT; x east, y north, z up), so readings pass
 //   through. A rotation vector is answered as the quaternion `SensorManager.getQuaternionFromVector` gives, reordered
 //   to x, y, z, w; `deviceOrientation`'s angles are Chromium's, from the rotation matrix.
@@ -12,15 +12,15 @@
 //   `screen.orientation.angle`).
 // - Above 200 Hz Android 12 needs `HIGH_SAMPLING_RATE_SENSORS`, which no grant line derives yet: without it a faster
 //   frequency is asked at 200 Hz. The status's `android` is null: neither the permission nor the microphone
-//   toggle's limit is reported yet.
+//   toggle's limit is reported yet (D9).
 // - Registrations are removed while the app is in the background and made again in the foreground; each reader's next
-//   answer reads `interrupted`.
-// - A canvas input is a consumer of its sensor like a reader, thinned to its own frequency (60 Hz by default), each
+//   answer reads `interrupted` (D8).
+// - A canvas input (D6) is a consumer of its sensor like a reader, thinned to its own frequency (60 Hz by default), each
 //   sample written into the surface's input (the context's `surfaces`), which the host drains into the canvas once a
 //   frame. It holds the lease while displayed: hidden, it pauses; shown by an `app` commit, it resumes; shown by a
 //   tool's or a wake's, it stays paused. The background pauses it too, and the return resumes one whose canvas stayed
 //   displayed. The first sample after a pause counts the samples the pause lost in its `dropped`.
-// - Tier 3: `MotionModule.hatch` is given the manager once, when the module is made.
+// - Tier 3 (D10): `MotionModule.hatch` is given the manager once, when the module is made.
 package exact.motion
 
 import android.content.Context
@@ -51,7 +51,7 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
         /** `SENSOR_DELAY_GAME`'s 20,000 µs (`SensorManager.getDelay`). */
         private const val GAME_HZ = 50.0
 
-        /** The app's access hatch: given the manager once, when the module is made. */
+        /** The app's access hatch (D10): given the manager once, when the module is made. */
         @JvmStatic var hatch: ((SensorManager) -> Unit)? = null
         /** Each name's sensor type. */
         private val TYPES = mapOf(
@@ -82,7 +82,7 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
 
     private class Sample(val sequence: Int, val fields: JSONObject)
 
-    /** A canvas input: [sensor]'s samples, read as source [name] reads them, written into [input]. */
+    /** A canvas input (D6): [sensor]'s samples, read as source [name] reads them, written into [input]. */
     private class Feed(val surface: String, val sensor: String, val name: String, val input: dev.exact.canvas.SurfaceInput,
                        val frequency: Double, val screen: Boolean) {
         val period = 1000 / frequency
@@ -136,17 +136,20 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
     private fun status(): JSONObject {
         val sensors = JSONObject()
         for ((n, t) in SENSORS) sensors.put(n, has(t))
-        // Motion sensors ask no runtime permission on Android.
+        // Motion sensors ask no runtime permission on Android (D9).
         return JSONObject().put("available", has(Sensor.TYPE_ACCELEROMETER)).put("state", "granted").put("sensors", sensors)
             .put("apple", JSONObject.NULL).put("android", JSONObject.NULL)
     }
 
     private fun key(args: JSONObject) =
-        "${args.optDouble("frequency", 0.0)} ${args.optString("referenceFrame", "device")} ${args.optInt("history", 0)}"
+        "${args.optDouble("frequency", 0.0)} ${args.optString("referenceFrame", "device")} ${args.optInt("history", 0)} ${args.optBoolean("absolute")}"
+
+    /** The sensor type a reader of [name] with [args] reads: an absolute `deviceOrientation` the rotation vector. */
+    private fun sensorType(name: String, args: JSONObject) =
+        if (name == "deviceOrientation" && args.optBoolean("absolute")) Sensor.TYPE_ROTATION_VECTOR else TYPES.getValue(name)
 
     private fun read(name: String, args: JSONObject, reply: (JSONObject) -> Unit) {
-        val type = TYPES.getValue(name)
-        if (!has(type)) return reply(JSONObject().put("error", "NotSupportedError"))
+        if (!has(sensorType(name, args))) return reply(JSONObject().put("error", "NotSupportedError"))
         val asked = JSONObject(args.toString()).apply { remove("after") }
         val group = groups.getOrPut(name) { mutableMapOf() }.getOrPut(key(asked)) { Group(asked) }
         restart()
@@ -166,7 +169,7 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
         reply(answer(group, args))
     }
 
-    /** A reader's answer from its group's ring after `after`. */
+    /** A reader's answer from its group's ring after `after` (D5). */
     private fun answer(group: Group, args: JSONObject): JSONObject {
         val newest = group.ring.last()
         val out = JSONObject(newest.fields.toString()).put("sequence", newest.sequence)
@@ -247,7 +250,7 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
         val wanted = mutableMapOf<Int, Double>()
         if (shown) for ((name, byKey) in groups) for (g in byKey.values) {
             val types = if (name == "deviceMotion") listOf(Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_LINEAR_ACCELERATION, Sensor.TYPE_GYROSCOPE)
-                else listOf(TYPES.getValue(name))
+                else listOf(sensorType(name, g.args))
             val asked = g.args.optDouble("frequency", 0.0).takeIf { it > 0 && name != "deviceMotion" }
             val f = (asked ?: GAME_HZ).let { if (high) it else minOf(MOST_HZ, it) }
             for (t in types) if (has(t)) wanted[t] = maxOf(wanted[t] ?: 0.0, f)
@@ -277,20 +280,20 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
     /** The session's clock at a sensor event's timestamp (ns of `elapsedRealtimeNanos`). */
     private fun stamp(ns: Long) = context.now() - (SystemClock.elapsedRealtimeNanos() - ns) / 1e6
 
-    /** A sample for each group of the names `type` feeds. No reader is asked again for it: the runner
+    /** A sample for each group of the names `type` feeds (D4's thinning). No reader is asked again for it: the runner
      * polls each at its `interval`, and the samples between are the next answer's batch. */
     private fun take(type: Int, event: SensorEvent) {
         latest[type] = event.values.clone()
         val at = stamp(event.timestamp)
         for ((name, byKey) in groups) {
-            val feeds = if (name == "deviceMotion") type == Sensor.TYPE_ACCELEROMETER else TYPES[name] == type
-            if (!feeds) continue
             for (g in byKey.values) {
+                val feeds = if (name == "deviceMotion") type == Sensor.TYPE_ACCELEROMETER else sensorType(name, g.args) == type
+                if (!feeds) continue
                 if (g.period > 0 && at < g.next - g.period / 2) continue
                 g.next = maxOf(g.next + g.period, at + g.period / 2)
                 g.sequence += 1
                 val screen = if (g.args.optString("referenceFrame") == "screen") angle() else 0
-                g.ring.addLast(Sample(g.sequence, fields(name, event.values, at, screen)))
+                g.ring.addLast(Sample(g.sequence, fields(name, event.values, at, screen, type == Sensor.TYPE_ROTATION_VECTOR)))
                 val bound = maxOf(1, minOf(RING, g.args.optInt("history", 0)))
                 while (g.ring.size > bound) g.ring.removeFirst()
                 val waiting = g.waiting.toList()
@@ -343,7 +346,7 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
         return JSONArray(listOf(x, y, z, w))
     }
 
-    private fun fields(name: String, v: FloatArray, at: Double, deg: Int): JSONObject = when (name) {
+    private fun fields(name: String, v: FloatArray, at: Double, deg: Int, absolute: Boolean): JSONObject = when (name) {
         "absoluteOrientationSensor", "relativeOrientationSensor" ->
             JSONObject().put("quaternion", quaternion(v, deg)).put("timestamp", at).put("apple", JSONObject.NULL)
         "deviceMotion" -> {
@@ -354,33 +357,36 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
                 .put("rotationRate", rate?.let { JSONObject().put("alpha", it[2] * d).put("beta", it[0] * d).put("gamma", it[1] * d) } ?: JSONObject.NULL)
                 .put("interval", registered[Sensor.TYPE_ACCELEROMETER]?.second?.let { it / 1000.0 } ?: 0.0).put("timeStamp", at)
         }
-        "deviceOrientation" -> orientation(v, at)
+        "deviceOrientation" -> orientation(v, at, absolute)
         else -> xyz(v, at, deg)
     }
 
-    /** Device Orientation's alpha, beta and gamma from a rotation vector, as Chromium computes them from the matrix. */
-    private fun orientation(v: FloatArray, at: Double): JSONObject {
+    /** Device Orientation's alpha, beta and gamma from a rotation vector, as Chromium computes them from the matrix;
+     * [absolute] when it is `TYPE_ROTATION_VECTOR`'s, of the Earth frame's magnetic north. */
+    private fun orientation(v: FloatArray, at: Double, absolute: Boolean): JSONObject {
         val m = FloatArray(9)
         SensorManager.getRotationMatrixFromVector(m, v)
+        // An unnormalized vector can round this element past ±1, where asin is NaN and `JSONObject.put` throws.
+        val sinBeta = m[7].toDouble().coerceIn(-1.0, 1.0)
         var alpha: Double
         var beta: Double
         var gamma: Double
         if (m[8] > 0) {
             alpha = atan2(-m[1].toDouble(), m[4].toDouble())
-            beta = asin(m[7].toDouble())
+            beta = asin(sinBeta)
             gamma = atan2(-m[6].toDouble(), m[8].toDouble())
         } else if (m[8] < 0) {
             alpha = atan2(m[1].toDouble(), -m[4].toDouble())
-            beta = -asin(m[7].toDouble())
+            beta = -asin(sinBeta)
             beta += if (beta >= 0) -PI else PI
             gamma = atan2(m[6].toDouble(), -m[8].toDouble())
         } else if (m[6] > 0) {
             alpha = atan2(-m[1].toDouble(), m[4].toDouble())
-            beta = asin(m[7].toDouble())
+            beta = asin(sinBeta)
             gamma = -PI / 2
         } else if (m[6] < 0) {
             alpha = atan2(m[1].toDouble(), -m[4].toDouble())
-            beta = -asin(m[7].toDouble())
+            beta = -asin(sinBeta)
             beta += if (beta >= 0) -PI else PI
             gamma = -PI / 2
         } else {
@@ -390,7 +396,7 @@ class MotionModule(context: ExtensionContext) : ExactExtension(context) {
         }
         if (alpha < 0) alpha += 2 * PI
         val d = 180 / PI
-        return JSONObject().put("alpha", alpha * d).put("beta", beta * d).put("gamma", gamma * d).put("absolute", false)
+        return JSONObject().put("alpha", alpha * d).put("beta", beta * d).put("gamma", gamma * d).put("absolute", absolute)
             .put("timeStamp", at).put("apple", JSONObject.NULL)
     }
 }

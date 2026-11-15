@@ -1,4 +1,4 @@
-//! Shelf pages stay valid while a frame or kept row references them.
+//! Shelf pages stay valid while a frame or kept row references them. @ref LLP 1149 D4, D8.
 use crate::device::{Device, Error, Format, Result, Submission, TextureDesc};
 use crate::instance::TextureId;
 use std::collections::HashMap;
@@ -207,7 +207,7 @@ impl Atlas {
         for p in &self.pages {
             let last = device.last_use(p.id)?;
             // The device orders consecutive uploads; only an unfinished draw
-            // prevents appending to the page.
+            // prevents appending to the page. @ref LLP 1149 D11, S2.5.
             if last > completed && last != p.upload {
                 busy.insert(p.id);
             }

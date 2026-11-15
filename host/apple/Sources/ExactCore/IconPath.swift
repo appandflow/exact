@@ -1,8 +1,8 @@
-// An icon token's path on Apple: an icon with no
+// An icon token's path on Apple (LLP 1121 D10; stage 9 A): an icon with no
 // `sf` source and a template SVG arrives as absolute `M`/`L`/`C`/`Z` commands,
 // `;` between its SVG's paths, and its viewBox (host/apple/src/icon_path.rs,
 // the kernel's parse). Each path is filled on its own, as Linux and the web
-// fill them, nonzero unless the icon says even-odd (`symbolFillRule`), under the viewBox kept in its aspect (`xMidYMid meet`,
+// fill them, nonzero unless the icon says even-odd (`symbolFillRule`, stage 14 C2), under the viewBox kept in its aspect (`xMidYMid meet`,
 // as Linux's `fitted` and the web's mask). The page's image views and the
 // widget snapshot both draw it from here.
 import CoreGraphics

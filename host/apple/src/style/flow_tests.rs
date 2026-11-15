@@ -107,7 +107,7 @@ fn a_box_inherits_visibility() {
     );
 }
 
-/// The dictionary names the rows its author wrote on
+/// LLP 1115.000 D2: the dictionary names the rows its author wrote on
 /// the node. A colour the compiler implied or a child only inherits
 /// crosses as a value and is not named; a platform colour and a colour
 /// equal to the parent's are named like any other; a written row no
@@ -166,7 +166,7 @@ fn the_dictionary_names_the_rows_its_author_wrote() {
     assert!(json(5).get("written").is_none(), "no row");
 }
 
-/// A colour moving on a field is its own, so `"written"`
+/// LLP 1115 D4: a colour moving on a field is its own, so `"written"`
 /// names it (a field reads its colour only there); an ancestor's moving
 /// colour, which it inherits, is not named.
 #[test]
@@ -247,7 +247,7 @@ fn quarters_spell_as_display_does() {
     }
 }
 
-/// The press scale and paint are the presenter's to
+/// LLP 1061 D2, D7: the press scale and paint are the presenter's to
 /// show, so they cross (a number, colours as any colour row's), where
 /// the engine's own `scale` never does.
 #[test]
@@ -269,7 +269,7 @@ fn the_press_rows_cross_and_the_motion_scale_does_not() {
     assert_eq!(style_json(&s, &Env::default()), (json.into(), vec![]));
 }
 
-/// A gradient crosses as its shape and ready-to-mix stops; a
+/// LLP 1066: a gradient crosses as its shape and ready-to-mix stops; a
 /// `light-dark()` one carries both appearances, and `none` nothing.
 #[test]
 fn a_gradient_crosses_as_shape_and_stops() {
@@ -296,7 +296,7 @@ fn a_gradient_crosses_as_shape_and_stops() {
 
 #[test]
 fn a_moving_colour_leaves_system_colours_and_the_rest_stay() {
-    // The row the motion paints is no longer a system
+    // LLP 1077 D13: the row the motion paints is no longer a system
     // colour; an untouched one keeps its name.
     let last = r#"{"text_color":[[0,0,0,255],[255,255,255,255]],"background_color":[[120,120,128,51],[120,120,128,92]],"system_colors":{"text_color":"-apple-system-label","background_color":"-exact-fill"}}"#;
     let mut shown = Shown::default();

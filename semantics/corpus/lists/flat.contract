@@ -1,4 +1,4 @@
-// `xs.flat()` (2026-10-17): JavaScript's
+// `xs.flat()` (LLP 1017.003 §Refused, 2026-10-17): JavaScript's
 // `Array.prototype.flat()` at depth 1, a list of lists' items in order;
 // `xs.map(f).flat()` is `flatMap`.
 shape Lane

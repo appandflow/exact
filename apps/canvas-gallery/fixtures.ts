@@ -1,9 +1,9 @@
-// The Canvas 2D gallery's fixtures: plain canvas code, written
+// The Canvas 2D gallery's fixtures (LLP 1056 §4): plain canvas code, written
 // as a web developer writes it. `app.ts` hands them to the recorder on every
 // host; `direct.html` runs the same functions against Chrome's own
 // CanvasRenderingContext2D, with no recorder and no glue — the API oracle.
 // Each is `(ctx, frame, args) => boolean | void`: true asks for a frame.
-// Pages 1–3 are the core drawing members; pages 4 and 5 the rest: text in the
+// Pages 1–3 are stage 1's members; pages 4 and 5 are stage 2's: text in the
 // app's declared face, images by handle, Path2D, patterns, conic gradients,
 // shadows, the clip-extent operators, raw pixels and wide colours.
 
@@ -17,7 +17,7 @@ const FACE = "'Exposure Sans'";
 type Fixture = (ctx: Ctx2D, frame: Frame, args: number[]) => boolean | void;
 
 export const fixtures: Record<string, Fixture> = {
-  // Arc direction under the flip (the first fixture): a clockwise
+  // Arc direction under the flip (LLP 1056 §4's first fixture): a clockwise
   // arc from 0 to π bulges down in canvas space, an anticlockwise one up.
   arc(ctx, f) {
     ctx.fillStyle = "#ef4444";
@@ -141,7 +141,7 @@ export const fixtures: Record<string, Fixture> = {
     ctx.save(); ctx.translate(45, 50); ctx.rotate(0.5); ctx.clearRect(-20, -12, 40, 24); ctx.restore();
     ctx.save(); ctx.beginPath(); ctx.arc(110, 50, 25, 0, TAU); ctx.clip(); ctx.clearRect(90, 20, 60, 30); ctx.restore();
   },
-  // An explicit bitmap (r3): 40 × 25 pixels stretched to the
+  // An explicit bitmap (LLP 1056 D6, r3): 40 × 25 pixels stretched to the
   // box, blurred as the browser blurs it.
   bitmap(ctx, f) {
     ctx.fillStyle = "#e2e8f0"; ctx.fillRect(0, 0, f.width, f.height);
@@ -150,7 +150,7 @@ export const fixtures: Record<string, Fixture> = {
     ctx.strokeStyle = "#dc2626"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, 25); ctx.lineTo(40, 0); ctx.stroke();
   },
 
-  // Page 4: text, in the declared face.
+  // Page 4: text, in the declared face (LLP 1056 D8).
   textalign(ctx) {
     ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(75.5, 0); ctx.lineTo(75.5, 100); ctx.stroke();
@@ -192,7 +192,7 @@ export const fixtures: Record<string, Fixture> = {
   },
 
   // Page 5: images, Path2D, patterns, conic gradients, shadows, the
-  // clip-extent operators, pixels.
+  // clip-extent operators, pixels (LLP 1056 D9, §3 stage 2).
   image(ctx) {
     ctx.reset(); // an "image" redraw repeats the draw on a kept context
     ctx.drawImage(TILE, 4, 4);
@@ -289,7 +289,7 @@ export const fixtures: Record<string, Fixture> = {
     if (step === 3) ctx.clearRect(0, 0, 60, 60);
   },
   throws(ctx, f, [step]) {
-    // A throw keeps what was drawn before it (r3).
+    // A throw keeps what was drawn before it (LLP 1056 D4, r3).
     ctx.fillStyle = "#f59e0b"; ctx.fillRect(10 + step * 20, 10, 18, 18);
     if (step % 2 === 1) { ctx.fillStyle = "#0f172a"; ctx.fillRect(10 + step * 20, 40, 18, 18); ctx.arc(0, 0, -1, 0, 1); }
     ctx.fillStyle = "#dc2626"; ctx.fillRect(10 + step * 20, 70, 18, 18);

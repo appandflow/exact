@@ -1,4 +1,4 @@
-# The Rust binding's fixture on Android's Canvas host:
+# The Rust binding's fixture on Android's Canvas host (LLP 1133.002 stage 4):
 # a library with no GPU module, so a module's Android implementation can be
 # driven on an emulator. Off Android the library is empty.
 [package]
@@ -17,7 +17,7 @@ bench = false
 
 [target.'cfg(target_os = "android")'.dependencies]
 module-fixture-data = { path = "../data" }
-exact-linux = { path = "../../../host/linux" }
+exact-painted = { path = "../../../host/painted" }
 
 [build-dependencies]
 module-fixture-data = { path = "../data" }

@@ -1,4 +1,4 @@
-//! Expose's pages as documents:
+//! Expose's pages as documents (LLP 1048.000 D9):
 //! `expose-render (--build | <location>… | --serve <dist>)`
 //! ([`exact_render::main`]). Each render runs a fresh module, baked from the
 //! same `app.ts` as the browser's, in an anonymous environment.

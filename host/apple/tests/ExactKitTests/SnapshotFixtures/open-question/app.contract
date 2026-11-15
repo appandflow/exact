@@ -1,9 +1,9 @@
-// A fidelity fixture: an interview app's open-question widget as a hand-built
-// SwiftUI baseline has it, one entry per family. It says what that baseline
-// says and no more: text styles, colour roles, the serif the app's headlines
-// use, a heading for the accented group, `aria-label`s, and
-// `data-privacy="public"` on what is not account content. The relative time
-// is a string.
+// LLP 1126.000 WP4's fidelity fixture: Interview's open-question widget as
+// the hand-built SwiftUI baseline (`spike/1126-baseline`) has it, one entry
+// per family. It says what that baseline says and no more: text styles,
+// colour roles, the serif the app's headlines use, a heading for the
+// accented group, `aria-label`s, and `data-privacy="public"` on what is not
+// account content. The relative time is a string until WP3's `time` lands.
 
 shape QuestionProps
   id: string
@@ -106,7 +106,7 @@ component QuestionRectangular
       text `Answered ${answeredAgo} ago` font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 data-privacy="public"
 
 // One entry for every family: the layout follows the family's content size,
-// which the entry's wrapper answers into `snapshot_viewport`.
+// which the entry's wrapper answers into `snapshot_viewport` (LLP 1126 D3).
 shape Viewport
   width: number
   height: number

@@ -1,12 +1,12 @@
-// A filtered element whose input changes frame to
+// @ref LLP 1055.000 D14 — a filtered element whose input changes frame to
 // frame (an animation inside it, sampled because a layer's own animation
 // would not show in pixels), kept on the GPU on iOS. Its first picture is
 // drawn as any island's; after that its sub-scene stays, is updated in
 // place, and is rendered by Core Animation on the GPU (`CARenderer`, as the
 // capture's shadow tree is) into a texture the filter chain reads, into an
-// IOSurface the layer shows: no CPU raster, no upload, no readback. A CSS
-// chain over a 400 × 300 scene with an orbit turning inside it spent
-// 480 ms/s of an iPhone's main thread re-making the
+// IOSurface the layer shows: no CPU raster, no upload, no readback. The
+// feature bench's F3 (a CSS chain over a 400 × 300 scene with an orbit
+// turning inside it) spent 480 ms/s of an iPhone's main thread re-making the
 // island on the CPU. The latest input wins: an update is drawn once after
 // the commit that asked for it, however many came in between; it is drawn on
 // a serial queue off the main thread (a sub-scene with text stays on the
@@ -112,6 +112,7 @@ final class SvgFilterLive {
         DispatchQueue.main.async { [weak self] in
             SvgFilterLive.inFlight -= 1
             self?.kick()
+            if SvgFilterLive.inFlight == 0 { ExactSession.workEndedEverywhere() }
         }
     }
 
@@ -209,6 +210,7 @@ final class SvgFilterLive {
                 started?.wait()
                 DispatchQueue.main.async { [weak self] in
                     SvgFilterLive.inFlight -= 1
+                    defer { if SvgFilterLive.inFlight == 0 { ExactSession.workEndedEverywhere() } }
                     guard let self else { return }
                     self.gpu -= 1
                     if let started { self.show(started.surface, started.shown) }

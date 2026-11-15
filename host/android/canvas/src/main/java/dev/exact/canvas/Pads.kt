@@ -9,7 +9,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 
 /**
- * The process's gamepads: a gamepad's or joystick's buttons ([KeyEvent]) and axes
+ * The process's gamepads (LLP 1127.003 D2; LLP 1133.022 D4): a gamepad's or joystick's buttons ([KeyEvent]) and axes
  * ([MotionEvent]) in the W3C Gamepad API's standard mapping (https://w3c.github.io/gamepad/#remapping), as Chrome on
  * Android reads them, sent to a world canvas ([Native.pad]) when a button or a quantized axis changed, and as
  * disconnected when Android removes the device. A pad's index is its slot: a device takes the lowest free one when
@@ -17,11 +17,12 @@ import android.view.MotionEvent
  *
  * It is the process's, not an activity's: an activity the system makes again while the process lives finds the
  * pads, `current` and the claims a module made through them (@exact/gamepad, [ExtensionPads]) where they were. The
- * activity that reads the host hands it every key and motion event first, whatever holds the focus, as a console's
- * game hears its pad. When that activity goes to the background each pad keeps its slot and the canvas hears it
- * all released, so a world's holds drop; Android has no call that reads a pad's state, so a pad reports itself
- * again with its next event: a motion event carries every axis, and a button held through the background reads up
- * until it is pressed again, as a key does.
+ * activity that reads the host hands it every key and motion event first, whatever holds the focus. Only while a
+ * canvas receives pad input are those events consumed; otherwise Android handles navigation. When that activity
+ * loses window focus or goes to the background each pad keeps its slot and the canvas hears it all released, so a
+ * world's holds drop. Android has no call that reads a pad's state, so a pad reports itself again with its next
+ * event: a motion event carries every axis, and a button held while unfocused reads up until it is pressed again,
+ * as a key does.
  *
  * **A drive's pads.** Under the agent (`EXACT_AGENT`, as the host reads it), `EXACT_AGENT_PADS` (the drive's
  * `x_agent_pads` launch extra) is a JSON list of `{"index", "id", "vendor", "product", "pressed", "leaves"}`: those pads take their
@@ -35,7 +36,7 @@ object Pads : InputManager.InputDeviceListener {
     private val slots = IntArray(MAX) { -1 }
     /** Each slot's reading, as last sent. */
     private val readings = arrayOfNulls<PadReading>(MAX)
-    /** The slot whose button last went down, -1 for none: the pad in use. */
+    /** The slot whose button last went down, -1 for none: the pad in use (LLP 1133.022 D2). */
     var current = -1
         private set
     private val watchers = LinkedHashMap<Any, () -> Unit>()
@@ -70,37 +71,39 @@ object Pads : InputManager.InputDeviceListener {
             readings[slot] = r
             val pressed = pad.optJSONArray("pressed")
             for (j in 0 until (pressed?.length() ?: 0)) r.key(pressed!!.optInt(j), true)
-            send(slot, r)
+            send(slot, r, 0)
             if (pressed != null && pressed.length() > 0) current = slot
             if (pad.has("leaves")) Handler(Looper.getMainLooper()).postDelayed({ onInputDeviceRemoved(id) }, pad.optLong("leaves"))
         }
     }
 
-    /** The app went to the background (said by the activity that reads the host): each pad's canvas reading is
-     * all released, and the slot kept. */
+    /** The activity that reads the host lost window focus or stopped: release each pad's canvas reading and keep
+     * its slot. */
     fun background() {
         for (slot in 0 until MAX) if (slots[slot] != -1) {
             val device = InputDevice.getDevice(slots[slot])
             readings[slot] = PadReading.of { axis -> device?.getMotionRange(axis) != null }
-            send(slot, readings[slot])
+            send(slot, readings[slot], 0)
         }
     }
 
-    /** A gamepad button's edge; whether it was one. */
-    fun key(e: KeyEvent): Boolean {
+    /** Observe a gamepad button's edge; consume it only while a canvas takes pad input. */
+    fun key(e: KeyEvent, takesInput: Boolean): Boolean {
+        // Android's synthesized navigation keys retain the pad's device id. They are not another pad reading.
+        if (e.flags and KeyEvent.FLAG_FALLBACK != 0) return false
         val button = BUTTONS[e.keyCode] ?: return false
         if (!isPad(e.deviceId) || (e.action != KeyEvent.ACTION_DOWN && e.action != KeyEvent.ACTION_UP)) return false
-        if (e.repeatCount > 0) return true
-        val (slot, r) = reading(e.deviceId) ?: return true
-        if (r.key(button, e.action == KeyEvent.ACTION_DOWN)) send(slot, r)
+        if (e.repeatCount > 0) return takesInput
+        val (slot, r) = reading(e.deviceId) ?: return takesInput
+        if (r.key(button, e.action == KeyEvent.ACTION_DOWN)) send(slot, r, e.eventTime)
         if (e.action == KeyEvent.ACTION_DOWN && current != slot) { current = slot; tell() }
-        return true
+        return takesInput
     }
 
-    /** A gamepad's or joystick's axes; whether they were its. */
-    fun motion(e: MotionEvent): Boolean {
+    /** Observe a gamepad's or joystick's axes; consume them only while a canvas takes pad input. */
+    fun motion(e: MotionEvent, takesInput: Boolean): Boolean {
         if (e.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK || e.action != MotionEvent.ACTION_MOVE) return false
-        val (slot, r) = reading(e.deviceId) ?: return true
+        val (slot, r) = reading(e.deviceId) ?: return takesInput
         val changed = r.motion(
             e.getAxisValue(MotionEvent.AXIS_X), e.getAxisValue(MotionEvent.AXIS_Y),
             e.getAxisValue(MotionEvent.AXIS_Z), e.getAxisValue(MotionEvent.AXIS_RZ),
@@ -109,8 +112,8 @@ object Pads : InputManager.InputDeviceListener {
             maxOf(e.getAxisValue(MotionEvent.AXIS_RTRIGGER), e.getAxisValue(MotionEvent.AXIS_GAS)),
             e.getAxisValue(MotionEvent.AXIS_HAT_X), e.getAxisValue(MotionEvent.AXIS_HAT_Y),
         )
-        if (changed) send(slot, r)
-        return true
+        if (changed) send(slot, r, e.eventTime)
+        return takesInput
     }
 
     override fun onInputDeviceRemoved(deviceId: Int) {
@@ -119,7 +122,7 @@ object Pads : InputManager.InputDeviceListener {
         slots[slot] = -1; readings[slot] = null
         injected.remove(deviceId)
         if (current == slot) current = -1
-        send(slot, null)
+        send(slot, null, 0)
         tell()
     }
     override fun onInputDeviceAdded(deviceId: Int) { if (isPad(deviceId)) reading(deviceId) }
@@ -162,7 +165,8 @@ object Pads : InputManager.InputDeviceListener {
         return slot to readings[slot]!!
     }
 
-    private fun send(slot: Int, r: PadReading?) = Exact.pad(slot, r != null, r?.values?.copyOf() ?: FloatArray(21))
+    /** [at] is the event's `eventTime` (`SystemClock.uptimeMillis()`), 0 for a send no event caused. */
+    private fun send(slot: Int, r: PadReading?, at: Long) = Exact.pad(slot, r != null, r?.values?.copyOf() ?: FloatArray(21), at)
 
     private const val MAX = 16
     /** Android's gamepad keys by standard index, as Chromium's Android mapping reads them. */

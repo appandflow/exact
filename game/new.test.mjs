@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { EXE } from '../scripts/paths.mjs';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -91,7 +92,7 @@ test('generated commands run from an external author directory with quoted paths
   try {
     const created=spawnSync(process.execPath,[resolve(import.meta.dir,'new.mjs'),'.'],{cwd:app,encoding:'utf8'});
     assert.equal(created.status,0,created.stderr);
-    // Its commands are its own runner's verbs, as an app's are.
+    // Its commands are its own runner's verbs, as an app's are (LLP 1086; the platformer's diary, R1).
     const verbs=created.stdout.split('\n').filter(line=>line.startsWith('  bun exact.mjs ')).map(line=>line.trim().split(/\s+/)[2]);
     assert.deepEqual(verbs,['test-rust','web','test','agent','mac','windows','prove'],created.stdout);
     const usage=spawnSync(process.execPath,['exact.mjs','nope'],{cwd:app,encoding:'utf8'}).stderr;
@@ -116,8 +117,11 @@ test('generated commands run from an external author directory with quoted paths
     for (const file of ['app-cli.mjs', 'bun.mjs']) cpSync(resolve(import.meta.dir, '../scripts', file), resolve(sdk, 'scripts', file));
     mkdirSync(resolve(sdk, 'js/bake/src'), { recursive: true });
     cpSync(resolve(import.meta.dir, '../js/bake/src/__exact_env.mjs'), resolve(sdk, 'js/bake/src/__exact_env.mjs'));
+    // An installed checkout's: a verb that builds is refused without node_modules (app-cli.mjs).
+    mkdirSync(resolve(sdk, 'node_modules/.bin'), { recursive: true });
+    writeFileSync(resolve(sdk, 'node_modules/.bin/rolldown'), '');
     writeFileSync(resolve(sdk,'host/windows/build.mjs'),`console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));`);
-    const windows=spawnSync(process.execPath,['exact.mjs','windows','--release','--run'],{cwd:app,env:{...process.env,EXACT2:sdk},encoding:'utf8'});
+    const windows=spawnSync(process.execPath,['exact.mjs','windows','--release','--run'],{cwd:app,env:{...process.env,EXACT:sdk},encoding:'utf8'});
     assert.equal(windows.status,0,windows.stderr);
     const forwarded=JSON.parse(windows.stdout);
     assert.deepEqual(forwarded.args,['outside-game','--release','--run']);
@@ -413,7 +417,7 @@ function treeHash(root, excluded) {
 }
 
 
-test('tree hash detects outside bytes and empty directories, excluding only the new game',()=>{
+test('R12 tree hash detects outside bytes and empty directories, excluding only the new game',()=>{
   const root=mkdtempSync(resolve(tmpdir(),'r12-tree-')),app=resolve(root,'new-game'),file=resolve(root,'outside');
   try {
     mkdirSync(app);writeFileSync(file,'before');
@@ -427,7 +431,7 @@ test('tree hash detects outside bytes and empty directories, excluding only the 
 });
 
 
-test('generation hash ignores touch but sees modes and symlink targets; writes through directory symlinks are not seen',()=>{
+test('R13 generation hash ignores touch but sees modes and symlink targets; writes through directory symlinks are not seen',()=>{
   const root=mkdtempSync(resolve(tmpdir(),'r13-tree-')), outside=mkdtempSync(resolve(tmpdir(),'r13-outside-'));
   try {
     const file=resolve(root,'source');writeFileSync(file,'same');const before=treeHash(root);
@@ -454,6 +458,21 @@ test('two copies of a new game derive byte-identical shell locks from the SDK lo
   } finally {rmSync(root,{recursive:true,force:true});}
 }, 120000);
 
+test('Rivals\' captured lock resolves its generated hosts without changing dependencies', async () => {
+  const {prepareGame, gameDefaults} = await import('./app/shells.mjs');
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'rivals-lock-')));
+  const dir = resolve(root, 'rivals'), source = resolve(import.meta.dir, 'games/rivals');
+  try {
+    mkdirSync(dir);
+    for (const entry of ['app.json', 'Cargo.lock', 'logic'])
+      cpSync(resolve(source, entry), resolve(dir, entry), {recursive:true});
+    const captured = readFileSync(resolve(dir, 'Cargo.lock'), 'utf8');
+    prepareGame(dir, gameDefaults(dir).game);
+    assert.equal(readFileSync(resolve(dir, 'Cargo.lock'), 'utf8'), captured);
+    assert.equal(readFileSync(resolve(dir, '.shells/Cargo.lock'), 'utf8'), captured);
+  } finally {rmSync(root, {recursive:true, force:true});}
+});
+
 test('game and generated shell workspaces inherit every root vendor patch', async () => {
   const {outsideWorkspaceProblems} = await import('../scripts/app.mjs');
   assert.deepEqual(outsideWorkspaceProblems(import.meta.dir), []);
@@ -471,13 +490,14 @@ test('a Windows game shell links the shared presenter its baked entry uses', () 
     const app = resolve(root, 'windows-game');
     createGame(app);
     const manifest = Bun.TOML.parse(readFileSync(resolve(app, '.shells/windows/Cargo.toml'), 'utf8'));
-    assert.deepEqual(manifest.dependencies['exact-linux'], {workspace:true});
+    assert.deepEqual(manifest.dependencies['exact-painted'], {workspace:true});
     assert.deepEqual(manifest.dependencies['exact-windows'], {workspace:true});
   } finally {rmSync(root, {recursive:true, force:true});}
 });
 
 test('the SDK lock decides every version; a game that adds packages captures its own lock', async () => {
-  const {outsideSdkLock,sdkLock}=await import('./app/shells.mjs');
+  const {sdkLock}=await import('./app/shells.mjs');
+  const {outsideSdkLock}=await import('../scripts/app-shells.mjs');
   const lock=packages=>`version = 4\n\n${packages.map(([name,version,source,deps])=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${source?`source = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${source}"\n`:''}${deps?`dependencies = [\n${deps.map(d=>` "${d}",\n`).join('')}]\n`:''}`).join('\n')}`;
   const sdk=lock([['glam','0.33.7','aa',['approx','libm']],['approx','0.5.1','bb'],['libm','0.2.16','cc'],['exact-game','0.1.0',null,['glam']]]);
   const members=new Set(['x-logic','x-gpu']);
@@ -494,7 +514,8 @@ test('the SDK lock decides every version; a game that adds packages captures its
 }, 120000);
 
 test('a root crate\'s new registry dependency or new path crate resolves before the SDK lock is refreshed', async () => {
-  const {outsideSdkLock,withRootPins}=await import('./app/shells.mjs');
+  const {withRootPins}=await import('./app/shells.mjs');
+  const {outsideSdkLock}=await import('../scripts/app-shells.mjs');
   const registry='registry+https://github.com/rust-lang/crates.io-index';
   const block=(name,version,checksum)=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${checksum?`source = "${registry}"\nchecksum = "${checksum}"\n`:''}`;
   const lock=(...blocks)=>`version = 4\n\n${blocks.join('\n')}`;
@@ -534,7 +555,8 @@ test('an empty Cargo cache permits adapter generation and refuses offline resolu
 
 
 test('lockDrift names what exact2 added and moved under a captured lock, never what the game chose', async () => {
-  const {lockDrift,lockChanges}=await import('./app/shells.mjs');
+  const {lockDrift}=await import('./app/shells.mjs');
+  const {lockChanges}=await import('../scripts/app-shells.mjs');
   const lock=packages=>`version = 4\n\n${packages.map(([name,version,source,deps])=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${source?`source = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${source}"\n`:''}${deps?`dependencies = [\n${deps.map(d=>` "${d}",\n`).join('')}]\n`:''}`).join('\n')}`;
   // exact2's text crate moved to parley, which brings fontique and a newer harfrust;
   // another shell's rand 0.8 is in the SDK lock, and this game chose rand 0.9.
@@ -569,7 +591,7 @@ test('lockDrift names what exact2 added and moved under a captured lock, never w
 });
 
 test('lock seeds the SDK lock\'s versions, a same-series bump included, and keeps the game\'s own packages', async () => {
-  const {lockSeed,staleLock}=await import('./app/shells.mjs');
+  const {lockSeed,staleLock}=await import('../scripts/app-shells.mjs');
   const block=(name,version,source)=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${source?`source = "${source}"\n`:''}`;
   const lock=(...blocks)=>`version = 4\n\n${blocks.join('\n')}`;
   const crates='registry+https://github.com/rust-lang/crates.io-index';
@@ -659,7 +681,7 @@ test('game/dev.mjs takes the next free port unless --port names a busy one', asy
   } finally {await new Promise(ok=>held.close(ok));}
 });
 
-test('compact authored manifest survives two bakes byte for byte', async () => {
+test('E10 compact authored manifest survives two bakes byte for byte', async () => {
   const {gameDefaults,gameShells}=await import('./app/shells.mjs');
   const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'e10-manifest-'))), app=resolve(parent,'my-game');
   try {
@@ -681,12 +703,12 @@ test('compact authored manifest survives two bakes byte for byte', async () => {
 });
 
 
-test('an app.json edited after its shells: the compiler says the copy is stale, and the bake the builds run consumes the edit', async () => {
+test('an app.json edited after its shells: the compiler says the copy is stale, and the bake the builds run consumes the edit (LLP 1139.004 D2)', async () => {
   const {gameDefaults,gameShells}=await import('./app/shells.mjs');
   const root=resolve(import.meta.dir,'..'), built=spawnSync('cargo',['build','-q','-p','contract','--bin','contract'],{cwd:root,encoding:'utf8'});
   assert.equal(built.status,0,built.stderr);
   const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'stale-shells-'))), app=resolve(parent,'my-game');
-  const build=()=>spawnSync(resolve(root,'target/debug/contract'),['build',resolve(app,'app.contract'),'-o',resolve(parent,'app.plan')],{encoding:'utf8'});
+  const build=()=>spawnSync(resolve(root,`target/debug/contract${EXE}`),['build',resolve(app,'app.contract'),'-o',resolve(parent,'app.plan')],{encoding:'utf8'});
   try {
     createGame(app);
     gameShells(app,gameDefaults(app).game,import.meta.dir);
@@ -704,7 +726,7 @@ test('an app.json edited after its shells: the compiler says the copy is stale, 
 }, 300000);
 
 
-test('host shells discover arguments without an engine build dependency', () => {
+test('D6 host shells discover arguments without an engine build dependency', () => {
   const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'d6-shells-'))), app=resolve(parent,'my-game');
   try {
     createGame(app);
@@ -742,7 +764,7 @@ test('Beacons is the files its author writes and survives two shell bakes', asyn
     assert.deepEqual(untracked,[],'bakes write only ignored files');
   }
 });
-test('explicit crate and type without an inferred declaration require identity',async()=>{
+test('R15 explicit crate and type without an inferred declaration require identity',async()=>{
   const {gameDefaults}=await import('./app/shells.mjs');
   const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'r15-identity-'))),app=resolve(parent,'odd-game');
   try {
@@ -827,7 +849,7 @@ test('--render scaffolds a render crate with an explicit shader root', async () 
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
-// Run each test binary the way a fresh clone would, from another
+// LLP 1132 D6: run each test binary the way a fresh clone would, from another
 // directory, with no assets/ written and no environment variable naming the game.
 test('the --assets scaffold\'s tests bake art in memory under both manifest layouts', async () => {
   const {gameDefaults, prepareGame} = await import('./app/shells.mjs');
@@ -841,7 +863,7 @@ test('the --assets scaffold\'s tests bake art in memory under both manifest layo
     assert.deepEqual(JSON.parse(readFileSync(resolve(app, 'app.json'), 'utf8')), {game:{assets:true}});
     for (const file of ['art/crate.gltf', 'logic/tests/model.rs']) assert.ok(existsSync(resolve(app, file)), file);
     assert.match(readFileSync(resolve(app, 'logic/src/lib.rs'), 'utf8'), /const ASSETS: &'static \[&'static str\] = &\["crate\.model"\];[^]*Mesh::asset\("crate\.model"\)/);
-    // The negative control: without the macro the same world cannot save.
+    // The negative control: without the macro the same world cannot save (F5).
     writeFileSync(resolve(app, 'logic/tests/control.rs'), `use exact_game::Sim;
 use model_game_logic::{ModelGame, Options};
 #[test]
@@ -900,7 +922,7 @@ exact-game-bake.workspace = true
   } finally { rmSync(root, {recursive:true, force:true}); }
 }, 1800000);
 
-// An agent looks names up before it reads engine source.
+// LLP 1132 D8: an agent looks names up before it reads engine source.
 test('a game\'s AGENTS.md lists vocab, the recipes and the name table first, and every path it names exists', () => {
   const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'game-notes-'))), app = resolve(root, 'reading-order');
   try {
@@ -917,7 +939,7 @@ test('a game\'s AGENTS.md lists vocab, the recipes and the name table first, and
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
-// A test file added after the shells were written is a target at
+// LLP 1132.000 F17: a test file added after the shells were written is a target at
 // the next `test-rust` (`shells.mjs <game> --test`), with no `shells` in between.
 test('test-rust makes a new logic/tests file a test target before Cargo runs', () => {
   const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'new-test-target-'))), app = resolve(root, 'tidal');
@@ -941,12 +963,18 @@ if (args[0] === 'test') appendFileSync(process.env.TARGETS_CALLS, JSON.stringify
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
-test('SDK graph drift is repaired by a lock refresh before locked consumers', async () => {
+test('SDK graph drift is repaired by the async lock refresh before locked consumers', async () => {
   const {sdkLock} = await import('./app/shells.mjs');
   const root = mkdtempSync(resolve(tmpdir(), 'sdk-drift-')), sdk = resolve(root, 'sdk'), dep = resolve(root, 'dep');
   mkdirSync(resolve(sdk, 'app'), {recursive:true}); mkdirSync(dep);
-  const manifest = version => `[package]\nname = "sdk-drift-dependency"\nversion = "${version}"\nedition = "2021"\n[lib]\npath = "lib.rs"\n`;
+  const manifest = (version, name = 'sdk-drift-dependency') => `[package]\nname = "${name}"\nversion = "${version}"\nedition = "2021"\n[lib]\npath = "lib.rs"\n`;
   try {
+    for (const [path, name] of [['logic', 'exact-logic'], ['vendor/ibex/crates/ibex2-sqlite', 'ibex2-sqlite']]) {
+      const dir = resolve(root, path);
+      mkdirSync(dir, {recursive:true});
+      writeFileSync(resolve(dir, 'Cargo.toml'), manifest('0.1.0', name));
+      writeFileSync(resolve(dir, 'lib.rs'), '');
+    }
     writeFileSync(resolve(dep, 'lib.rs'), ''); writeFileSync(resolve(dep, 'Cargo.toml'), manifest('0.1.0'));
     writeFileSync(resolve(sdk, 'Cargo.toml'), `[workspace]\nresolver = "2"\n[workspace.package]\nedition = "2021"\n[workspace.dependencies]\nsdk-drift-dependency = { path = "../dep" }\n`);
     sdkLock(sdk, {update:true}); sdkLock(sdk);
@@ -954,6 +982,9 @@ test('SDK graph drift is repaired by a lock refresh before locked consumers', as
     assert.throws(() => sdkLock(sdk), /stale for the SDK/);
     sdkLock(sdk, {update:true}); sdkLock(sdk);
     assert.match(readFileSync(resolve(sdk, 'app/shells.lock'), 'utf8'), /name = "sdk-drift-dependency"\nversion = "0.2.0"/);
+    const {checks} = await import('../scripts/async.mjs');
+    const steps = checks('head', 'base', {lane:[],glue:[]});
+    assert.ok(steps.findIndex(s => s[0] === 'game-lock') < steps.findIndex(s => s[0] === 'game'));
   } finally { rmSync(root, {recursive:true, force:true}); }
 }, 120000);
 
@@ -975,7 +1006,7 @@ test('generated logic targets rebuild from each snapshot sharing a Cargo target'
       const env = {...process.env,CARGO_TARGET_DIR:target,CARGO_BUILD_BUILD_DIR:target};
       const built = spawnSync('cargo',['build','--offline','--bin','probe'],{cwd:resolve(app,'.shells'),env,encoding:'utf8'});
       assert.equal(built.status,0,built.stderr);
-      const result = spawnSync(resolve(target,'debug/probe'),[],{encoding:'utf8'});
+      const result = spawnSync(resolve(target,`debug/probe${EXE}`),[],{encoding:'utf8'});
       assert.equal(result.status,0,result.stderr);
       assert.equal(result.stdout.trim(),String(value),'the product must contain this snapshot source');
     }

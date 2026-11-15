@@ -1,4 +1,4 @@
-//! Compression: brotli, else gzip, as `Accept-Encoding`
+//! Compression (LLP 1048.000 D11): brotli, else gzip, as `Accept-Encoding`
 //! allows, for text, scripts, the wasm and SVG, with `Vary:
 //! Accept-Encoding` and the encoding in the ETag. A page is compressed as it
 //! is sent (brotli at quality 5: a 57 KB document in about a millisecond),
@@ -185,7 +185,7 @@ pub(crate) fn against_at(
 }
 
 /// A cached page's bodies at brotli's and gzip's best, each only when it's
-/// smaller, made once off the request path.
+/// smaller, made once off the request path (D11).
 #[derive(Default)]
 pub(crate) struct Best {
     br: Option<Vec<u8>>,
@@ -396,7 +396,7 @@ pub(crate) fn none_match(header: Option<&str>, etag: &str) -> bool {
     })
 }
 
-/// Every file under `dist` worth compressing, the pages aside, by the
+/// Every public file under `dist` worth compressing, the pages aside, by the
 /// canonical path the server finds a request's file at, smallest first: the
 /// glue a first load waits on is ready in moments, the wasm (seconds at
 /// brotli's best) after it.
@@ -405,13 +405,32 @@ pub(crate) fn files(dist: &Path) -> Vec<PathBuf> {
     let Ok(root) = dist.canonicalize() else {
         return found;
     };
-    let mut dirs = vec![root];
+    let mut dirs = vec![root.clone()];
+    let mut visited = std::collections::HashSet::new();
     while let Some(dir) = dirs.pop() {
+        if !visited.insert(dir.clone()) {
+            continue;
+        }
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
         for entry in entries.flatten() {
             let path = entry.path();
+            if !path
+                .strip_prefix(&root)
+                .is_ok_and(crate::files::public_path)
+            {
+                continue;
+            }
+            let Ok(path) = path.canonicalize() else {
+                continue;
+            };
+            if !path
+                .strip_prefix(&root)
+                .is_ok_and(crate::files::public_path)
+            {
+                continue;
+            }
             if path.is_dir() {
                 dirs.push(path);
                 continue;
@@ -428,6 +447,7 @@ pub(crate) fn files(dist: &Path) -> Vec<PathBuf> {
             path.clone(),
         )
     });
+    found.dedup();
     found
 }
 

@@ -37,7 +37,7 @@ extension NodeView {
     }
     /// The binding's recognizers: eligible handles only, and the pinch only
     /// where the platform would not zoom — a node from here up whose
-    /// `touch-action` excludes `pinch-zoom`, as the browser decides.
+    /// `touch-action` excludes `pinch-zoom`, as the browser decides (§2).
     /// The pan leaves the platform an axis the handle's own `touch-action`
     /// names when a scroller would take it (rule 2: `pan-x` on a pager's
     /// photo pages it sideways), as a browser cancels the pointer; `auto`

@@ -1,6 +1,6 @@
-// The library gate's fixture app (scripts/library-gate.mjs drives it): every
+// LLP 1139 §5 E's fixture app (scripts/stage12-gate.mjs drives it): every
 // exported component of @exact/cards, @exact/actions and @exact/lists, once per value of
-// each variant prop as the compiler marks them (a bool or enum a class
+// each variant prop as the compiler marks them (D5: a bool or enum a class
 // condition or a style row's ?: or match reads), one varied at a time (the
 // others at their first value; a bool's first is false), and a component
 // with none once. Cells whose id starts `sample-` show other states (a
@@ -106,10 +106,10 @@ component App
         ProfileHeader(id="sample-ph-avatar", bannerSrc="", avatarSrc="symbol:person", avatarFlight="", name="Ada Lindqvist", handle="ada.fixture.invalid", badge="none", followsYou=false, followers="1.2K", followersNoun="followers", follows="210", posts="3.4K", alerts=[], note="", blocked=false, compact=false, pull=0, openAvatar=press, openFollowers=press, openFollows=press, openAlert=pick)
           box testId="marker-sample-ph-avatar" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph
-        // A person's picture and badge as an app places them.
-        // Neither has an id prop, so each cell is the box that holds
-        // it, named for it. Neither has a variant the compiler marks (the
-        // badge, an enum, is read by an `if`), so each has one
+        // A person's picture and badge as an app places them (LLP 1121 stage
+        // 15 B). Neither has an id prop, so each cell is the box that holds
+        // it, named for it. Neither has a variant the compiler marks (D5; the
+        // badge, an enum since batch 2, is read by an `if`), so each has one
         // cell: the avatar without a picture (the default figure) and the
         // "verified" badge; then the avatar with a picture, and the badge's
         // other values, "verifier" and "none" (an empty box), as samples.
@@ -237,7 +237,7 @@ component App
           FollowButton(id="sample-fb-round-tiny", following=false, text="Follow", label="Follow Ada", tone="primary", size="tiny", shape="round", icon="both", press=press)
           FollowButton(id="sample-fb-icon-follow-following", following=true, text="Following", label="", tone="primary", size="small", shape="pill", icon="follow", press=press)
           FollowButton(id="sample-fb-icon-following-following", following=true, text="Following", label="", tone="primary", size="small", shape="pill", icon="following", press=press)
-        // What a list shows with nothing in it: the
+        // What a list shows with nothing in it (stage 15 B batch 2): the
         // base cell with every piece shown (the icon, title, message and a
         // button with its icon), then each other icon size, tone and button
         // tone alone; then the message alone, and a button with no icon and
@@ -251,7 +251,7 @@ component App
           EmptyState(id="es-secondary", icon="symbol:info", iconSize="medium", tone="high", title="No lists yet", message="Lists you make show here.", button="New list", buttonLabel="", buttonIcon="symbol:mail", buttonTone="secondary", press=press)
           EmptyState(id="sample-es-message", icon="", iconSize="medium", tone="high", title="", message="Nothing here yet.", button="", buttonLabel="", buttonIcon="", buttonTone="primary", press=press)
           EmptyState(id="sample-es-button", icon="", iconSize="medium", tone="high", title="", message="Say hi to someone", button="New chat", buttonLabel="Start a new chat", buttonIcon="", buttonTone="primary", press=press)
-        // A menu's items in their group. MenuGroup has
+        // A menu's items in their group (stage 15 B batch 2). MenuGroup has
         // no id prop, so its cell is the box holding it; its slot's marker
         // first, then items. MenuItem's destructive value, one at a time; a
         // group's first item (no hairline above it, structure) a sample.
@@ -263,7 +263,7 @@ component App
             MenuItem(id="mi-base", label="Settings", icon="symbol:settings", destructive=false, first=false, pick=press)
             MenuItem(id="mi-destructive", label="Sign out", icon="symbol:sign-out", destructive=true, first=false, pick=press)
         // The lists' rows sit in a grouped list's section, as the platform's
-        // list cells do: each accessory and a destructive row are
+        // list cells do (LLP 1084): each accessory and a destructive row are
         // samples (structure and an attribute, no recipe).
         list appearance="auto" listStyle="inset-grouped" testId="gate-lists" flex-shrink=0
           section

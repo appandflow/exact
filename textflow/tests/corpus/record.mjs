@@ -19,8 +19,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from '../../../scripts/agent-launch.mjs';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 const out = join(here, 'breaks.txt');
 const ENGINES = ['chrome', 'webkit', 'firefox'];
 const chrome = chromium().executable;

@@ -1,10 +1,10 @@
-// What a route's authored header and the root's
+// @ref LLP 1075.003 §9.10 — what a route's authored header and the root's
 // tablist say about the bars beyond a title and items, declared, with no
 // module: the heading's group as a richer title (an avatar, a subtitle, a
 // press), and the tab bar hidden for a route pushed while the authored
 // tablist is. The web, macOS, Linux and the agent paint what is authored,
 // which is where each rule comes from.
-// Which routes show the bar (`routeShowsBar`,
+// @ref LLP 1115.000 D5.2, D5.3 — which routes show the bar (`routeShowsBar`,
 // by `NavigationRules.bar`): each route's own header, the system Back alone
 // on a pushed route with none, and no bar where the route says so.
 #if os(iOS) || os(tvOS)
@@ -13,12 +13,16 @@ import UIKit
 /// The heading's group in a header-shaped route: the element around the
 /// heading that holds no bar item, search field or tablist — or the
 /// pressable element around it, which a tap on the title presses — else
-/// the header itself. Before the heading, a filled box
+/// the header itself (LLP 1116 D2). Before the heading, a filled box
 /// holding a text or a symbol is the title's avatar (in a wrapper group
 /// only: a box beside the heading in the header is no avatar); after it,
 /// the first text is its subtitle.
 struct HeaderTitle: Equatable {
     let id: UInt32, testId: String?
+    let heading: NodeView
+    /// The projected font for equality; the view resolves unsaid metrics
+    /// again in its own traits when Dynamic Type changes.
+    let font: UIFont?
     let avatar: BadgeFace?
     let subtitle: String
     /// The nodes the title shows besides the heading: the avatar's box and
@@ -55,7 +59,7 @@ struct HeaderTitle: Equatable {
         // No wrapper qualifies (the heading is the header's own child, or
         // what wraps it holds a bar item): the header is the group, whose
         // walk passes over the items, the search field and the tablist as
-        // controls.
+        // controls (LLP 1116 D2, amending LLP 1075.003 §9.10).
         let wrapper = tap ?? chain.last(where: { a in !apart.contains { $0.isDescendant(of: a) } })
         let group = wrapper ?? header
         var avatar: BadgeFace?, subtitle = "", glyphs: [Glyph] = [], passed = false, spoken: String?, rtl = false
@@ -149,6 +153,8 @@ struct HeaderTitle: Equatable {
         guard tap != nil || avatar != nil || !subtitle.isEmpty || !titleGlyphs.isEmpty else { return nil }
         id = group.id
         testId = group.props["testId"]
+        self.heading = heading
+        font = heading.authoredTitleFont(over: .preferredFont(forTextStyle: .headline, compatibleWith: heading.traitCollection))
         self.avatar = avatar
         self.subtitle = subtitle
         self.placed = placed
@@ -170,8 +176,11 @@ struct HeaderTitle: Equatable {
     }
 
     /// Everything the title is drawn from.
-    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(rtl):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }.joined(separator: "\u{1F}")):\(tap ?? 0):\(accessibilityDisabled):\(titleGlyphs.map(\.source).joined(separator: "\u{1F}"))" }
-    static func == (a: HeaderTitle, b: HeaderTitle) -> Bool { a.source == b.source }
+    var source: String {
+        let typography = font.map { "\($0.fontName)/\($0.pointSize)/\(TextEngine.controlWeight($0))" } ?? ""
+        return "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(rtl):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }.joined(separator: "\u{1F}")):\(tap ?? 0):\(accessibilityDisabled):\(titleGlyphs.map(\.source).joined(separator: "\u{1F}")):\(typography)"
+    }
+    static func == (a: HeaderTitle, b: HeaderTitle) -> Bool { a.source == b.source && a.font == b.font }
 
     static func holdsHeading(_ node: NodeView) -> Bool {
         node.container.subviews.contains { child in
@@ -183,17 +192,17 @@ struct HeaderTitle: Equatable {
 
 extension HeaderShape {
     /// The header a route's bar is projected from in the app: its shape,
-    /// unless the route says it has no bar (`navigationBar="none"`), where
-    /// its header paints in the page as written, or
+    /// unless the route says it has no bar (`navigationBar="none"`, LLP
+    /// 1115.000 D5.2), where its header paints in the page as written, or
     /// its header is hidden as authored (`display: none`): a header the web
-    /// does not show is no bar's, and its route is one with no
+    /// does not show is no bar's (§9.10), and its route is one with no
     /// header. Both are the shared rule's (`HeaderRule`, `projected`).
     static func bar(of route: NodeView, back: String? = nil, backIsUIKits: Bool = true) -> HeaderShape? {
         HeaderShape(route: route, back: back, backIsUIKits: backIsUIKits, projected: true)
     }
 
-    /// The heading's group as the bar shows it. A tablist's
-    /// segments take the title view first: beside them a group
+    /// The heading's group as the bar shows it (§9.10). A tablist's
+    /// segments take the title view first (§9.8): beside them a group
     /// shows only as UIKit's own subtitle (iOS 26), never drawn.
     static func presented(_ group: HeaderTitle?, segments: NodeView?) -> HeaderTitle? {
         guard let group else { return nil }
@@ -201,7 +210,7 @@ extension HeaderShape {
     }
 
     /// Whether the bar shows `node`, a node of the header it replaces, or
-    /// stands for it: a node it places, one inside such a
+    /// stands for it (LLP 1116 D2): a node it places, one inside such a
     /// node (a button's face), or one holding one (the header, a wrapper).
     /// Everything else in the header is hidden with it on iOS, which the
     /// agent says under its own chrome (`unshownByBar`). A node outside the
@@ -222,8 +231,9 @@ extension HeaderShape {
     }
 }
 
-/// A title drawn from the heading's group: the avatar, the heading over
-/// its subtitle in the bar's own type, a tap pressing the group.
+/// A title drawn from the heading's group: the avatar, the heading in its
+/// authored font or the bar's headline over a footnote subtitle, a tap
+/// pressing the group.
 final class HeaderTitleView: UIControl {
     private weak var host: NavigationHost?
     private var tap: UInt32?
@@ -240,7 +250,7 @@ final class HeaderTitleView: UIControl {
     private lazy var avatarHeight = avatar.heightAnchor.constraint(equalToConstant: BadgeFace.size)
 
     /// The theme's `secondary-label` on the subtitle, set again when a live
-    /// edit moves the roles.
+    /// edit moves the roles (LLP 1121 stage 5).
     func retheme() {
         guard let host else { return }
         subtitle.textColor = ThemeRoles.color("secondary-label", in: host.presenter.root, or: .secondaryLabel)
@@ -272,14 +282,13 @@ final class HeaderTitleView: UIControl {
             stack.centerXAnchor.constraint(equalTo: centerXAnchor), stack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         addTarget(self, action: #selector(pressed), for: .touchUpInside)
-        // The subtitle's symbols are sized from its font: rebuild them when
-        // the text size changes (their colour is the run's, already dynamic).
+        // Symbols are sized from their line's font: rebuild them and resolve
+        // the heading's unsaid metrics when the text size changes.
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: HeaderTitleView, _: UITraitCollection) in
             guard let (group, text) = view.shown else { return }
             view.shown = nil
-            view.title.font = .preferredFont(forTextStyle: .headline, compatibleWith: view.traitCollection)
             view.subtitle.font = .preferredFont(forTextStyle: .footnote, compatibleWith: view.traitCollection)
-            view.update(group, title: text)
+            view.update(group, title: text, ink: view.shownInk ?? .label)
         }
         isAccessibilityElement = true
     }
@@ -305,11 +314,11 @@ final class HeaderTitleView: UIControl {
             if let name = glyph.symbol {
                 // A template symbol in the run's font: TextKit tints it with
                 // the run's (dynamic) colour, so it follows the appearance.
-                guard let image = FaceSymbol.image(name, points: font.pointSize, configuration: UIImage.SymbolConfiguration(font: font))?.withRenderingMode(.alwaysTemplate) else { continue }
+                guard let image = FaceSymbol.image(name, points: font.pointSize, configuration: UIImage.SymbolConfiguration(font: font))?.withRenderingMode(FaceSymbol.isOriginal(name) ? .alwaysOriginal : .alwaysTemplate) else { continue }
                 let attachment = NSTextAttachment(image: image)
-                // An svg-only icon's path is no symbol TextKit
+                // An svg-only icon's path (stage 9 A2) is no symbol TextKit
                 // seats on the line: its em square centred on the cap height.
-                if FaceSymbol.isPath(name) {
+                if FaceSymbol.isCustom(name) {
                     attachment.bounds = CGRect(x: 0, y: (font.capHeight - image.size.height) / 2, width: image.size.width, height: image.size.height)
                 }
                 let symbol = NSMutableAttributedString(attachment: attachment)
@@ -327,9 +336,9 @@ final class HeaderTitleView: UIControl {
         let out = NSMutableAttributedString()
         func append(_ glyph: HeaderTitle.TitleGlyph) {
             guard let image = FaceSymbol.image(glyph.name, points: font.pointSize,
-                configuration: UIImage.SymbolConfiguration(font: font))?.withRenderingMode(.alwaysTemplate) else { return }
+                configuration: UIImage.SymbolConfiguration(font: font))?.withRenderingMode(FaceSymbol.isOriginal(glyph.name) ? .alwaysOriginal : .alwaysTemplate) else { return }
             let attachment = NSTextAttachment(image: image)
-            if FaceSymbol.isPath(glyph.name) {
+            if FaceSymbol.isCustom(glyph.name) {
                 attachment.bounds = CGRect(x: 0, y: (font.capHeight - image.size.height) / 2, width: image.size.width, height: image.size.height)
             }
             let symbol = NSMutableAttributedString(attachment: attachment)
@@ -350,13 +359,18 @@ final class HeaderTitleView: UIControl {
     private var shown: (HeaderTitle, String)?
     private var shownInk: UIColor?
 
-    func update(_ group: HeaderTitle, title text: String) {
+    /// The title drawn from `group`, `text` in the heading's colour `ink`.
+    /// `ink` reaches the label only as its line is built: assigning a
+    /// label's `textColor` recolours all of its attributed text (Apple,
+    /// `UILabel.textColor`), so a coloured symbol in the line would take it.
+    func update(_ group: HeaderTitle, title text: String, ink: UIColor = .label) {
         // Every batch projects the routes again: an unchanged title is left
         // alone, since invalidating its size relaid the whole navigation
         // bar out each time (~1 ms a batch, a fling's every frame).
-        if let shown, shown.0 == group, shown.0.testId == group.testId, shown.1 == text, shownInk?.isEqual(title.textColor) == true { return }
+        if let shown, shown.0 == group, shown.0.testId == group.testId, shown.1 == text, shownInk?.isEqual(ink) == true { return }
         shown = (group, text)
-        shownInk = title.textColor
+        shownInk = ink
+        title.textColor = ink
         #if EXACT_INSPECT
         groupId = group.id
         #endif
@@ -365,6 +379,8 @@ final class HeaderTitleView: UIControl {
         avatar.isHidden = group.avatar == nil
         avatarWidth.constant = group.avatar?.size ?? 0
         avatarHeight.constant = group.avatar?.size ?? 0
+        let base = UIFont.preferredFont(forTextStyle: .headline, compatibleWith: traitCollection)
+        title.font = group.heading.authoredTitleFont(over: base) ?? base
         title.attributedText = group.titleGlyphs.isEmpty ? nil : Self.titleLine(group, text: text, font: title.font, colour: title.textColor)
         if group.titleGlyphs.isEmpty { title.text = text }
         subtitle.attributedText = Self.line(group, font: subtitle.font, colour: subtitle.textColor)
@@ -387,8 +403,8 @@ extension NavigationHost {
     /// What the agent says of a header node the bar leaves out.
     static let unshownReason = "the iOS navigation bar does not show this node; in the app it is not visible (the bar shows a header's heading, the first text after it as its subtitle, one search field, one tablist and its buttons)"
 
-    /// The authored header nodes the iOS navigation bar would not show,
-    /// by id. Under the agent's own chrome the header paints
+    /// The authored header nodes the iOS navigation bar would not show
+    /// (LLP 1116 D2), by id. Under the agent's own chrome the header paints
     /// as on the web, so such a node still answers `expect` and shows in a
     /// screenshot; the agent marks it, and refuses a tap on it, by this.
     /// Each shown header of a route whose stack has a bar in the app (not
@@ -437,7 +453,7 @@ extension NavigationHost {
     #endif
 
     /// What a route shows of the bar, where its stack's routes may show it
-    /// (`NavigationRules.bar`): its header, the system
+    /// (`NavigationRules.bar`, LLP 1115.000 D5.2): its header, the system
     /// Back alone, or nothing.
     func bar(of route: NodeView, pushed: Bool) -> NavigationRules.Bar {
         if HeaderRule.keepsAuthoredHeader(route) { return .hidden }
@@ -446,15 +462,14 @@ extension NavigationHost {
     }
 
     /// Whether a route shows the bar: its stack's routes may, and the route
-    /// has something to show in it. A held stack's (no `nav`) may, as no
-    /// hatch has said otherwise.
-    func routeShowsBar(_ c: RouteController, in nav: UINavigationController?) -> Bool {
-        (nav.map(barShows) ?? !ExactEnv.authoredChrome) && bar(of: c.node, pushed: c.pushed) != .hidden
+    /// has something to show in it.
+    func routeShowsBar(_ c: RouteController, in nav: UINavigationController) -> Bool {
+        barShows(nav) && bar(of: c.node, pushed: c.pushed) != .hidden
     }
 
     /// Whether the bar is UIKit's for now on a route's account: its header
     /// search is active or being presented or dismissed, and UIKit hides and
-    /// shows the bar for it (`hidesNavigationBarDuringPresentation`).
+    /// shows the bar for it (`hidesNavigationBarDuringPresentation`, §9.6).
     func searching(_ c: RouteController?) -> Bool {
         guard let search = c?.search?.controller else { return false }
         return search.isActive || search.isBeingPresented || search.isBeingDismissed
@@ -485,9 +500,10 @@ extension NavigationHost {
         // The bar's tint is the route's accent, as a hand-built app tints its bar for the screen it shows:
         // its title, items and field in the tint draw it and grey behind a sheet or an alert. A tint a
         // hatch gave the bar stays (`NavigationStack.hatchTintsBar`).
-        if let c, !stack.hatchTintsBar, c.node.ownAccent != stack.barTint {
-            nav.navigationBar.tintColor = c.node.ownAccent
-            stack.barTint = c.node.ownAccent
+        // More's list is no route: its bar takes back UIKit's tint.
+        if c != nil || nav === more, !stack.hatchTintsBar, c?.node.ownAccent != stack.barTint {
+            nav.navigationBar.tintColor = c?.node.ownAccent
+            stack.barTint = c?.node.ownAccent
         }
         guard !searching(c) else { return }
         let shows = c.map { routeShowsBar($0, in: nav) } ?? barShows(nav)
@@ -506,10 +522,10 @@ extension NavigationHost {
         #endif
     }
 
-    /// The heading's group as the item's title. A subtitle alone is
+    /// The heading's group as the item's title (§9.10). A subtitle alone is
     /// UIKit's own (`navigationItem.subtitle`, iOS 26); an avatar or a press,
     /// or a subtitle before iOS 26, is a drawn title view. A tablist's
-    /// segments take the title view first. What a hatch set instead —
+    /// segments take the title view first (§9.8). What a hatch set instead —
     /// another title view, its own subtitle — is left alone.
     func richTitle(_ shape: HeaderShape?, in c: RouteController) {
         let item = c.navigationItem
@@ -531,8 +547,7 @@ extension NavigationHost {
             return
         }
         let view = c.titleView ?? HeaderTitleView(host: self)
-        view.title.textColor = shape.heading?.ownUIColor("text_color") ?? .label
-        view.update(group, title: shape.title)
+        view.update(group, title: shape.title, ink: shape.heading?.ownUIColor("text_color") ?? .label)
         if c.titleView !== view {
             c.titleView = view
             if item.titleView == nil { item.titleView = view }
@@ -545,9 +560,9 @@ extension NavigationHost {
     /// above. The route the root names follows the tablist; routes pushed
     /// with it in one batch (a cold launch's) take the same. Written on
     /// change, so a hatch's own value stands till then. The root itself
-    /// follows too: its tablist
-    /// hidden hides the bar, shown shows it, both with UIKit's own animated
-    /// `setTabBarHidden` (iOS 18), as Signal hides its tab bar for the chat
+    /// follows too (LLP 1075.003 §3.7, amended 2026-10-05): its tablist
+    /// hidden hides the bar, shown shows it, with UIKit's `setTabBarHidden`
+    /// (iOS 18), as Signal hides its tab bar for the chat
     /// list's multi-select.
     func followTablist(_ routes: [RouteController], in stack: UIViewController) {
         guard !ExactEnv.authoredChrome, let key = selectedKey,
@@ -575,7 +590,7 @@ extension NavigationHost {
             let wish = floatingStackHides(nav) ?? hidden
             if !wish, Self.underHides(nav, c) { continue }
             if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden != wish {
-                tabs.setTabBarHidden(wish, animated: nav.view.window != nil)
+                setTabBarHidden(wish, in: tabs, animated: nav.view.window != nil)
                 tablistHidBar = wish
             }
         }
@@ -587,18 +602,18 @@ extension NavigationHost {
         // (Not while a route above the root still hides it, on a phone by UIKit's flag, on an iPad by Exact's.)
         if !hidden, !nav.viewControllers.dropFirst().contains(where: Self.hidesBar),
            tablistHidBar, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs {
-            if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: nav.view.window != nil) }
+            if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden { setTabBarHidden(false, in: tabs, animated: nav.view.window != nil) }
             tablistHidBar = false
         }
     }
 
-    /// The root on top. Its wish is
+    /// The root on top (LLP 1075.003 §3.7, amended 2026-10-05). Its wish is
     /// recorded whenever it is the selected route or a transition settles on
-    /// it (`tablistHidden`), and the bar moves, animated
-    /// once the stack is on screen, when the wish changes or the root has
+    /// it (`tablistHidden`), and the bar moves when the wish changes or the root has
     /// just arrived on top: a transition settled on it (`settleTablist`, from
     /// `didShow`, after a pop UIKit may have brought the bar back for) or
-    /// another tab's root was selected. A hidden tablist hides the bar; a
+    /// another tab's root was selected. On screen it animates unless it swaps
+    /// with an authored row. A hidden tablist hides the bar; a
     /// shown one shows it only if Exact hid it (`tablistHidBar`), so a hatch's
     /// own hide stands, and between those moments nothing is written, so a
     /// hatch's own show stands too. Never mid-transition: a change made then
@@ -624,9 +639,9 @@ extension NavigationHost {
         let animated = stack.viewIfLoaded?.window != nil
         if hidden {
             // Exact owns the hide only if it made it: a hatch's own stands.
-            if !tabs.isTabBarHidden { tabs.setTabBarHidden(true, animated: animated); tablistHidBar = true }
+            if !tabs.isTabBarHidden { setTabBarHidden(true, in: tabs, animated: animated); tablistHidBar = true }
         } else if tablistHidBar {
-            if tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: animated) }
+            if tabs.isTabBarHidden { setTabBarHidden(false, in: tabs, animated: animated) }
             tablistHidBar = false
         }
     }
@@ -637,8 +652,8 @@ extension NavigationHost {
     /// takes that route's wish with `setTabBarHidden`, hidden if it or a
     /// route below it (the root aside) hides it, as UIKit reads the flag on
     /// a phone, and shown again only if Exact hid it (`tablistHidBar`). The
-    /// root on top is `followTablistAtRoot`'s, after the transition. An
-    /// interactive pop that is cancelled shows
+    /// root on top is `followTablistAtRoot`'s, after the transition (the
+    /// lead's ruling, 2026-10-19). An interactive pop that is cancelled shows
     /// its source again, and so its wish.
     func followFloatingBar(_ nav: UINavigationController, for c: UIViewController, animated: Bool) {
         #if os(iOS)
@@ -656,10 +671,10 @@ extension NavigationHost {
         }
         guard let at = stack.firstIndex(where: { $0 === c }), at > 0, let hidden = floatingStackHides(nav, through: Array(stack[...at])) else { return }
         if hidden, !tabs.isTabBarHidden {
-            tabs.setTabBarHidden(true, animated: animated)
+            setTabBarHidden(true, in: tabs, animated: animated)
             tablistHidBar = true
         } else if !hidden, tablistHidBar {
-            if tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: animated) }
+            if tabs.isTabBarHidden { setTabBarHidden(false, in: tabs, animated: animated) }
             tablistHidBar = false
         }
         #endif
@@ -683,8 +698,9 @@ extension NavigationHost {
     /// Whether a route between the root and `c` (not `c`) hides the bar by
     /// UIKit's flag, which keeps it hidden over `c` on a phone too.
     static func underHides(_ nav: UINavigationController, _ c: UIViewController) -> Bool {
-        guard let at = nav.viewControllers.firstIndex(where: { $0 === c }), at > 1 else { return false }
-        return nav.viewControllers[1..<at].contains(where: hidesBar)
+        let routes = nav.stackRoutes
+        guard let at = routes.firstIndex(where: { $0 === c }), at > 1 else { return false }
+        return routes[1..<at].contains(where: hidesBar)
     }
 
     /// UIKit's flag, which tvOS has none of: its tab bar is the top's, and a push never hides it.
@@ -715,7 +731,7 @@ extension NavigationHost {
     /// reconciles the bar with its tablist.
     func settleTablist(_ nav: UINavigationController) {
         guard !ExactEnv.authoredChrome, let key = selectedKey,
-              let root = nav.viewControllers.first as? RouteController, root.key == key, nav.topViewController === root,
+              let root = nav.stackRoutes.first as? RouteController, root.key == key, nav.topViewController === root,
               let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist })
         else { return }
         followTablistAtRoot(root, hidden: list.style["display"]?.string == "none", in: nav)

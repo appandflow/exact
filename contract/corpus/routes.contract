@@ -1,4 +1,4 @@
-// Interview's table and the selected stack as rows.
+// @ref LLP 1038 D2/D3, D6 — Interview's table and the selected stack as rows.
 routes nav
   tab home "/"
     notifications "/notifications"

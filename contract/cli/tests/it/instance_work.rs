@@ -266,8 +266,8 @@ fn signed_zero_changes_are_observable_inside_an_unchanged_row_key() {
     assert_eq!(r.last_instance_work().rows_reused, 0);
 }
 
-/// `perf <target>`: site totals across lifetimes, the hygiene number, and
-/// receipt membership split by who changed the node.
+/// `perf <target>` (LLP 1079 D1–D2): site totals across lifetimes, the
+/// hygiene number, and receipt membership split by who changed the node.
 #[test]
 fn perf_counts_each_sites_work_across_its_instances_lifetimes() {
     struct Three;
@@ -401,9 +401,9 @@ component App
     assert_eq!(tinted["truncated"], false);
 }
 
-/// Measuring begun after boot, at a release build's first ask, reports in a
-/// batch trailer only the transactions after it, and a second ask moves
-/// nothing.
+/// LLP 1079 D3: measuring begun after boot, at a release build's first ask,
+/// reports in a batch trailer only the transactions after it, and a second
+/// ask moves nothing.
 #[test]
 fn work_measured_from_the_first_ask_reports_only_the_transactions_after_it() {
     let mut r = boot(
@@ -450,8 +450,8 @@ component App
     );
 }
 
-/// `perf streams` is a development build's read, refused under production trust
-/// as `perf` is, and answered otherwise.
+/// LLP 1133.003 §9: `perf streams` is a development build's read, refused
+/// under production trust as `perf` is, and answered otherwise.
 #[test]
 fn perf_streams_is_refused_under_production_trust() {
     let mut r = boot("component App\n  view\n    text \"x\"\n");

@@ -1,5 +1,5 @@
 // data: completion-storm
-// Synthetic conformance plan: `failure(x)` is `none` until a
+// Synthetic conformance plan: `failure(x)` (LLP 1109 D3) is `none` until a
 // resource fails, then `some` of its code and message, on Completion Storm's
 // sources. `lost(n)` for n ≠ 0 sends a request whose reply its parse never
 // takes (the source's own error: `error`), and `fixtureStats()` answers a

@@ -1,4 +1,4 @@
-//! The role table's switch, thrown: a binary of its
+//! The role table's switch (LLP 1115.000 D3.2), thrown: a binary of its
 //! own, because the column is the process's and every other test of the
 //! kernel reads a role's fallback beside it. One test, so nothing here
 //! reads a fallback while the switch is moving.
@@ -67,7 +67,7 @@ fn a_host_that_throws_the_switch_shows_the_neutral_column() {
     assert_eq!(separator.resolve(false), Color(0x0000_001f), "unreported");
     roles::set_reported([]);
 
-    // The switch is the look's whole: the metrics follow
+    // The switch is the look's whole (LLP 1115.000 D17): the metrics follow
     // the colours. The kernel sizes a control nobody measured as the page's
     // sheet does, by its font size, and a sheet's metric reads its neutral
     // cell.
@@ -88,7 +88,7 @@ fn a_host_that_throws_the_switch_shows_the_neutral_column() {
         read(StyleId::BackgroundColor, "ground").background_color,
         Some(role("-exact-background"))
     );
-    let radius = |style: StyleProps| style.border_radius_top_left;
+    let radius = |style: StyleProps| style.border_radius_top_left.clone();
     assert_eq!(
         radius(read(StyleId::BorderRadiusTopLeft, "card-radius")),
         Dimension::Points(12.0)

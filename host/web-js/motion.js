@@ -1,4 +1,4 @@
-// The JS target's motion capability: springs, holds, swipes
+// The JS target's motion capability (LLP 1071 §7): springs, holds, swipes
 // and a pan's release velocity. A chunk fetched after the first painted
 // frame by a plan that uses motion, as the wasm host's motion piece is:
 // the engine is `motion.wasm` (host/web-js/motion, the one `exact_motion`
@@ -40,19 +40,24 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
   const nodes = new Map(), authored = new Map(), holds = new Map();
   const held = view => [...holds.values()].includes(view);
   const ended = serial => { const view = holds.get(serial); holds.delete(serial); if (!held(view)) authored.delete(view); };
-  // `[translate, scale, rotate, opacity, transition]` as the plan binds them:
+  // `[translate, scale, rotate, opacity, transition, velocity]` as the plan binds them:
   // translate is one or two lengths in px or percentages of the box (kernel
   // `space::translate`), rotate degrees; a value the row refuses is the
   // row's initial one.
   const num = (v, d) => { const n = typeof v === 'number' ? v : parseFloat(v); return Number.isFinite(n) ? n : d; };
-  const observe = (id, [tr, scale, rotate, opacity, transition]) => {
+  const observe = (id, [tr, scale, rotate, opacity, transition, velocity]) => {
     let n = nodes.get(id);
     if (!n) nodes.set(id, n = {});
     const parts = typeof tr === 'string' ? tr.trim().split(/\s+/) : [];
     const axis = p => p.endsWith('%') ? [0, num(p.slice(0, -1), 0)] : [num(p, 0), 0];
     const [[x, px], [y, py]] = [axis(parts[0] ?? '0'), axis(parts[1] ?? '0')];
     if (n.transition !== transition) { n.transition = transition; if (!w.m_transitions(id, put(transition ?? '')) && transition) say(`motion: transition ${JSON.stringify(transition)} refused`); }
-    if (!w.m_observe(id, x, y, px, py, num(scale, 1), num(rotate, 0), num(opacity, 1), now() / 1000)) say(`motion: targets for #${id} refused`);
+    const speed = typeof velocity === 'string' ? velocity.trim().split(/\s+/).map(v => /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(v) ? Math.fround(Number(v)) : NaN) : [];
+    const supplied = speed.length === 2 && speed.every(Number.isFinite);
+    const cleared = velocity == null || typeof velocity === 'string' && (!velocity.trim() || velocity.trim().toLowerCase() === 'unset');
+    if (!cleared && !supplied && n.velocity !== velocity) say(`motion: -exact-translate-velocity ${JSON.stringify(velocity)} refused`);
+    n.velocity = velocity;
+    if (!w.m_observe(id, x, y, px, py, num(scale, 1), num(rotate, 0), num(opacity, 1), supplied ? 1 : 0, supplied ? speed[0] : 0, supplied ? speed[1] : 0, now() / 1000)) say(`motion: targets for #${id} refused`);
   };
   const ops = list => ({ ops: list, timers: false });
   const applyBatch = batch => {
@@ -88,19 +93,20 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
       case 'release': return replyEnd(facts, 0);
       case 'cancel': return replyEnd(facts, 1);
       case 'release-measured': return replyEnd(facts, 2);
-      // A swipe past the knee: the held node's `swiperight`, while its hold
-      // still owns the presentation (Host::dispatch_held).
+      // A swipe past the knee: the held node's `swiperight`, or `swipeleft`
+      // for an offset `x` to the left, while its hold still owns the
+      // presentation (Host::dispatch_held).
       case 'action': {
         const node = w.m_held(serial(facts.token));
         if (!node || w.m_scratch(0) !== 0 || !(facts.now >= 0)) return { accepted: false };
-        const el = views.get(node);
-        if (!el?.$swipe) return { accepted: false };
-        el.$swipe();
+        const swipe = facts.x > 0 ? views.get(node)?.$swipe : facts.x < 0 ? views.get(node)?.$swipeleft : null;
+        if (!swipe) return { accepted: false };
+        swipe();
         return { accepted: true, committed: true, batch: ops(lower()) };
       }
       // A height drag (host/web/src/height_drag.rs): the handle's binding
       // names the owner it holds; its action runs at the height shown and
-      // the engine's velocity over the heights shown.
+      // the engine's velocity over the heights shown (LLP 1057.001 §3).
       case 'height-begin': {
         const b = handles.get(facts.view);
         if (!b || b.target == null || b.target !== owner) return { accepted: false };
@@ -177,6 +183,10 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
   };
   globalThis.exact.settleAt = () => { const t = w.m_settle(); return t < 0 ? null : t * 1000; };
   globalThis.exact.synced = () => api.followTimelines();
+  // The tree this piece arrives after is followed now, not at the next
+  // commit: a scroll or view timeline's name is handed to the browser
+  // (LLP 1057.003 D5), a drag timeline's consumer held where its source is.
+  api.followTimelines();
   return {
     api, request, now,
     observe,
@@ -193,7 +203,7 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
       reconcileHeights();
     },
     gone(id) { T.gone(id); A.gone(id); if (handles.delete(id) | heights.delete(id)) reconcileHeights(); nodes.delete(id); authored.delete(id); for (const [k, v] of holds) if (v === id) holds.delete(k); w.m_remove(id); api.destroy(id); },
-    swipe(el) { const id = viewId(el); api.attachSwipe(el, id, (t, g) => el.addEventListener(t, g)); },
+    swipe(el) { if (el.$swiping) return; el.$swiping = true; const id = viewId(el); api.attachSwipe(el, id, (t, g) => el.addEventListener(t, g)); }, // once for `swiperight` and `swipeleft` both
     pan: { sample: (id, x, y, t, first) => w.m_pan_sample(id, first ? 1 : 0, x, y, t), velocity: (id, t) => (w.m_pan_release(id, t), [w.m_scratch(0), w.m_scratch(1)]) },
   };
 }

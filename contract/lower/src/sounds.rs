@@ -1,4 +1,4 @@
-//! Declared sounds: each `sound "assets/…wav"` is read here,
+//! Declared sounds (LLP 1096 D1): each `sound "assets/…wav"` is read here,
 //! its RIFF chunks walked to `data`, and refused unless every host can play
 //! it: 16-bit integer or 32-bit float PCM, one or two channels, 8–96 kHz, at
 //! most 10 s. The plan's `sounds` row carries what the runner needs (frames
@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::path::Component as PathComponent;
 
-/// "A sound is a short clip".
+/// "A sound is a short clip" (LLP 1096 §9 Q4).
 const LONGEST_SECONDS: f64 = 10.0;
 
 const CONVERT: &str = "convert it: `afconvert -f WAVE -d LEI16 in.m4a out.wav`, or `ffmpeg -i in.mp3 -c:a pcm_s16le out.wav`";
@@ -192,4 +192,37 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Wav, String> {
         at = body.saturating_add(size).saturating_add(size & 1);
     }
     Err("has no `data` chunk".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sounds_share_wav_fixtures_with_android() {
+        let cases: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/sounds.json")).unwrap();
+        for case in cases.as_array().unwrap() {
+            let hex = case["hex"].as_str().unwrap();
+            let bytes: Vec<u8> = (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+                .collect();
+            let result = parse(&bytes);
+            if let Some(frames) = case["frames"].as_u64() {
+                assert_eq!(
+                    result.unwrap(),
+                    Wav {
+                        frames: frames as u32,
+                        rate: case["rate"].as_u64().unwrap() as u32,
+                        channels: case["channels"].as_u64().unwrap() as u8,
+                    },
+                    "{}",
+                    case["name"]
+                );
+            } else {
+                assert!(result.is_err(), "{}: {result:?}", case["name"]);
+            }
+        }
+    }
 }

@@ -1,4 +1,4 @@
-// The targets with none of the three: the Health conformance fixture built for tvOS
+// The targets with none of the three (LLP 1133.026 D21, §15 stage 5): the Health conformance fixture built for tvOS
 // (an Apple TV simulator), macOS or Linux and driven under the agent. Each status reads `available` false; a Health
 // read and request are refused `NotSupportedError`; nothing is asked.
 //

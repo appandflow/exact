@@ -1,7 +1,7 @@
 import type { Storage } from "../../../vendor/ibex/crates/ibex2/src/bindings/storage";
 type Store = { get(name:string):string|null; set(name:string,value:string):void; forget(name:string):void };
 const appId = "dev.exact.storage-test";
-const grants = "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
+const grants = "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\nfs.read bundle:/Resources/shipped\n";
 
 // Work queued behind whatever the module started last, the way an app serializes its
 // database operations. The second answer's storage calls run in a later microtask.
@@ -9,14 +9,14 @@ let tail: Promise<unknown> = Promise.resolve();
 let saves: Promise<unknown> = Promise.resolve(), saveError = "";
 let shared: Promise<{text:string}>;
 
-// Background work: the last save started and not awaited, and
+// Background work (LLP 1097): the last save started and not awaited, and
 // the last failure a background step reported to the app.
 let saving: Promise<unknown> = Promise.resolve(), lastError = "";
 let compressAndWrite = 0;
 const slept: string[] = [];
 const bytes = (value: string) => new Uint8Array(Array.from(value).map(c => c.charCodeAt(0)));
 
-// Writes an answer starts and does not await: the answer is
+// Writes an answer starts and does not await (kanban F22): the answer is
 // given before they land, and they must land all the same.
 function answer(source:string, args:unknown[], store:Store, storage:Storage, native:any) {
   const op = String(args[0]), value = String(args[1]);
@@ -32,6 +32,35 @@ function answer(source:string, args:unknown[], store:Store, storage:Storage, nat
   }
   if (op === "shared-wait") return shared.then(() => ({text: "waited"}));
   const song = storage.fs.directories.data + "/song";
+  if (op === "storage-handoff") {
+    const opened = storage.sqlite.open("app:/data/notes.db");
+    const getter = (globalThis as any).__exact_storage_promise;
+    const raw = getter?.();
+    return opened.then(async db => {
+      const leaked = raw && await raw;
+      await db.close();
+      return {text: leaked ? "raw database exposed" : "private"};
+    });
+  }
+  if (op === "worker-retirement") {
+    return (async () => {
+      const db = await storage.sqlite.open("app:/data/notes.db");
+      const first = db.execute("INSERT INTO notes VALUES ('submitted')");
+      const orphan = storage.fs.atomicWriteFile(song + "-orphan", bytes(value));
+      first.catch(() => storage.fs.atomicWriteFile(song + "-reaction", bytes(value)).catch(() => {}));
+      orphan.catch(() => {});
+      await Promise.all([first, orphan]);
+      await db.close();
+      return {text: "written"};
+    })();
+  }
+  if (op === "timeout-queue") {
+    const first = storage.fs.atomicWriteFile(song, bytes(value));
+    const orphan = storage.fs.atomicWriteFile(song + "-orphan", bytes(value));
+    first.catch(() => storage.fs.atomicWriteFile(song + "-reaction", bytes(value)).catch(() => {}));
+    orphan.catch(() => {});
+    return Promise.all([first, orphan]).then(() => ({text: "written"}));
+  }
   // The summary's edit: answered from memory, saved unawaited, in the answer.
   if (op === "save") {
     saving = storage.fs.atomicWriteFile(song, bytes(value)).catch((e) => { lastError = String(e.code); });
@@ -74,20 +103,30 @@ function answer(source:string, args:unknown[], store:Store, storage:Storage, nat
     storage.fs.atomicWriteFile(song, bytes(value)).then(() => native.call({value})).catch((e) => { lastError = e.message; });
     return {text:"saved " + value};
   }
+  // What background work may do: draw randomness, after a write alone, after a combinator over one, or after a
+  // database's own step (LLP 1069.005 D3).
+  if (op === "save-then-draw" || op === "save-all-then-draw" || op === "query-then-draw") {
+    const draw = () => { lastError = crypto.randomUUID().length + "/" + crypto.getRandomValues(new Uint8Array(4)).length; };
+    const work = op === "query-then-draw" ? storage.sqlite.open("app:/data/notes.db").then(db => db.query("SELECT 1 AS one").then(draw).finally(() => db.close()))
+      : (op === "save-all-then-draw" ? Promise.all([storage.fs.writeFile(song, bytes(value))]) : storage.fs.writeFile(song, bytes(value))).then(draw);
+    work.catch((e) => { lastError = e.message; });
+    return {text:"saved " + value};
+  }
   // A background write that fails: its promise rejects, as on the web.
   if (op === "save-bad") {
     storage.fs.writeFile(storage.fs.directories.data + "/absent/file", bytes(value)).catch((e) => { lastError = String(e.code); });
     return {text:"saved " + value};
   }
   if (op === "reject") { Promise.reject(new Error("lost " + value)); return {text:"answered"}; }
-  // A database opened by the answer and left open by its chain, which throws.
+  // A database opened by the answer and left open by its chain, which throws (LLP 1097 D7).
   if (op === "open-leak") {
     storage.sqlite.open("app:/data/notes.db").then(() => { throw new Error("leaked " + value); });
     return {text:"answered"};
   }
   if (op === "last-error") return {text:lastError};
+  if (op === "reset-error") { lastError = ""; return {text:"reset"}; }
   // Each part appended to one log, awaited in turn: two such answers
-  // interleave at their awaits, as two async calls do on the web.
+  // interleave at their awaits, as two async calls do on the web (D4.5).
   if (op === "append") {
     return (async () => {
       for (const part of value.split(",")) await storage.fs.appendFile(storage.fs.directories.data + "/log", bytes(part + ";"));
@@ -98,7 +137,7 @@ function answer(source:string, args:unknown[], store:Store, storage:Storage, nat
     storage.fs.atomicWriteFile(storage.fs.directories.data + "/unawaited", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
     return {text:"answered"};
   }
-  // A value given at once, its save chained behind a promise
+  // drums R10: a value given at once, its save chained behind a promise
   // already resolved, so the write begins in the checkpoint after the call.
   if (op === "deferred") {
     saves = saves.then(() => storage.fs.atomicWriteFile(storage.fs.directories.data + "/deferred", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0)))))
@@ -125,6 +164,9 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     catch(error:any) { return {text:'refused: ' + error.message}; }
   }
   if (op === 'native-direct') return {text: String(native!.call({value}).text)}; // no bake branch
+  // A number each way across the native seam, read back exactly (native_later.rs).
+  if (op === 'native-number') return {text: String(native!.call({n: Number(value)}).text)};
+  if (op === 'later-number') return {text: String((await native!.later({n: Number(value)})).text)};
   // A turn over its budget the first time, then at once (a load-caused refusal asked again: overrun.rs).
   if (op === 'busy-once') { if (!busyOnceDone) { busyOnceDone = true; let acc = 0; for (let i = 0; i < 30000000; i++) acc = (acc + i * 7) % 1000003; return {text: String(acc)}; } return {text: 'answered'}; }
   // A turn of the module's own work, `value` iterations long (the turn budget's test: turn_budget.rs).
@@ -137,6 +179,20 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     } catch(error:any) { return {text:error.message}; }
   }
   if (op === "placeholder") return {text: ""};
+  if (op === "doc-file-codes") {
+    const out: string[] = [];
+    for (const path of [value, value + "/child"]) {
+      for (const step of [
+        () => storage.fs.readdir(path),
+        () => storage.fs.mkdir(path),
+        () => storage.fs.rm(path),
+      ]) {
+        try { await step(); out.push("allowed"); }
+        catch (error: any) { out.push(error.kind + " " + error.code); }
+      }
+    }
+    return {text: out.join(" ")};
+  }
   if (op === "doc-link") {
     const steps = [
       () => storage.fs.readFile(value),
@@ -155,7 +211,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join(" ")};
   }
-  // What the host keeps, watched, and one forgotten.
+  // LLP 1069.010.000 D5: what the host keeps, watched, and one forgotten.
   if (op === "kept") {
     storage.fs.watch("doc:/");
     const listed = await storage.fs.recentDocuments();
@@ -165,12 +221,13 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     const left = (await storage.fs.recentDocuments()).length;
     return {text: [listed.map((d) => `${d.path} ${d.kind} ${d.mode}`).join(","), left, again].join(" | ")};
   }
-  // The app's own atomic save of a kept file.
+  // LLP 1069.010.000 D4: the app's own atomic save of a kept file.
   if (op === "kept-save") {
-    await storage.fs.atomicWriteFile(value, new TextEncoder().encode("saved"));
+    try { await storage.fs.atomicWriteFile(value, new TextEncoder().encode("saved")); }
+    catch (e: any) { return {text: `${e.kind} ${e.code}`}; }
     return {text: (await storage.fs.recentDocuments()).map((d) => d.path).join(",")};
   }
-  // The answer watches a chosen file and its
+  // LLP 1069.010.000 D1, D2a: the answer watches a chosen file and its
   // folder, and a write that expects a stale stat is refused.
   if (op === "doc-watch") {
     const folder = value.slice(0, value.lastIndexOf("/"));
@@ -184,7 +241,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     out.push("then written");
     return {text: out.join(" ")};
   }
-  // A folder the person chose, `value` its `doc:` path:
+  // A folder the person chose (LLP 1069.010 D1), `value` its `doc:` path:
   // listed, read, written beside, and refused past what it holds.
   if (op === "doc") {
     const out: string[] = [], text = (b: ArrayBuffer) => String.fromCharCode(...new Uint8Array(b));
@@ -211,7 +268,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join(" ")};
   }
-  // A chosen file copied by the host into an
+  // LLP 1069.010 D1 (2026-10-26): a chosen file copied by the host into an
   // app file, its size read back, and the copies still refused.
   if (op === "doc-copy") {
     const out: string[] = [], folder = value.slice(0, value.lastIndexOf("/"));
@@ -227,7 +284,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join(" ")};
   }
-  // Ledger's shape: every answer queued on one chain, a listing
+  // Ledger's shape (ledger F12): every answer queued on one chain, a listing
   // that reads, and a save that refuses bad input before touching storage.
   if (op === "count" || op === "invalid") {
     const run = tail.then(async () => {
@@ -243,7 +300,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     return run;
   }
   // A write, then a timer once it lands: refused to a call let go meanwhile,
-  // whose chain still runs (its timer would never run).
+  // whose chain still runs (LLP 1027.000 D1: its timer would never run).
   if (op === "write-then-sleep") {
     return storage.fs.writeFile(storage.fs.directories.data + "/slept", bytes(value)).then(() => {
       try { setTimeout(() => {}, 10); slept.push(value + " armed"); }
@@ -266,7 +323,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     return run;
   }
   const path = storage.fs.directories.data + "/note";
-  // File identity selects the cached status; supplied
+  // LLP 1027.005's fixture: file identity selects the cached status; supplied
   // time decides whether that answer needs fetching again, without ambient time.
   if (op === "status") {
     let saved: {text:string; expires:number};
@@ -305,7 +362,17 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     try { return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))}; }
     catch (_) { return {text:"empty"}; }
   }
-  // Refusals carry a stable code beside their message.
+  // A file the app ships, under `bundle:` (LLP 1133.007 D6).
+  if (op === "bundle-read") {
+    try { return {text: String.fromCharCode(...new Uint8Array(await storage.fs.readFile("bundle:/Resources/shipped/hello.txt")))}; }
+    catch (e:any) { return {text: e.name + " " + e.code}; }
+  }
+  // A host with no `bundle:` directory (LLP 1133.007 D6).
+  if (op === "absent-namespace") {
+    try { await storage.fs.readFile("bundle:/Info.plist"); return {text: "ok"}; }
+    catch (e:any) { return {text: e.name + " " + e.kind + " " + e.code}; }
+  }
+  // Refusals carry a stable code beside their message (kanban F28).
   if (op === "codes") {
     const data = storage.fs.directories.data, out: string[] = [];
     const steps: (() => Promise<unknown>)[] = [
@@ -314,13 +381,17 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
       () => storage.fs.readdir(data + "/note"),
       () => storage.fs.mkdir(data + "/full").then(() => storage.fs.writeFile(data + "/full/x", new Uint8Array([1]))).then(() => storage.fs.rm(data + "/full")),
       () => storage.sqlite.open("app:/data/other.db"),
+      // A folder where a file is read or copied from is EISDIR, as on the web; the copy makes no file.
+      () => storage.fs.mkdir(data + "/folder").then(() => storage.fs.readFile(data + "/folder")),
+      () => storage.fs.copyFile(data + "/folder", data + "/folder-copy"),
+      () => storage.fs.stat(data + "/folder-copy"),
     ];
     for (const step of steps) {
       try { await step(); out.push("ok"); } catch (e:any) { out.push(e.kind + " " + e.code + " " + e.message); }
     }
     return {text: out.join("\n")};
   }
-  // `fs.compressImage`: the record, then each refusal's
+  // `fs.compressImage` (LLP 1069.002 A1): the record, then each refusal's
   // name and code, in one answer.
   if (op === "compress") {
     const data = storage.fs.directories.data, out: string[] = [];
@@ -343,7 +414,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join("\n")};
   }
-  // `type: "image/png"`: the record and the file's
+  // `type: "image/png"` (LLP 1069.002 A1.11): the record and the file's
   // first 26 bytes (its IHDR's colour type last), then a type it refuses.
   if (op === "compress-png") {
     const data = storage.fs.directories.data, out: string[] = [];
@@ -356,7 +427,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     catch (e:any) { out.push(e.name + " " + e.code + " " + e.message); }
     return {text: out.join("\n")};
   }
-  // `fs.transformImage` and `compressImage`'s edit:
+  // `fs.transformImage` and `compressImage`'s edit (LLP 1133.019 D14, D15):
   // each record, then each refusal's name and code, in one answer.
   if (op === "transform") {
     const data = storage.fs.directories.data, out: string[] = [];
@@ -379,14 +450,14 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     return {text: out.join("\n")};
   }
   // A compression the wait gives up on, then a write to the same path: the
-  // write is what remains.
+  // write is what remains (LLP 1069.002 A1.5).
   if (op === "compress-abandoned") {
     const data = storage.fs.directories.data;
     // Seven trials at full size, the first fitting: a second or more.
     await storage.fs.compressImage(data + "/noise.bmp", data + "/slow.jpg", { maxDimension: 3000, maxBytes: 20_000_000 });
     return {text: "written"};
   }
-  // The same, started and not awaited: background work, with a
+  // The same, started and not awaited: background work (LLP 1097), with a
   // write queued behind it.
   if (op === "compress-background") {
     const data = storage.fs.directories.data;
@@ -405,7 +476,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     const wrote = storage.fs.writeFile(data + "/second", bytes("second"));
     return Promise.all([shrunk, wrote]).then(([code]) => ({text: String(code)}));
   }
-  // `exactBodyFrom`: the host reads the file into the
+  // `exactBodyFrom` (LLP 1108 D6 R2): the host reads the file into the
   // body. The reply's text, or the rejection's name, kind and message.
   if (op === "upload") {
     try {
@@ -430,7 +501,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join("\n")};
   }
-  // `exactBodyTo`: the host writes a 2xx body to the file.
+  // `exactBodyTo` (LLP 1108 D6 R2): the host writes a 2xx body to the file.
   // The status, what was written, the body and the header names, or the
   // rejection's name, kind and message.
   if (op === "download" || op === "download-missing") {
@@ -456,7 +527,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join("\n")};
   }
-  // An upload's progress: each
+  // An upload's progress (LLP 1016.000 D10): each
   // event as its mapper gets it, a `progress` of the bytes sent, then `load`.
   // (`upload-patient`: a deadline past the portable transport's own 30 s)
   if (op === "upload-progress" || op === "upload-patient") {
@@ -480,21 +551,65 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join("\n")};
   }
+  // `exactIdleTimeout` (LLP 1016.000 D11): what `fetch` refuses itself.
+  if (op === "idle-refusals") {
+    const socket = "wss://example.test/feed", exactStream = () => ({text: ""}), out: string[] = [];
+    const inits: [string, any][] = [
+      [socket, { exactStream, exactIdleTimeout: 0 }],
+      [socket, { exactStream, exactIdleTimeout: 3600001 }],
+      [socket, { exactStream, exactIdleTimeout: 1.5 }],
+      [socket, { exactIdleTimeout: 60000 }],
+      ["https://example.test/events", { exactStream, exactIdleTimeout: 60000 }],
+      ["https://example.test/poll", { exactStream, exactIdleTimeout: 60000, exactLongPoll: { cursor: "since", from: "seq" } }],
+      ["https://example.test/upload", { method: "POST", body: "x", exactStream, exactUploadProgress: true, exactIdleTimeout: 60000 }],
+    ];
+    for (const [to, init] of inits) {
+      try { await fetch(to, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
+  // A stream option the host refuses: marked at bake as storage's refusal is, and plain in an answer.
+  if (op === "stream-option-refused") {
+    try { await fetch("wss://example.test/feed", { exactStream: () => ({text: ""}), exactTimeout: 60000 }); }
+    catch (e:any) { return {text: e.name + ":" + e.kind + ":" + e.code + ":" + e.message}; }
+    return {text: "sent"};
+  }
+  if (op === "stream-option-uncaught") return fetch("wss://example.test/feed", { exactStream: () => ({text: ""}), exactTimeout: 60000 });
+  if (op === "own-uncaught") throw new TypeError("the source's own");
+  // The source's own error, and an option of a fetch that is no stream, are never marked.
+  if (op === "own-error") {
+    try { await fetch("https://example.test/a", { exactTimeout: 0 }); }
+    catch (e:any) { return {text: e.name + ":" + e.kind + ":" + e.code + ":" + e.message}; }
+    return {text: "sent"};
+  }
   if (op === "write-slow") {
     await storage.fs.writeFile(storage.fs.directories.data + "/slow.jpg", bytes(value));
     return {text: "wrote " + value};
   }
-  // A long read (a folder's preview walking its tree), one
+  // A long read (files F18: a folder's preview walking its tree), one
   // storage step after another in one answer.
   if (op === "walk") {
     let steps = 0;
     for (let i = 0; i < 24; i++) { await storage.fs.readdir(storage.fs.directories.data); steps++; }
     return {text: value + ":" + steps};
   }
-  // An independent read, on no chain.
+  // An independent read, on no chain (minesweeper F10).
   if (op === "peek") {
     try { return {text: value + ":" + String.fromCharCode(...new Uint8Array(await storage.fs.readFile(storage.fs.directories.data + "/note")))}; }
     catch (_) { return {text: value + ":empty"}; }
+  }
+  // Each write of `value` from one buffer refilled after the call, behind an operation in flight: the file holds
+  // what was passed. (Returns each file's contents, joined.)
+  if (op === "reused-buffer") {
+    const data = storage.fs.directories.data, buffer = bytes(value), view = new Uint8Array(buffer.buffer, 1);
+    const writes = [storage.fs.mkdir(data + "/reused"),
+      storage.fs.writeFile(data + "/reused/write", buffer),
+      storage.fs.atomicWriteFile(data + "/reused/atomic", view),
+      storage.fs.appendFile(data + "/reused/append", buffer.buffer)];
+    buffer.fill(63);
+    await Promise.all(writes);
+    const read = async (name: string) => String.fromCharCode(...new Uint8Array(await storage.fs.readFile(data + "/reused/" + name)));
+    return {text:[await read("write"), await read("atomic"), await read("append")].join(",")};
   }
   if (op === "read-at") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(storage.fs.directories.data + "/" + value)))};
   if (op === "read-size") {
@@ -548,6 +663,168 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
       const [max,min,real,blob]=rows.rows[0];
       if(typeof max!=="bigint"||typeof min!=="bigint"||!(blob instanceof Uint8Array))throw new Error("SQL value types changed");
       return {text:[max,min,real,Array.from(blob).join(",")].join("/")};
+    }
+    if (op === "sql-batch-refused") {
+      try { await db.transaction([{sql:"CREATE TABLE IF NOT EXISTS a (x)"}, {sql:"PRAGMA foreign_keys=OFF"}]); return {text:"allowed"}; }
+      catch(e:any) { return {text:e.message}; }
+    }
+    if (op === "sql-batch-long") {
+      const sql = "INSERT INTO missing VALUES ('" + "\u{1F600}".repeat(200) + "')";
+      try { await db.transaction([{sql}]); return {text:"allowed"}; } catch(e:any) { return {text:e.message}; }
+    }
+    // What the app wrote (a comment, a literal, a name SQLite repeats) never
+    // decides a failure's code.
+    if (op === "sql-busy") {
+      try { await db.transaction([{sql: "INSERT INTO notes VALUES ('held')"}]); return {text: "allowed"}; }
+      catch (e:any) { return {text: e.code + " " + e.message}; }
+    }
+    if (op === "sql-code-words") {
+      const words = "busy, database is locked, denied: ";
+      const codes: string[] = [];
+      await db.execute("CREATE TABLE IF NOT EXISTS words(w TEXT NOT NULL UNIQUE)");
+      for (const run of [
+        () => db.transaction([{sql: `PRAGMA foreign_keys=OFF /* ${words} */`}]),
+        () => db.transaction([{sql: "INSERT INTO words VALUES (?)", params: [words]}, {sql: `INSERT INTO words VALUES ('${words}')`}]),
+        () => db.transaction([{sql: 'INSERT INTO "busy" VALUES (1)'}]),
+        () => db.execute('INSERT INTO "database is locked" VALUES (1)'),
+      ]) {
+        try { await run(); codes.push("allowed"); } catch (e:any) { codes.push(e.code); }
+      }
+      return {text: codes.join("/")};
+    }
+    if (op === "sql-vacuum-refused") {
+      const said: string[] = [];
+      for (const run of [() => db.execute("VACUUM INTO 'copy.db'"), () => db.query("SELECT * FROM pragma_foreign_keys")]) {
+        try { await run(); said.push("allowed"); } catch(e:any) { said.push(e.message); }
+      }
+      return {text:said.join("\n")};
+    }
+    // A migration's rebuild of a table other rows reference, as Drizzle
+    // writes it, in a `foreignKeys: "check"` batch (docs/reference.md).
+    if (op === "sql-migration") {
+      const said: string[] = [];
+      // SQLite names one mismatched child; which one differs between versions.
+      const said_ = (e:any) => e.message.includes('foreign key check failed, the batch is rolled back: foreign key mismatch - "') && e.message.includes('referencing "fk_t"') ? "mismatch"
+        : e.message.includes("foreign key check failed") ? e.message.slice(e.message.indexOf("foreign key check failed"))
+        : e.message.includes("not authorized: PRAGMA foreign_keys: ") && e.message.includes('foreignKeys: "check"') ? "refused"
+        : e.message.includes("FOREIGN KEY constraint failed") ? "enforced"
+        : e.message.includes("statement 2 of 2 (INSERT INTO missing VALUES (1)): ") ? "failed"
+        : e.message.includes("no such table: main.fk_lone") ? "unwritable" : e.message;
+      const run = async (sql: string[], options?: {foreignKeys: "check"}) => {
+        try { await db.transaction(sql.map(sql => ({sql})), options); said.push("ok"); } catch (e:any) { said.push(said_(e)); }
+      };
+      const children = async () => {
+        const of = (t:string) => `(SELECT group_concat(id || ':' || ifnull(p, 'null')) FROM ${t})`;
+        said.push((await db.query(`SELECT ${of("fk_plain")}, ${of("fk_gone")}, ${of("fk_nulled")}, ${of("fk_strict")}`)).rows[0].map(String).join(","));
+      };
+      await db.transaction(["DROP TABLE IF EXISTS fk_gc", "DROP TABLE IF EXISTS fk_gp", "DROP TABLE IF EXISTS fk_bp", "DROP TABLE IF EXISTS fk_orphaned", "DROP TABLE IF EXISTS fk_lone", "DROP TABLE IF EXISTS fk_plain", "DROP TABLE IF EXISTS fk_gone", "DROP TABLE IF EXISTS fk_nulled", "DROP TABLE IF EXISTS fk_strict", "DROP TABLE IF EXISTS fk_t",
+        "CREATE TABLE fk_t(id INTEGER PRIMARY KEY, name TEXT)",
+        "CREATE TABLE fk_plain(id INTEGER PRIMARY KEY, p INTEGER REFERENCES fk_t(id))",
+        "CREATE TABLE fk_gone(id INTEGER PRIMARY KEY, p INTEGER REFERENCES fk_t(id) ON DELETE CASCADE)",
+        "CREATE TABLE fk_nulled(id INTEGER PRIMARY KEY, p INTEGER REFERENCES fk_t(id) ON DELETE SET NULL)",
+        "CREATE TABLE fk_strict(id INTEGER PRIMARY KEY, p INTEGER NOT NULL REFERENCES fk_t(id) ON DELETE SET NULL)",
+        "INSERT INTO fk_t VALUES (1, 'a'), (2, 'b')", "INSERT INTO fk_plain VALUES (10, 1)", "INSERT INTO fk_gone VALUES (20, 1)",
+        "INSERT INTO fk_nulled VALUES (30, 1)", "INSERT INTO fk_strict VALUES (40, 2)"].map(sql => ({sql})));
+      const drizzle = (where: string) => ["PRAGMA foreign_keys=OFF",
+        "CREATE TABLE `__new_fk_t` (\n\t`id` integer PRIMARY KEY,\n\t`name` text,\n\t`extra` text\n)",
+        "INSERT INTO `__new_fk_t`(\"id\", \"name\") SELECT \"id\", \"name\" FROM `fk_t`" + where,
+        "DROP TABLE `fk_t`", "ALTER TABLE `__new_fk_t` RENAME TO `fk_t`", "PRAGMA foreign_keys=ON"];
+      const orphan = () => run(["INSERT INTO fk_plain VALUES (99, 99)"]);
+      await run(drizzle(""), {foreignKeys: "check"});
+      await children();
+      await orphan();
+      await run(drizzle(" WHERE id = 2"), {foreignKeys: "check"});
+      await children();
+      await orphan();
+      await run(drizzle(""));
+      // A failing statement; a parent made again without a key its children
+      // can name; a parent no row names, dropped for good: the check passes,
+      // and its child table refuses every write.
+      await run(["PRAGMA foreign_keys=OFF", "INSERT INTO missing VALUES (1)"], {foreignKeys: "check"});
+      await orphan();
+      await run(["CREATE TABLE __m(id INTEGER, name TEXT)", "INSERT INTO __m SELECT id, name FROM fk_t", "DROP TABLE fk_t", "ALTER TABLE __m RENAME TO fk_t"], {foreignKeys: "check"});
+      await orphan();
+      await run(["CREATE TABLE fk_lone(id INTEGER PRIMARY KEY)", "CREATE TABLE fk_orphaned(p INTEGER REFERENCES fk_lone(id))"]);
+      await run(["DROP TABLE fk_lone"], {foreignKeys: "check"});
+      try { await db.execute("INSERT INTO fk_orphaned VALUES (NULL)"); said.push("written"); } catch (e:any) { said.push(said_(e)); }
+      // Temporary tables are checked too.
+      await run(["CREATE TEMP TABLE fk_tp(id INTEGER PRIMARY KEY)", "CREATE TEMP TABLE fk_tc(pid INTEGER REFERENCES fk_tp(id))", "INSERT INTO fk_tc VALUES (1)"], {foreignKeys: "check"});
+      // More orphans than a query may return: three named, the rest counted.
+      const long = "fk_" + "x".repeat(1000), row = (id:number) => `${long} row ${id} (references fk_bp)`;
+      try {
+        await db.transaction(["CREATE TABLE fk_bp(id INTEGER PRIMARY KEY)", `CREATE TABLE ${long}(pid INTEGER REFERENCES fk_bp(id))`,
+          `WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 100001) INSERT INTO ${long} SELECT x FROM n`].map(sql => ({sql})), {foreignKeys: "check"});
+        said.push("ok");
+      } catch (e:any) {
+        said.push(e.message.endsWith(`foreign key check failed, the batch is rolled back: 100001 foreign-key violations: ${row(1)}, ${row(2)}, ${row(3)}, and 99998 more`) ? "counted" : e.message);
+      }
+      // Absent options, however spelt, enforce; anything but foreignKeys: "check" is
+      // refused as a storage error whose code is never read from its words.
+      for (const options of [null, undefined, {}]) await run(["INSERT INTO fk_plain VALUES (99, 99)"], options as any);
+      for (const options of [{busy: true}, {foreignKey: "check"}, "check", {foreignKeys: "off"}]) {
+        try { await db.transaction([{sql: "INSERT INTO fk_plain VALUES (99, 99)"}], options as any); said.push("ok"); }
+        catch (e:any) { said.push(`${e.name}/${e.kind}/${e.code}/${e.message}`); }
+      }
+      // The rows a failed check names: a rowid past 2^53 beside a small one, a
+      // WITHOUT ROWID table's row, names ordered by code point, and tables whose
+      // names are busy words (the code stays failed).
+      const named = async (sql: string[]) => {
+        try { await db.transaction(sql.map(sql => ({sql})), {foreignKeys: "check"}); said.push("ok"); }
+        catch (e:any) { said.push(`${e.code}/${e.message.slice(e.message.indexOf("foreign key check failed"))}`); }
+      };
+      await named(["CREATE TABLE fk_big(id INTEGER PRIMARY KEY, pid INTEGER REFERENCES fk_t(id))", "INSERT INTO fk_big VALUES (1, 99), (9007199254740993, 99)"]);
+      await named(["CREATE TABLE fk_wr(k INTEGER PRIMARY KEY, pid INTEGER REFERENCES fk_t(id)) WITHOUT ROWID", "INSERT INTO fk_wr VALUES (1, 99)"]);
+      await named(["fk_\u{E000}1", "fk_\u{E000}2", "fk_\u{E000}3", "fk_\u{1F600}"].flatMap(t => [`CREATE TABLE "${t}"(pid INTEGER REFERENCES fk_t(id))`, `INSERT INTO "${t}" VALUES (99)`]));
+      await named(["busy", "database is locked"].flatMap(t => [`CREATE TABLE "${t}"(pid INTEGER REFERENCES fk_t(id))`, `INSERT INTO "${t}" VALUES (99)`]));
+      // One row with two broken references is two violations.
+      await named(["CREATE TABLE fk_q(id INTEGER PRIMARY KEY)", "CREATE TABLE fk_two(id INTEGER PRIMARY KEY, p INTEGER REFERENCES fk_t(id), q INTEGER REFERENCES fk_q(id))", "INSERT INTO fk_two VALUES (1, 99, 99)"]);
+      // `foreignKeys` read as every host reads it: a class's getter and an
+      // inherited property take the mode (the cascading child keeps its row,
+      // with no PRAGMA lines in the batch); a function is refused alike.
+      class MigrationOptions { get foreignKeys(): "check" { return "check"; } }
+      for (const options of [new MigrationOptions(), Object.create({foreignKeys: "check"})]) {
+        await db.transaction(["DROP TABLE IF EXISTS fk_gc", "DROP TABLE IF EXISTS fk_gp", "CREATE TABLE fk_gp(id INTEGER PRIMARY KEY)",
+          "CREATE TABLE fk_gc(id INTEGER PRIMARY KEY, p INTEGER REFERENCES fk_gp(id) ON DELETE CASCADE)", "INSERT INTO fk_gp VALUES (1)", "INSERT INTO fk_gc VALUES (5, 1)"].map(sql => ({sql})));
+        await db.transaction(["CREATE TABLE __new_gp(id INTEGER PRIMARY KEY, extra TEXT)", "INSERT INTO __new_gp(id) SELECT id FROM fk_gp", "DROP TABLE fk_gp", "ALTER TABLE __new_gp RENAME TO fk_gp"].map(sql => ({sql})), options);
+        said.push((await db.query("SELECT COUNT(*) FROM fk_gc")).rows[0][0] === 1n ? "kept" : "lost");
+      }
+      // Read at the call, not when the queue reaches it: with a call in
+      // flight, a change to the options or the batch after the call runs nothing.
+      for (const change of ["options", "batch"]) {
+        await db.transaction(["DROP TABLE IF EXISTS fk_gc", "DROP TABLE IF EXISTS fk_gp", "CREATE TABLE fk_gp(id INTEGER PRIMARY KEY)",
+          "CREATE TABLE fk_gc(id INTEGER PRIMARY KEY, p INTEGER REFERENCES fk_gp(id) ON DELETE CASCADE)", "INSERT INTO fk_gp VALUES (1)", "INSERT INTO fk_gc VALUES (5, 1)"].map(sql => ({sql})));
+        const options: any = {foreignKeys: "check"};
+        const batch = ["CREATE TABLE __new_gp(id INTEGER PRIMARY KEY, extra TEXT)", "INSERT INTO __new_gp(id) SELECT id FROM fk_gp", "DROP TABLE fk_gp", "ALTER TABLE __new_gp RENAME TO fk_gp"].map(sql => ({sql}));
+        const inflight = db.query("SELECT 1");
+        const done = db.transaction(batch, options);
+        if (change === "options") options.foreignKeys = undefined;
+        else { batch.push({sql: "DELETE FROM fk_gc"}); batch[0].sql = "SELECT nothing"; }
+        await inflight;
+        const ran = await done.then(() => true, () => false);
+        said.push(ran && (await db.query("SELECT COUNT(*) FROM fk_gc")).rows[0][0] === 1n ? "kept" : "lost");
+      }
+      // Each entry's params are read once; options are keys, whatever their
+      // names (`__proto__` from JSON, `constructor`), and a record with no
+      // prototype is options like any other.
+      let asked = 0;
+      await db.transaction(["DROP TABLE IF EXISTS fk_n", "CREATE TABLE fk_n(v)"].map(sql => ({sql})));
+      await db.transaction([{sql: "INSERT INTO fk_n VALUES (?)", get params() { return [++asked]; }} as any]);
+      said.push(`${asked}/${(await db.query("SELECT v FROM fk_n")).rows.map(r => String(r[0])).join(",")}`);
+      for (const options of [JSON.parse('{"__proto__": true}'), {constructor: 1}]) {
+        try { await db.transaction([{sql: "INSERT INTO fk_plain VALUES (99, 99)"}], options); said.push("ok"); }
+        catch (e:any) { said.push(`${e.code}/${e.message}`); }
+      }
+      const bare = Object.create(null);
+      bare.foreignKeys = "check";
+      await db.transaction(["DROP TABLE IF EXISTS fk_gc", "DROP TABLE IF EXISTS fk_gp", "CREATE TABLE fk_gp(id INTEGER PRIMARY KEY)",
+        "CREATE TABLE fk_gc(id INTEGER PRIMARY KEY, p INTEGER REFERENCES fk_gp(id) ON DELETE CASCADE)", "INSERT INTO fk_gp VALUES (1)", "INSERT INTO fk_gc VALUES (5, 1)"].map(sql => ({sql})));
+      await db.transaction(["CREATE TABLE __new_gp(id INTEGER PRIMARY KEY, extra TEXT)", "INSERT INTO __new_gp(id) SELECT id FROM fk_gp", "DROP TABLE fk_gp", "ALTER TABLE __new_gp RENAME TO fk_gp"].map(sql => ({sql})), bare);
+      said.push((await db.query("SELECT COUNT(*) FROM fk_gc")).rows[0][0] === 1n ? "kept" : "lost");
+      for (const options of [{foreignKeys: () => "check"}, {other: () => 1}, () => 1]) {
+        try { await db.transaction([{sql: "INSERT INTO fk_plain VALUES (99, 99)"}], options as any); said.push("ok"); }
+        catch (e:any) { said.push(`${e.code}/${e.message}`); }
+      }
+      return {text: said.join("|")};
     }
     if (op === "sql-refusals") {
       const kinds=[];

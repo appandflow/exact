@@ -1,4 +1,4 @@
-// The local listener's fixture: it listens on a
+// The local listener's fixture (LLP 1133.005 §10 step 6): it listens on a
 // `unix:` path while "Listen" is on and echoes each line on its own
 // connection. A line `later` is answered by the "Answer later" button, a
 // mutation on the connection's kept handle; `bye` ends the connection.

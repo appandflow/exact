@@ -116,7 +116,7 @@ pub(crate) fn uniform(
     }
     data[140] = size.0 as f32;
     data[141] = size.1 as f32;
-    // `logical_size.z`: the tone curve's white.
+    // `logical_size.z`: the tone curve's white (LLP 1100 D12b).
     data[142] = if frame.headroom.is_finite() {
         frame.headroom.max(1.0)
     } else {

@@ -1,4 +1,4 @@
-// Accept fixture: `-exact-exit-animation` and `-exact-layout-transition`. A
+// Accept fixture: `-exact-exit-animation` and `-exact-layout-transition` (LLP 1063). A
 // removed row leaves with the keyframes it names; the rows after it slide up
 // into its place instead of jumping.
 keyframes leave

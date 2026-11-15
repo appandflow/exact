@@ -8,10 +8,10 @@ import XCTest
 import ExactCore
 @testable import ExactKit
 
-/// An icon token with no `sf` source and a template SVG draws its own path
-/// on Apple, from the commands the Rust side sends (`symbolPath`,
-/// `symbolViewBox`), as a template image that takes the node's computed
-/// `color`; an `sf` still draws its symbol.
+/// Stage 9 A (LLP 1121 D10): an icon token with no `sf` source and a
+/// template SVG draws its own path on Apple, from the commands the Rust side
+/// sends (`symbolPath`, `symbolViewBox`), as a template image that takes the
+/// node's computed `color`; an `sf` still draws its symbol.
 ///   bun host/apple/build.mjs --test --ios   (and --test for the Mac)
 final class IconPathTests: XCTestCase {
     #if os(iOS)
@@ -65,9 +65,12 @@ final class IconPathTests: XCTestCase {
 
     private func tint(_ v: NodeView?) -> PlatformColor? {
         #if os(iOS)
-        return (v?.symbolView as? UIImageView)?.tintColor
+        guard let image = v?.symbolView else { return nil }
+        image.frame.size = CGSize(width: 24, height: 24)
+        guard let c = try? symbolInkChannels(image, original: image.image?.renderingMode == .alwaysOriginal) else { return nil }
+        return UIColor(red: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
         #else
-        // A path icon fills its paths in its tint (IconShapeMac.swift).
+        // A path icon fills its paths in its tint (stage 14 C1, IconShapeMac.swift).
         if let fill = v?.symbolShape?.shapes.first?.fillColor { return NSColor(cgColor: fill) }
         return (v?.symbolView as? NSImageView)?.contentTintColor
         #endif
@@ -145,7 +148,7 @@ final class IconPathTests: XCTestCase {
         XCTAssertEqual(try inked(two, at: [12]), [true], "the overlap is filled, not cut")
     }
 
-    /// An even-odd icon (`symbolFillRule`) leaves the hole of
+    /// Stage 14 C2: an even-odd icon (`symbolFillRule`) leaves the hole of
     /// two squares wound the same way clear, as one path; nonzero fills it.
     func testAnEvenOddIconLeavesItsSameWoundHoleClear() throws {
         XCTAssertEqual(IconPath.rule("evenodd"), .evenOdd)
@@ -202,10 +205,7 @@ final class IconPathTests: XCTestCase {
         p.viewport.layer.render(in: ctx)
         #else
         p.viewport.layoutSubtreeIfNeeded()
-        let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: w, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
-                                                 isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32))
-        rep.size = p.viewport.bounds.size
-        Capture.draw(p.viewport, to: rep) // as IconShapeMacTests captures C1's layers
+        let rep = try XCTUnwrap(Capture.picture(of: p.viewport, scale: scale))
         let cg = try XCTUnwrap(rep.cgImage)
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: w))
         #endif

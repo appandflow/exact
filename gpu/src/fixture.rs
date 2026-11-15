@@ -1,4 +1,4 @@
-//! Readback for fixtures: a surface rendered into a
+//! Readback for fixtures (LLP 1009 D1/D4): a surface rendered into a
 //! module-owned texture that can be copied, and read back as pixels —
 //! natively, synchronously, the parity instrument's native half. (The web's
 //! readback is asynchronous and the module ABI's; it is not here.) With
@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 /// Whether a missing prerequisite fails a test rather than skipping it:
-/// `EXACT_REQUIRED=1` (scripts/coverage.mjs).
+/// `EXACT_REQUIRED=1`, which the async lane sets (scripts/coverage.mjs).
 pub fn required() -> bool {
     std::env::var("EXACT_REQUIRED").as_deref() == Ok("1")
 }

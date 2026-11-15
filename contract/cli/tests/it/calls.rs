@@ -1,7 +1,8 @@
-//! An action calls an action of its own component, an `action` prop or an
-//! injected action, as a statement, anywhere. The call is the callee's
-//! statements expanded in place: one commit, every statement reading the state
-//! the action started with. A tail call is one case of it, and keeps its tests.
+//! LLP 1089: an action calls an action of its own component, an `action`
+//! prop or an injected action, as a statement, anywhere. The call is the
+//! callee's statements expanded in place: one commit, every statement
+//! reading the state the action started with. LLP 1017 §11's tail call (the
+//! Signal Clone's photo viewer) is one case of it, and keeps its tests.
 
 use exact_kernel::{Kernel, PropValue};
 use exact_plan::Value;
@@ -490,8 +491,8 @@ fn a_chain_of_three_runs_in_one_commit_each_with_its_own_names() {
 
 #[test]
 fn a_child_calls_its_own_action_in_a_row() {
-    // The child's body is checked with the call expanded, not read as an
-    // unknown command (`type-unknown-command`).
+    // `type-unknown-command` before LLP 1089: the child's body was checked
+    // with the call a command.
     let src = &format!(
         "{ITEMS}{}",
         r#"component App
@@ -730,7 +731,7 @@ fn an_untyped_helper_is_typed_by_its_calls() {
 
 #[test]
 fn a_call_naming_a_host_command_and_an_action_is_refused_even_in_its_wrapper() {
-    // Caltrain's old `setScheme` wrapper: no self-wrapper exemption.
+    // Caltrain's old `setScheme` wrapper: no self-wrapper exemption (LLP 1089 D1).
     let src = r#"component App
   state scheme = "light"
   action setScheme(s: string)
@@ -774,7 +775,7 @@ fn a_renamed_wrapper_calls_the_host_command() {
 
 #[test]
 fn a_call_naming_a_host_command_and_an_action_prop_or_inject_is_refused_anywhere() {
-    // A photo viewer's `action` prop named like `close()`,
+    // The Signal Clone's viewer: an `action` prop named like `close()`,
     // called inside an arm, with and without arguments.
     let prop = r#"component App
   state open = true
@@ -881,7 +882,7 @@ fn warns(src: &str, id: &str, message: &str) {
 
 #[test]
 fn a_read_another_frame_made_stale_is_warned_of_in_each_of_d3s_cases() {
-    // One rule with the body's read: the same id, a
+    // One rule with the body's read (LLP 1035.005.002 C2): the same id, a
     // warning, naming both frames.
     const STALE: &str = "analyze-read-after-assign";
     let follow = "component App\n  state sel = 0\n  state seen = 0\n  action follow\n    seen = sel\n  action go\n    sel = 3\n    follow()\n";
@@ -1043,18 +1044,18 @@ fn a_mutation_sent_twice_through_calls_names_the_calls() {
     says(
         "component App\n  mutation saved as shape string\n  action commitEdit\n    send saved = save(\"a\")\n  action openSheet(id: string)\n    send saved = save(id)\n  action enter\n    commitEdit()\n    openSheet(\"b\")\n  view\n    button press=enter testId=\"go\"\n      text \"go\"\n",
         "analyze-send-twice",
-        "`enter` sends `saved` twice on one path: in `commitEdit` (called at line 8) and in `openSheet` (called at line 9). Only the last send's reply reaches `saved`: send once, use a mutation per request, or declare `mutation saved … queue` to run both in order",
+        "`enter` sends `saved` twice on one path: in `commitEdit` (called at line 8) and in `openSheet` (called at line 9). Only the last send's reply reaches `saved` (LLP 1016 D5): send once, use a mutation per request, or declare `mutation saved … queue` to run both in order",
     );
     says(
         "component App\n  mutation saved as shape string\n  action save\n    send saved = save(\"a\")\n  action enter\n    save()\n    save()\n  view\n    button press=enter testId=\"go\"\n      text \"go\"\n",
         "analyze-send-twice",
-        "`enter` sends `saved` twice on one path: in `save` (called at line 6) and in `save` (called at line 7). Only the last send's reply reaches `saved`: send once, use a mutation per request, or declare `mutation saved … queue` to run both in order",
+        "`enter` sends `saved` twice on one path: in `save` (called at line 6) and in `save` (called at line 7). Only the last send's reply reaches `saved` (LLP 1016 D5): send once, use a mutation per request, or declare `mutation saved … queue` to run both in order",
     );
-    // A call in an arm says why both can run.
+    // A call in an arm says why both can run (chess #2).
     says(
         "component App\n  state n = 0\n  mutation saved as shape string\n  action save\n    send saved = save(\"a\")\n  action enter\n    if n > 0\n      save()\n    save()\n  view\n    button press=enter testId=\"go\"\n      text \"go\"\n",
         "analyze-send-twice",
-        "`enter` sends `saved` twice on one path, in `save` (called at line 8) and in `save` (called at line 9): every `if` is read as one that can run, unless the two sends are arms of one `if`/`else` or `match`, or sit in `if`s testing one unchanged name against different literals. Only the last send's reply reaches `saved`: send once, make the sends arms of one `if … else if`, use a mutation per request, or declare `mutation saved … queue` to run both in order",
+        "`enter` sends `saved` twice on one path, in `save` (called at line 8) and in `save` (called at line 9): every `if` is read as one that can run, unless the two sends are arms of one `if`/`else` or `match`, or sit in `if`s testing one unchanged name against different literals. Only the last send's reply reaches `saved` (LLP 1016 D5): send once, make the sends arms of one `if … else if`, use a mutation per request, or declare `mutation saved … queue` to run both in order",
     );
     says(
         "component App\n  mutation saved as shape string then after\n  action commit\n    send saved = save(\"a\")\n  action after\n    commit()\n  view\n    button press=commit testId=\"go\"\n      text \"go\"\n",
@@ -1150,7 +1151,7 @@ component Child
 }
 
 /// What an action prop was curried with is a hidden parameter of every
-/// lifted action of the use. One action a handler binds types it for
+/// lifted action of the use (D7). One action a handler binds types it for
 /// its siblings, one nothing binds included; when none is bound or called,
 /// the refusal names the prop's binding, never the capture.
 #[test]
@@ -1362,27 +1363,6 @@ fn an_action_prop_named_like_an_app_fn_is_refused_where_a_provide_calls_it() {
         e.message,
         "rename the action prop `pick` (as in `onPick`) or `fn pick`: in `Seg` the call `pick(…)` at line 13 cannot be both the prop and the fn"
     );
-}
-
-#[test]
-fn value_props_and_injects_named_like_an_app_fn_refuse_expression_calls() {
-    let prop = "fn pick(n: number): number = n + 1\nfn other(n: number): number = n + 100\ncomponent App\n  state other = 7\n  view\n    Seg(pick=other)\ncomponent Seg\n  props\n    pick: number\n  view\n    text `${pick(1)}` testId=\"result\"\n";
-    let inject = prop
-        .replace(
-            "  view\n    Seg(pick=other)",
-            "  provide\n    pick = other\n  view\n    Seg()",
-        )
-        .replace("  props\n", "  inject\n");
-    for (src, kind, declaration, call) in [(prop, "prop", 9, 11), (&inject, "inject", 11, 13)] {
-        let e = refused(src);
-        assert_eq!(e.id, "type-prop-hides-fn", "{e}");
-        assert_eq!(e.span.line, declaration);
-        assert_eq!(e.message, format!(
-            "rename the {kind} `pick` or `fn pick`: in `Seg` the call `pick(…)` at line {call} cannot be both the {kind} and the fn"
-        ));
-        let value = src.replace("${pick(1)}", "${pick}");
-        assert_eq!(text_of(&boot(&value), "result"), "7");
-    }
 }
 
 #[test]

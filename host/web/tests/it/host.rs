@@ -151,7 +151,7 @@ fn a_filled_role_is_a_filled_silhouette_and_its_outline_is_stroked() {
     assert!(!unsaved.contains("\"data-symbol-fill\":\"\""), "{unsaved}");
 }
 
-/// An icon token's form draws its path under its viewBox,
+/// LLP 1121 D10: an icon token's form draws its path under its viewBox,
 /// filled; one whose SVG is no template is the file; an SF Symbol that is a
 /// role's Apple name is the role.
 #[test]
@@ -209,13 +209,13 @@ fn the_first_batch_creates_the_tree_with_css_from_the_rows() {
         "semantic tags become elements"
     );
     assert!(
-        batch.contains("font-size:24px;font-weight:700;"),
+        batch.contains("font-size:1.5em;font-weight:700;"),
         "CSS from the rows"
     );
     assert!(batch.contains("display:flex;") && batch.contains("flex-direction:column;"));
     assert!(batch.contains("\"op\":\"roots\",\"ids\":[1]"));
     // Every live node is created once but the head, which is the page's
-    // <head>, never an element.
+    // <head>, never an element (LLP 1048.003 D1).
     let creates = batch.matches("\"op\":\"create\"").count();
     let kernel = host.runner().kernel();
     let heads = kernel
@@ -238,20 +238,20 @@ fn later_batches_carry_only_what_changed() {
     assert!(batch.contains("\"text\":"));
     assert!(!batch.contains("\"op\":\"create\""));
 
+    let home = view_with_test_id(&host, "home-screen");
     let change_station = view_with_test_id(&host, "change-station");
     let batch = host.dispatch(change_station, Event::Press);
-    assert!(
-        batch.contains("\"op\":\"destroy\""),
-        "the home screen's arm is torn down"
-    );
+    assert_eq!(view_with_test_id(&host, "home-screen"), home);
     assert!(batch.contains("\"data-testid\":\"stations-screen\""));
     assert!(batch.contains("\"tag\":\"input\""));
     assert!(batch.contains("\"handlers\":[\"input\",\"focus\",\"blur\",\"key\"]"));
     assert!(batch.contains("\"op\":\"children\",\"id\":"));
-    assert!(
-        !batch.contains("\"data-testid\":\"caltrain-main\""),
-        "the unchanged root is not re-sent"
-    );
+    let changes: serde_json::Value = serde_json::from_str(&batch).unwrap();
+    assert!(changes["ops"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|op| { op["op"] != "create" || op["props"]["data-testid"] != "caltrain-main" }));
     assert!(batch.contains("\"error\":null"));
 
     let search = view_with_test_id(&host, "station-search");
@@ -291,7 +291,7 @@ fn a_transition_authored_in_contract_reaches_the_page_as_css() {
     let (mut host, batch) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
     assert!(batch.contains("opacity:1;"), "{batch}");
     assert!(
-        batch.contains("transition:opacity 0.25s ease-in-out 0s;"),
+        batch.contains("transition:opacity 0.25s ease-in-out 0s,translate 0s ease 0s;"),
         "the easing transition is CSS; the spring is the host's: {batch}"
     );
     let toggle = view_with_test_id_any(&host, "toggle");
@@ -410,8 +410,8 @@ fn declared_font_identity_reaches_the_readiness_barrier_and_css() {
     }
     assert!(
         !batch.contains("Fixture Sans") && !catalog.contains("\"family\":\"Fixture Sans\""),
-        // `declared` only maps a canvas's family name to the stack's alias;
-        // it is never a FontFace family.
+        // `declared` only maps a canvas's family name to the stack's alias
+        // (LLP 1056 D8); it is never a FontFace family.
         "the Contract alias must never become a browser font lookup: {batch} {catalog}"
     );
 
@@ -712,7 +712,7 @@ fn dialog_invokers_preserve_html_commands_and_live_action_labels() {
     assert!(batch.contains("Delete 2 messages"), "{batch}");
 }
 
-/// `font-variation-settings` is written as CSS writes it.
+/// LLP 1019 D9: `font-variation-settings` is written as CSS writes it.
 #[test]
 fn font_variation_settings_are_their_css() {
     use exact_kernel::{StyleId, StyleProps, StyleValue};
@@ -729,7 +729,7 @@ fn font_variation_settings_are_their_css() {
 /// A scheme-aware colour is handed to the browser, not resolved here.
 ///
 /// This is the whole reason the kernel keeps `light-dark()` as a pair rather
-/// than flattening it: handed the function, the browser
+/// than flattening it (LLP 1034 D2): handed the function, the browser
 /// resolves it per element against the inherited `color-scheme`, with no
 /// JavaScript, no repaint pass of ours, and no appearance reported to the
 /// app. A host that flattened it would be making the browser's decision.
@@ -893,7 +893,7 @@ fn css_line_height_retains_ratio_length_normal_and_zero() {
     }
 }
 
-// Observe actual host batches across the breakpoint.
+// @ref LLP 1039 §5 — observe actual host batches across the breakpoint.
 #[test]
 fn viewport_boot_and_resize_use_one_batch_and_emit_aria_orientation() {
     struct NoData;
@@ -932,7 +932,7 @@ fn viewport_boot_and_resize_use_one_batch_and_emit_aria_orientation() {
     assert_eq!(host.runner().kernel().epoch(), 2);
 }
 
-// The page reports its media queries with the size: a
+// @ref LLP 1061 D4 — the page reports its media queries with the size: a
 // changed preference alone is one commit, and the app's `none` reaches CSS.
 #[test]
 fn a_preference_change_rides_the_resize_batch() {
@@ -964,7 +964,7 @@ fn a_preference_change_rides_the_resize_batch() {
     assert_eq!(host.resize(reduced, 0.0).matches("\"op\"").count(), 0);
 }
 
-// A refused timer cannot swallow the browser's resize.
+// @ref LLP 1039 D2 — a refused timer cannot swallow the browser's resize.
 #[test]
 fn viewport_resize_and_a_due_timer_refusal_share_one_batch() {
     let plan = contract::compile(
@@ -1000,7 +1000,7 @@ component App
     );
 }
 
-// Boot sources see the launch, each batch drains once.
+// @ref LLP 1038 D5/D7 — boot sources see the launch, each batch drains once.
 #[test]
 fn router_batches_follow_launch_and_committed_actions() {
     #[derive(Default)]
@@ -1146,7 +1146,7 @@ component App
 
 /// A same-origin link is followed in place only when a declared pattern
 /// matches its location; notfound absorbs everything else and must not
-/// capture a file's or another app's path.
+/// capture a file's or another app's path (LLP 1038 §7).
 #[test]
 fn only_declared_routes_are_followed_in_place() {
     let plan = contract::compile(
@@ -1195,7 +1195,7 @@ component App
 
 /// A block root is a formatting context of its own on the web, as the
 /// kernel's root is: its first child's top margin stays inside it instead of
-/// collapsing through `#exact-root` to the page. Any other
+/// collapsing through `#exact-root` to the page (LLP 1001 §1). Any other
 /// display, and every block that is not a root, is unchanged.
 #[test]
 fn a_block_root_is_a_formatting_context_of_its_own() {
@@ -1284,7 +1284,7 @@ fn a_blur_command_reaches_the_batch_by_name() {
     );
 }
 
-/// `position` is the plan's own: the page adds none for an
+/// `position` is the plan's own (LLP 1074 T1): the page adds none for an
 /// inset, a `z-index` or an absolute child, which a static box ignores or
 /// does not contain in the kernel either.
 #[test]
@@ -1343,7 +1343,7 @@ fn a_node_takes_no_position_the_plan_did_not_give_it() {
 }
 
 /// A static holder leaking a positioned descendant isolates its followers.
-/// A plain child following that descendant stays in flow.
+/// A plain child following that descendant stays in flow (LLP 1083.000).
 #[test]
 fn a_leaking_holder_is_covered_by_its_static_followers() {
     let plan = contract::compile(
@@ -1405,7 +1405,7 @@ fn a_leaking_holder_is_covered_by_its_static_followers() {
     }
 }
 
-// A presented frame fires the frame task once, at
+// @ref LLP 1073 D2, D4, D5 — a presented frame fires the frame task once, at
 // the frame's time; once frames are presented the timeout fires none, and no
 // deadline is owed for them; a stall is not caught up.
 #[test]

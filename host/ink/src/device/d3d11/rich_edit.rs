@@ -1,4 +1,5 @@
 //! Windowless RichEdit through Direct2D on the renderer's device.
+//! @ref LLP 1149 D10; LLP 1115.004 D7; LLP 1149.001 Stage 1w.
 use super::super::windows_library::Library;
 use super::text_host::{Host, State, TextHost};
 use super::*;

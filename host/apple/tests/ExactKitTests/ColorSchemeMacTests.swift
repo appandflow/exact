@@ -3,12 +3,12 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// On AppKit (`ColorSchemeIOSTests`), `color-scheme` is the
+/// LLP 1034 §8 on AppKit (`ColorSchemeIOSTests`): `color-scheme` is the
 /// view's own appearance, which `effectiveAppearance` carries below.
 final class ColorSchemeMacTests: XCTestCase {
     private let pair: BatchValue = .array([.array([255, 255, 255, 255]), .array([0, 0, 0, 255])])
 
-    /// A page with no background shows the window's, which
+    /// LLP 1115 D2: a page with no background shows the window's, which
     /// follows Dark Mode, never a fixed white.
     func testAnUnsetPageBackgroundIsTheWindowBackground() {
         let p = Presenter()
@@ -49,7 +49,7 @@ final class ColorSchemeMacTests: XCTestCase {
 
     /// A subtree fixed `light` keeps its appearance when the session turns
     /// dark, so no appearance callback says it: the session's scheme does,
-    /// for paint motion.
+    /// for paint motion (LLP 1034 §8).
     func testASessionSchemeChangeReportsAFixedSubtree() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "color-scheme-fixed-mac")

@@ -1,4 +1,4 @@
-// calendarDiff: whole years or months between two
+// calendarDiff (LLP 1102 §3.4): whole years or months between two
 // YYYY-MM-DD dates, counted as an age is: a Feb 29 start completes a year
 // on Mar 1 of a common year, a Jan 31 start a month on Mar 1. Earlier
 // second date: the count back, negated. Not a date: none.

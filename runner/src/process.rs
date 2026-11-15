@@ -1,4 +1,4 @@
-//! Desktop processes: the request an `@exact/child-process`
+//! Desktop processes (LLP 1133.007): the request an `@exact/child-process`
 //! call becomes, the operations staged on a running child, and the clock a
 //! host's process work keeps under the agent. A request carries the origin
 //! of the commit that asked it in its `reach`, as every request does.
@@ -15,12 +15,12 @@ use crate::request::{HttpScheduling, Redirect, Request};
 /// The URL of a process request: not HTTP.
 pub const PROCESS_URL: &str = "exact-process:";
 
-/// One operation on a running child, staged with the commit that made
+/// One operation on a running child (D2), staged with the commit that made
 /// it and sent only if that commit stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProcessOp {
     /// Bytes for its stdin. `drain`: the handle's `write` answered `false`,
-    /// so the host says `drain` once stdin's queue is empty (as Node's
+    /// so the host says `drain` once stdin's queue is empty (D2, as Node's
     /// `Writable` does).
     Write {
         /// The bytes.
@@ -62,7 +62,7 @@ impl ProcessOp {
     }
 }
 
-/// The clock a host's process work keeps under the agent:
+/// The clock a host's process work keeps under the agent (LLP 1133.007 §7):
 /// restart delays, readiness intervals and timeouts, the drain and the kill
 /// escalation, and `execFile`'s timeout move when the agent's clock moves,
 /// not on the wall. A host gives the runner one only under the agent
@@ -79,10 +79,11 @@ pub trait WorkClock: Send + Sync {
 
 impl Request {
     /// A process request with this JSON body (`@exact/child-process`'s
-    /// call): a `spawn` is a stream whose resource owns
+    /// call, LLP 1133.007 D12): a `spawn` is a stream whose resource owns
     /// the child; anything else answers once, within `max_response_bytes`.
     pub fn process(body: Vec<u8>, stream: bool, max_response_bytes: u32) -> Request {
         Request {
+            module: None,
             http: HttpScheduling::Independent { max_response_bytes },
             continuation: None,
             storage: None,
@@ -98,9 +99,14 @@ impl Request {
             upload_progress: false,
             long_poll: None,
             timeout_ms: None,
+            idle_timeout_ms: None,
+            protocols: Vec::new(),
             body_from: None,
             body_to: None,
             redirect: Redirect::Follow,
+            cache: Default::default(),
+            preload: None,
+            prefetch: false,
             held: false,
             listen: None,
             reach: Default::default(),

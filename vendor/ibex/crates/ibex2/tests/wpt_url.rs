@@ -102,7 +102,7 @@ fn categorize(line: &str) -> &'static str {
 
 /// The gate. Pass count may not fall; raising it is deliberate work.
 ///
-/// Baselined rather than required-100%: a check that
+/// Baselined rather than required-100%, on the LLP 0027 pattern: a check that
 /// is red the day it lands gets switched off within a week.
 #[test]
 fn wpt_url_baseline_holds() {

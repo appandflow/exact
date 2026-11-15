@@ -82,7 +82,7 @@ def asList : Value → Result (List Value)
   | _ => .error (.type "list")
 
 /-- `Array.prototype.includes`'s SameValueZero on what `includes` takes of a
-list's items: numbers by IEEE `==` with NaN equal to NaN
+list's items (LLP 1088 §9.1): numbers by IEEE `==` with NaN equal to NaN
 (`-0` is `0`), strings and bools by value. -/
 def sameValueZero : Value → Value → Bool
   | .num a, .num b => a == b || (Number.isNaN a && Number.isNaN b)
@@ -91,7 +91,7 @@ def sameValueZero : Value → Value → Bool
   | _, _ => false
 
 /-- `Array.prototype.indexOf`'s IsStrictlyEqual on what `indexOf` takes of a
-list's items: numbers by IEEE `==` (NaN is never found,
+list's items (LLP 1088 §9.1): numbers by IEEE `==` (NaN is never found,
 `-0` is `0`), strings and bools by value. -/
 def strictEq : Value → Value → Bool
   | .num a, .num b => a == b
@@ -158,9 +158,9 @@ def startsWith (s p : String) : Bool := isPrefix p.toList s.toList
 
 def endsWith (s p : String) : Bool := isPrefix p.toList.reverse s.toList.reverse
 
-/-! The web's strings as JavaScript holds them, UTF-16 code units: their
-order, and `slice` and `replaceAll` over them, each result made well formed
-once (`toWellFormed`). -/
+/-! The web's strings as JavaScript holds them, UTF-16 code units (LLP 1088
+D1, D2): their order, and `slice` and `replaceAll` over them, each result
+made well formed once (`toWellFormed`). -/
 
 /-- A string's UTF-16 code units. -/
 def utf16Units (s : String) : List Nat :=
@@ -250,7 +250,7 @@ def indexFrom (needle : List Nat) : Nat → List Nat → Option Nat
   | p, [] => if needle.isEmpty then .some p else .none
   | p, u :: us => if isPrefixN needle (u :: us) then .some p else indexFrom needle (p + 1) us
 
-/-- `String.prototype.indexOf(needle)`: the first match's
+/-- `String.prototype.indexOf(needle)` (LLP 1088 §9.1): the first match's
 position in UTF-16 code units. -/
 def indexOf (hay needle : String) : Option Nat :=
   indexFrom (utf16Units needle) 0 (utf16Units hay)
@@ -266,7 +266,7 @@ def splitFrom (sep : List Nat) : Nat → List Nat → List Nat → List (List Na
       | [] => [cur]
       | u :: us => splitFrom sep fuel (cur ++ [u]) us
 
-/-- `String.prototype.split(sep)` with a string `sep`, each
+/-- `String.prototype.split(sep)` with a string `sep` (LLP 1088 §9.1), each
 piece well formed: an empty `sep` splits into code units, `""` into none. -/
 def split (s sep : String) : List String :=
   let us := utf16Units s
@@ -280,7 +280,7 @@ def replaceAll (s find w : String) : String :=
   let us := utf16Units s
   ofUnits (replaceFrom us (utf16Units find) (utf16Units w) (us.length + 2) 0 us)
 
-/-! ### Numbers and dates in text -/
+/-! ### Numbers and dates in text (LLP 1102 §3.1, §3.4) -/
 
 /-- The ASCII digits at the front, and the rest. -/
 def digitRun : List Char → List Char × List Char

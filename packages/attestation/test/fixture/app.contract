@@ -1,4 +1,4 @@
-// The conformance fixture: the status, and one
+// The conformance fixture (LLP 1133.028 §8.4 drive 11): the status, and one
 // attestation from data code whose outcome the row shows (app.ts). The auth
 // fixture (apps/auth-fixture) is the module's consumer and its drives' app.
 use attestationStatus, AttestationStatus from "@exact/attestation"

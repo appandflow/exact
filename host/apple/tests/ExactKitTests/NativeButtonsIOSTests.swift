@@ -3,12 +3,12 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// On UIKit, a `Control` of type `button` is UIKit's own
+/// LLP 1069.011 on UIKit: a `Control` of type `button` is UIKit's own
 /// `UIButton` with the configuration its `buttonStyles` row names, its title
-/// and symbol the node's face; its primary action is a custom
-/// button's touch-up, once; the node keeps keys and focus and the
-/// control is the one accessibility element; a glass style's control is
-/// isolated in a glass group; a select stays a select.
+/// and symbol the node's face (D2, D5); its primary action is a custom
+/// button's touch-up, once (D4); the node keeps keys and focus and the
+/// control is the one accessibility element (D4); a glass style's control is
+/// isolated in a glass group (D9); a select stays a select (D3).
 /// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
 final class NativeButtonsIOSTests: XCTestCase {
     private var window: UIWindow!
@@ -343,11 +343,10 @@ final class NativeButtonsIOSTests: XCTestCase {
     }
 
     /// What `testADestructiveButtonDrawsInThePlatformsRedUnlessTheAuthorPaintedIt`
-    /// leaves unheld (measured on iOS 27): the red is the configuration's base
-    /// colour and not a transformer's, so what UIKit draws is `systemRed` in each
-    /// scheme and, for a disabled one, the grey of a disabled button UIKit
-    /// configured itself; and the prop paints it when it arrives and stops when it
-    /// leaves.
+    /// leaves unheld (LLP 1115.000 D15's measurements on iOS 27): the red is the configuration's base colour and not a
+    /// transformer's, so what UIKit draws is `systemRed` in each scheme and,
+    /// for a disabled one, the grey of a disabled button UIKit configured
+    /// itself; and the prop paints it when it arrives and stops when it leaves.
     func testADestructiveButtonIsRedAsDrawnGreyWhenDisabledAndFollowsItsProp() throws {
         let plain = face("Delete", style: "plain", ios: "plain")
         let p = presenter(box(1) + native(2, ["destructive": "true"]) + native(3) + native(6, ["destructive": "true", "disabled": "true"])
@@ -445,11 +444,11 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(focused, [2])
     }
 
-    /// An ordinary `button destructive=true` draws in the platform's destructive red, as
-    /// a hand-built screen's does: red ink on the plain, gray, bordered and tinted
-    /// styles, a red fill under UIKit's white on the filled ones, whatever accent it only
-    /// inherits. What the author wrote wins: an accent on the button, a colour on its
-    /// title.
+    /// LLP 1116.008 (team-kanban: "Delete is not styled as destructive"): an ordinary
+    /// `button destructive=true` draws in the platform's destructive red, as a hand-built
+    /// screen's does: red ink on the plain, gray, bordered and tinted styles, a red fill
+    /// under UIKit's white on the filled ones, whatever accent it only inherits. What the
+    /// author wrote wins: an accent on the button, a colour on its title.
     func testADestructiveButtonDrawsInThePlatformsRedUnlessTheAuthorPaintedIt() throws {
         let indigo: [Int] = [97, 85, 245, 255]
         let orange: [Int] = [255, 141, 40, 255]
@@ -497,7 +496,7 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertNil(try ink(8), "a written accent keeps UIKit's ink")
         XCTAssertEqual(try button(p, 8).tintColor.resolvedColor(with: light), UIColor(red: 255 / 255, green: 141 / 255, blue: 40 / 255, alpha: 1))
         // Enabled, the author's colour is the configuration's foreground, which UIKit greys with the tint behind a
-        // modal; the title's attributes carry it only while disabled.
+        // modal; the title's attributes carry it only while disabled (D16).
         let title = try XCTUnwrap(try button(p, 9).configuration?.titleTextAttributesTransformer)
         XCTAssertNil(title(AttributeContainer()).uiKit.foregroundColor)
         XCTAssertEqual(try ink(9)?.cgColor.components, [0, 128 / 255, 0, 1], "the author's colour, not the red ink")
@@ -925,8 +924,8 @@ final class NativeButtonsIOSTests: XCTestCase {
 
     /// A select its box holds narrower than its widest option wraps its
     /// title and grows taller, as UIKit's pop-up button does under Auto
-    /// Layout, instead of drawing past its box (at the largest text
-    /// size); one that fits keeps one line.
+    /// Layout, instead of drawing past its box (unit-converter at the
+    /// largest text size, round 22); one that fits keeps one line.
     func testSelectNarrowerThanItsTitleWrapsAndGrowsTaller() throws {
         var menu = selectMenu()
         menu.chosen = 1

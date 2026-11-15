@@ -1,6 +1,6 @@
 // The fixture app, as each suite makes it: an app `exact new` made outside
 // the repo, its view replaced by `fixture/app.contract`, depending on this
-// package by `file:` and installed.
+// package by `file:` and installed (LLP 1133.001 D8).
 //
 // usage: bun packages/fixtures/tally/test/fixture.mjs <dir>   (makes it at <dir>)
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

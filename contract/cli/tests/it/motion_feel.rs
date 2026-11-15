@@ -1,6 +1,6 @@
-//! `-exact-press-scale` is a style row the hosts own; the user's motion and
-//! transparency preferences are `exactViewport()` fields, re-answered in one
-//! commit, so an app collapses its own motion.
+//! LLP 1061: `-exact-press-scale` is a style row the hosts own; the user's motion
+//! and transparency preferences are `exactViewport()` fields, re-answered in
+//! one commit, so an app collapses its own motion.
 
 use exact_kernel::{Kernel, StyleId};
 use exact_plan::Value;
@@ -113,7 +113,7 @@ fn a_preference_is_a_bool_and_the_boot_fact_is_the_first_answer() {
     assert!(contract::bake(contract::compile(wrong).unwrap(), NoData).is_err());
 }
 
-/// `transform-origin` in CSS's grammar, from a literal or an
+/// LLP 1061 D6: `transform-origin` in CSS's grammar, from a literal or an
 /// expression; a lone percentage and a value ending in one both arrive.
 #[test]
 fn transform_origin_is_css_from_a_literal_or_an_expression() {
@@ -127,7 +127,7 @@ fn transform_origin_is_css_from_a_literal_or_an_expression() {
         "      view scale=0.9 transform-origin=\"25%\" testId=\"b\"\n",
         "      button press=drop transform-origin=(low ? \"0 100%\" : \"right 4px\") testId=\"c\"\n        text \"c\"\n",
     ));
-    let origin = |r: &Runner<NoData>, id: &str| style(r, id).transform_origin;
+    let origin = |r: &Runner<NoData>, id: &str| style(r, id).transform_origin.clone();
     assert_eq!(origin(&r, "root"), TransformOrigin::default());
     assert!(!style(&r, "root").mask.has(StyleId::TransformOrigin));
     assert_eq!(
@@ -163,7 +163,7 @@ fn transform_origin_is_css_from_a_literal_or_an_expression() {
     );
 }
 
-/// The pressed paint is three host-owned rows, set only where
+/// LLP 1061 D7: the pressed paint is three host-owned rows, set only where
 /// written, from a literal or an expression; its colours take what any
 /// colour row takes. Paint only: an opacity outside 0 to 1 and any other
 /// `-exact-press-` name are refused.

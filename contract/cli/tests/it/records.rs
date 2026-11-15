@@ -1,4 +1,4 @@
-//! Records built in expressions, `Shape(field=…)` and
+//! LLP 1035.005.000 D3: records built in expressions, `Shape(field=…)` and
 //! `Shape(base, field=…)`, lowered to the plan's `Record` and proven on the
 //! runner over `contract/corpus/records.contract`.
 
@@ -244,7 +244,7 @@ fn a_record_is_built_and_copied_inside_list_callbacks() {
 
 /// Expanding a use never renames a record constructor's head: a child's
 /// state, a child's prop (passed a parent's variable), or a binder spelled
-/// like a declared shape leaves `F(…)` building `F`.
+/// like a declared shape leaves `F(…)` building `F` (LLP 1035.005.000 D3).
 #[test]
 fn expansion_keeps_a_record_constructors_head() {
     const SHAPE: &str = "shape F\n  x: number\n";

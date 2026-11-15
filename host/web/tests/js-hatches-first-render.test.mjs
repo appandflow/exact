@@ -1,4 +1,5 @@
-// The JS target's hatch words and page module, known before the first render: a word app.json gives only other platforms is shown and never called from the very
+// The JS target's hatch words and page module, known before the first render (pass 1 #6 of the design tool's hands-on
+// passes, theme2's 18:11 ruling): a word app.json gives only other platforms is shown and never called from the very
 // first render, and an app with no page module (`modules/web/`) asks for no module artifact, so its page has no
 // `modules/index.js` 404. An app with a page module still loads it and calls its word.
 import { expect, test } from 'bun:test';

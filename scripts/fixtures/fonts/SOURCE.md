@@ -7,10 +7,10 @@ location a Contract declaration and every packager accept. `scripts/agent.mjs`
 launches the Linux host with `EXACT_FONTS` at that directory and
 `EXACT_FONT="DejaVu Sans"`, so text is
 shaped and painted from these bytes on every machine and a pixel fixture
-recorded on one matches on another. The environment wins
+recorded on one matches on another (LLP 1015 §5, §8). The environment wins
 over the pin; the app on a real box uses the fonts it finds.
 
-Sources (`/usr/share/fonts/truetype/dejavu/` on a Linux build machine):
+Sources (`/usr/share/fonts/truetype/dejavu/` on `expo-build-1000`):
 
 - `DejaVuSans.ttf` 759,720 bytes, sha256 `ae7b7855e115a5966d8b1b3f80f254ccc117ec86f9965e202ee2940453837280`
 - `DejaVuSans-Bold.ttf` 708,920 bytes, sha256 `5c1247acef7f2b8522a31742c76d6adcb5569bacc0be7ceaa4dc39dd252ce895`

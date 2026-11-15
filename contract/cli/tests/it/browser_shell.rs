@@ -1,7 +1,9 @@
-//! A browser shell's `iframe`: the accept fixture lowers its props, zoom and
-//! nine events, a host's `FrameNavigation`, `FrameNewWindow`, `FrameDownload`,
-//! `FrameCapture` and `FrameUserPrompt` reach an action as its record, and the
-//! frame commands reach the host by position.
+//! A browser shell's `iframe` (LLP 1020.002 D1–D3, D5, D6, §9): the accept
+//! fixture lowers its props, zoom and nine events, a host's
+//! `FrameNavigation`, `FrameNewWindow`, `FrameDownload`, `FrameCapture` and
+//! `FrameUserPrompt`
+//! reach an action as its record, and the frame commands reach the host by
+//! position.
 use exact_kernel::{Kernel, NodeType, PropId};
 use exact_plan::{EventKind, Plan, Value};
 use exact_runner::{DataError, DataSource, Event, Runner};
@@ -44,7 +46,7 @@ fn the_browser_shell_fixture_lowers_and_hears_its_guest() {
     r.kernel_mut()
         .compute_layout(root, exact_kernel::Offer::definite(800.0, 600.0))
         .unwrap();
-    // `zoom: 1.5` on a 400 px frame: a 600 px box (Chrome).
+    // `zoom: 1.5` on a 400 px frame: a 600 px box (Chrome, LLP 1020.002 D6).
     assert_eq!(r.kernel().node(id).unwrap().frame.width, 600.0);
     assert_eq!(
         r.handlers_of(id),
@@ -206,7 +208,7 @@ fn a_partition_refuses_what_would_reach_the_app_and_the_words_are_an_iframes() {
     )
     .unwrap_err();
     assert_eq!(e.id, "lower-attr-tag", "{e}");
-    // An unpartitioned frame keeps the plain frame's bridge and sandbox.
+    // An unpartitioned frame keeps LLP 1020's bridge and sandbox.
     contract::compile("component A\n  action got(d: string)\n    let x = d\n  view\n    iframe \"https://a.test\" sandbox=\"allow-scripts\" message=got\n").unwrap();
     // A computed source is the host's to refuse at run time.
     contract::compile("component A\n  state u = \"https://a.test\"\n  view\n    iframe src=u partition=\"work\"\n").unwrap();

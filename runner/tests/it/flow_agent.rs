@@ -1,4 +1,4 @@
-//! Agent layout facts include exclusions and skips.
+//! @ref LLP 1043.000 §3 D4 — agent layout facts include exclusions and skips.
 use exact_kernel::*;
 use exact_plan::{builder::PlanBuilder, Value};
 use exact_runner::{agent, DataError, DataSource, Runner};
@@ -21,11 +21,10 @@ fn layout_reports_resolved_and_skipped_paragraphs() {
         "/",
     )
     .unwrap();
-    let mut root = StyleProps {
-        width: Dimension::Points(600.),
-        height: Dimension::Points(400.),
-        ..Default::default()
-    };
+    let mut root = StyleProps::default().with_rows(|rows| {
+        rows.width = Dimension::Points(600.);
+        rows.height = Dimension::Points(400.);
+    });
     root.mask.set(StyleId::Width);
     root.mask.set(StyleId::Height);
     let mut ball = root.clone();
@@ -104,17 +103,16 @@ fn layout_reports_resolved_and_skipped_paragraphs() {
             }],
         )
         .unwrap();
-    // A block context admits auto height: it still flows.
+    // A block context admits auto height (LLP 1043.000 §8): it still flows.
     let receipt = runner
         .kernel_mut()
         .compute_layout(1, Offer::definite(600., 400.))
         .unwrap();
     assert!(receipt.flow_skipped.is_empty());
     assert!(agent::node(&runner, 2).contains("\"flow_shapes\""));
-    let mut flex = StyleProps {
-        display: exact_kernel::Display::Flex,
-        ..Default::default()
-    };
+    let mut flex = StyleProps::default().with_rows(|rows| {
+        rows.display = exact_kernel::Display::Flex;
+    });
     flex.mask.set(StyleId::Display);
     runner
         .kernel_mut()

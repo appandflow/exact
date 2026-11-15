@@ -5,7 +5,7 @@ import WebKit
 import AppKit
 
 /// `popover=(full ? some("manual") : none)` moves one mounted box into the
-/// manual top layer and back ("Removing the attribute").
+/// manual top layer and back (LLP 1021 D2, "Removing the attribute").
 final class ResidentPopoverMacTests: XCTestCase {
     func testOptionalManualPopoverPreservesTheMountedGuestAndRestoresItsFrame() throws {
         guard let module = ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"] else {

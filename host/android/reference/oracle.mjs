@@ -1,6 +1,6 @@
-// The Material oracle: each specimen drawn by Compose Material 3 (the reference, `:reference`)
+// The Material oracle (LLP 1115.001.001 D5): each specimen drawn by Compose Material 3 (the reference, `:reference`)
 // and by Exact (the specimen door, `apps/material-specimens`), compared in the layers that need no phone: geometry,
-// colour at probes, text's appearance, and pixels. Then the detection test: each specimen against itself
+// colour at probes, text's appearance, and pixels. Then the detection test (§3 O1): each specimen against itself
 // passes, and each planted defect fails.
 //
 //   bun host/android/reference/oracle.mjs [--out <dir>] [--compare] [--phone <serial>]
@@ -9,14 +9,15 @@
 // SDK) and Exact through Cargo, given the reference's own fonts (Robolectric's, from Gradle's cache). It writes
 // report.json and report.html into the out directory (default: host/android/reference/build/oracle) and exits 1
 // when the detection test fails. The comparison of the two sides reports and does not fail: no component is matched
-// yet. With --phone it then calibrates on the adb device of that serial (`phone` below).
+// yet (D7). With --phone it then calibrates on the adb device of that serial (D4; `phone` below).
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { crop, decodePng, encodePng } from '../../../scripts/png.mjs';
+import { fileURLToPath } from 'node:url';
 
-const here = dirname(new URL(import.meta.url).pathname);
+const here = dirname(fileURLToPath(new URL(import.meta.url)));
 const root = resolve(here, '../../..');
 const manifest = JSON.parse(readFileSync(join(here, 'specimens.json'), 'utf8'));
 const args = process.argv.slice(2);
@@ -25,7 +26,7 @@ const option = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : n
 const out = resolve(option('--out') ?? join(here, 'build/oracle'));
 
 /**
- * The thresholds, from the calibration on a Pixel: each above the largest difference between
+ * The thresholds, from O2's calibration on a Pixel (LLP 1115.001.001 §3): each above the largest difference between
  * two renders of one side (Compose on the JVM and on the phone; Exact headless and on the reader), and below the
  * smallest planted defect.
  */
@@ -175,7 +176,7 @@ function compare(name, specimen, scheme, [refSide, candSide], candName = name, i
   const cv = visual(cand, ground, density);
   // Geometry: the layout box, the visual box and its corners, each text's box; what is inside the layout box from its
   // origin, so that where the box is is said once. A control Compose puts in its 48 dp minimum touch box, which Exact
-  // answers apart from layout, is not compared by where it is (the manifest's `placed`).
+  // answers apart from layout (§5 Q5), is not compared by where it is (the manifest's `placed`).
   const geo = [];
   const edge = (what, a, b) => geo.push({ what, reference: round(a), candidate: round(b), ok: a != null && b != null && Math.abs(a - b) <= LIMIT.geometry });
   const [ro, co] = [ref.facts.layout, cand.facts.layout];
@@ -381,7 +382,7 @@ function pixels(ref, cand, texts, density, file, dir) {
 // ------------------------------------------------------------------------------------------------------------ phone
 
 /**
- * The calibration on a phone, after the build box's run: each specimen drawn by the catalogue (`:reference`'s debug
+ * D4's calibration on a phone, after the build box's run: each specimen drawn by the catalogue (`:reference`'s debug
  * APK) in Material's baseline scheme, twice, and in the phone's dynamic one; and by the specimen app on the reader
  * (`agent-android.mjs --reader`, the specimen's plan pushed), twice, in the phone's colours, which the door is then
  * told for a headless drawing of its own. Light and dark, by the phone's night mode, which is put back. Five pairs
@@ -567,7 +568,7 @@ function shifted(png, dx, dy) {
   return { width: w, height: h, data };
 }
 
-/** Each layer's largest difference over `comparisons`, and where: the floor of a pair of renders. */
+/** Each layer's largest difference over `comparisons`, and where: D4's floor of a pair of renders. */
 function largest(comparisons) {
   const kind = (what) => (/^(layout|visual|corner)/.test(what) ? what.split(' ')[0] : / baseline /.test(what) ? 'baseline'
     : / lines$/.test(what) ? 'lines' : what.startsWith('text') ? 'text box' : what);
@@ -643,7 +644,7 @@ function html(r) {
   };
   return `<!doctype html><meta charset="utf-8"><title>Material oracle</title>
 <style>body{font:14px system-ui;margin:16px;background:#fff;color:#111}section{border-left:4px solid #2a2;padding:4px 12px;margin:12px 0}section.bad{border-color:#d33}.imgs{display:flex;gap:8px;flex-wrap:wrap}img{max-width:420px;border:1px solid #ccc}figure{margin:0}figcaption{font-size:12px;color:#555}pre{font-size:11px}</style>
-<h1>Material oracle</h1><p>Limits: ${esc(JSON.stringify(r.limits))}, from O2's calibration. Compose against Exact reports and does not fail.</p>
+<h1>Material oracle</h1><p>Limits: ${esc(JSON.stringify(r.limits))}, from O2's calibration (LLP 1115.001.001 §3). Compose against Exact reports and does not fail.</p>
 <h2>Detection test</h2>${r.detection.map((d) => row(d.comparison, `${d.ok ? 'as expected' : 'NOT AS EXPECTED'} · ${d.kind} · ${d.name}`)).join('\n')}
 <h2>Compose against Exact</h2>${r.comparisons.map((c) => row(c)).join('\n')}`;
 }

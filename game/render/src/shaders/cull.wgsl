@@ -7,6 +7,7 @@
 // chunks nearest first, so depth tested before shading rejects what they hide (a
 // GPU without order-independent hidden-surface removal shades it otherwise).
 // Within a chunk, and in the shadow views, order is the retained slot order.
+// @ref llp/1046.003-game-engine-as-built.explainer.md#culling-and-environment-lighting-2026-09-23
 struct Cull {
     planes: array<vec4<f32>, 24>, // six normalized planes per view: camera, cascades 0-2
     // views, chunks, groups, region stride (words)
@@ -295,7 +296,7 @@ fn test(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_index) l
     }
 }
 
-// A look frame's account of the cull, dispatched after the
+// A look frame's account of the cull (LLP 1127.000 D4), dispatched after the
 // frame's passes with an output buffer bound as `scratch`: for each item, at
 // (chunk * 64 + lane) * 6, its world sphere (the interpolation-swept,
 // attached, skinned one `test` reads; a kept-whole group's items too), the

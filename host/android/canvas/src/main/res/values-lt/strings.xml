@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="exact_clear">Išvalyti</string>
+    <string name="exact_default_channel">Pranešimai</string>
+    <string name="exact_silent_channel">Tylieji pranešimai</string>
 </resources>

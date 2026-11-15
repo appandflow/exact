@@ -1,5 +1,5 @@
 //! The optional browser text-flow artifact. No core host exports or stores it.
-//! The leaf crate owns geometry and line breaks.
+//! @ref LLP 1043.000 §3 D6/D7 — the leaf crate owns geometry and line breaks.
 
 use std::cell::RefCell;
 

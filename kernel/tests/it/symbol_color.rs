@@ -1,5 +1,5 @@
 //! Whether a symbol image draws in its author's `color` when nobody tinted
-//! it: its own written `color`, or the nearest
+//! it (LLP 1121 stage 9 B, D10): its own written `color`, or the nearest
 //! ancestor's that sets one; not a colour no author wrote, and not on a
 //! native control's face.
 
@@ -106,7 +106,7 @@ fn an_ancestors_written_colour_reaches_a_symbol_and_its_clear_touches_it() {
     );
     assert!(said(&k, 4));
     // Not a photo, and not a native button's face, which keeps the
-    // control's tint.
+    // control's tint (D9).
     assert!(!said(&k, 5) && !said(&k, 7));
     // A token or a role is written as any colour is.
     set(&mut k, 1, row(StyleId::TextColor, "AccentColor", true));

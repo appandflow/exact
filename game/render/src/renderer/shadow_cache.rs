@@ -137,38 +137,40 @@ fn seed_pipeline(
             count: None,
         }],
     });
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("sun cache seed"),
-        layout: Some(
-            &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("sun cache seed"),
-                bind_group_layouts: &[Some(&layout)],
-                immediate_size: 0,
+    let pipeline = crate::perf::pipeline(|| {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("sun cache seed"),
+            layout: Some(
+                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("sun cache seed"),
+                    bind_group_layouts: &[Some(&layout)],
+                    immediate_size: 0,
+                }),
+            ),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs"),
+                compilation_options: Default::default(),
+                targets: &[],
             }),
-        ),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("vs"),
-            compilation_options: Default::default(),
-            buffers: &[],
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("fs"),
-            compilation_options: Default::default(),
-            targets: &[],
-        }),
-        primitive: Default::default(),
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(wgpu::CompareFunction::Always),
-            stencil: Default::default(),
-            bias: Default::default(),
-        }),
-        multisample: Default::default(),
-        multiview_mask: None,
-        cache: None,
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        })
     });
     let binds = layers
         .iter()
@@ -192,20 +194,16 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         cascades: Option<&Cascades>,
         frame: &FrameInput<'_>,
         custom: &[CustomMaterial],
-    ) {
-        // A look frame leaves the cache as the live frames left it: it draws
-        // every caster itself (`encode_shadows`).
-        if self.probe.is_some() {
-            return;
-        }
+    ) -> bool {
+        let probing = self.probe.is_some();
         let enabled = self.shadows.as_ref().is_some_and(|s| s.cache_enabled)
             && self.model_poses_current
             && custom.is_empty();
         if !enabled {
-            if let Some(shadows) = &mut self.shadows {
+            if let Some(shadows) = self.shadows.as_mut().filter(|_| !probing) {
                 shadows.cached = None;
             }
-            return;
+            return false;
         }
         let cascades = cascades.unwrap();
         let (mut signature, mut groups) = self
@@ -214,6 +212,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             .unwrap()
             .cached
             .as_mut()
+            .filter(|_| !probing)
             .map(|c| {
                 (
                     std::mem::take(&mut c.scratch),
@@ -289,9 +288,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             true
         }));
         let shadows = self.shadows.as_mut().unwrap();
+        // A look may read submitted depth only for the same sun and casters.
+        // Other views draw independently without changing the live cache.
+        if probing {
+            return shadows
+                .cached
+                .as_ref()
+                .is_some_and(|c| c.valid && c.signature == signature && c.groups == groups);
+        }
         if !groups.iter().any(|&b| b) {
             shadows.cached = None;
-            return;
+            return false;
         }
         let cache = shadows.cached.get_or_insert_with(|| {
             self.texture_creations += 1;
@@ -311,6 +318,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         cache.encoded.set(false);
         cache.scratch = std::mem::replace(&mut cache.signature, signature);
         cache.groups = groups;
+        true
     }
 }
 

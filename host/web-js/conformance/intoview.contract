@@ -1,6 +1,6 @@
 // data: carousel
-// Synthetic conformance plan: `scrollIntoView` on a virtualized list
-// (list.js), on Carousel's sources and wasm — the command from an
+// Synthetic conformance plan: `scrollIntoView` on a virtualized list (LLP
+// 1070.000, list.js), on Carousel's sources and wasm — the command from an
 // action (a far row centred, a near one to the end, a key the list lacks,
 // refused) and the agent's `tap <list> into <key>`. Rows are their
 // estimate, as in lists.contract.

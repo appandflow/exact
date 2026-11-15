@@ -1,4 +1,4 @@
-// Authored row content and action controls projected into
+// @ref LLP 1008 §9 — authored row content and action controls projected into
 // UIKit swipe cells. The kernel owns dimensions; UIKit owns the gesture.
 #if os(iOS) || os(tvOS)
 import UIKit
@@ -13,7 +13,7 @@ import UIKit.UIGestureRecognizerSubclass
 /// content goes back and the table goes. VoiceOver and Switch Control read a
 /// row's actions from its cell, so while either runs every row stays projected.
 ///
-/// A grouped list's row is a list cell already: UIKit's
+/// A grouped list's row (LLP 1116.001 D1) is a list cell already: UIKit's
 /// own, which the list carries the row's views into. Its swipe is that
 /// cell's, as a hand-built list's is: the list asks `configuration` for its
 /// actions, and the row's controls stay hidden while the row is one.
@@ -94,7 +94,7 @@ package final class SwipeActionsHost {
     #endif
     #if os(iOS)
     /// A grouped list row's actions on one side, as its list cell offers
-    /// them; nil for a row that names none there, or that
+    /// them (LLP 1116.001 D1); nil for a row that names none there, or that
     /// is no grouped list's swipe row.
     package func configuration(row id: UInt32, leading: Bool) -> UISwipeActionsConfiguration? {
         guard let row = rows[id], row.grouped else { return nil }
@@ -106,8 +106,8 @@ package final class SwipeActionsHost {
     }
     #endif
 
-    /// Whether `owner` is a grouped list's row: its section's group's child,
-    /// drawn in UIKit's list cell. Read from the authored
+    /// Whether `owner` is a grouped list's row: its section's group's child
+    /// (LLP 1084 D3), drawn in UIKit's list cell. Read from the authored
     /// hierarchy: a row the list carries is its parent's child from its cell.
     private func groupedRow(_ owner: NodeView) -> Bool {
         #if os(iOS)
@@ -261,14 +261,14 @@ package final class SwipeActionsHost {
         abs(body.layoutBounds.width - owner.layoutBounds.width) < 0.5 && abs(body.layoutBounds.height - owner.layoutBounds.height) < 0.5
     }
 
-    /// An action's name; a native button's is its label, else its title.
-    /// Read from the node, not its view's
+    /// An action's name; a native button's is its label, else its title
+    /// (LLP 1069.011.000 D6). Read from the node, not its view's
     /// `accessibilityLabel`: with assistive technology's runtime loaded,
     /// UIKit answers that getter, and each row a scroll builds read it.
     private func label(_ node: NodeView) -> String {
         node.props["accessibilityLabel"] ?? (node.isNativeButton ? node.face?.title : nil) ?? node.accessibleName
     }
-    /// A projected row's table, the views it hides, and
+    /// LLP 1080.001 D3: a projected row's table, the views it hides, and
     /// the content it carries into its cell.
     func inspectionOwns(_ view: UIView) -> Bool { rows.values.contains { $0.inspectionOwns(view) } }
     func hides(_ node: NodeView) -> Bool { rows.values.contains { $0.hides(node) } }
@@ -309,7 +309,7 @@ package final class SwipeActionsHost {
 
     private final class Cell: UITableViewCell, AgentOwned {
         weak var control: NodeView?
-        var agentViewId: UInt32? { isAccessibilityElement ? control?.id : nil }
+        var agentViewId: UInt32? { isAccessibilityElement ? control?.id : nil } // LLP 1080.002 D5
         override func accessibilityActivate() -> Bool {
             control?.accessibilityActivate() ?? super.accessibilityActivate()
         }
@@ -337,8 +337,8 @@ package final class SwipeActionsHost {
     }
 
     /// A contact in a swipe row that leaves the slop toward a side with
-    /// actions is the swipe's, never a press (the drag
-    /// that begins takes the press). Recognizing cancels
+    /// actions is the swipe's, never a press (LLP 1057.001 rule 3: the drag
+    /// that begins takes the press; LLP 1116.004 D2). Recognizing cancels
     /// the touch in the row's views — its press, a checkbox's or a button's
     /// activation — whether or not UIKit's swipe, which keeps its own
     /// threshold, goes on to reveal the actions: a sideways drag too short
@@ -569,7 +569,7 @@ package final class SwipeActionsHost {
             // Mounted again while projected (VoiceOver starting, a batch with
             // no `prepare`): its content comes home first. Walking up from the
             // body in the cell would find the table, and the cell would take
-            // its own table (CALayerInvalid, a layer tree cycle).
+            // its own table (CALayerInvalid, a layer tree cycle: r28's tasks).
             if carrier != nil, carrier?.superview === cell?.contentView { restore() }
             let scroll: UIView = owner.scroll ?? owner
             var content: UIView = body
@@ -698,9 +698,9 @@ package final class SwipeActionsHost {
                 }
                 action.accessibilityLabel = host.label(target)
                 if target.isNativeButton {
-                    // A native action: the accent its
-                    // author wrote on it, or UIKit's colour
-                    // for its style (grey), which an accent it
+                    // A native action (LLP 1069.011.000 D6): the accent its
+                    // author wrote on it (LLP 1115.000 D2), or UIKit's colour
+                    // for its style (grey; LLP 1115 D4), which an accent it
                     // only inherits leaves; a destructive one sets none,
                     // whatever its accent (UIKit's red); its symbol, recorded
                     // for discovery as a snapshot is.
@@ -714,7 +714,7 @@ package final class SwipeActionsHost {
                     } else { action.title = host.label(target) }
                     return action
                 }
-                // `delete=`'s Delete is a hand-built list's: UIKit's
+                // `delete=`'s Delete (LLP 1116.020 D1) is a hand-built list's: UIKit's
                 // red, the trash symbol over its title (its web paint is the page's).
                 if destructive, target.props["id"] == "exact-swipe-delete", let image = UIImage(systemName: "trash") {
                     image.accessibilityLabel = host.label(target)
@@ -731,7 +731,7 @@ package final class SwipeActionsHost {
                     action.backgroundColor = accent
                 }
                 // A custom action's symbol is a system image, as a native one's
-                // is; anything else is its snapshot.
+                // is (LLP 1069.011.000 D1); anything else is its snapshot.
                 if let face = target.face, face.fits, !face.raster, let symbol = face.symbol, let image = FaceSymbol.image(symbol) {
                     image.accessibilityLabel = host.label(target)
                     images[target.id] = image; action.image = image
@@ -739,8 +739,8 @@ package final class SwipeActionsHost {
                     return action
                 }
                 // A word its author left unstyled (no font or colour written
-                // on it or its button), as `delete=`'s Delete: UIKit's title,
-                // in UIKit's font, not a picture of the word.
+                // on it or its button), as `delete=`'s Delete (LLP 1116.020
+                // D1): UIKit's title, in UIKit's font, not a picture of the word.
                 let faces = target.container.subviews.compactMap { $0 as? NodeView }
                 if let word = faces.first, faces.count == 1, word.isParagraph, let title = target.face?.title, !title.isEmpty,
                    ![word, target].contains(where: { node in ["font_size", "font_weight", "font_family", "text_color"].contains(where: node.wrote) }) {
@@ -804,7 +804,7 @@ package final class SwipeActionsHost {
             func visit(_ view: UIView) {
                 // UIKit's rendered actions only: never the authored row, its
                 // body or its hidden actions, so a native body button labelled
-                // like an action is not taken for it.
+                // like an action is not taken for it (LLP 1069.011.000 D6).
                 if view is NodeView { return }
                 if visibleOnly && (view.isHidden || view.alpha <= 0.01) { return }
                 if let button = view as? UIButton,
@@ -820,7 +820,7 @@ package final class SwipeActionsHost {
     }
 }
 /// The swipe row's table: a pan cancels a touch in a native button in the
-/// row's body, as it does a custom button's.
+/// row's body, as it does a custom button's (LLP 1069.011.000 D6).
 private final class SwipeTable: UITableView {
     override func touchesShouldCancel(in view: UIView) -> Bool {
         view is NativeButtonIOS || super.touchesShouldCancel(in: view)

@@ -1,5 +1,5 @@
 //! `fetch` over the host's ticket path, the store as the seam's, and an
-//! answer that awaits two fetches in a row — through the
+//! answer that awaits two fetches in a row (LLP 1027 D1a) — through the
 //! executor alone, and through a compiled Contract and the runner.
 
 #![cfg(exact_js_engine)]
@@ -192,7 +192,7 @@ fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
     }
 }
 
-/// `exactHeld: true` reaches the request as `held`, which
+/// LLP 1016.000 D9: `exactHeld: true` reaches the request as `held`, which
 /// the runner counts for no clock; beside a stream, or not a boolean, the
 /// fetch refuses before any request.
 #[test]
@@ -288,81 +288,11 @@ fn a_fetch_deadline_reaches_the_request_and_its_timeout_rejects_with_its_kind() 
     }
 }
 
-/// An ArrayBuffer or a view as a fetch's body is sent as
-/// its bytes, every value of a byte intact, copied when `fetch` is called.
-#[test]
-fn a_buffer_source_body_is_sent_as_its_bytes() {
-    let mut m = unloaded();
-    m.load().unwrap();
-    m.bind(&contract::compile("component App\n  resource result = upload(\"view\") as shape string\n  view\n    text result\n").unwrap());
-    let mut s = store();
-    for (kind, bytes) in [
-        ("view", vec![0u8, 255, 128, 10, 13, 0]),
-        ("dataview", vec![0, 255, 128, 10, 13, 0]),
-        ("buffer", vec![9, 0, 255, 128, 10, 13, 0, 9]),
-    ] {
-        let args = [Value::str(kind)];
-        let request = later(m.answer(&mut s, "upload", &args).unwrap());
-        assert_eq!(request.method, "POST");
-        assert_eq!(request.body, bytes, "{kind}");
-        assert!(request
-            .headers
-            .contains(&("content-type".into(), "image/png".into())));
-        assert_eq!(
-            now(m
-                .parse(&mut s, "upload", &args, response(200, "ok"))
-                .unwrap()),
-            Value::str("ok")
-        );
-    }
-}
+#[path = "fetch_cache.rs"]
+mod fetch_cache;
 
-/// Fetch refuses any body on a GET or HEAD, an empty one too, and a view on
-/// a SharedArrayBuffer or a resizable buffer, before any request; a detached
-/// buffer is sent as no bytes (Web IDL's copy of a BufferSource).
-#[test]
-fn a_body_fetch_refuses_is_refused_before_any_request() {
-    let mut m = unloaded();
-    m.load().unwrap();
-    m.bind(&contract::compile("component App\n  resource result = oddUpload(\"get\") as shape string\n  view\n    text result\n").unwrap());
-    let mut s = store();
-    for (kind, message) in [
-        ("get", "a GET request cannot have a body"),
-        ("head", "a HEAD request cannot have a body"),
-        (
-            "shared",
-            "data on a SharedArrayBuffer is not a BufferSource",
-        ),
-        (
-            "resizable",
-            "data on a resizable ArrayBuffer is not a BufferSource",
-        ),
-    ] {
-        let refused = match m.answer(&mut s, "oddUpload", &[Value::str(kind)]).unwrap() {
-            Answer::Now(v) => v,
-            Answer::Later(r) => panic!("{kind}: a request for {}", r.url),
-        };
-        let text = refused.as_str().unwrap_or_default();
-        assert!(
-            text == "unsupported" || text.contains(message),
-            "{kind}: {refused:?}"
-        );
-        assert_eq!(m.in_flight(), 0, "{kind}");
-    }
-    let args = [Value::str("detached")];
-    match m.answer(&mut s, "oddUpload", &args).unwrap() {
-        Answer::Now(v) => assert_eq!(v, Value::str("unsupported")),
-        Answer::Later(request) => {
-            assert!(request.body.is_empty());
-            assert_eq!(
-                now(m
-                    .parse(&mut s, "oddUpload", &args, response(200, "ok"))
-                    .unwrap()),
-                Value::str("ok")
-            );
-        }
-    }
-}
+#[path = "fetch_body.rs"]
+mod fetch_body;
 
 #[test]
 fn fetch_carries_its_redirect_mode_and_refuses_an_unknown_one() {
@@ -418,6 +348,7 @@ fn fetch_carries_its_redirect_mode_and_refuses_an_unknown_one() {
 
 fn event(id: &str, data: &str, coalesced: u32) -> Outcome {
     Outcome::Message(exact_runner::Message {
+        protocol: Box::default(),
         event: String::new(),
         id: id.into(),
         data: data.into(),
@@ -426,7 +357,7 @@ fn event(id: &str, data: &str, coalesced: u32) -> Outcome {
     })
 }
 
-/// `fetch(url, { exactStream })` from TypeScript answers a
+/// LLP 1016.000, TypeScript: `fetch(url, { exactStream })` answers a
 /// stream; each event, and the end, is mapped now by the source's function,
 /// which reads the store like any answer.
 #[test]
@@ -473,7 +404,7 @@ fn a_stream_answer_maps_each_event_and_its_end() {
         .is_err());
 }
 
-/// `exactLongPoll` makes the stream a long poll, its terms
+/// LLP 1016.000 D8: `exactLongPoll` makes the stream a long poll, its terms
 /// on the request (and no byte stream); each reply is an event whose id is
 /// the cursor.
 #[test]
@@ -531,7 +462,7 @@ fn a_long_poll_refuses_what_it_cannot_ask() {
     }
 }
 
-/// A byte stream: a binary message reaches the mapper as an
+/// LLP 1016.000's byte stream: a binary message reaches the mapper as an
 /// `ArrayBuffer` of its bytes.
 #[test]
 fn a_byte_stream_maps_each_message_as_an_array_buffer() {
@@ -567,7 +498,7 @@ fn a_byte_stream_maps_each_message_as_an_array_buffer() {
     );
 }
 
-/// The prelude installs the gate's stub decode under the
+/// LLP 1133.003 §9: the prelude installs the gate's stub decode under the
 /// agent alone.
 #[test]
 fn the_gate_stub_decode_is_installed_under_the_agent_alone() {
@@ -587,7 +518,7 @@ fn the_gate_stub_decode_is_installed_under_the_agent_alone() {
     }
 }
 
-/// Slice 3: the spelling of a socket is its URL. A text frame
+/// LLP 1069.004 slice 3: the spelling of a socket is its URL. A text frame
 /// is a `message` event; the far side's close is the end.
 #[test]
 fn a_socket_answer_is_a_stream_to_a_wss_url() {
@@ -657,28 +588,38 @@ fn a_stream_answer_through_the_runner() {
 
 #[test]
 fn parallel_fetches_keep_every_request_and_binary_response() {
-    let mut m = module();
-    let mut s = store();
-    assert_eq!(
-        later(m.answer(&mut s, "parallel", &[]).unwrap()).url,
-        "https://api.castle.xyz/a"
-    );
-    let binary = Outcome::Response(Response {
-        status: 200,
-        headers: vec![],
-        body: vec![0, 255],
-    });
-    assert_eq!(
-        later(m.parse(&mut s, "parallel", &[], binary).unwrap()).url,
-        "https://api.castle.xyz/b"
-    );
-    assert_eq!(
-        session(&now(m
-            .parse(&mut s, "parallel", &[], response(200, "ok"))
-            .unwrap()))
-        .2,
-        "0,255/ok/\"\"/TypeError/TypeError/TypeError/true/TypeError"
-    );
+    use exact_runner::Target;
+    for order in [[0, 1], [1, 0]] {
+        let mut m = module();
+        let mut s = store();
+        let target = Target::Resource(0);
+        let first = later(m.answer_for(target, &mut s, "parallel", &[]).unwrap());
+        let mut requests = vec![first];
+        requests.extend(m.more_for(target));
+        assert_eq!(
+            requests.iter().map(|r| r.url.as_str()).collect::<Vec<_>>(),
+            ["https://api.castle.xyz/a", "https://api.castle.xyz/b"]
+        );
+        let mut answer = None;
+        for i in order {
+            let body = if i == 0 { vec![0, 255] } else { b"ok".to_vec() };
+            let reply = Outcome::Response(Response {
+                status: 200,
+                headers: vec![],
+                body,
+            });
+            answer = m
+                .parse_fetch_for(target, requests[i].fetch, &mut s, "parallel", &[], reply)
+                .unwrap();
+            if i == order[0] {
+                assert!(answer.is_none());
+            }
+        }
+        assert_eq!(
+            session(&now(answer.unwrap())).2,
+            "0,255/ok/\"\"/TypeError/TypeError/TypeError/true/TypeError"
+        );
+    }
 }
 
 #[test]
@@ -788,7 +729,7 @@ fn an_answer_may_await_two_fetches_in_a_row() {
     assert_eq!(m.in_flight(), 0);
 }
 
-/// A fetch's rejection the module lets through keeps its
+/// LLP 1109 D3: a fetch's rejection the module lets through keeps its
 /// class, as host/web-js does (shape.js `failureCode`); an aborted one is
 /// the module's error.
 #[test]
@@ -820,7 +761,7 @@ fn a_rejection_let_through_keeps_its_class() {
     }
 }
 
-/// An error's
+/// LLP 1109 D3, amended (the author's ruling of 2026-10-12): an error's
 /// `reason` crosses the seam as `failure(x).reason`, its code unchanged.
 #[test]
 fn a_thrown_reason_crosses_the_seam() {
@@ -1045,7 +986,7 @@ fn two_targets_asking_one_source_with_equal_arguments_each_settle_with_their_own
     assert_eq!(r.data().in_flight(), 0);
 }
 
-/// Two resources whose answers share one fetch.
+/// Two resources whose answers share one fetch (hn-reader F7).
 const SHARED: &str = r#"
 shape Session
   ok: bool
@@ -1068,7 +1009,7 @@ component App
 
 /// An answer that awaits a promise another answer's fetch settles waits for
 /// it, as in a browser, rather than refusing the press that asked
-/// (the module-wide rule).
+/// (LLP 1027.003.000 §13, the module-wide rule; hn-reader F7).
 #[test]
 fn an_answer_awaiting_another_answers_fetch_waits_for_it_and_both_settle() {
     use exact_runner::Dispatch;
@@ -1098,7 +1039,7 @@ fn an_answer_awaiting_another_answers_fetch_waits_for_it_and_both_settle() {
         .unwrap();
     let released = r.release_work();
     assert_eq!(released.len(), 1, "the delivery wakes the waiting answer");
-    // Asked again with no work to run.
+    // Asked again with no work to run (LLP 1041 §8.4, amended 2026-10-09).
     let (woken, Dispatch::Again) = released.into_iter().next().unwrap() else {
         panic!("a waiting answer is asked again at once");
     };
@@ -1113,7 +1054,7 @@ fn an_answer_awaiting_another_answers_fetch_waits_for_it_and_both_settle() {
 
 /// An answer that awaits another's fetch and then fetches on its own: its
 /// second request runs, though its continuation ran as the other answer,
-/// which had already settled.
+/// which had already settled (review r4a, finding 1).
 #[test]
 fn a_fetch_made_after_awaiting_another_answers_fetch_is_not_left_behind() {
     use exact_runner::Dispatch;
@@ -1153,7 +1094,7 @@ fn a_fetch_made_after_awaiting_another_answers_fetch_is_not_left_behind() {
 
 /// An answer that fetches without awaiting and finishes while another answer
 /// awaits its own fetch: its request is still handed out, not left in the
-/// module. A ticket made while the answer
+/// module (Grok's batch 2 review, runtime). A ticket made while the answer
 /// was still in flight is its own, whoever else is pending.
 #[test]
 fn an_unawaited_fetch_is_sent_while_another_answer_is_in_flight() {
@@ -1198,7 +1139,7 @@ fn an_unawaited_fetch_is_sent_while_another_answer_is_in_flight() {
     assert_eq!(r.data().in_flight(), 0);
 }
 
-// --- the kept answer ------------------------------------------
+// --- the kept answer (LLP 1027 D4, as ruled 2026-09-03) --------------------
 
 #[test]
 fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_the_engine_is_up() {
@@ -1331,8 +1272,8 @@ fn a_resumed_capture_over_budget_retires_the_call_and_keeps_later_answers_clean(
     assert!(!session(&now(m.answer(&mut s, "remember", &[]).unwrap())).0);
 }
 
-/// A worker-placed answer whose reply body is large: every
-/// stage crosses to the owner thread, the body with it.
+/// A worker-placed answer (LLP 1027.002) whose reply body is large: every
+/// stage crosses to the owner thread, the body with it (Crew port, F4/F6).
 #[test]
 fn a_worker_placed_answer_takes_a_large_reply_as_it_takes_a_small_one() {
     use exact_js::Placement;
@@ -1431,8 +1372,8 @@ fn a_let_go_stream_does_not_reject_its_fetch() {
 
 /// A waiting answer whose re-ask is refused for good (a retired executor,
 /// say): the answer fails and keeps its last value, its call is unlinked
-/// from the module's bookkeeping, and nothing is left in flight for it.
-/// The shared fetch still settles the answer it
+/// from the module's bookkeeping, and nothing is left in flight for it
+/// (LLP 1041 §8.4 Q5). The shared fetch still settles the answer it
 /// belongs to. This is bookkeeping, not cancellation: a continuation the
 /// shared promise runs is not stopped by it.
 #[test]

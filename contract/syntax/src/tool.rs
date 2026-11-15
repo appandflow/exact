@@ -1,6 +1,6 @@
 //! `tool NAME reads|writes [additive]|destroys [idempotent] [closed]
 //! "DESCRIPTION" = ACTION [returns EXPR] [fails when EXPR] [available when
-//! EXPR]`: a root action offered to a caller that is not the
+//! EXPR]` (LLP 1111 D2): a root action offered to a caller that is not the
 //! person, with the author's word for what it does. The clauses may go on
 //! deeper-indented lines, in that order.
 //!
@@ -11,7 +11,7 @@
 use crate::ast::Expr;
 use crate::Span;
 
-/// What a tool does, in the author's word.
+/// What a tool does, in the author's word (LLP 1111 D3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Consequence {
     /// `reads`: changes nothing the person keeps.

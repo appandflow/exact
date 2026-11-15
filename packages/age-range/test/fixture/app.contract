@@ -1,6 +1,6 @@
-// The conformance fixture: the status, and one
-// request whose answer the row shows. A chat app is the module's consumer
-// and its drives' app.
+// The conformance fixture (LLP 1133.028 §8.4 drive 11): the status, and one
+// request whose answer the row shows. Excord (apps/excord) is the module's
+// consumer and its drives' app.
 use requestAgeRange, ageRangeStatus, AgeRange, AgeRangeStatus from "@exact/age-range"
 
 component Fixture

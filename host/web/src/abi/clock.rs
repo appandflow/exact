@@ -1,4 +1,4 @@
-//! The page's live clock while it owns time: told to
+//! The page's live clock while it owns time (the timers RFC, D1): told to
 //! the running host and kept for every boot, a dev restart's included; and
 //! what the agent's clock waits on or hands the worlds between its frames.
 
@@ -6,6 +6,22 @@ use super::Bridge;
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// The browser copied a completed drawing before asynchronous PNG encoding.
+    pub fn canvas_snapshotted(&mut self, ticket: u64) -> bool {
+        self.host
+            .as_mut()
+            .is_some_and(|h| h.canvas_snapshotted(ticket))
+    }
+
+    /// The page applied the requesting commit's layout and drawing.
+    pub fn canvas_capture_ready(&mut self, ticket: u64) -> u32 {
+        let out = self.host.as_mut().map_or_else(
+            || crate::batch::Batch::new().finish(None, false, 0.0, Some("not booted")),
+            |host| host.canvas_capture_ready(ticket),
+        );
+        self.emit(out)
+    }
+
     /// Move the clock: `mode` 0 fires every timer due (the wall clock), 1
     /// stops after a timer that sends (the agent's jump), 2 lands only the
     /// `then`s already armed, the clock unmoved (an agent's input's end).
@@ -61,8 +77,8 @@ impl<D: DataSource> Bridge<D> {
         u32::from(self.host.as_ref().is_some_and(|h| h.runner().has_pending()))
     }
 
-    /// Whether the substitute feeds a canvas a sensor's samples:
-    /// the agent's clock then steps the worlds a frame at a time.
+    /// Whether the substitute feeds a canvas a sensor's samples (LLP
+    /// 1133.013 D6): the agent's clock then steps the worlds a frame at a time.
     pub fn sensor_inputs(&self) -> u32 {
         u32::from((self.host.as_ref()).is_some_and(|h| h.runner().surface_sensor_inputs()))
     }
@@ -109,9 +125,10 @@ impl<D: DataSource> Bridge<D> {
 }
 
 /// `exact_live_clock(on)`, in the artifact `host!` makes: nonzero, the
-/// page's clock owns time; zero, the agent's seekable one does. The page's
-/// clock is the `exact_clock.now` import, which this crate, forbidding
-/// `unsafe`, cannot declare; the artifact does, as it declares its exports.
+/// page's clock owns time; zero, the agent's seekable one does (the timers
+/// RFC, D1). The page's clock is the `exact_clock.now` import, which this
+/// crate, forbidding `unsafe`, cannot declare; the artifact does, as it
+/// declares its exports.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! live_clock_export {

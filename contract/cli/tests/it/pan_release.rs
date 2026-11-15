@@ -1,4 +1,4 @@
-//! `panrelease` completes `pan` with its
+//! @ref LLP 1057 §10.6 phase 2 — `panrelease` completes `pan` with its
 //! release velocity: two numbers appended, pan's units per second.
 use exact_plan::{EventKind, Value};
 use exact_runner::{DataError, DataSource, Event, Runner};

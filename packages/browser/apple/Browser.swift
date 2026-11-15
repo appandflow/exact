@@ -1,4 +1,4 @@
-// @exact/browser on Apple: `clearSiteData` clears a
+// @exact/browser on Apple (LLP 1020.002 D4): `clearSiteData` clears a
 // partition's website data store through the iframe arm that holds it
 // (`exact_web_clear_site_data`). The arm loads at the first iframe, and
 // every partition the session names is named by a mounted frame, so an arm

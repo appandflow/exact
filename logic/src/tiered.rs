@@ -1,5 +1,5 @@
 //! One admitted generation: Wasm first, native promotion between data calls.
-//! Only explicitly stateless, portable modules qualify.
+//! @ref LLP 1029.000 §4 — only explicitly stateless, portable modules qualify.
 use crate::{native, wasm, Executor, MAX_MODULE};
 use exact_logic_abi as abi;
 

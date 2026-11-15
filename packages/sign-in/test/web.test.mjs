@@ -1,4 +1,4 @@
-// The hermetic proofs of the web cell: the providers'
+// LLP 1133.014 §11 stage 1's hermetic proofs of the web cell: the providers'
 // authorization URLs, the callback's answer, the button's window opened at
 // the press before `press` is delivered and closed when no request claims
 // it, the host glue adopting it, and the fixture server's return route.
@@ -11,9 +11,21 @@ import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { answered, authorizationURL, implementation, roster } from '../web/index.js';
 import { respond } from './idp.mjs';
+import declaration from '../exact.json';
 
 const APPLE = 'https://appleid.apple.com', GOOGLE = 'https://accounts.google.com/gsi/fedcm.json';
 const back = 'https://api.example/sign-in/return';
+
+test('Apple agent defaults offer only built identity requests', () => {
+  const substitute = declaration.names.find(row => row.source === 'getIdentityCapabilities').substitute;
+  for (const target of ['ios', 'macos']) {
+    const providers = substitute.targets[target].providers;
+    const apple = { ...substitute.default.providers.apple, ...providers.apple };
+    const google = { ...substitute.default.providers.google, ...providers.google };
+    expect(google).toEqual({ active: false, passive: false, withPublicKey: false });
+    expect(apple).toEqual({ active: target === 'ios', passive: target === 'ios', withPublicKey: target === 'ios' });
+  }
+});
 
 test("Apple's URL: the Services ID, the return route, form_post, the scope from fields, state and nonce", () => {
   const u = new URL(authorizationURL({ configURL: APPLE, clientId: 'com.example.web', params: { nonce: 'n1' }, web: { redirectURI: back } }, 's1'));
@@ -46,7 +58,7 @@ test('the callback answers {relay}, a cancellation NetworkError, any other error
   expect(answered(p, 'https://a/cb?state=s&error=server_error').error).toBe('IdentityCredentialError');
 });
 
-test("the host session's statuses become the module's errors; the capabilities follow the grants", async () => {
+test("the host session's statuses become D1's errors; the capabilities follow the grants", async () => {
   const statuses = { 499: ['NetworkError'], 409: ['NotAllowedError', 'busy'], 428: ['NotAllowedError', 'activation'] };
   for (const [status, [error, message]] of Object.entries(statuses)) {
     globalThis.location = { origin: 'https://app.example' };

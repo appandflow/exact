@@ -1,4 +1,4 @@
-// The media session under the driver: `state.mediaSession`
+// @ref LLP 1098 D10. The media session under the driver: `state.mediaSession`
 // from the video arm's coordinator (NowPlaying.swift) as each player reports
 // it, and `tap <element> mediasession <action> [seconds]` through the
 // command target's own path. Under the driver nothing is published
@@ -20,7 +20,7 @@ extension Agent {
     }
 
     /// `state.mediaSession`: the owner when it is one of this session's
-    /// players (another session's owns it otherwise), the claimants
+    /// players (another session's owns it otherwise, LLP 1031), the claimants
     /// by id, and the owner's report.
     func mediaSessionState() -> [String: Any] {
         let players = mediaPlayers()

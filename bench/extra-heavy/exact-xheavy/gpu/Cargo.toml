@@ -1,4 +1,4 @@
-# The shader row's surface (SPEC 3): a dylib natively, a wasm on the web, loaded on
+# The shader row's surface (SPEC 3, LLP 1009): a dylib natively, a wasm on the web, loaded on
 # demand after the first pixel. Never linked into the app's host library.
 [package]
 name = "exact-xheavy-gpu"

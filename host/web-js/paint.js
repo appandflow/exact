@@ -1,5 +1,5 @@
 import { viewParent as parent, viewChildren, listRow } from './navigation.js';
-// Mirrors kernel/src/paint_order.rs: own facts, potentials,
+// Mirrors kernel/src/paint_order.rs (LLP 1083.000): own facts, potentials,
 // left-to-right decisions, then contributions. Templates supply facts only;
 // every region arm and each copy is decided on its actual instance tree.
 export function paintUse() { return { list: paintList, facts: paintFacts, flush: paintFlush, wait: paintWait }; }
@@ -57,7 +57,7 @@ export function paintFlush() {
   // Buckets keep the pass deepest first, including newly dirtied ancestors.
   // A wide list is queued once; no repeated sorting or subtree queries.
   // Depths are shared across this flush: the dirtied elements of a commit are siblings and cousins, so each ancestor is
-  // walked once.
+  // walked once (LLP 1071.001 A6).
   const buckets = [], queued = new Set(), depths = new Map();
   const depth = a => { if (!a || a.id === "exact-root") return 0; let d = depths.get(a); if (d === undefined) { d = depth(parent(a)) + 1; depths.set(a, d); } return d; };
   const queue = p => {

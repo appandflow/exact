@@ -1,5 +1,5 @@
-// Shared Elements — one screen per form of a shared-element flight, to try
-// on every host.
+// Shared Elements — the LLP 1013.000 example: one screen per form of a
+// shared-element flight, to try on every host.
 //
 // A node's `sharedElement` names it. When a commit destroys the node holding
 // a name and creates another holding it, the new one flies from where the
@@ -15,7 +15,7 @@
 // - Cards: a card (a box with children) opens into a detail.
 // - Tasks: a task moves between two lists.
 // - Zoom: a route presented fullscreen zooms from its photo (iOS 18's zoom
-//   transition, `navigationSource`).
+//   transition, `navigationSource`; LLP 1035.001).
 routes nav
   tab home "/"
   photo "/photo/:photo"

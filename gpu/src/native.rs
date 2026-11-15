@@ -1,4 +1,4 @@
-//! The native ABI: what the presenter `dlopen`s.
+//! The native ABI: what the presenter `dlopen`s (LLP 1009 D2).
 //!
 //! One thread-local module; calls on the main thread. Strings are UTF-8
 //! bytes with lengths. The `unsafe` this module owns: the platform target
@@ -6,7 +6,7 @@
 //! it calls `destroy`) and the byte ranges a host hands over — each checked
 //! for a null pointer before it becomes a slice, every count checked for
 //! overflow in the module, so a confused host gets a refusal by name, never
-//! undefined behaviour (the ABI is the one `unsafe` boundary).
+//! undefined behaviour (LLP 1009 D2: the ABI is the one `unsafe` boundary).
 
 use crate::{json, Frame, Module, Registry};
 use std::cell::RefCell;
@@ -143,7 +143,7 @@ static PREPARED: (std::sync::Mutex<Prepared>, std::sync::Condvar) = (
 
 /// Create the device on a thread of its own, now, for the next [`load`]
 /// (which waits for it): a host starting up makes it while it boots, and
-/// the canvas's first frame does not. The device and queue are
+/// the canvas's first frame does not (LLP 1076). The device and queue are
 /// `Send`; the module itself stays on the thread that loads it.
 pub fn prepare() {
     {
@@ -223,10 +223,12 @@ pub fn create_headless(name: &str) -> u32 {
     with(|m| m.create_headless(name)).flatten().unwrap_or(0)
 }
 
-/// Drop the device and every canvas; [`load`] may run again. A thread that
-/// loaded a module must not leave it for thread-local teardown: wgpu's own
-/// thread-locals may already be gone by then, and dropping a device without
-/// them aborts the process (found by the first test to load one off the main thread).
+/// Join acquisition workers and drop the device and every canvas; [`load`] may
+/// run again. The host must keep the library loaded until this returns.
+///
+/// A thread that loaded a module must not leave it for thread-local teardown:
+/// wgpu's own thread-locals may already be gone by then, and dropping a device
+/// without them aborts the process.
 pub fn unload() {
     let module = MODULE.with(|m| m.borrow_mut().take());
     drop(module);
@@ -262,7 +264,7 @@ pub unsafe fn create(name: &str, layer: *mut c_void, width: u32, height: u32) ->
     created.unwrap_or(0)
 }
 
-/// Off Apple there is no layer to present to yet: the module
+/// Off Apple there is no layer to present to yet (LLP 1015 §7): the module
 /// still loads, and a surface runs through [`crate::fixture`]; a canvas on a
 /// platform target is refused by name.
 ///
@@ -349,12 +351,19 @@ pub fn buffer(id: u32, out: &mut [u32; 3]) -> *mut c_void {
     }
 }
 
+/// Whether canvas `id` has a complete frame [`buffer`] has not published
+/// yet: a presenter keeps calling it until it has.
+#[cfg(target_os = "android")]
+pub fn unpublished(id: u32) -> bool {
+    with(|m| m.unpublished(id)).unwrap_or(false)
+}
+
 /// Drop canvas `id`'s window target; its state stays.
 pub fn detach(id: u32) {
     with(|m| m.detach(id));
 }
 
-/// Register the text of shader `name`: validated, its
+/// Register the text of shader `name` (LLP 1030 D8): validated, its
 /// interface checked against the one this module's Rust binds. Returns 0 on
 /// success, 1 on a refusal (see [`error`]). The module must be loaded.
 pub fn shader(name: &str, text: &str) -> u32 {
@@ -399,7 +408,7 @@ pub fn bind_at(id: u32, values: &str, at_ms: Option<f64>) -> u32 {
     }
 }
 
-/// Record one frame into the tick's open frame; nothing is
+/// Record one frame into the tick's open frame (LLP 1009 D7); nothing is
 /// shown until [`flush`]. Returns 1 when the surface wants another frame, 0
 /// otherwise, 2 on failure, 3 when presentation has no device.
 pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
@@ -422,8 +431,8 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
     }
 }
 
-/// Submit the tick's recorded frame once and present every canvas in it.
-/// 0 on success, 1 when a surface failed (see [`error`]).
+/// Submit the tick's recorded frame once and present every canvas in it
+/// (LLP 1009 D7). 0 on success, 1 when a surface failed (see [`error`]).
 pub fn flush() -> u32 {
     match with(|m| m.flush()) {
         Some(false) => 1,
@@ -431,13 +440,14 @@ pub fn flush() -> u32 {
     }
 }
 
-/// Whether a canvas's surface wants each child as its own texture.
+/// Whether a canvas's surface wants each child as its own texture (LLP
+/// 1014 D5).
 pub fn children_mode(id: u32) -> u32 {
     with(|m| m.children_mode(id).code()).unwrap_or(0)
 }
 
-/// The `index`th direct child of a canvas as pixels with its frame.
-/// 0 on success.
+/// The `index`th direct child of a canvas as pixels with its frame (LLP
+/// 1014 D5). 0 on success.
 pub fn child(
     id: u32,
     index: u32,
@@ -452,7 +462,7 @@ pub fn child(
     }
 }
 
-/// How many direct children a canvas has now. 0 on success.
+/// How many direct children a canvas has now (LLP 1014 D5). 0 on success.
 pub fn children_count(id: u32, count: u32) -> u32 {
     match with(|m| m.children_count(id, count as usize)) {
         Some(true) => 0,
@@ -461,12 +471,12 @@ pub fn children_count(id: u32, count: u32) -> u32 {
 }
 
 /// Where the surface put a child: the homography (nine floats, row major)
-/// then the depth; `None` when it is the kernel's frame.
+/// then the depth; `None` when it is the kernel's frame (LLP 1014 D5).
 pub fn placement(id: u32, index: u32) -> Option<crate::Placement> {
     with(|m| m.placement(id, index as usize)).flatten()
 }
 
-/// The canvas's children as pixels (`width`×`height` premultiplied
+/// The canvas's children as pixels (LLP 1014 D3) (`width`×`height` premultiplied
 /// RGBA). 0 on success.
 pub fn texture(id: u32, width: u32, height: u32, bytes: &[u8]) -> u32 {
     match with(|m| m.texture(id, width, height, bytes)) {
@@ -475,7 +485,7 @@ pub fn texture(id: u32, width: u32, height: u32, bytes: &[u8]) -> u32 {
     }
 }
 
-/// The module's GPU work complete. 0 on success.
+/// The module's GPU work complete (LLP 1008 §9). 0 on success.
 pub fn sync() -> u32 {
     match with(|m| m.sync()) {
         Some(true) => 0,
@@ -484,7 +494,7 @@ pub fn sync() -> u32 {
 }
 
 /// The canvas's children as a Metal texture the host rendered, imported as
-/// it is. 0 on success.
+/// it is (LLP 1008 §9). 0 on success.
 ///
 /// # Safety
 /// `raw` is a live `MTLTexture` of `width`×`height`, `rgba8Unorm`, kept
@@ -499,8 +509,8 @@ pub unsafe fn texture_from_metal(id: u32, width: u32, height: u32, raw: *mut c_v
 }
 
 /// A canvas's picture as pixels into `out` — `width`×`height` points at
-/// `scale`, RGBA rows top-down, `out` at least the pixel count × 4 (nested
-/// canvases). 0 on success, 2 on success when the surface wants
+/// `scale`, RGBA rows top-down, `out` at least the pixel count × 4 (LLP
+/// 1014, nested canvases). 0 on success, 2 on success when the surface wants
 /// another frame, 1 on failure, 3 when the device is unavailable.
 pub fn readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: &mut [u8]) -> u32 {
     let frame = Frame {
@@ -531,6 +541,11 @@ pub fn presentation_flags(id: u32) -> u32 {
 /// Whether a canvas wants raw input.
 pub fn wants_input(id: u32) -> bool {
     with(|m| m.wants_input(id)).unwrap_or(false)
+}
+
+/// Whether a canvas reads gamepads.
+pub fn wants_pads(id: u32) -> bool {
+    with(|m| m.wants_pads(id)).unwrap_or(false)
 }
 
 /// Present between CPU UI layers without reading the game back.
@@ -582,12 +597,12 @@ pub fn window_detach() {
     with(|m| m.detach_window());
 }
 
-/// Whether a canvas draws above SDR white.
+/// Whether a canvas draws above SDR white (LLP 1100 D12b).
 pub fn high_dynamic_range(id: u32) -> bool {
     with(|m| m.high_dynamic_range(id)).unwrap_or(false)
 }
 
-/// The headroom an HDR canvas draws its next frames to.
+/// The headroom an HDR canvas draws its next frames to (LLP 1100 D12b).
 pub fn headroom(id: u32, headroom: f32) {
     with(|m| m.set_headroom(id, headroom));
 }
@@ -616,10 +631,28 @@ pub fn published(id: u32) -> Option<String> {
     with(|m| m.take_published(id)).flatten()
 }
 
+/// Enable or disable bounded HUD performance reporting.
+pub fn set_performance_reporting(id: u32, enabled: bool) -> bool {
+    with(|m| m.set_performance_reporting(id, enabled)).unwrap_or(false)
+}
+
+/// Take one metrics snapshot, at most once per second on the host clock.
+pub fn performance(id: u32, now_ms: f64) -> Option<String> {
+    with(|m| m.take_performance(id, now_ms)).flatten()
+}
+
 /// Drain posted messages as a JSON array.
 pub fn messages(id: u32) -> Option<String> {
     let messages = with(|m| m.take_messages(id)).unwrap_or_default();
     (!messages.is_empty()).then(|| json::strings(&messages))
+}
+
+/// The canvas's size in points, before a bind. Returns 0 on success.
+pub fn size(id: u32, width: f32, height: f32) -> u32 {
+    match with(|m| m.size(id, width, height)) {
+        Some(true) => 0,
+        _ => 1,
+    }
 }
 
 /// Ask the surface; an empty string means no answer.
@@ -640,6 +673,28 @@ pub fn seekable(on: bool) {
 /// The display's frame period in milliseconds (0 = unknown), for every frame after.
 pub fn period(period_ms: f64) {
     with(|m| m.set_period(period_ms));
+}
+
+/// The host's display callback for the frames after: its raw timestamp, when
+/// it began to run and the display's fastest period, in milliseconds on the
+/// frame clock, and the thermal state's code ([`crate::ThermalState`]).
+pub fn host_frame(raw_ms: f64, callback_ms: f64, fastest_period_ms: f64, thermal: u32) {
+    let host = crate::HostTiming {
+        raw_ms,
+        callback_ms,
+        fastest_period_ms,
+    };
+    with(|m| m.set_host_timing(host, crate::ThermalState::from_code(thermal)));
+}
+
+/// Whether a canvas's next frame is due at `now_ms` under its cap ([`crate::Module::due`]).
+pub fn due(id: u32, now_ms: f64) -> bool {
+    with(|m| m.due(id, now_ms)).unwrap_or(true)
+}
+
+/// A canvas's frame-rate cap, 0 for none.
+pub fn max_fps(id: u32) -> u32 {
+    with(|m| m.max_fps(id)).unwrap_or(0)
 }
 
 /// Whether a canvas has inputs it has not rendered.
@@ -675,9 +730,10 @@ pub fn seen(id: u32) -> bool {
     with(|m| m.seen(id)).unwrap_or(false)
 }
 
-/// Register the presenter's callback for a canvas's first frame: on Metal it
-/// runs on the thread that scheduled the frame, and the presenter asks
-/// [`seen`] on its own thread. `None` removes it.
+/// Register the presenter's callback for a canvas's first frame, or the
+/// first of its current picture: on Metal it runs on the thread that
+/// scheduled the frame, and the presenter asks [`seen`] and [`published`]
+/// (whose `presented` changed) on its own thread. `None` removes it.
 pub fn on_presented(callback: Option<extern "C" fn()>) {
     crate::frame::on_presented(callback);
 }
@@ -697,7 +753,7 @@ pub fn error() -> String {
     with(|m| m.take_error()).unwrap_or_default()
 }
 
-/// The exports for one app's registry, C ABI.
+/// The exports for one app's registry, C ABI (see LLP 1009 D2).
 #[macro_export]
 macro_rules! module {
     ($registry:expr) => {
@@ -738,7 +794,7 @@ macro_rules! module {
             len
         }
 
-        /// Release all instances and module TLS before unloading the library.
+        /// Join acquisition workers and release instances and TLS before unloading the library.
         #[no_mangle]
         pub extern "C" fn gpu_unload() { $crate::native::unload(); }
 
@@ -795,6 +851,19 @@ macro_rules! module {
         #[no_mangle]
         pub unsafe extern "C" fn gpu_buffer(id: u32, out: *mut u32) -> *mut ::std::ffi::c_void { $crate::native::buffer(id, &mut *out.cast::<[u32; 3]>()) }
 
+        /// Whether the canvas has a complete frame `gpu_buffer` has not published yet.
+        #[cfg(target_os = "android")]
+        #[no_mangle]
+        pub extern "C" fn gpu_unpublished(id: u32) -> u32 { u32::from($crate::native::unpublished(id)) }
+
+        /// The module's shader roster as JSON in the output buffer. Needs no device.
+        #[no_mangle]
+        pub extern "C" fn gpu_shader_names() -> u32 {
+            let names = $registry.shaders.iter().map(|(name, _)| (*name).to_string()).collect::<Vec<_>>();
+            let text = $crate::json::strings(&names);
+            EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 })
+        }
+
         /// Clear the previous complete shader namespace after app acceptance.
         #[no_mangle]
         pub extern "C" fn gpu_shaders_clear() { $crate::shaders::clear_shaders(); }
@@ -842,6 +911,12 @@ macro_rules! module {
             $crate::native::bind_at(id, text, Some(at_ms))
         }
 
+        /// The canvas's size in points, before a bind: 0 on success.
+        #[no_mangle]
+        pub extern "C" fn gpu_size(id: u32, width: f32, height: f32) -> u32 {
+            $crate::native::size(id, width, height)
+        }
+
         /// Record one frame (shown at `gpu_flush`): 1 = wants another, 0 = done, 2 = failed.
         #[no_mangle]
         pub extern "C" fn gpu_render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
@@ -862,7 +937,7 @@ macro_rules! module {
         }
 
         /// The `index`th direct child of a canvas: its frame in points and
-        /// `len` bytes of premultiplied RGBA, `width`×`height`.
+        /// `len` bytes of premultiplied RGBA, `width`×`height` (LLP 1014 D5).
         /// 0 on success.
         ///
         /// # Safety
@@ -875,13 +950,13 @@ macro_rules! module {
             $crate::native::child(id, index, name, [x, y, w, h], [width, height], bytes)
         }
 
-        /// How many direct children a canvas has now. 0 on success.
+        /// How many direct children a canvas has now (LLP 1014 D5). 0 on success.
         #[no_mangle]
         pub extern "C" fn gpu_children_count(id: u32, count: u32) -> u32 {
             $crate::native::children_count(id, count)
         }
 
-        /// Where the surface put a child: ten floats into
+        /// Where the surface put a child (LLP 1014 D5): ten floats into
         /// `out`, which is `len` floats long (at least ten) — the homography,
         /// row major, then the depth; 1 when placed, 0 when it is the
         /// kernel's frame or `out` cannot hold it; 2 means hidden, with `out` untouched.
@@ -911,7 +986,7 @@ macro_rules! module {
             }
         }
 
-        /// The canvas's children, painted: `len` bytes of premultiplied
+        /// The canvas's children, painted (LLP 1014 D3): `len` bytes of premultiplied
         /// RGBA, `width`×`height`, rows top-down. 0 on success.
         ///
         /// # Safety
@@ -923,14 +998,14 @@ macro_rules! module {
         }
 
         /// The module's GPU work complete, so a texture it was reading may be
-        /// drawn into. 0 on success.
+        /// drawn into (LLP 1008 §9). 0 on success.
         #[no_mangle]
         pub extern "C" fn gpu_sync() -> u32 {
             $crate::native::sync()
         }
 
-        /// The canvas's children as a Metal texture the host rendered:
-        /// imported as it is. 0 on success.
+        /// The canvas's children as a Metal texture the host rendered (LLP
+        /// 1008 §9): imported as it is. 0 on success.
         ///
         /// # Safety
         /// `raw` is a live `MTLTexture` of that size, `rgba8Unorm`, alive
@@ -941,8 +1016,8 @@ macro_rules! module {
             unsafe { $crate::native::texture_from_metal(id, width, height, raw) }
         }
 
-        /// A canvas's picture as pixels into `out`, `len` bytes (nested
-        /// canvases). 0 on success, 2 when the surface also wants
+        /// A canvas's picture as pixels into `out`, `len` bytes (LLP 1014,
+        /// nested canvases). 0 on success, 2 when the surface also wants
         /// another frame, 1 on failure, 3 when the device is unavailable.
         ///
         /// # Safety
@@ -978,11 +1053,14 @@ macro_rules! module {
         /// Whether a canvas wants raw input.
         #[no_mangle]
         pub extern "C" fn gpu_wants_input(id: u32) -> u32 { u32::from($crate::native::wants_input(id)) }
+        /// Whether a canvas reads gamepads: 1 or 0.
+        #[no_mangle]
+        pub extern "C" fn gpu_wants_pads(id: u32) -> u32 { u32::from($crate::native::wants_pads(id)) }
         /// Instance policy: bit 0 promises alpha one, bit 1 requests SDR.
         #[no_mangle]
         pub extern "C" fn gpu_presentation_flags(id: u32) -> u32 { $crate::native::presentation_flags(id) }
 
-        /// Whether a canvas draws above SDR white: 1 or 0.
+        /// Whether a canvas draws above SDR white (LLP 1100 D12b): 1 or 0.
         #[no_mangle]
         pub extern "C" fn gpu_high_dynamic_range(id: u32) -> u32 { u32::from($crate::native::high_dynamic_range(id)) }
 
@@ -1063,6 +1141,21 @@ macro_rules! module {
             }
         }
 
+        /// Enable or disable bounded HUD performance reporting.
+        #[no_mangle]
+        pub extern "C" fn gpu_performance_reporting(id: u32, enabled: bool) -> bool {
+            $crate::native::set_performance_reporting(id, enabled)
+        }
+
+        /// Metrics in the output buffer; u32::MAX means unchanged or disabled.
+        #[no_mangle]
+        pub extern "C" fn gpu_performance(id: u32, now_ms: f64) -> u32 {
+            match $crate::native::performance(id, now_ms) {
+                Some(text) => EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 }),
+                None => u32::MAX,
+            }
+        }
+
         /// Drain messages into the output buffer; u32::MAX means no messages.
         #[no_mangle]
         pub extern "C" fn gpu_messages(id: u32) -> u32 {
@@ -1094,6 +1187,15 @@ macro_rules! module {
         /// The display's frame period in milliseconds, 0 while unknown.
         #[no_mangle]
         pub extern "C" fn gpu_period(period_ms: f64) { $crate::native::period(period_ms); }
+        /// The host's display callback, on the frame clock, and the thermal state's code (0 unknown … 4 critical).
+        #[no_mangle]
+        pub extern "C" fn gpu_host_frame(raw_ms: f64, callback_ms: f64, fastest_period_ms: f64, thermal: u32) { $crate::native::host_frame(raw_ms, callback_ms, fastest_period_ms, thermal); }
+        /// 1 when a canvas's next frame is due at `now_ms` under its frame-rate cap.
+        #[no_mangle]
+        pub extern "C" fn gpu_due(id: u32, now_ms: f64) -> u32 { u32::from($crate::native::due(id, now_ms)) }
+        /// A canvas's frame-rate cap, 0 for none.
+        #[no_mangle]
+        pub extern "C" fn gpu_max_fps(id: u32) -> u32 { $crate::native::max_fps(id) }
 
         /// The host's GPU tier before `gpu_load` (`GpuTier::code`: 0 high, 1 mid,
         /// 2 low); 3 asks. Returns the tier the module's surfaces use.
@@ -1154,8 +1256,9 @@ macro_rules! module {
             u32::from($crate::native::seen(id))
         }
 
-        /// The presenter's callback for a canvas's first frame, called on
-        /// the thread that scheduled it; null removes it.
+        /// The presenter's callback for a canvas's first frame, or the first
+        /// of its current picture, called on the thread that scheduled it;
+        /// null removes it.
         #[no_mangle]
         pub extern "C" fn gpu_on_presented(callback: Option<extern "C" fn()>) {
             $crate::native::on_presented(callback)

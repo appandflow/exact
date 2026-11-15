@@ -13,6 +13,7 @@ fn style(font_size: f32) -> TextStyle {
         letter_spacing: 0.0,
         font_variant_numeric: 0,
         font_variant_ligatures: 0,
+        font_features: Default::default(),
         bold_text: false,
     }
 }
@@ -67,6 +68,7 @@ fn text_box_trim_cuts_to_the_cap_height_and_baseline() {
     let runs = [TextRun {
         text: "Ab".into(),
         style: style(10.0),
+        edges: Default::default(),
         inline: None,
     }];
     let mut p = paragraph();
@@ -114,6 +116,7 @@ fn a_trimmed_paragraphs_last_line_ends_at_its_height() {
     let runs = [TextRun {
         text: "Ab\nAb".into(),
         style: short,
+        edges: Default::default(),
         inline: None,
     }];
     let mut p = paragraph();
@@ -150,6 +153,7 @@ fn a_trimmed_paragraphs_last_line_ends_at_its_height() {
     let empty = [TextRun {
         text: "".into(),
         style: style(20.0),
+        edges: Default::default(),
         inline: None,
     }];
     let empty = m.measure(&TextMeasureRequest {
@@ -164,6 +168,7 @@ fn measure(text: &str, width: AxisOffer, lines: u32) -> TextMetrics {
     let runs = [TextRun {
         text: text.into(),
         style: style(10.0),
+        edges: Default::default(),
         inline: None,
     }];
     let mut p = paragraph();
@@ -211,6 +216,7 @@ fn measure_in(text: &str, width: AxisOffer, white_space: crate::WhiteSpace) -> T
     let runs = [TextRun {
         text: text.into(),
         style: style(10.0),
+        edges: Default::default(),
         inline: None,
     }];
     let mut p = paragraph();
@@ -252,7 +258,7 @@ fn explicit_newlines_break_only_preserved_lines() {
 
 #[test]
 fn pre_line_breaks_at_line_feeds_and_collapses_the_rest() {
-    // Max-content is the longest forced line,
+    // @ref LLP 1053 §0 G5 — max-content is the longest forced line,
     // min-content the longest word.
     let text = "  one   two  \n  three";
     let m = measure_in(text, AxisOffer::MaxContent, crate::WhiteSpace::PreLine);
@@ -265,6 +271,7 @@ fn pre_line_breaks_at_line_feeds_and_collapses_the_rest() {
 
 #[test]
 fn nowrap_min_content_is_the_unwrapped_line() {
+    // @ref LLP 1053 §0 G5
     for width in [
         AxisOffer::MinContent,
         AxisOffer::Definite(10.0),
@@ -277,7 +284,7 @@ fn nowrap_min_content_is_the_unwrapped_line() {
 
 #[test]
 fn pre_keeps_spaces_and_breaks_only_at_line_feeds() {
-    // Preserve × nowrap: min-content is max-content.
+    // @ref LLP 1053 G5 — preserve × nowrap: min-content is max-content.
     for width in [
         AxisOffer::MinContent,
         AxisOffer::Definite(10.0),
@@ -300,11 +307,13 @@ fn runs_take_the_tallest_line_height() {
         TextRun {
             text: "ab".into(),
             style: style(10.0),
+            edges: Default::default(),
             inline: None,
         },
         TextRun {
             text: "cd".into(),
             style: style(20.0),
+            edges: Default::default(),
             inline: None,
         },
     ];
@@ -325,6 +334,7 @@ fn overflow_wrap_changes_emergency_breaks_and_only_anywhere_changes_min_content(
     let runs = [TextRun {
         text: "abcdefghijklmnopqrst".into(),
         style: style(10.0),
+        edges: Default::default(),
         inline: None,
     }];
     let mut request = TextMeasureRequest {

@@ -1,4 +1,4 @@
-//! Foreground services under the agent: Android's
+//! Foreground services under the agent (LLP 1133.033 D2, D21): Android's
 //! reader starts none while its implementations run under the agent, and
 //! says each claim and release through the claimant's `changed`
 //! ([`CLAIMED`]). The runner journals it (`foreground service microphone:

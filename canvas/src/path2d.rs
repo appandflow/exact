@@ -1,11 +1,11 @@
-//! `Path2D`: a path built in its own coordinates,
+//! `Path2D` (LLP 1056 D9, §3 stage 2): a path built in its own coordinates,
 //! painted under the matrix current at the paint.
 //!
 //! A `Path2D` lives in the recorder. At `fill(path)`, `stroke(path)` or
 //! `clip(path)` its segments are transformed by the current matrix and cross
 //! as the list's path-segment records, followed by the paint; the context's
 //! own current path is untouched. So a replayer holds no live path objects:
-//! a declared difference from holding paths by id, with the same result (a path's later
+//! a declared difference from D3's ids, with the same result (a path's later
 //! mutations never reach an earlier paint).
 //!
 //! `new Path2D(d)` reads SVG path data: every command, relative and
@@ -363,9 +363,9 @@ fn transform(s: PathSeg, m: Matrix) -> PathSeg {
 }
 
 impl Context2d {
-    fn paint_path(&self, path: &Path2d, op: Op, operands: &[f64], clip: bool) {
+    fn paint_path(&self, path: &Path2d, op: Op, operands: &[f64]) {
         let mut g = self.g();
-        if !clip && !g.paints() {
+        if !g.paints() {
             return;
         }
         let m = g.state.transform;
@@ -388,12 +388,12 @@ impl Context2d {
 
     /// `fill(path, rule)`.
     pub fn fill_with_path_2d_and_winding(&self, path: &Path2d, rule: CanvasWindingRule) {
-        self.paint_path(path, Op::FillPath, &[rule.code()], false)
+        self.paint_path(path, Op::FillPath, &[rule.code()])
     }
 
     /// `stroke(path)`.
     pub fn stroke_with_path(&self, path: &Path2d) {
-        self.paint_path(path, Op::StrokePath, &[], false)
+        self.paint_path(path, Op::StrokePath, &[])
     }
 
     /// `clip(path)`.
@@ -403,7 +403,7 @@ impl Context2d {
 
     /// `clip(path, rule)`.
     pub fn clip_with_path_2d_and_winding(&self, path: &Path2d, rule: CanvasWindingRule) {
-        self.paint_path(path, Op::ClipPath, &[rule.code()], true)
+        self.paint_path(path, Op::ClipPath, &[rule.code()])
     }
 }
 
@@ -562,7 +562,9 @@ fn svg(text: &str, d: &mut PathData) {
         if c.is_ascii_alphabetic() {
             cmd = c;
             s.at += 1;
-        } else if cmd == 0 || !s.more_numbers() {
+        } else if cmd == 0 || matches!(cmd, b'Z' | b'z') || !s.more_numbers() {
+            // `Z` takes no numbers, so one after it is the path's first
+            // error (SVG 2 §9.3.4, §9.5.4); repeating `Z` would never end.
             return;
         }
         if first && !matches!(cmd, b'M' | b'm') {
@@ -675,5 +677,20 @@ mod tests {
         // The arc ends at (20,20); `L x` stops the parse.
         assert!(matches!(segs.last(), Some(PathSeg::Cubic(.., 20.0, 20.0))));
         assert!(Path2d::new_with_path_string("L 1 1").segs().is_empty());
+    }
+
+    /// `Z` takes no numbers: one after it ends the path there, as Chrome
+    /// does, instead of repeating `Z` for ever.
+    #[test]
+    fn a_number_after_z_ends_the_path() {
+        for d in ["M0 0 L10 0 Z 5", "M0 0 L10 0 z5 5"] {
+            let p = Path2d::new_with_path_string(d);
+            assert_eq!(
+                p.segs().iter().filter(|s| **s == PathSeg::Close).count(),
+                1,
+                "{d}"
+            );
+            assert_eq!(p.segs().last(), Some(&PathSeg::Close), "{d}");
+        }
     }
 }

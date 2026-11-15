@@ -1,21 +1,25 @@
 //! The page around a document: its `<head>`, its checkpoint, and the
 //! locations a build renders. The render host (`exact-render`) composes them.
 //!
-//! The head is the active `head` element's fields with the
-//! app's name as the title when no head sets one, the viewport meta the glue
-//! would write (`syncViewportFit`), and the plan's fonts as `@font-face` rules
+//! @ref LLP 1048.000 D3 (the head), D6 (the checkpoint, 1a's form), D7
+//! (`dist/`)
+//!
+//! The active `head` supplies the metadata (LLP 1048.003 D1). Its title falls
+//! back to the route heading, then the app's name (LLP 1115.000 D4.1). The
+//! viewport meta is what the glue would write (`syncViewportFit`), and the
+//! plan's fonts are `@font-face` rules
 //! with their preloads — so a reader without JavaScript sees the page's own
 //! faces. URLs a crawler reads (canonical, image) are made absolute against
 //! the manifest's origin, never a request's. Nothing preloads the glue or the
-//! wasm.
+//! wasm (D3).
 
-use super::{escape, navigable, Document, DocumentError, Json};
+use super::{escape, navigable, Document, DocumentError, Json, Source};
+use exact_kernel::{PropId, ViewId};
 use exact_plan::{Plan, RenderPolicy, Value};
 use exact_runner::{Checkpoint, DataSource, Runner};
 use std::fmt::Write as _;
 
-/// What the page knows of the app beyond its plan: the manifest's name, the
-/// title when no head sets one, and its production origin.
+/// The manifest's name and production origin.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Site<'a> {
     /// The manifest's name.
@@ -37,7 +41,11 @@ impl Document {
     ) -> Result<String, DocumentError> {
         let head = &self.head;
         let mut out = String::new();
-        let title = head.title.as_deref().unwrap_or(site.name);
+        let title = head
+            .title
+            .as_deref()
+            .or(self.route_title.as_deref())
+            .unwrap_or(site.name);
         out.push_str("<title>");
         escape(&mut out, title, false).map_err(|reason| DocumentError {
             view: 0,
@@ -120,6 +128,74 @@ impl Document {
     }
 }
 
+/// The first navigation root's selected route heading, as `navigation.js`'s `routeTitle` reads it.
+pub fn route_title(src: &impl Source, roots: &[ViewId]) -> Option<String> {
+    let descendants = |roots: &[ViewId], predicate: &dyn Fn(ViewId) -> bool| {
+        let mut pending: Vec<_> = roots.iter().rev().copied().collect();
+        while let Some(id) = pending.pop() {
+            if predicate(id) {
+                return Some(id);
+            }
+            pending.extend(src.children(id).iter().rev());
+        }
+        None
+    };
+    let nav = descendants(roots, &|id| {
+        src.facts(id)
+            .is_some_and(|n| n.props.str(PropId::NavigationBack).is_some())
+    })?;
+    let node = src.facts(nav)?;
+    let key = node.props.str(PropId::NavigationKey)?;
+    let children = src.children(nav);
+    let candidates = match crate::link::linked().tabs {
+        Some(tabs) => tabs(src, &children, Some(key))
+            .into_iter()
+            .map(|(id, _, _)| id)
+            .collect::<Vec<_>>(),
+        None => children.into_owned(),
+    };
+    let route = candidates.into_iter().find(|&id| {
+        src.facts(id)
+            .is_some_and(|n| n.props.str(PropId::NavigationKey) == Some(key))
+    })?;
+    let header = src.children(route).iter().copied().find(|&id| {
+        src.facts(id)
+            .is_some_and(|n| super::tag_of(&n, false) == "header")
+    })?;
+    let heading = descendants(&src.children(header), &|id| {
+        src.facts(id).is_some_and(|n| {
+            n.props.str(PropId::AccessibilityRole) == Some("heading")
+                || matches!(
+                    super::tag_of(&n, false),
+                    "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+                )
+        })
+    })?;
+    let mut text = String::new();
+    let mut pending = vec![heading];
+    while let Some(id) = pending.pop() {
+        if let Some(node) = src.facts(id) {
+            let props = super::props_of(&node);
+            let children = src.children(id);
+            if let Some(json) = props.get("markupPieces").filter(|_| children.is_empty()) {
+                for piece in super::markup_pieces(json).ok()? {
+                    // Markdown line breaks are `<br>`s, which add no textContent.
+                    if piece.flags & 32 != 0 {
+                        text.push_str(&piece.text);
+                    } else {
+                        text.extend(piece.text.chars().filter(|&c| c != '\n'));
+                    }
+                }
+            } else {
+                text.push_str(props.get("text").map_or("", String::as_str));
+                pending.extend(children.iter().rev());
+            }
+        }
+    }
+    let title = text.trim();
+    (!title.is_empty()).then(|| title.to_owned())
+}
+
 /// ` name="value"`, escaped for an attribute.
 fn attr(out: &mut String, name: &str, value: &str) -> Result<(), DocumentError> {
     out.push_str(name);
@@ -155,7 +231,7 @@ fn absolute(url: &str, origin: Option<&str>) -> String {
 }
 
 /// The plan's declared faces as `@font-face` rules under the family names
-/// the host's CSS uses, and a preload each: what the glue's
+/// the host's CSS uses, and a preload each (LLP 1019): what the glue's
 /// readiness barrier loads, declared for a reader without JavaScript.
 fn fonts(out: &mut String, plan: &Plan) -> Result<(), DocumentError> {
     let faces = super::super::font_faces(plan);
@@ -199,12 +275,13 @@ fn fonts(out: &mut String, plan: &Plan) -> Result<(), DocumentError> {
     Ok(())
 }
 
-/// The runner's checkpoint as JSON a script element can
+/// The runner's checkpoint (LLP 1048.000 D6) as JSON a script element can
 /// carry: the location, the render's time, the logic that answered, the
 /// answers — each `[name, source, [args…], value]`, the values in
-/// [`push_value`]'s JSON — and what is still pending. `<`, `>` and `&` are
-/// escapes, so user text can never close the element or open a comment.
-/// [`read_checkpoint`] reads it back.
+/// [`push_value`]'s JSON — what is still pending, and when there are any,
+/// the indices of the answers whose stream is open and of those that read
+/// the store. `<`, `>` and `&` are escapes, so user text can never close the
+/// element or open a comment. [`read_checkpoint`] reads it back.
 ///
 /// The values are text, not their canonical bytes in base64, so a page's
 /// compression finds the strings its document already shows (titles, names,
@@ -238,17 +315,29 @@ pub fn checkpoint<D: DataSource>(runner: &Runner<D>, location: &str) -> String {
         push_value(value, &mut json);
         json.push(']');
     }
-    json.push_str("],\"pending\":[");
-    for (i, name) in checkpoint.pending.iter().enumerate() {
-        if i > 0 {
-            json.push(',');
+    json.push_str("],\"pending\":");
+    push_names(&checkpoint.pending, &mut json);
+    for (field, indices) in [("open", &checkpoint.open), ("readers", &checkpoint.readers)] {
+        if !indices.is_empty() {
+            let indices: Vec<String> = indices.iter().map(usize::to_string).collect();
+            json.push_str(&format!(",\"{field}\":[{}]", indices.join(",")));
         }
-        crate::batch::quote(name, &mut json);
     }
-    json.push_str("]}");
+    json.push('}');
     json.replace('<', "\\u003c")
         .replace('>', "\\u003e")
         .replace('&', "\\u0026")
+}
+
+fn push_names(names: &[String], json: &mut String) {
+    json.push('[');
+    for (i, name) in names.iter().enumerate() {
+        if i > 0 {
+            json.push(',');
+        }
+        crate::batch::quote(name, json);
+    }
+    json.push(']');
 }
 
 /// A plan value as JSON that reads back to the same value ([`read_value`]):
@@ -351,8 +440,8 @@ fn read_value(json: &mut Json<'_>) -> Result<Value, String> {
     }
 }
 
-/// A page's checkpoint, read back: what the web runtime boots from.
-/// Refuses anything [`checkpoint`] doesn't write.
+/// A page's checkpoint, read back: what the web runtime boots from (LLP
+/// 1048.000 D6). Refuses anything [`checkpoint`] doesn't write.
 pub fn read_checkpoint(text: &str) -> Result<Checkpoint, String> {
     let mut json = Json {
         bytes: text.as_bytes(),
@@ -397,28 +486,45 @@ pub fn read_checkpoint(text: &str) -> Result<Checkpoint, String> {
                 }
                 json.expect(b']')?;
             }
-            "pending" => {
-                json.expect(b'[')?;
-                while json.peek() != Some(b']') {
-                    if !checkpoint.pending.is_empty() {
-                        json.expect(b',')?;
-                    }
-                    checkpoint.pending.push(json.string()?);
-                }
-                json.expect(b']')?;
-            }
+            "pending" => checkpoint.pending = read_list(&mut json, |json| json.string())?,
+            "open" => checkpoint.open = read_list(&mut json, read_index)?,
+            "readers" => checkpoint.readers = read_list(&mut json, read_index)?,
             other => return Err(format!("unknown field `{other}`")),
         }
         match json.next() {
             Some(b',') => continue,
-            Some(b'}') if json.peek().is_none() => return Ok(checkpoint),
+            Some(b'}') if json.peek().is_none() => break,
             _ => return Err("expected `,` or the end".into()),
         }
     }
+    if (checkpoint.open.iter().chain(&checkpoint.readers)).any(|&k| k >= checkpoint.answers.len()) {
+        return Err("an index past the answers".into());
+    }
+    Ok(checkpoint)
+}
+
+fn read_index(json: &mut Json) -> Result<usize, String> {
+    (json.number()?.parse()).map_err(|_| "not an answer's index".to_string())
+}
+
+fn read_list<T>(
+    json: &mut Json,
+    mut item: impl FnMut(&mut Json) -> Result<T, String>,
+) -> Result<Vec<T>, String> {
+    let mut items = Vec::new();
+    json.expect(b'[')?;
+    while json.peek() != Some(b']') {
+        if !items.is_empty() {
+            json.expect(b',')?;
+        }
+        items.push(item(json)?);
+    }
+    json.expect(b']')?;
+    Ok(items)
 }
 
 impl<D: DataSource> crate::Host<D> {
-    /// Boot from a page the build or a server rendered:
+    /// Boot from a page the build or a server rendered (LLP 1048.000 D6):
     /// `page` is its checkpoint as the page carries it, and `page_digest`
     /// the digest the renderer wrote beside it. The checkpoint's answers
     /// seed the runner; the first batch opens with an `adopt` op saying
@@ -449,7 +555,8 @@ impl<D: DataSource> crate::Host<D> {
         )
     }
 
-    /// [`crate::Host::boot_checkpoint`], with what the artifact links.
+    /// [`crate::Host::boot_checkpoint`], with what the artifact links (LLP
+    /// 1047 D3).
     #[allow(clippy::too_many_arguments)] // the links, the boot facts, and the page's two
     pub fn boot_checkpoint_linked(
         links: crate::HostLinks<D>,
@@ -463,7 +570,7 @@ impl<D: DataSource> crate::Host<D> {
         launch: &str,
     ) -> Result<(crate::Host<D>, String), crate::HostError> {
         // A drive starts its clock at zero even when the document was rendered
-        // on a wall clock (the renderer's time): the glue
+        // on a wall clock (the renderer's time, LLP 1048.000 D5): the glue
         // marks the digest ` driven` under the agent, as the JS runtime starts
         // a drive at zero. The digest still covers the page as it is.
         let (page_digest, driven) = match page_digest.strip_suffix(" driven") {
@@ -523,7 +630,7 @@ impl<D: DataSource> crate::Host<D> {
             exact_runner::time::without_launch_time(boot)
         };
         let mut runner = booted.map_err(crate::HostError::Runner)?;
-        // As `Host::boot_linked`.
+        // @ref LLP 1079 D1 — as `Host::boot_linked`.
         runner.measure_unless_production(compat, false);
         // The renderer's location: the runtime's only input of its own is its
         // first tree, so a query the app doesn't read adopts the same document.
@@ -541,7 +648,7 @@ impl<D: DataSource> crate::Host<D> {
     }
 }
 
-/// The document's digest: MurmurHash3's x64 128-bit hash
+/// The document's digest (LLP 1048.000 D6): MurmurHash3's x64 128-bit hash
 /// over the plan's bytes, the location the document was rendered at, the
 /// checkpoint as the page carries it, and the document — each
 /// length-prefixed, so no two different inputs are hashed as the same bytes.
@@ -669,7 +776,7 @@ impl Murmur128 {
     }
 }
 
-/// One URL per page: the router's canonical location
+/// One URL per page (LLP 1048.000 D11): the router's canonical location
 /// (dot segments resolved, one percent-encoding spelling for the path and
 /// the query), with repeated slashes collapsed and no trailing slash but
 /// `/`'s. The server redirects any other spelling here; the runtime compares
@@ -695,8 +802,8 @@ pub fn canonical_location(location: &str) -> String {
     out
 }
 
-/// Where a runtime at `launch` boots from a page rendered at `location`:
-/// the page's path with the browser's query, when the two
+/// Where a runtime at `launch` boots from a page rendered at `location`
+/// (LLP 1048.000 D6): the page's path with the browser's query, when the two
 /// are one page once canonical — the route table reads no query, so the
 /// query can't make them two — else `None`, and the runtime renders fresh.
 fn page_launch(launch: &str, location: &str) -> Option<String> {
@@ -725,7 +832,7 @@ fn route_table(plan: &Plan) -> exact_route::Table {
     }
 }
 
-/// The route `location` resolves to: a declared pattern's,
+/// The route `location` resolves to (LLP 1038 D2): a declared pattern's,
 /// else the not-found route's. `None` for a plan without routes, or one
 /// with no not-found route when nothing matches.
 pub fn route_at<'p>(plan: &'p Plan, location: &str) -> Option<&'p exact_plan::RoutesRow> {
@@ -733,7 +840,8 @@ pub fn route_at<'p>(plan: &'p Plan, location: &str) -> Option<&'p exact_plan::Ro
     plan.routes.iter().find(|r| plan.str(r.name) == hit.name)
 }
 
-/// Where route `name` is with `value` for its one parameter: a listed page.
+/// Where route `name` is with `value` for its one parameter: a listed page
+/// (LLP 1048.000 D2).
 pub fn route_location(plan: &Plan, name: &str, value: &str) -> Result<String, String> {
     route_table(plan)
         .path(name, &[value])

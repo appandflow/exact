@@ -433,6 +433,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     }
     // Register the lease before the first reference or guard is handed out. It
     // starts at the first iteration, so filters added by the builder narrow it.
+    // @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
     fn lease(&mut self) -> QueryLease<'w> {
         let query = if let Some(query) = self.registered {
             query

@@ -1,4 +1,4 @@
-//! Release measurements at a garden game's scale:
+//! Release measurements at Grow a Garden's scale (game/diaries/004-garden.md):
 //! plants with about 3.3 fruit each, fruit optionally parented to their plant.
 //! `cargo test --release -p exact-game --test scale -- --ignored --nocapture`
 use exact_game::*;
@@ -83,7 +83,7 @@ fn median(mut samples: Vec<f64>) -> f64 {
     samples[samples.len() / 2]
 }
 
-/// 50,000 plants, parented: 4.472 ms per live tick and 483 s for
+/// Diary limit 1 (50,000 plants, parented): 4.472 ms per live tick and 483 s for
 /// an hour's seek; unparented 0.0054 ms. Measured here at load ~100–500 before
 /// incremental propagation: 8.74 ms per live tick, 636 s per 10 minutes' seek
 /// (17.3 ms and 849 s with a walking player); after: 0.0003 ms and 0.87 s (with
@@ -118,7 +118,7 @@ fn parented_fruit_cost_what_unparented_fruit_cost() {
     }
 }
 
-/// About 270 bytes per entity (58.1 MB at 214,288 entities);
+/// Diary limit 6: about 270 bytes per entity (58.1 MB at 214,288 entities);
 /// web restored a 12.2 MB save in 2,929 ms.
 #[test]
 #[ignore = "release save size measurement"]
@@ -143,9 +143,9 @@ fn saves_cost_bytes_per_change_not_per_entity() {
     }
 }
 
-/// A seekable advance that observed the whole world cost about 1.2 µs per
-/// entity: 91.7 ms per observed tick at 214k entities, 125 ms per `Sim::run`
-/// at 100k.
+/// Diary limit 5 (garden) and forest limit 3: a seekable advance observed the
+/// whole world, about 1.2 µs per entity: 91.7 ms per observed tick at 214k
+/// entities, 125 ms per `Sim::run` at 100k.
 #[test]
 #[ignore = "release observation cost measurement"]
 fn an_observed_tick_costs_what_changed() {
@@ -170,8 +170,8 @@ fn an_observed_tick_costs_what_changed() {
     }
 }
 
-/// Save mode that round-tripped the whole save every tick cost Linux 205-310 s
-/// against 15 s Off, and web 507 s against 117 s.
+/// Forest diary limit 7: Save mode round-tripped the whole save every tick
+/// (Linux 205-310 s against 15 s Off; web 507 s against 117 s).
 #[test]
 #[ignore = "release paranoid cost measurement"]
 fn paranoid_save_costs_a_fraction_of_a_round_trip_per_tick() {

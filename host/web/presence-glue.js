@@ -1,4 +1,4 @@
-// Exit animation and layout transition on the web. Fetched after
+// Exit animation and layout transition on the web (LLP 1063). Fetched after
 // paint, when a batch first carries either row (`presenceLoader` in
 // navigation.js holds a batch that needs it before it arrives); the browser
 // plays both.
@@ -16,26 +16,30 @@
 // with the authored one and a moving parent carries it. A size change is the
 // surface's alone, as native frame animation shows it: the element keeps its
 // laid-out box, so its content and children never scale, and a stand-in
-// behind it (the element's background, border, radius and shadow, which it
-// stops painting for the while) grows or shrinks from its top-left corner;
-// an element that clips its children clips them to the shown box. A spring
-// is lowered here, per move, from its displacement and velocity in points,
-// on the grid and rest threshold the engine settles on natively
-// (`exact_motion::spring`).
+// behind it (the element's background, border, radius, shadow and backdrop
+// filter, which it stops painting for the while) grows or shrinks from its
+// top-left corner; an element that clips its children clips them to the
+// shown box. A spring is lowered here, per move, from its displacement and
+// velocity in points, on the grid and rest threshold the engine settles on
+// natively (`exact_motion::spring`).
 import { unwrapListItem, viewParent } from './navigation.js';
+import { translation } from './motion-glue.js';
 const LAYOUT = '--exact-layout-transition';
 const PAINT = ['backgroundColor', 'backgroundImage', 'backgroundSize', 'backgroundPosition', 'backgroundRepeat', 'backgroundOrigin', 'backgroundClip',
-  'borderTop', 'borderRight', 'borderBottom', 'borderLeft', 'borderRadius', 'boxShadow', 'opacity', 'translate', 'rotate', 'scale', 'transform', 'transformOrigin'];
+  'borderTop', 'borderRight', 'borderBottom', 'borderLeft', 'borderRadius', 'boxShadow', 'backdropFilter', 'opacity', 'translate', 'rotate', 'scale', 'transform',
+  'transformOrigin'];
 const CLEAR = { backgroundColor: 'transparent', backgroundImage: 'none', borderTopColor: 'transparent', borderRightColor: 'transparent',
-  borderBottomColor: 'transparent', borderLeftColor: 'transparent', boxShadow: 'none' };
+  borderBottomColor: 'transparent', borderLeftColor: 'transparent', boxShadow: 'none', backdropFilter: 'none' };
 
 // A 2D matrix of an element's own transforms about its origin, from its
-// computed style: `translate`, `rotate`, `scale`, then `transform`.
-function own(cs, w, h) {
-  const length = (v, of) => v.endsWith('%') ? parseFloat(v) / 100 * of : parseFloat(v);
+// computed style: `translate`, `rotate`, `scale`, then `transform`. Its
+// translate is read as a hold reads it (motion-glue.js `translation`): a
+// length and a percentage compute as one `calc()`, and a percentage is of
+// the element's `transform-box`.
+function own(el, cs) {
   const [ox, oy] = cs.transformOrigin.split(' ').map(parseFloat);
   const m = new DOMMatrix().translateSelf(ox, oy);
-  if (cs.translate !== 'none') { const [x, y = '0px'] = cs.translate.split(' '); m.translateSelf(length(x, w), length(y, h)); }
+  if (cs.translate !== 'none') m.translateSelf(...translation(el, cs.translate, cs));
   if (cs.rotate !== 'none') {
     const parts = cs.rotate.split(' '), angle = parseFloat(parts.pop());
     const axis = parts.length === 3 ? parts.map(Number) : { x: [1, 0, 0], y: [0, 1, 0] }[parts[0]] ?? [0, 0, 1];
@@ -44,6 +48,15 @@ function own(cs, w, h) {
   if (cs.scale !== 'none') { const [sx, sy = sx] = cs.scale.split(' ').map(Number); m.scaleSelf(sx, sy); }
   if (cs.transform !== 'none') m.multiplySelf(new DOMMatrix(cs.transform));
   return m.translateSelf(-ox, -oy);
+}
+
+// `el`'s paint onto its stand-in `box`, a border box with no padding: its translate as `el` resolves it, in px, since a
+// percentage of the stand-in's own box (its moving size, and never `el`'s `transform-box`) would put it elsewhere.
+function paint(box, el, cs) {
+  for (const k of PAINT) box.style[k] = cs[k];
+  if (cs.translate === 'none') return;
+  const [x, y] = translation(el, cs.translate, cs), z = cs.translate.match(/calc\([^)]*\)|\S+/g)?.[2];
+  box.style.translate = `${x}px ${y}px${z ? ` ${z}` : ''}`;
 }
 
 // The linear part (rotation, scale, skew) of a matrix.
@@ -68,7 +81,7 @@ function measure() {
     if (m) return m;
     const cs = getComputedStyle(el), [w, h] = size(cs) ?? [0, 0], parent = el.parentElement;
     const above = parent && parent !== document.documentElement ? of(parent) : null;
-    m = { cs, w, h, own: own(cs, w, h), above: above ? above.above.multiply(linear(above.own)) : new DOMMatrix() };
+    m = { cs, w, h, own: own(el, cs), above: above ? above.above.multiply(linear(above.own)) : new DOMMatrix() };
     // Where its untransformed top-left lands on the page: its bounding rect
     // is the box of its corners through its own and its ancestors' maps.
     const r = el.getBoundingClientRect(), map = m.above.multiply(m.own);
@@ -122,7 +135,7 @@ function createPresence(root) {
   // the animations that show its size, and the surface's stand-in.
   const flips = new WeakMap();
   const surfaces = new Set();
-  // A ghost cannot escape its parent's turn. Keep the
+  // A ghost cannot escape its parent's turn (LLP 1083.000 D4). Keep the
   // parent's current row beneath this temporary write, including changes
   // made by a later batch, and restore it when the last ghost ends.
   const ghostParents = new Map();
@@ -131,7 +144,7 @@ function createPresence(root) {
     else el.style.removeProperty('isolation');
   };
   let frame = null;
-  // What a leaving view's ghost keeps, read as it leaves: the `left` and `top` that keep its border box
+  // What a leaving view's ghost keeps (LLP 1063 D4), read as it leaves: the `left` and `top` that keep its border box
   // where it is (its offsets less its margins), its border-box size, and whether its `z-index` applies (a positioned
   // box's or a flex or grid item's)
   const kept = el => {
@@ -165,7 +178,7 @@ function createPresence(root) {
       reveal(f);
       f.animation.effect.target = null;
       const cs = getComputedStyle(el);
-      for (const k of PAINT) sf.box.style[k] = cs[k];
+      paint(sf.box, el, cs);
       if (placed) {
         const place = measure(), [x, y] = place(el, viewParent(el)), [ax, ay] = place(sf.stand, viewParent(el));
         sf.box.style.left = `${x - ax}px`; sf.box.style.top = `${y - ay}px`;
@@ -213,8 +226,8 @@ function createPresence(root) {
   // The element's surface, standing in for it behind it while its size
   // moves: a zero-size anchor before it (so the size never moves the
   // anchor, whatever its parent's alignment), and in it a box with the
-  // element's background, border, radius, shadow and own transforms, placed
-  // over the element's laid-out box. Behind its content in the parent's
+  // element's background, border, radius, shadow, backdrop filter and own
+  // transforms, placed over the element's laid-out box. Behind its content in the parent's
   // stacking context, isolated structurally by the kernel.
   function surface(el, place) {
     const cs = getComputedStyle(el), stand = document.createElement('div'), box = document.createElement('div');
@@ -223,7 +236,7 @@ function createPresence(root) {
     el.before(stand);
     const [x, y] = place(el, viewParent(el)), [ax, ay] = place(stand, viewParent(el));
     box.style.cssText = `position:absolute;left:${x - ax}px;top:${y - ay}px;box-sizing:border-box;margin:0`;
-    for (const k of PAINT) box.style[k] = cs[k];
+    paint(box, el, cs);
     stand.append(box);
     return { stand, box, hidden: new Map(), clips: cs.overflowX !== 'visible' || cs.overflowY !== 'visible', clipPath: cs.clipPath, radius: cs.borderRadius };
   }
@@ -335,7 +348,7 @@ function createPresence(root) {
       s.transition = 'none';
       s.position = 'absolute'; s.left = `${box[0]}px`; s.top = `${box[1]}px`;
       s.width = `${box[2]}px`; s.height = `${box[3]}px`; s.boxSizing = 'border-box'; s.pointerEvents = 'none';
-      // It keeps its paint order among its siblings: its own `z-index`, or level 0 in tree
+      // It keeps its paint order among its siblings (LLP 1083.000 D4): its own `z-index`, or level 0 in tree
       // order, as a positioned box. A `z-index` that had no effect before it was positioned still has none.
       if (!ranked) s.zIndex = 'auto';
       // And it paints its subtree in its turn, as a ghost does on Apple: a sticky or fixed box was a stacking
@@ -401,5 +414,5 @@ function createPresence(root) {
 
 if (globalThis.exact) globalThis.exact.presence = createPresence;
 // A box's border-box size from its computed style, shared with geometry
-// reads' `measure` (geometry-glue.js).
-export { size };
+// reads' `measure` (geometry-glue.js, LLP 1051.000 D4).
+export { own, size };

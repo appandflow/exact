@@ -1,5 +1,5 @@
-//! `transform` on a box. Exact does not build the full property on boxes
-//! (matrices, skews, functions in any order); it builds the individual
+//! `transform` on a box. LLP 1055.000 D5 deferred the property on boxes
+//! (matrices, skews, functions in any order) and built the individual
 //! `translate`, `rotate` and `scale` rows instead. CSS applies those rows
 //! in that order, before `transform` (CSS Transforms 2 §6.1), so a
 //! `transform` that is each of those functions at most once, in that order,

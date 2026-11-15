@@ -3,7 +3,7 @@ import XCTest
 @testable import ExactKit
 
 /// A held CSS animation (an authored pause, or a play waiting for the first
-/// presented frame): on screen it is held at `speed` 0; in
+/// presented frame, LLP 1003.001 D4): on screen it is held at `speed` 0; in
 /// a tree a `CARenderer` draws (a live filter picture) it runs, placed from
 /// the render's own instant, so drawn then it shows exactly where it is held.
 class CssAnimationsHeldTests: XCTestCase {

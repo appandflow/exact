@@ -40,7 +40,7 @@ impl<D: DataSource> Bridge<D> {
             })
             .is_some_and(|b| {
                 use exact_plan::Opcode;
-                match plan.code(b.expr) {
+                match plan.read_code(plan.code(b.expr)).0 {
                     [op, a, b, c, d, ret]
                         if *op == Opcode::Str as u8 && *ret == Opcode::Return as u8 =>
                     {
@@ -51,7 +51,8 @@ impl<D: DataSource> Bridge<D> {
             })
     }
 
-    /// `exact_host_back`: the platform's own Back from visit `id`, a batch.
+    /// `exact_host_back`: the platform's own Back from visit `id` (LLP 1115
+    /// D5), a batch.
     pub fn host_back(&mut self, id: u64, now_ms: f64) -> u32 {
         let out = match self.host.as_mut() {
             Some(h) => h.host_back(id, now_ms),
@@ -69,6 +70,19 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// Build the tab panels the input buffer names, comma-separated view
+    /// ids, selecting none (`Runner::build_tabs`, LLP 1075.003 §9.14), a batch.
+    pub fn build_tabs(&mut self, len: usize, now_ms: f64) -> u32 {
+        let panels: Vec<u32> = String::from_utf8_lossy(&self.input[..len.min(self.input.len())])
+            .split(',')
+            .filter_map(|id| id.trim().parse().ok())
+            .collect();
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.own_navigation(now_ms, |runner| runner.build_tabs(&panels).map(Some))
+        });
+        self.emit(out)
+    }
+
     /// Follow the UTF-8 location in the owned input buffer.
     pub fn host_go(&mut self, len: usize, now_ms: f64) -> u32 {
         let location = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
@@ -76,6 +90,26 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.host_go(&location, now_ms));
+        self.emit(out)
+    }
+
+    /// Make the UTF-8 location in the input buffer the window's only visit
+    /// (LLP 1030.004 D2), a batch.
+    pub fn host_root(&mut self, len: usize, now_ms: f64) -> u32 {
+        let location = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.host_root(&location, now_ms));
+        self.emit(out)
+    }
+
+    /// Deliver native Forward at the navigation root, a batch.
+    pub fn host_forward(&mut self, root: u32, now_ms: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.host_forward(root, now_ms));
         self.emit(out)
     }
 }

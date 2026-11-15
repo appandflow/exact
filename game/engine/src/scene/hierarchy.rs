@@ -145,7 +145,7 @@ impl Hierarchy {
         self.entities.clear();
         self.broken.clear();
         // Resolution runs under `&mut World`: one whole-column hold replaces a row
-        // lease per node.
+        // lease per node. @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
         let poses = w.pages::<Transform>();
         let local = |e: Entity| affine(poses.row(e.index() as usize));
         for (e, p) in w.query::<&Parent>().iter() {

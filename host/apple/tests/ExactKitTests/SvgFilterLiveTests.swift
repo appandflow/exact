@@ -3,7 +3,7 @@ import QuartzCore
 import XCTest
 @testable import ExactKit
 
-/// A live filter picture under load: two pictures
+/// A live filter picture under load (LLP 1055.000 D14): two pictures
 /// updated from the main thread faster than their draws land, at sizes
 /// that change every time, their draws encoded on the pictures' queue with
 /// the Metal chain's shared working textures. Run it under the Thread

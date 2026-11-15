@@ -1,7 +1,7 @@
 //! Extra Heavy feed data (../../SPEC.md): the 3,000 rows of `feed.json` (a byte copy of
 //! `../../data/feed.json`, bundled into the binary, never regenerated), the launch config, the
 //! app state keyed by row id (a thread's expansion and its comment draft), and the canvas row's
-//! drawing (Canvas 2D: `canvas surface=card(c)` in app.contract calls `draw_2d`).
+//! drawing (Canvas 2D, LLP 1056: `canvas surface=card(c)` in app.contract calls `draw_2d`).
 //!
 //! - `feed()` answers every row (baked into the plan at build);
 //! - `config()` answers `{ live, freeze, startKey, kinds17 }` from the launch environment (`BENCH_LIVE`,
@@ -222,7 +222,7 @@ fn row(r: &Raw, fonts: &raw::Fonts, lotties: &[[String; 3]; 4], thread: &ThreadS
         // `assets/embed/<id>.html`, and `<id>-paused.html` for BENCH_FREEZE.
         Value::record(vec![s(&r.caption), s(&format!("assets/embed/{}", r.id))])
     })));
-    // 18 filmstrip, 19 inbox: the nested virtualized lists (not built yet). The row
+    // 18 filmstrip, 19 inbox: the nested virtualized lists (LLP 1070, not built yet). The row
     // carries what the inner list will need; the app draws the header, title and the box.
     kinds.push(opt((k == "filmstrip").then(|| {
         Value::record(vec![s(&r.title), n(r.count), n(r.img0), n(r.img_step), n(r.num0)])

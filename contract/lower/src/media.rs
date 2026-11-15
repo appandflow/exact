@@ -29,7 +29,7 @@ pub(crate) fn check(name: &str, value: &Expr, span: Span) -> Result<(), LowerErr
         }
     }
     if let Some(number) = numeric_literal(value) {
-        // A seek moves a number of seconds, some.
+        // @ref LLP 1098 D2 — a seek moves a number of seconds, some.
         if SESSION_OFFSETS.contains(&name) && !(number.is_finite() && number > 0.0) {
             return err(
                 "lower-attr-value",
@@ -56,7 +56,7 @@ pub(crate) fn check(name: &str, value: &Expr, span: Span) -> Result<(), LowerErr
     Ok(())
 }
 
-/// HTML's `<audio>`: the media node a `video` is, marked so
+/// HTML's `<audio>` (LLP 1042 §8): the media node a `video` is, marked so
 /// the web makes an `<audio>`; [`audio_rows`] gives it HTML's box.
 pub(crate) const AUDIO: crate::tags::Tag = crate::tags::Tag {
     node_type: exact_kernel::NodeType::Video,
@@ -65,7 +65,7 @@ pub(crate) const AUDIO: crate::tags::Tag = crate::tags::Tag {
     positional: Some(exact_kernel::PropId::Src),
 };
 
-/// HTML's `<audio>`: no picture, so no `poster`, inline-play
+/// HTML's `<audio>` (LLP 1042 §8): no picture, so no `poster`, inline-play
 /// or visibility policy; a box only with `controls`. Chrome's controls are
 /// 300×54 (the author's `width`/`height` win), and the UA's
 /// `audio:not([controls]) { display: none !important }` is appended last,
@@ -142,7 +142,7 @@ pub(crate) fn audio_rows(
     Ok(Some(rows))
 }
 
-/// The media session's actions, by `setActionHandler`'s names.
+/// The media session's actions, by `setActionHandler`'s names (LLP 1098 D2).
 pub const SESSION_ACTIONS: [&str; 6] = [
     "seekbackward",
     "seekforward",
@@ -152,10 +152,10 @@ pub const SESSION_ACTIONS: [&str; 6] = [
     "stop",
 ];
 
-/// The seconds each seek moves when the platform gives none.
+/// The seconds each seek moves when the platform gives none (LLP 1098 D2).
 const SESSION_OFFSETS: [&str; 2] = ["seekbackwardOffset", "seekforwardOffset"];
 
-/// `MediaMetadata`'s fields and the kernel props they lower to.
+/// `MediaMetadata`'s fields and the kernel props they lower to (LLP 1098 D1).
 const METADATA: [(&str, PropId); 4] = [
     ("title", PropId::MediaTitle),
     ("artist", PropId::MediaArtist),
@@ -163,7 +163,7 @@ const METADATA: [(&str, PropId); 4] = [
     ("artwork", PropId::MediaArtwork),
 ];
 
-/// The media session belongs to HTML's media
+/// @ref LLP 1098 D1, D2 — the media session belongs to HTML's media
 /// element: `metadata=` only on `audio` and `video`, and an action or an
 /// offset only on one that claims the session with it.
 pub(crate) fn check_session(tag: &str, attrs: &[Attr]) -> Result<(), LowerError> {
@@ -205,7 +205,7 @@ pub(crate) fn check_session(tag: &str, attrs: &[Attr]) -> Result<(), LowerError>
 }
 
 impl Lowerer<'_> {
-    /// `metadata=MediaMetadata(…)`: a binding a field,
+    /// @ref LLP 1098 D1 — `metadata=MediaMetadata(…)`: a binding a field,
     /// as `head`'s `title` binds `headTitle`. A literal record binds each
     /// field's own expression, so a field reads only what it names; any
     /// other `MediaMetadata` value is read a field at a time.

@@ -1,4 +1,4 @@
-// a selection a script sets as a press focuses a field.
+// @ref LLP 1069.001: a selection a script sets as a press focuses a field.
 #if os(macOS)
 import AppKit
 import XCTest

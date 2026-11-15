@@ -82,7 +82,7 @@ impl Gen<'_> {
         if self.rng.chance(1, 3) {
             let t = self.base_ty();
             let name = "m0".to_string();
-            // Never two sends to one mutation without `queue`. `then`
+            // Never two sends to one mutation without `queue` (D12). `then`
             // is filled in once the actions are known.
             let queue = self.size.schedule && self.rng.chance(1, 2);
             decls.push_str(&format!(
@@ -237,7 +237,7 @@ impl Gen<'_> {
                     format!("after({ms}, {a})")
                 };
                 // A gate and a key over the states alone: never `performanceNow()`,
-                // directly or through a derive or a `fn`.
+                // directly or through a derive or a `fn` (D9, D12).
                 let start = if self.size.schedule && self.rng.chance(1, 2) {
                     let mut genv = root.states_env.clone();
                     genv.now = false;

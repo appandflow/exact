@@ -1,9 +1,9 @@
 // @exact/pedometer under the declared substitute on the Linux host,
-// headless: Linux has no step counter, so
+// headless (LLP 1133.026 §11, §15 stage 0): Linux has no step counter, so
 // the status reads `available` false until the drive prefers it true, as a
 // drive may on any target to drive the UI; then the count's track, a
 // `since` a step moves, a hidden stretch, and data code's reader. Linux
-// declares no `motion-fitness` permission: no ticket is held
+// declares no `motion-fitness` permission (D19 item 2): no ticket is held
 // here, which the iOS drives and `contract/cli/tests/it/pedometer.rs` cover.
 // The fixture app is the one `exact new` makes outside the repo.
 //

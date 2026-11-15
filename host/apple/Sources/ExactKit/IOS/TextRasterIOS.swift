@@ -1,5 +1,6 @@
 // UIKit paragraph layers consume pixels from the same workers and paint routine
 // as AppKit. Native views, inline links and accessibility keep their identities.
+// @ref LLP 1044.000 §6 S5
 #if os(iOS) || os(tvOS)
 import UIKit
 import CoreText
@@ -10,7 +11,7 @@ final class TextRasterizer {
         let key: TextRasterKey
         let namespace: Int
         let diagnosticNode: UInt32
-        /// The node's incarnation when the job was issued.
+        /// The node's incarnation when the job was issued (LLP 1068 §4.9).
         let incarnation: UInt64
         let group = DispatchGroup()
         weak var operation: Operation?
@@ -269,17 +270,7 @@ final class TextRasterizer {
             if take(pending), node.textRasterReady { return true }
         }
         guard firstPixels || hasRoom else { return false }
-        let measured = engine.measuredBreaks(key.spec, width: key.box.width)
-        let paragraph = measured == nil ? node.paragraphLayout() : nil
-        guard let geometry = measured ?? paragraph.map(LineGeometry.init) else { return true }
-        let source = paragraph?.shape?.attributed ?? engine.attributed(key.spec)
-        let job = TextRasterJob(source: source.copy() as! NSAttributedString, ranges: geometry.ranges, baselines: geometry.baselines,
-            flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, whiteSpace: key.spec.whiteSpace, justifies: key.spec.align == 3, insets: paragraph?.insets ?? LineInsets(key.spec, source: source),
-            box: key.box, size: key.size, scale: key.scale, clip: key.clip, room: key.room,
-            ellipsis: key.spec.ellipsis, crop: true, clamped: geometry.clamped, shadow: key.spec.hdrShadow.map(TextRunShadow.init),
-            antialiased: key.spec.antialiased,
-            measuredGlyphs: engine.measuredGlyphs(key.spec, width: key.box.width),
-            measuredColor: TextEngine.color(key.spec.color).cgColor)
+        guard let job = job(node, key: key, engine: engine) else { return true }
         // A job for the paragraph's previous text or box paints nothing now.
         if let pending { _ = pending.abandon() }
         node.textRasterKey = key; node.textRasterReady = false; node.textRasterFailed = false
@@ -311,6 +302,48 @@ final class TextRasterizer {
         }
         return true
     }
+    /// The job that paints `key`'s pixels of `node`'s paragraph. For a band,
+    /// it lays out only the band's lines: laying out all of a long paragraph's
+    /// lines would make each band cost as much as the whole paragraph.
+    func job(_ node: NodeView, key: TextRasterKey, engine: TextEngine) -> TextRasterJob? {
+        let measured = engine.measuredBreaks(key.spec, width: key.box.width)
+        let paragraph = measured == nil ? node.paragraphLayout() : nil
+        guard let geometry = measured ?? paragraph.map(LineGeometry.init) else { return nil }
+        let source = paragraph?.shape?.attributed ?? engine.attributed(key.spec)
+        let glyphs = engine.measuredGlyphs(key.spec, width: key.box.width)
+        // The measured glyphs' fast path pairs each of its lines with a baseline, so it takes them all
+        let lines = glyphs == nil ? Self.lines(geometry, in: key) : (geometry.ranges, geometry.baselines)
+        return TextRasterJob(source: source.copy() as! NSAttributedString, ranges: lines.0, baselines: lines.1,
+            flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, whiteSpace: key.spec.whiteSpace, justifies: key.spec.align == 3, insets: paragraph?.insets ?? LineInsets(key.spec, source: source),
+            box: key.box, size: key.size, scale: key.scale, clip: key.clip, room: key.room,
+            ellipsis: key.spec.ellipsis, crop: true, clamped: geometry.clamped, shadow: key.spec.hdrShadow.map(TextRunShadow.init),
+            antialiased: key.spec.antialiased,
+            measuredGlyphs: glyphs,
+            measuredColor: TextEngine.color(key.spec.color).cgColor)
+    }
+
+    /// A band's lines: those whose baselines lie within reach of its rows.
+    /// The reach adds the ink a job keeps past its box (`maxInkOverflow`), the
+    /// largest step between baselines (a line with an inline image), four
+    /// times the largest font size (a glyph whose ink reaches past its line)
+    /// and how far the shadows in its pixels are cast up and down
+    /// (`Spec.shadowRows`), however far that is.
+    static func lines(_ geometry: LineGeometry, in key: TextRasterKey) -> ([CFRange], [CGFloat]) {
+        let baselines = geometry.baselines
+        guard let clip = key.clip, geometry.clamped == nil, baselines.count == geometry.ranges.count, baselines.count > 1 else {
+            return (geometry.ranges, baselines)
+        }
+        var gap: CGFloat = 0
+        for i in 1..<baselines.count { gap = max(gap, baselines[i] - baselines[i - 1]) }
+        let size = key.spec.runs.map(\.size).max() ?? 0
+        // A line above the band reaches it with a shadow cast down, one below with a shadow cast up.
+        let reach = TextRasterJob.maxInkOverflow + gap + 4 * size, shadows = key.spec.shadowRows
+        let low = clip.minY - reach - shadows.down, high = clip.maxY + reach + shadows.up
+        guard let first = baselines.firstIndex(where: { $0 >= low }) else { return ([], []) }
+        let end = baselines[first...].firstIndex(where: { $0 > high }) ?? baselines.count
+        return (Array(geometry.ranges[first..<end]), Array(baselines[first..<end]))
+    }
+
     private struct UrgentPaint {
         let node: NodeView
         let key: TextRasterKey
@@ -423,22 +456,73 @@ final class TextRasterizer {
 }
 
 extension NodeView {
-    var canRasterText: Bool {
+    var canRasterText: Bool { rastersText && !rollsNumerals }
+    /// What a paragraph's raster needs of its structure, whether or not its
+    /// numerals roll instead.
+    private var rastersText: Bool {
         if textRasterFailed && textRasterKey != nil { return false }
         // `text-overflow: ellipsis` truncates in the raster job, as `draw(_:)`
-        // does: a label stretched across a row rasters its text,
+        // does (LLP 1053 G5): a label stretched across a row rasters its text,
         // not a backing store of the row's width. A `line-clamp`'s last line
         // is made again from the range it broke at (`LineGeometry.clamped`).
         guard isParagraph && flowShapes.isEmpty && columnRecord == nil && !Capture.capturing && window != nil && backgroundClip != "text"
             && bounds.width > 0 && bounds.height > 0 else { return false }
-        return canvasAbove == nil && !paintsVisibleInlineRun && !rollsNumerals
+        return canvasAbove == nil && !paintsVisibleInlineRun
     }
-    /// The paragraph's numerals roll per glyph, drawn by the
-    /// Numerals capability rather than as a raster (`NumeralLink`). Not in a
-    /// capture, which draws the paragraph as a picture.
+    /// A rolling paragraph is drawn again when it changes: its new text
+    /// may move it between the capability and the raster (`Presenter.touched`).
+    var hasContentTransition: Bool { (style["content_transition"]?.string ?? "none") != "none" }
+    /// LLP 1077 D15: the paragraph's numerals roll per glyph, drawn by the
+    /// Numerals capability (SwiftUI's `Text`) rather than as a raster
+    /// (`NumeralLink`), when that draws what Exact's painter would:
+    /// - its structure is one a raster could hold (`rastersText`);
+    /// - its layout is one whole line of text, uncut by `text-overflow` or
+    ///   `line-clamp`, with no image in it (LLP 1011.002) and no white space
+    ///   it keeps (`white-space: pre`, `pre-wrap`, or at its end), which
+    ///   `Text` places otherwise, and what is painted, the glyphs and the
+    ///   runs' backgrounds on the painted baseline, lies within the box;
+    /// - its paint is what `Text` draws from an attributed string (font,
+    ///   colour, kerning, underline, line-through) and the backgrounds
+    ///   `showNumerals` paints: no shadow, stroke or inline opacity group, nothing hidden.
+    /// Any other paragraph is drawn as any other; where it rasters, the
+    /// raster rolls whole.
     var rollsNumerals: Bool {
-        NumeralLink.installed != nil && !Capture.capturing
-            && (style["content_transition"]?.string ?? "none") != "none"
+        guard NumeralLink.installed != nil, hasContentTransition, rastersText, !cssVisibilityHidden else { return false }
+        let spec = paragraphSpec()
+        guard spec.shadow == nil, !spec.runs.contains(where: { $0.box != nil || $0.hidden || $0.stroke != nil || $0.shadow != nil || !$0.opacity.isEmpty }),
+              let p = paragraphLayout(), p.lines.count <= 1 else { return false }
+        guard let first = p.lines.first else { return true }
+        let box = paragraphBox()
+        let line = spec.ellipsis ? p.ellipsized(0, spec: spec, width: box.width) : first
+        guard line === first, p.clampedRange == nil, !spec.preserves, CTLineGetTrailingWhitespaceWidth(first) == 0 else { return false }
+        // The line's ink, where `TextEngine.draw` puts it: the raster keeps
+        // ink past the box, this view's own drawing does not.
+        let scale = max(1, window?.screen.scale ?? traitCollection.displayScale)
+        let x = box.minX + p.origin(0, align: spec.align, width: box.width)
+        let baseline = TextEngine.paintedLine(p.baselines[0], top: box.minY, scale: scale, lineScale: p.lineScale)
+        let glyphs = CTLineGetBoundsWithOptions(first, .useGlyphPathBounds)
+        var ink = glyphs.isEmpty ? CGRect.null : CGRect(x: x + glyphs.minX, y: baseline - glyphs.maxY, width: glyphs.width, height: glyphs.height)
+        for fill in TextLinePaint.backgrounds(first, at: CGPoint(x: x, y: baseline)) { ink = ink.union(fill.rect) }
+        return ink.isNull || bounds.contains(ink)
+    }
+    /// The paragraph as the Numerals capability draws it: its line at the
+    /// line's place and baseline. SwiftUI's
+    /// `Text` reads no inline box's background, so those are painted here,
+    /// under it, for the text as it now reads; they do not roll.
+    func showNumerals(_ ctx: CGContext) {
+        guard let engine = text, let capability = NumeralLink.installed else { return }
+        dropTextRaster()
+        let spec = paragraphSpec(), box = paragraphBox(), mode = style["content_transition"]?.string ?? "numeric"
+        let shown = engine.attributed(spec)
+        guard let p = paragraphLayout(), let line = p.lines.first else {
+            return capability.show(self, attributed: shown, box: contentBox(), baseline: nil, align: spec.align, mode: mode)
+        }
+        TextEngine.draw(p, spec: spec, in: box, context: ctx, pass: .backgrounds)
+        let baseline = TextEngine.paintedLine(p.baselines[0], top: box.minY, scale: TextEngine.deviceScale(ctx), lineScale: p.lineScale)
+        let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        let lineBox = CGRect(x: box.minX + p.origin(0, align: spec.align, width: box.width), y: box.minY,
+                             width: max(1, width), height: max(1, p.height, baseline - box.minY))
+        capability.show(self, attributed: shown, box: lineBox, baseline: baseline - box.minY, align: spec.align, mode: mode)
     }
     /// The whole paragraph's pixels are up for its current text and box: a
     /// refresh has nothing to do for it until a change clears its key
@@ -446,7 +530,7 @@ extension NodeView {
     var textRasterSettled: Bool { textRasterReady && textRasterWhole }
     func textRasterGeometryChanged() {
         // Laid out to nothing (a text that became a collapsed space, as
-        // stopwatch's status line did on Reset), it paints
+        // stopwatch's status line did on Reset, LLP 1116.005 D4), it paints
         // nothing. Neither the pump nor UIKit's `draw(_:)`, which lets go of
         // a raster that no longer applies, visits an empty box: the old ink
         // goes here, or it stays on screen beside the text that replaced it.
@@ -537,13 +621,14 @@ extension NodeView {
             imageView = nil; ink = textRasterLayer ?? InkLayer()
         }
         hostText(ink)
+        // The fade snapshots the old image at its old frame, before either changes.
+        textBoxLayer?.show(from: shown, to: key.spec)
         // The box follows UIKit's resize; the cropped ink rectangle changes atomically with its image
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         ink.frame = result.frame
         ink.contentsScale = key.scale
         CATransaction.commit()
-        textBoxLayer?.show(from: shown, to: key.spec)
         let roll = NumeralRoll.roll(ink, node: self)
         UIView.performWithoutAnimation {
             if let coverage, let imageView {
@@ -775,7 +860,7 @@ extension Presenter {
     /// Before the frame commits (the scroll callback, a rescue): a paragraph
     /// that shows without pixels for what shows gets them now, from its
     /// worker if that has finished or is running, else painted here — the
-    /// reader never sees it blank. A settled paragraph
+    /// reader never sees it blank (LLP 1050.000 D1). A settled paragraph
     /// costs one flag; the rest, their frame against the port. True while
     /// some paragraph lacks pixels: the pump's refresh has work then.
     @discardableResult
@@ -808,11 +893,11 @@ extension Presenter {
         return owed
     }
 
-    /// Paint motion's colour reaches the screen with its value: a paragraph
-    /// whose presented colour a batch changed is painted
+    /// Paint motion's colour reaches the screen with its value (LLP 1062
+    /// D6): a paragraph whose presented colour a batch changed is painted
     /// as the batch ends, where it shows, not on a worker a frame later.
     /// The paragraphs a batch gave new words (`changedText`) show them in
-    /// the batch's frame, where they show, as UIKit draws a
+    /// the batch's frame, where they show (LLP 1116.005 D4), as UIKit draws a
     /// label's new text in the commit that sets it, never the old words a
     /// frame longer while a worker paints.
     func paintChangedText() {

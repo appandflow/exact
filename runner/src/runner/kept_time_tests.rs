@@ -1,5 +1,5 @@
-//! A kept answer whose identity reads the zone's offset: the Bluesky
-//! clone's Discover, kept at -420. A host
+//! A kept answer whose identity reads the zone's offset (LLP 1027.005 D3,
+//! LLP 1027.000.000): the Bluesky clone's Discover, kept at -420. A host
 //! that boots under the date (`crate::time::launching`) admits it from the
 //! first frame; a boot on zero, or in another zone, refuses it.
 use super::*;

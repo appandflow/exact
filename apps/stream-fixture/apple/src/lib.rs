@@ -1,4 +1,4 @@
-//! The stream fixture on Apple: its TypeScript reads
+//! The stream fixture on Apple (LLP 1133.003 §9): its TypeScript reads
 //! H.264 from the local fixture server and hands each frame to the decoder.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));

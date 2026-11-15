@@ -1,4 +1,4 @@
-//! Generated rows, masks, and wire validation.
+//! @ref LLP 1043.000 §3 D1 — generated rows, masks, and wire validation.
 use exact_kernel::{
     wire::codec::{Reader, Writer},
     DecodeError, ShapeOutside, StyleId, StyleMask, StyleProps, StyleValue, WrapFlow,

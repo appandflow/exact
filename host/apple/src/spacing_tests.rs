@@ -1,4 +1,4 @@
-//! On the Apple host, what the Swift presenter is sent for
+//! LLP 1115.000 D10 on the Apple host: what the Swift presenter is sent for
 //! a control's spacing and size is the plan's, the same on every host. A
 //! native control's alignment inset is inside its presentation and is no
 //! frame of these.
@@ -62,7 +62,7 @@ fn style(host: &Host<NoData>, ops: &[serde_json::Value], test_id: &str) -> serde
     serde_json::Value::Object(rows)
 }
 
-/// A checkbox, a radio and a range are framed where their row puts
+/// D10.1: a checkbox, a radio and a range are framed where their row puts
 /// them, and the presenter is sent no margin row for them (Chrome's UA
 /// margins put the checkbox at 4, 3).
 #[test]
@@ -99,11 +99,11 @@ fn a_checkbox_a_radio_and_a_range_have_no_margin_of_their_own() {
     }
 }
 
-/// A range and a determinate `progress` are framed as wide as what
+/// D10.2: a range and a determinate `progress` are framed as wide as what
 /// holds them, by the plan's `width: 100%`: the presenter is sent that
 /// frame and lays its slider or bar across it, widening nothing itself. The
-/// row is the compiler's, so it is not among the written ones;
-/// an authored width is.
+/// row is the compiler's, so it is not among the written ones (LLP 1115.000
+/// D2); an authored width is.
 #[test]
 fn a_range_and_a_determinate_progress_are_full_width() {
     let (host, ops) = boot(
@@ -139,7 +139,7 @@ fn a_range_and_a_determinate_progress_are_full_width() {
     assert!(written("narrow"), "the author's");
 }
 
-/// An `hr` is one hairline with no margin, a point until the
+/// D10.3: an `hr` is one hairline with no margin, a point until the
 /// presenter says its display's scale (`exact_set_display_scale`: UIKit's
 /// `displayScale`, AppKit's `backingScaleFactor`). Telling it sends the
 /// presenter the rule's new edge and the frames that move with it, in one
@@ -266,7 +266,7 @@ fn a_popovers_margins_cross_with_no_authored_area() {
     );
 }
 
-/// A popover's authored `left` and `top` cross, so the Apple
+/// LLP 1021 D2: a popover's authored `left` and `top` cross, so the Apple
 /// hosts open it at that point of the viewport instead of at its invoker.
 #[test]
 fn a_popovers_insets_cross() {

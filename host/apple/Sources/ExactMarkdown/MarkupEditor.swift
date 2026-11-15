@@ -1,5 +1,5 @@
 // Source-backed TextKit 2 Markdown styling, shared by UIKit and AppKit.
-// Only attributes change; source and native selection
+// @ref LLP 1045 D1, D5, D11 — only attributes change; source and native selection
 // stay intact. Hosts guard composition before entering this styler. A link's
 // destination is hidden, as the web editor hides it (`MarkupHidden.swift`);
 // other syntax is dimmed at full advance.
@@ -17,7 +17,7 @@ final class MarkupEditor: NSObject, MarkdownEditing {
     var bookmark: NSRange?
     var lastSelectionState: String?
     private(set) var plainAttributes: [NSAttributedString.Key: Any] = [:]
-    /// Each line's base direction as drawn.
+    /// Each line's base direction as drawn (LLP 1045 D11).
     private(set) var directions = MarkupDirections()
     /// The `paragraphDirs` the last restyle placed.
     var paragraphDirs: String { directions.said }
@@ -25,7 +25,7 @@ final class MarkupEditor: NSObject, MarkdownEditing {
     private(set) var atoms = MarkdownAtoms()
     func direction(at location: Int) -> NSWritingDirection { directions.direction(at: location) }
     /// The words each undo and redo step of the field's undo manager returns
-    /// to, one set a step, and the set an undo or redo gives
+    /// to, one set a step (LLP 1045 D11), and the set an undo or redo gives
     /// back to the restyle after it.
     private var undoWords: [MarkupDirections.Words] = [], redoWords: [MarkupDirections.Words] = []
     private var wordsBack: MarkupDirections.Words?
@@ -47,9 +47,9 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         /// The opacity of the platform's secondary label colour in the
         /// appearance the field draws in; the adapters read it there.
         var secondaryOpacity: CGFloat = 0.5
-        /// The node's inline atoms, and the appearance their pills draw for.
+        /// The node's inline atoms (LLP 1045.000), and the appearance their pills draw for.
         var atoms = MarkdownAtoms()
-        /// The app's base direction for each line, `paragraphDirs`.
+        /// The app's base direction for each line, `paragraphDirs` (LLP 1045 D11).
         var paragraphDirs = ""
         /// The field's own direction is right to left: a line without a word takes it.
         var rtl = false
@@ -149,7 +149,7 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         plainAttributes = base
         self.atoms = look.atoms
         let baseFont = base[.font] as! PlatformFont
-        // Each line's base direction: the most common one is
+        // Each line's base direction (LLP 1045 D11): the most common one is
         // every paragraph's, in the base style; runs that differ follow the rows.
         watch(undo)
         let back = wordsBack

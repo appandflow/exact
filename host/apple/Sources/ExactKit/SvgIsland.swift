@@ -1,4 +1,4 @@
-// SVG islands on Apple: what
+// @ref LLP 1055.000 D2, D7, D10, §8 ruling 4 — SVG islands on Apple: what
 // Core Animation cannot composite is rendered to pixels. The source is the
 // same layers the scene already builds (a sub-scene, rendered by Core
 // Animation's own `render(in:)`), so text, gradients and clips come along and
@@ -11,7 +11,7 @@ import CoreGraphics
 import Foundation
 import QuartzCore
 
-/// The island module (a loaded tier). A plan that can show an
+/// The island module (LLP 1047 D1's loaded tier). A plan that can show an
 /// island (`exact_svg_islands`) has it opened off the main thread at boot
 /// (`prewarm`); otherwise it opens synchronously at first use, so the frame
 /// that first shows an island is late by the load (measured and logged) and
@@ -182,7 +182,7 @@ enum SvgIsland {
         return ctx
     }
 
-    /// A `mask` as a layer to set as a mask: its content
+    /// A `mask` (LLP 1055.000 D10) as a layer to set as a mask: its content
     /// rendered over the region, turned into coverage by the module. `k` is
     /// device pixels per unit of the masked layer. Without the module the
     /// layer is empty, and masks everything away.
@@ -233,7 +233,7 @@ enum SvgIsland {
         return (e.rect, e.w, e.h, e.k, program, gpu)
     }
 
-    /// A filtered element's picture: the element without
+    /// A filtered element's picture (LLP 1055.000 D14): the element without
     /// its effects rendered over the filter region at `k` pixels per user
     /// unit, run through the chain on the GPU (`SvgFilterGPU`) or else by
     /// the module, as a layer placed on the region. Without either the
@@ -269,9 +269,9 @@ enum SvgIsland {
                                        "saturationBlendMode", "colorBlendMode", "luminosityBlendMode"]
     private static var saidBlend = false
 
-    /// `mix-blend-mode` and `isolation` on an element's placed layer: a
-    /// compositing filter on macOS. iOS has no public
-    /// blend on a layer and declares it unsupported: the
+    /// `mix-blend-mode` and `isolation` on an element's placed layer (LLP
+    /// 1055.000 D19): a compositing filter on macOS. iOS has no public
+    /// blend on a layer and declares it unsupported (§8 ruling 6): the
     /// element draws unblended and the host says so once.
     static func blend(_ layer: CALayer, mode: Int, isolate: Bool, scale: CGFloat) {
         #if os(macOS)
@@ -280,7 +280,7 @@ enum SvgIsland {
         #else
         if mode != 0, !saidBlend {
             saidBlend = true
-            FileHandle.standardError.write(Data("exact svg: `mix-blend-mode` is not supported on iOS; the element draws unblended\n".utf8))
+            FileHandle.standardError.write(Data("exact svg: `mix-blend-mode` is not supported on iOS (LLP 1055.000 §8 ruling 6); the element draws unblended\n".utf8))
         }
         #endif
         // An isolated group composites its content alone first.
@@ -290,7 +290,7 @@ enum SvgIsland {
         }
     }
 
-    /// A pattern paint drawn over `rect` (the shape's
+    /// A pattern paint (LLP 1055.000 D7) drawn over `rect` (the shape's
     /// user units) at `scale` pixels per unit: its tile rendered once at
     /// the scale it shows at, then tiled by Core Graphics under the
     /// pattern's transform.

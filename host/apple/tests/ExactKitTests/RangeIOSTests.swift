@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// `input type="range"` is a UISlider, whose thumb moves
+/// `input type="range"` is a UISlider (LLP 1069.001 D5), whose thumb moves
 /// from step to step as a browser's does.
 ///   bun host/apple/build.mjs --test --ios
 final class RangeIOSTests: XCTestCase {

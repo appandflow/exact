@@ -1,4 +1,4 @@
-// `indexOf` and `split` are JavaScript's (2026-10-04 note):
+// `indexOf` and `split` are JavaScript's (LLP 1088 §9.1, 2026-10-04 note):
 // `indexOf` over a list is IsStrictlyEqual (NaN is never found, -0 is 0),
 // over text a position in UTF-16 code units, -1 for none and 0 for the empty
 // needle; `split` cuts text at each match of its separator, an empty one

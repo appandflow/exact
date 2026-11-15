@@ -183,7 +183,7 @@ final class InlineFocusMacTests: XCTestCase {
         XCTAssertNil(p.viewport.nextValidKeyView)
     }
 
-    /// A link run's `outline: none` takes
+    /// LLP 1104 D6 (amended 2026-11-05): a link run's `outline: none` takes
     /// AppKit's ring off it; it still takes the focus, and a link run
     /// without it keeps its ring.
     func testOutlineNoneTakesALinkRunsRingOff() throws {

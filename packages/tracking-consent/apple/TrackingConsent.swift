@@ -1,16 +1,16 @@
-// @exact/tracking-consent on iOS and tvOS: App
+// @exact/tracking-consent/apple on iOS and tvOS (LLP 1133.028 D12-D14): App
 // Tracking Transparency, a platform module with no other implementation.
 // Under the agent it asks the framework for nothing: the runner holds each
 // request as a `tracking` ticket, whose tap reaches the implementation as
 // the call's `preferred`, and the status is this session's own, laid under
-// the agent's preferred one. `--bind tracking-consent` asks ATT.
+// the agent's preferred one (§7). `--bind tracking-consent` asks ATT.
 //
 // - ATT shows nothing to an app that is not active, and answers at once; a
 //   request made then is held until the app becomes active, so a request at
 //   launch shows the alert as soon as it can. A held request whose call is
-//   let go or whose session ends is dropped, never shown later.
+//   let go or whose session ends is dropped, never shown later (D13).
 // - The request never fails: it answers the status, `denied` and
-//   `notDetermined` (a dismissal) included. `state` is the package's
+//   `notDetermined` (a dismissal) included. `state` is LLP 1133.002 D8's
 //   word for it.
 // - `advertisingIdentifier` is data code's alone: zeros unless the person
 //   authorized tracking, and always in the Simulator.
@@ -58,7 +58,7 @@ public final class TrackingConsentModule: ExactPackage {
         overlay = values["trackingAuthorizationStatus"] as? [String: Any] ?? [:]
     }
 
-    /// The person changes it in Settings, outside the app.
+    /// The person changes it in Settings, outside the app (D13).
     public func foreground(_ shown: Bool) {
         if shown { context.changed("tracking-consent.trackingAuthorizationStatus") }
     }
@@ -96,7 +96,7 @@ public final class TrackingConsentModule: ExactPackage {
         }
     }
 
-    /// `restricted` is a denial the person did not make here.
+    /// LLP 1133.002 D8: `restricted` is a denial the person did not make here.
     static func state(_ word: String) -> String {
         switch word {
         case "authorized": "granted"

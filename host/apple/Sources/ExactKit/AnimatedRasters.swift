@@ -1,8 +1,8 @@
-// The players: one per image view showing an animated
+// @ref LLP 1011.000 — the players: one per image view showing an animated
 // GIF or WebP, all driven by one main-thread timer set for the earliest
 // frame change among those on screen. A view off screen, or one that let its
 // image go (a recycled row), costs nothing: no timer fires for it and no
-// frame is decoded. Under the agent's clock nothing runs on its
+// frame is decoded. Under the agent's clock (LLP 1012) nothing runs on its
 // own: `evaluate` after each batch and each `clock` shows the frame the
 // clock says, decoding it there and then, so a screenshot is exact.
 import CoreGraphics
@@ -158,6 +158,7 @@ final class AnimatedRasters {
 
     private func present(_ p: Player) {
         guard let view = p.view else { return }
+        if view.style["image_rendering"]?.string == "pixelated" { view.applyImageLayer(); return }
         #if os(iOS) || os(tvOS)
         if let layer = view.imageLayer {
             CATransaction.begin(); CATransaction.setDisableActions(true)

@@ -22,6 +22,8 @@ pub(crate) struct RegionState {
     ticket: Option<RegionTicket>,
     inputs: Option<RegionInputs>,
     shell_catalog: Option<u64>,
+    shell_exclusions: Vec<crate::FlowShape>,
+    shell_inputs: IdSet<NodeKey>,
     offer: Option<Offer>,
     pub pending: Option<RegionTextRequest>,
     ready: Vec<RegionArtifact>,
@@ -48,6 +50,8 @@ impl RegionState {
             ticket: None,
             inputs: None,
             shell_catalog: None,
+            shell_exclusions: Vec::new(),
+            shell_inputs: crate::flow::region_shell_inputs(arena, binding.owner.index),
             offer: None,
             pending: None,
             ready: Vec::new(),
@@ -128,7 +132,16 @@ impl RegionState {
             return true;
         }
         let inherited = arena.computed_style(self.binding.content.index, StyleMask::INHERITED);
-        let changed = r.touched.contains(&self.binding.owner)
+        // Retain the old dependencies through this commit: a removed or
+        // reparented exclusion no longer appears in the arena's set.
+        let shell_inputs = crate::flow::region_shell_inputs(arena, self.binding.owner.index);
+        let changed = r
+            .created
+            .iter()
+            .chain(&r.touched)
+            .chain(&r.destroyed)
+            .any(|k| self.shell_inputs.contains(k) || shell_inputs.contains(k))
+            || r.touched.contains(&self.binding.owner)
             || r.destroyed.iter().any(|k| self.members.contains(k))
             || r.created.iter().chain(&r.touched).any(|k| {
                 self.members.contains(k)
@@ -142,13 +155,19 @@ impl RegionState {
             self.invalidate();
             self.inherited = inherited;
         }
+        self.shell_inputs = shell_inputs;
         if let Ok(m) = members(arena, self.binding.content) {
             self.members = m;
         }
         true
     }
     pub fn intrinsic(&mut self, slot: u32) {
-        if self.members.iter().any(|k| k.index == slot) {
+        if self
+            .members
+            .iter()
+            .chain(&self.shell_inputs)
+            .any(|k| k.index == slot)
+        {
             self.invalidate()
         }
     }
@@ -196,6 +215,7 @@ impl RegionState {
                         source: source as u16,
                         offer: request.offer(),
                         metrics,
+                        exclusions: request.0.key.exclusions.clone(),
                     });
                 // No native owner or ready artifact is retained by a scalar fact.
                 drop(payload);
@@ -203,7 +223,7 @@ impl RegionState {
             RegionRequestPurpose::FinalPaint => {
                 let fact = self
                     .facts
-                    .find(request.stamp(), request.offer())
+                    .find(request.stamp(), request.offer(), request.exclusions())
                     .expect("final request has an exact fact");
                 if !same_metrics(self.facts.entries[fact].metrics, metrics) {
                     return Err(LayoutError::ContentRegion(
@@ -267,8 +287,14 @@ impl RegionState {
             ));
         }
         for (dimension, axis) in [
-            (arena.style(self.binding.owner.index).width, outer.width),
-            (arena.style(self.binding.owner.index).height, outer.height),
+            (
+                arena.style(self.binding.owner.index).width.clone(),
+                outer.width,
+            ),
+            (
+                arena.style(self.binding.owner.index).height.clone(),
+                outer.height,
+            ),
         ] {
             if matches!(dimension, Dimension::Percent(_))
                 && !matches!(axis,crate::AxisOffer::Definite(n) if n>=0.)
@@ -299,7 +325,10 @@ impl RegionState {
             .unwrap()
             .frame;
         let offer = Offer::definite(origin.width, origin.height);
-        if self.inputs.is_some_and(|old| old.catalog != inputs.catalog)
+        let shell_exclusions =
+            crate::flow::region_shell_shapes(arena, b.owner.index, shell_frames, origin);
+        if !crate::flow::shapes_eq(&self.shell_exclusions, &shell_exclusions)
+            || self.inputs.is_some_and(|old| old.catalog != inputs.catalog)
             || self.offer != Some(offer)
             || (self.profile == RegionProfile::SplitFacts
                 && self
@@ -310,6 +339,7 @@ impl RegionState {
         }
         self.inputs = Some(inputs);
         self.offer = Some(offer);
+        self.shell_exclusions = shell_exclusions;
         let already_current = self.accepted.as_ref().is_some_and(|p| {
             self.ticket
                 .as_ref()
@@ -335,7 +365,14 @@ impl RegionState {
             // Height-free facts are SplitFacts': the default profile keeps
             // one retained artifact per exact offer.
             let height_free = self.profile == RegionProfile::SplitFacts && measurer.height_free();
-            self.advance(arena, origin, offer, inputs, height_free, measurer)?
+            self.advance(
+                arena,
+                (root, origin, shell_frames),
+                offer,
+                inputs,
+                height_free,
+                measurer,
+            )?
         } else {
             None
         };
@@ -399,7 +436,7 @@ impl RegionState {
             current || selected.is_none(),
             &mut changed,
         );
-        // Resolve only after the selected projection.
+        // @ref LLP 1043.000 §3 D4 — resolve only after the selected projection.
         let (flow_changed, flow_skipped) =
             crate::flow::resolve_region(arena, root, shell_frames, &frames);
         if let Some(accepted) = next_accepted {
@@ -426,13 +463,14 @@ impl RegionState {
     fn advance(
         &mut self,
         arena: &NodeArena,
-        origin: Frame,
+        placement: (u32, Frame, &[RegionFrame]),
         offer: Offer,
         inputs: RegionInputs,
         height_free: bool,
         measurer: &mut dyn TextMeasurer,
     ) -> Result<Option<Rc<RegionPublication>>, LayoutError> {
         let b = self.binding;
+        let (root, origin, shell_frames) = placement;
         let ticket = self.ticket.as_ref().expect("admitted ticket").clone();
         if self.provisional.is_none() {
             let mut candidate = Derived::build(
@@ -460,48 +498,73 @@ impl RegionState {
             };
             candidate.compute(arena, &mut latch, offer)?;
             self.provisional_chrome |= candidate.provisional_chrome();
+            if let Some(reason) = latch.refused {
+                return Err(LayoutError::ContentRegion(reason));
+            }
+            if let Some(request) = latch.missing {
+                self.pending = Some(request);
+                return Ok(None);
+            }
+            let geometry = candidate.frames(
+                arena,
+                b.owner.index,
+                Some(b.owner.index),
+                Some(b.content.index),
+            )?;
+            let projected = geometry.project(origin)?;
+            let mut exclusions =
+                crate::flow::region_targets(arena, root, shell_frames.iter().chain(&projected));
+            for (&slot, shapes) in &mut exclusions {
+                if let Some(inset) = geometry.facts.insets.get(&arena.key(slot)) {
+                    let left = inset.padding[0] + inset.border[0];
+                    let top = inset.padding[1] + inset.border[1];
+                    for shape in shapes {
+                        *shape = shape.translate(-left, -top);
+                    }
+                }
+            }
             let mut paints = Vec::new();
-            if latch.missing.is_none() && latch.refused.is_none() {
-                if self.profile == RegionProfile::SplitFacts {
-                    paints.reserve_exact(SPLIT_PAINTS);
+            if self.profile == RegionProfile::SplitFacts {
+                paints.reserve_exact(SPLIT_PAINTS);
+            }
+            for (slot, width) in candidate.paint_offers(arena) {
+                let mut runs = Vec::new();
+                arena.text_runs(slot, &mut runs);
+                if runs.is_empty() {
+                    continue;
                 }
-                for (slot, width) in candidate.paint_offers(arena) {
-                    let mut runs = Vec::new();
-                    arena.text_runs(slot, &mut runs);
-                    if runs.is_empty() {
-                        continue;
-                    }
-                    let stamp = arena
-                        .paragraph_stamp(slot)
-                        .ok_or(LayoutError::ContentRegion("paragraph lacks stamp"))?;
-                    let paragraph = arena.paragraph(slot);
-                    let request = TextMeasureRequest {
-                        atoms: Default::default(),
-                        exclusions: &[],
-                        runs: &runs,
-                        paragraph,
-                        width: crate::AxisOffer::Definite(width),
-                        height: crate::AxisOffer::MaxContent,
-                    };
-                    latch.measure_identified(&stamp, &request);
-                    if latch.missing.is_some() || latch.refused.is_some() {
-                        break;
-                    }
-                    if self.profile == RegionProfile::SplitFacts && paints.len() == SPLIT_PAINTS {
-                        return Err(LayoutError::ContentRegion(
-                            "split final owner budget exhausted",
-                        ));
-                    }
-                    let key = TextKey {
-                        stamp,
-                        offer: Offer {
-                            width: request.width,
-                            height: request.height,
-                        },
-                    };
-                    let index = latch.index(&key).expect("measured final offer");
-                    paints.push((arena.key(slot), index));
+                let stamp = arena
+                    .paragraph_stamp(slot)
+                    .ok_or(LayoutError::ContentRegion("paragraph lacks stamp"))?;
+                let paragraph = arena.paragraph(slot);
+                let request = TextMeasureRequest {
+                    atoms: Default::default(),
+                    exclusions: exclusions.get(&slot).map_or(&[], Vec::as_slice),
+                    runs: &runs,
+                    paragraph,
+                    width: crate::AxisOffer::Definite(width),
+                    height: crate::AxisOffer::MaxContent,
+                };
+                latch.measure_identified(&stamp, &request);
+                if latch.missing.is_some() || latch.refused.is_some() {
+                    break;
                 }
+                if self.profile == RegionProfile::SplitFacts && paints.len() == SPLIT_PAINTS {
+                    return Err(LayoutError::ContentRegion(
+                        "split final owner budget exhausted",
+                    ));
+                }
+                let key = TextKey {
+                    exclusions: (!request.exclusions.is_empty())
+                        .then(|| Arc::new(request.exclusions.to_vec())),
+                    stamp,
+                    offer: Offer {
+                        width: request.width,
+                        height: request.height,
+                    },
+                };
+                let index = latch.index(&key).expect("measured final offer");
+                paints.push((arena.key(slot), index));
             }
             if let Some(reason) = latch.refused {
                 return Err(LayoutError::ContentRegion(reason));
@@ -512,19 +575,14 @@ impl RegionState {
             }
             // Only immutable geometry/ordinals survive. All Taffy state drops here.
             self.provisional = Some(Provisional {
-                geometry: Rc::new(candidate.frames(
-                    arena,
-                    b.owner.index,
-                    Some(b.owner.index),
-                    Some(b.content.index),
-                )?),
+                geometry: Rc::new(geometry),
                 paints,
             });
         }
         let provisional = self.provisional.as_ref().unwrap();
         let paints = if self.profile == RegionProfile::SplitFacts {
             if let Some((_, index)) = provisional.paints.get(self.ready.len()) {
-                let fact = self.facts.entries[*index];
+                let fact = &self.facts.entries[*index];
                 let source = self.facts.sources[fact.source as usize].clone();
                 self.pending = Some(RegionTextRequest(Arc::new(RequestData {
                     ticket,
@@ -533,6 +591,7 @@ impl RegionState {
                     // been measured under another height.
                     key: TextKey {
                         stamp: source.stamp.clone(),
+                        exclusions: fact.exclusions.clone(),
                         offer: Offer {
                             width: fact.offer.width,
                             height: crate::AxisOffer::MaxContent,
@@ -582,7 +641,7 @@ struct Candidate<'a> {
 impl Candidate<'_> {
     fn index(&self, key: &TextKey) -> Option<usize> {
         if self.profile == RegionProfile::SplitFacts {
-            self.facts.find(&key.stamp, key.offer)
+            self.facts.find(&key.stamp, key.offer, key.exclusions())
         } else {
             self.ready.iter().position(|a| a.request.0.key == *key)
         }
@@ -590,7 +649,8 @@ impl Candidate<'_> {
 }
 impl TextMeasurer for Candidate<'_> {
     fn measure_reservation(&mut self, request: &TextMeasureRequest<'_>) -> Option<TextMetrics> {
-        // Width samples are not canonical paragraph sources or paint artifacts.
+        // Width samples and alert titles are not canonical paragraph sources
+        // or paint artifacts.
         self.measurer.measure_reservation(request)
     }
     fn field_chrome(&mut self, request: &crate::FieldChromeRequest) -> crate::FieldChrome {
@@ -623,6 +683,7 @@ impl TextMeasurer for Candidate<'_> {
             return TextMetrics::default();
         }
         let key = TextKey {
+            exclusions: (!r.exclusions.is_empty()).then(|| Arc::new(r.exclusions.to_vec())),
             stamp: stamp.clone(),
             offer: Offer {
                 width: r.width,
@@ -692,13 +753,14 @@ impl TextMeasurer for Candidate<'_> {
             .filter(|p| split && p.inputs.catalog == self.catalog)
             .and_then(|p| {
                 p.facts
-                    .find(stamp, key.offer)
+                    .find(stamp, key.offer, key.exclusions())
                     .map(|i| p.facts.entries[i].metrics)
             })
         {
             self.facts.push(ScalarFact {
                 source: source_index as u16,
                 offer: key.offer,
+                exclusions: key.exclusions.clone(),
                 metrics,
             });
             return metrics;
@@ -755,6 +817,9 @@ fn holds_absolute(arena: &NodeArena, owner: u32) -> bool {
     arena.children(owner).iter().any(|&branch| {
         let (mut stack, mut seen) = (vec![branch], 0);
         while let Some(s) = stack.pop() {
+            if crate::style::top_layer::is_box(arena, s) {
+                continue;
+            }
             seen += 1;
             let children = arena.children(s);
             if crate::style::top_layer::layout_position(arena, s) == crate::PositionType::Absolute
@@ -794,9 +859,9 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
             return Err(bad());
         }
         // In the top layer the owner is laid out in its own block, after
-        // the region's shell: no trial can place it. Whether
+        // the region's shell: no trial can place it (stage 14 B). Whether
         // it is in the top layer now, not whether the last layout's block
-        // still stands (a host's block is refused beside a region anyway).
+        // still stands. A host may supply a block only for a top-layer root.
         if arena.top_layer_slots.contains(s) {
             return Err(LayoutError::ContentRegion("region owner in the top layer"));
         }
@@ -831,14 +896,14 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     };
     // Keep the explicit-size path unchanged. Auto height has only the narrow
     // direct-root column certificate below, never generic intrinsic sizing.
-    if !sized(s.width)
-        || !(sized(s.height) || flex_height_independent(arena, b.owner.index))
+    if !sized(s.width.clone())
+        || !(sized(s.height.clone()) || flex_height_independent(arena, b.owner.index))
         || s.overflow_x != Overflow::Hidden
         || s.overflow_y != Overflow::Hidden
     {
         return Err(bad());
     }
-    // A trial lays the owner out as the top of its own tree,
+    // @ref LLP 1074 T1 — a trial lays the owner out as the top of its own tree,
     // where it contains every absolutely positioned descendant; the ordinary
     // tree agrees only if the owner is positioned there too, or nothing
     // absolute is under it. The compiler positions a clipping box only when
@@ -853,15 +918,19 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     // No inference through auto/intrinsic ancestors or generalized containment.
     // Width:auto is allowed only for the ordinary nonabsolute root repair;
     // height:auto is never an independent percentage containing block.
-    for (dimension, width) in [(s.width, true), (s.height, false)] {
+    for (dimension, width) in [(s.width.clone(), true), (s.height.clone(), false)] {
         if matches!(dimension, Dimension::Percent(_)) {
             let parent = arena.parent(b.owner.index).ok_or_else(bad)?;
             if !arena.is_root(parent) {
                 return Err(bad());
             }
             let root = arena.style(parent);
-            let dim = if width { root.width } else { root.height };
-            let definite = sized(dim)
+            let dim = if width {
+                root.width.clone()
+            } else {
+                root.height.clone()
+            };
+            let definite = sized(dim.clone())
                 || (width
                     && dim == Dimension::Auto
                     && crate::style::top_layer::layout_position(arena, parent)
@@ -871,7 +940,7 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
             }
         }
     }
-    if !s.unpadded(arena.env()) {
+    if !s.unpadded(&arena.env_of(b.owner.index)) {
         return Err(bad());
     }
     members(arena, b.content)?;
@@ -902,24 +971,24 @@ fn flex_height_independent(arena: &NodeArena, owner: u32) -> bool {
     root.display == Display::Flex
         && root.flex_direction == crate::FlexDirection::Column
         && root.flex_wrap == crate::FlexWrap::Nowrap
-        && definite(root.width)
-        && definite(root.height)
+        && definite(root.width.clone())
+        && definite(root.height.clone())
         && s.height == Dimension::Auto
-        && definite(s.width)
+        && definite(s.width.clone())
         && crate::style::top_layer::layout_position(arena, owner) != crate::PositionType::Absolute
         && s.flex_grow == 1.
         && s.flex_shrink == 1.
-        && zero(s.flex_basis)
-        && definite(s.min_height)
-        && limit(s.max_height)
+        && zero(s.flex_basis.clone())
+        && definite(s.min_height.clone())
+        && limit(s.max_height.clone())
         // With clipping and a definite cross size, Auto here is zero, not an
         // automatic main-axis content minimum. Aspect transfer is not admitted.
-        && limit(s.min_width)
-        && limit(s.max_width)
+        && limit(s.min_width.clone())
+        && limit(s.max_width.clone())
         && s.rare.aspect_ratio.preferred().is_none()
-        && [s.margin_top, s.margin_right, s.margin_bottom, s.margin_left]
+        && [s.margin_top.clone(), s.margin_right.clone(), s.margin_bottom.clone(), s.margin_left.clone()]
             .into_iter().all(zero)
-        && [s.top, s.right, s.bottom, s.left]
+        && [s.top.clone(), s.right.clone(), s.bottom.clone(), s.left.clone()]
             .into_iter().all(|d| d == Dimension::Auto || zero(d))
 }
 fn publish(

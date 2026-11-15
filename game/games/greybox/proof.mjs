@@ -160,7 +160,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   check('Resume continues the existing world', resumed?.[2] < paused.entities.find(e => e.name === 'player').components.Transform.position[2]);
   await s.world('world').key_up('KeyW');
 
-  // Hold W, queue a jump without advancing a tick, then capture the whole sim.
+  // D6: hold W, queue a jump without advancing a tick, then capture the whole sim.
   await session.close(); session = null;
   const worldFile = resolve(out, 'checkpoint.world');
   const originalFile = resolve(out, 'original.world'), restoredFile = resolve(out, 'restored.world');
@@ -191,8 +191,8 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   check('restore preserves the simulation snapshot', equal(checkpointState, await session.world('world').snapshot()));
   const continued = await continueWorld();
   await session.world('world').save(restoredFile);
-  check('two sessions continue to the same simulation snapshot', equal(continued, uninterrupted));
-  check('the entire Sim save is byte-identical, including held input, queue, clock, journal and publications', readFileSync(originalFile).equals(readFileSync(restoredFile)));
+  check('D6 two sessions continue to the same simulation snapshot', equal(continued, uninterrupted));
+  check('D6 entire Sim save is byte-identical, including held input, queue, clock, journal and publications', readFileSync(originalFile).equals(readFileSync(restoredFile)));
 
   await session.close(); session = null;
   const refusedFile = resolve(out, 'refused.world');

@@ -17,7 +17,7 @@ final class RadioMacTests: XCTestCase {
     private var heard: [String] = []
 
     override func tearDown() { window?.close(); window = nil }
-    /// A radio group is one Tab stop where Tab reaches controls: Keyboard Navigation on.
+    /// A radio group is one Tab stop where Tab reaches controls: Keyboard Navigation on (LLP 1115.000 D7.2).
     override func setUp() { super.setUp(); keyboardNavigation(true) }
 
     private static let values: [UInt32: String] = [2: "red", 3: "green", 4: "gray", 5: "blue"]
@@ -75,7 +75,7 @@ final class RadioMacTests: XCTestCase {
         XCTAssertEqual(green.cell?.className.contains("RadioCell"), true)
         XCTAssertFalse(green.acceptsFirstResponder, "the node holds the focus")
         XCTAssertEqual(shown(p), [2])
-        // A click checks the radio and moves no focus, as
+        // LLP 1115.000 D7.1: a click checks the radio and moves no focus, as
         // a click on AppKit's radio button does, from nothing or from the
         // radio the keyboard had reached.
         let responder = window.firstResponder

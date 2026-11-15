@@ -1,4 +1,4 @@
-// Exact's own picture-in-picture window: a floating,
+// @ref LLP 1042 §9.1 — Exact's own picture-in-picture window: a floating,
 // non-activating panel on every Space, locked to the picture's aspect; the
 // browser's kind at the bottom right with its controls shown on hover, placed
 // as Chromium places it and following the next image that asks, the titled
@@ -166,6 +166,35 @@ final class PictureInPictureWindowMacTests: XCTestCase {
         spin { !self.said.isEmpty }
         XCTAssertEqual(said, ["error the picture could not be read"])
         XCTAssertFalse(window.panel.isVisible)
+    }
+
+    /// A request for the platform's picture in picture that is refused (no video module in the
+    /// build, or none the platform creates) leaves the image floating where it was.
+    func testARefusedRequestLeavesTheImageFloating() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("pip-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("assets"), withIntermediateDirectories: true)
+        files.append(root)
+        try FileManager.default.copyItem(atPath: picture(400, 300), toPath: root.appendingPathComponent("assets/still.png").path)
+        let previous = ExactApp.shared.assetRoot
+        ExactApp.shared.assetRoot = root
+        defer { ExactApp.shared.assetRoot = previous }
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        session.presenter.apply(wireBatch([["op": "create", "id": 1, "kind": "image", "props": ["id": "still"]], ["op": "roots", "ids": [1]]]))
+        let image = try XCTUnwrap(session.presenter.views[1])
+        image.imageSource = "assets/still.png"
+        func floats() -> Bool { PictureInPictureHost.floating.contains { $0.node === image } }
+        PictureInPictureHost.request(image, .init(["still", "window"]))
+        spin { floats() }
+        XCTAssertTrue(floats())
+        let exports = PictureInPictureHost.exports
+        defer { PictureInPictureHost.exports = exports; PictureInPictureHost.gone(image) }
+        PictureInPictureHost.exports = nil
+        PictureInPictureHost.request(image, .init(["still"]))
+        XCTAssertTrue(floats(), "no video module")
+        PictureInPictureHost.exports = (create: { _, _ in nil }, frame: { _, _, _ in }, destroy: { _ in })
+        PictureInPictureHost.request(image, .init(["still"]))
+        XCTAssertTrue(floats(), "the platform creates none")
     }
 
     private func allViews(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(allViews) }

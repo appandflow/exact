@@ -1,4 +1,4 @@
-//! A keyed list whose entries change: a call
+//! A keyed list whose entries change (LLP 1133.033 D17 item 7, D21): a call
 //! the app places is listed, then its state moves as the app reports it
 //! (`update`, `app_list.rs`) and as the person acts on the system's screen
 //! (`tap @ref <choice>`). Each form is declared, so a third party's module
@@ -11,7 +11,7 @@
 //!   listed instead of replacing its entry; `"ends": {field: [values]}`
 //!   names the entries that are over, which stay listed until the list next
 //!   lists one; `"inCall": {field: [values]}` names the entries that hold
-//!   the app in a call (admission).
+//!   the app in a call (admission, D10).
 //! - **A rule** (`when`, `ends`, `inCall`) is `{field: value}` or
 //!   `{field: [values]}`: each field holds the value, or one of them.
 //! - **A value in `set`** is a literal; `{"now": true}`, the agent clock's
@@ -136,7 +136,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether an entry of a list that declares `inCall` holds the app in a
-    /// call now: a capture's start is then admitted while the app is
+    /// call now (D10): a capture's start is then admitted while the app is
     /// hidden, on the targets whose platforms allow it.
     pub(in crate::runner) fn in_call(&self) -> bool {
         (self.plan.modules.iter()).any(|row| {

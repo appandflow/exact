@@ -153,7 +153,7 @@ pub fn equivalent_opt(a: &Option<Value>, b: &Option<Value>) -> bool {
 }
 
 /// Which fields of a frame's value differ between `a` and `b`, as the
-/// dependency table's field mask: bit `k` for field `k`,
+/// dependency table's field mask (LLP 1017.003 D6): bit `k` for field `k`,
 /// bit 63 for 63 and past; `0` when [`equivalent_opt`]; every bit unless both
 /// are records of one length.
 pub fn changed_fields(a: &Option<Value>, b: &Option<Value>) -> u64 {
@@ -172,6 +172,21 @@ pub fn changed_fields(a: &Option<Value>, b: &Option<Value>) -> u64 {
 /// [`equivalent`], element by element.
 pub fn equivalent_all(a: &[Value], b: &[Value]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(a, b)| equivalent(a, b))
+}
+
+/// Resource failures follow argument equality, with NaNs unchanged too.
+pub(crate) fn unchanged_arguments(a: &[Value], b: &[Value]) -> bool {
+    fn unchanged(a: &Value, b: &Value) -> bool {
+        match (a, b) {
+            (Value::Number(a), Value::Number(b)) => a == b || (a.is_nan() && b.is_nan()),
+            (Value::Option(Some(a)), Value::Option(Some(b))) => unchanged(a, b),
+            (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => {
+                unchanged_arguments(a, b)
+            }
+            _ => a == b,
+        }
+    }
+    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| unchanged(a, b))
 }
 
 /// The language's structural equality; `None` when the kinds differ before
@@ -291,7 +306,7 @@ mod tests {
             found,
             vec![Some(5), Some(4), Some(3), Some(2), Some(1), None]
         );
-        // Inline and shared text with the same bytes:
+        // Inline and shared text with the same bytes (Charlie, 2026-09-28):
         // equal and equivalent; the same object only in one form.
         for t in ["", "bold", "exactly14bytes", "longer than fourteen bytes"] {
             let (inline, shared_form) = (Value::str(t), Value::str_shared_for_tests(t));

@@ -2,7 +2,7 @@
   "name": "@exact/calendar",
   "version": "1.0.0",
   "private": true,
-  "description": "The person's calendars: an event added through the system's editor, and the store read and written under access.",
+  "description": "The person's calendars: an event added through the system's editor, and the store read and written under access (LLP 1133.018).",
   "exports": {
     ".": "./exact.json",
     "./apple": "./apple/exact.json",

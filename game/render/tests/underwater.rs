@@ -15,8 +15,8 @@ fn gpu() -> Option<Gpu> {
     test_device::device_or_skip(fixture::device())
 }
 
-/// Mean relative luminance, linear: Rec. 709 weights over decoded sRGB, as the
-/// look frame measures a frame.
+/// Mean relative luminance, linear: Rec. 709 weights over decoded sRGB, as LLP
+/// 1127.000's look frame measures a frame.
 fn mean_luminance(p: &fixture::Pixels) -> f32 {
     let sum: f64 = p
         .data
@@ -279,7 +279,7 @@ fn the_recipe_frame_is_in_its_band_and_a_wrong_exposure_is_not() {
     );
 }
 
-/// The recipe's frame as the look oracle sees it, from the
+/// The recipe's frame as the look oracle (LLP 1127.000) sees it, from the
 /// GPU-less proof host's look frame: in the band, and no tell, the surface and
 /// its shafts in it.
 #[test]

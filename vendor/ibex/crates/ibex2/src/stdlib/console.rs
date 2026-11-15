@@ -1,4 +1,4 @@
-//! `console` — pure, ungated.
+//! `console` — pure, ungated (LLP 0059.000 §3.1).
 //!
 //! Formatting happens in Rust so output is identical across engines.
 //!

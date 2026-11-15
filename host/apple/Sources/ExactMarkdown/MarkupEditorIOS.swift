@@ -1,4 +1,4 @@
-// Source replacements through UIKit's own input path.
+// @ref LLP 1045 D5, D6 — source replacements through UIKit's own input path.
 #if os(iOS) || os(tvOS)
 import UIKit
 import ExactKit

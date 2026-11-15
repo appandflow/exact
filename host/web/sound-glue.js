@@ -1,13 +1,20 @@
-// The web's output for the runner's voice table, one
+// @ref LLP 1096 D6, D7. The web's output for the runner's voice table, one
 // file for the wasm glue and the JS target, loaded after first paint by a
 // plan that declares a sound and never under the agent (whose clock is
-// virtual: nothing plays). Web Audio's model in its smallest form: one
+// virtual: nothing plays, D10). Web Audio's model in its smallest form: one
 // decoded `AudioBuffer` per declared sound, a one-shot `AudioBufferSourceNode`
 // and a `GainNode` per voice, started at `start(when)` on the context's clock.
-// A voice's `playbackRate` is its source node's, and a voice
+// A voice's `playbackRate` is its source node's (LLP 1125 D10), and a voice
 // with a `pan` other than 0 goes through a `StereoPannerNode`; one centred
 // takes none, so a mono sound keeps the level it had (the panner's
 // equal-power law puts a centred mono input 3 dB down, cos(π/4) a side).
+//
+// A `set` (LLP 1096 D14) moves a started voice's `gain`, `playbackRate` and
+// `pan` AudioParams linearly from their values at its time to the new ones
+// over its ramp (`setValueAtTime`, then `linearRampToValueAtTime`); one not
+// yet started takes them outright. The glue keeps each value's last ramp,
+// since not every engine has `cancelAndHoldAtTime`. A voice that had no
+// panner and is given a pan gets one from then on, ramping from centred.
 //
 // Runner time is `performance.now()` minus the host's origin (the wasm
 // glue's `t0`, the JS target's `clock.start`). While the context's output
@@ -21,8 +28,8 @@
 // timer). An `End` for a held voice only sets its `stopAt`: `stop()` on a
 // node never started throws InvalidStateError in all three engines.
 //
-// A sequence's voices are the same voices, issued a second ahead:
-// an `End` at or before a voice's start that has not started (an edit,
+// A sequence's voices are the same voices, issued a second ahead (LLP 1125
+// D3): an `End` at or before a voice's start that has not started (an edit,
 // a stop) lets its node go at once. A step's haptic is `navigator.vibrate`
 // on a timer at its time, cancelled by `unhaptic`; one more than 10 ms late
 // (a blocked main thread) is counted.
@@ -30,7 +37,7 @@
 // A voice before the page's first user activation is dropped and journaled,
 // never queued (a queue would burst on the first tap): a capture-phase
 // `pointerdown`, `keydown` or `touchend` resumes the context, so the press
-// that runs a commit plays that commit's sound.
+// that runs a commit plays that commit's sound (trivia F5).
 const ACTIVATING = ['pointerdown', 'keydown', 'touchend'];
 
 /** Where every browser measured has `getOutputTimestamp`, the pair it gives;
@@ -47,18 +54,15 @@ function outputTimestamp(ctx) {
  * runner time 0 is on `performance.now()`'s timeline. A test passes
  * `context`, `timestamp`, `now` and `activated` (an OfflineAudioContext has
  * no output timestamp and no activation). */
-function installSound({ files, log, origin, root = document.getElementById('exact-root'), context, timestamp, now = () => performance.now(), activated, fetchFile = src => fetch(new URL(src, document.baseURI)).then(r => r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))) }) {
+function installSound({ files, log, origin, context, timestamp, now = () => performance.now(), activated, fetchFile = src => fetch(new URL(src, document.baseURI)).then(r => r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))) }) {
   const ctx = context ?? new AudioContext({ latencyHint: 'interactive' });
   const stamp = timestamp ?? (() => outputTimestamp(ctx));
   let sources = [], buffers = [], decoded = 0, gesture = false;
   const counts = { blocked: 0, late: 0, dropped: 0, hapticsLate: 0 };
   /** A sequence's haptics not yet played: id → timer. */
   const haptics = new Map();
-  /** Every voice not yet over: `{id, sound, at, gain, playbackRate, pan, stopAt, node, held, timer}`. */
+  /** Every voice not yet over: `{id, sound, at, gain, playbackRate, pan, stopAt, node, held, timer, gainNode, panner, ramps}`. */
   const voices = new Map();
-  // `app.json`'s `audio_session`, where the browser has the Audio Session API (WebKit).
-  const session = root?.dataset.audioSession;
-  if (session && navigator.audioSession) navigator.audioSession.type = session;
   const userActivated = activated ?? (() => navigator.userActivation?.hasBeenActive ?? gesture);
   if (!context) {
     const resume = e => { if (!e.isTrusted) return; gesture = true; if (ctx.state !== 'running') ctx.resume().catch(() => {}); else for (const t of ACTIVATING) document.removeEventListener(t, resume, true); };
@@ -86,11 +90,13 @@ function installSound({ files, log, origin, root = document.getElementById('exac
     const pan = v.pan !== 0 ? new StereoPannerNode(ctx, { pan: v.pan }) : null;
     node.connect(gain);
     (pan ? gain.connect(pan) : gain).connect(ctx.destination);
+    v.gainNode = gain; v.panner = pan;
+    v.ramps = Object.fromEntries(['gain', 'playbackRate', 'pan'].map(k => [k, { from: v[k], to: v[k], t0: v.at, t1: v.at }]));
     const start = immediately ? 0 : at;
     if (!immediately && start <= ctx.currentTime) counts.late++;
     node.start(start);
     if (v.stopAt != null) node.stop(immediately ? Math.max(ctx.currentTime, ctx.currentTime + (origin() + v.stopAt - now()) / 1000) : when(v.stopAt));
-    node.onended = () => { voices.delete(v.id); gain.disconnect(); pan?.disconnect(); };
+    node.onended = () => { voices.delete(v.id); gain.disconnect(); v.panner?.disconnect(); };
     v.node = node;
     v.start = start;
   }
@@ -123,10 +129,11 @@ function installSound({ files, log, origin, root = document.getElementById('exac
     voices.set(id, v);
     const buffer = buffers[sound];
     if (buffer && !(buffer instanceof Promise)) return schedule(v);
-    // Still decoding: it starts when it is decoded, from its first frame, unless its end has passed.
+    // Still decoding: it starts when it is decoded, from its first frame, unless its end has passed, at the rate a
+    // `set` may have given it meanwhile (the runner's `End` moves `stopAt` with it).
     Promise.resolve(buffer).then(b => {
       if (!voices.has(id) || sources[sound] !== src) return;
-      const length = b ? 1000 * b.duration / playbackRate : 0, ends = Math.min(at + length, v.stopAt ?? Infinity);
+      const length = b ? 1000 * b.duration / v.playbackRate : 0, ends = Math.min(at + length, v.stopAt ?? Infinity);
       if (!b || origin() + ends <= now()) { voices.delete(id); counts.dropped++; return log(`sound dropped: ${src} was still decoding at its end`); }
       schedule(v);
     });
@@ -140,19 +147,51 @@ function installSound({ files, log, origin, root = document.getElementById('exac
     else if (v.node) v.node.stop(live() ? when(at) : Math.max(ctx.currentTime, ctx.currentTime + (origin() + at - now()) / 1000));
     else if (v.held && at <= v.at) { clearTimeout(v.timer); voices.delete(id); }
   }
+  /** A value of ramp `r` at runner time `t`. */
+  const along = (r, t) => t >= r.t1 ? r.to : r.from + (r.to - r.from) * (t - r.t0) / (r.t1 - r.t0);
+  /** The context time for runner time `t`, live or not. */
+  const contextAt = t => live() ? when(t) : Math.max(0, ctx.currentTime + (origin() + t - now()) / 1000);
+  function set({ id, at, gain, playbackRate, pan, ramp = 0 }) {
+    const v = voices.get(id);
+    if (!v) return;
+    const given = { gain, playbackRate, pan };
+    for (const k in given) if (given[k] == null) delete given[k];
+    // Not started, by the runner's clock or the output's: its start takes the values.
+    const outright = at < v.at || !v.node;
+    Object.assign(v, given);
+    if (!v.node) return;
+    if (given.pan != null && !v.panner && given.pan !== 0) {
+      v.panner = new StereoPannerNode(ctx, { pan: 0 });
+      v.gainNode.disconnect();
+      v.gainNode.connect(v.panner).connect(ctx.destination);
+    }
+    for (const [k, to] of Object.entries(given)) {
+      const param = k === 'gain' ? v.gainNode.gain : k === 'playbackRate' ? v.node.playbackRate : v.panner?.pan;
+      if (!param) continue;
+      const last = v.ramps[k], from = outright ? to : along(last, at);
+      const r = v.ramps[k] = outright ? { from: to, to, t0: v.at, t1: v.at } : { from, to, t0: at, t1: at + ramp };
+      param.cancelScheduledValues(0);
+      // A start already past begins where the ramp has reached by now.
+      let c0 = contextAt(r.t0), c1 = contextAt(r.t1), start = r.from;
+      if (c0 < ctx.currentTime) { start = c1 > c0 ? along(r, r.t0 + Math.min(1, (ctx.currentTime - c0) / (c1 - c0)) * (r.t1 - r.t0)) : r.to; c0 = ctx.currentTime; }
+      param.setValueAtTime(start, c0);
+      if (c1 > c0) param.linearRampToValueAtTime(r.to, c1);
+      else param.setValueAtTime(r.to, c0);
+    }
+  }
   function haptic({ id, kind, at }) {
     clearTimeout(haptics.get(id));
     haptics.set(id, setTimeout(() => {
       haptics.delete(id);
       if (now() - (origin() + at) > 10) counts.hapticsLate++;
-      navigator.vibrate?.(kind === 'selection' ? 5 : 12); // rt.js `Hosts.haptic`'s
+      navigator.vibrate?.(kind === 'selection' ? 5 : 12); // rt.js `Hosts.haptic`'s (LLP 1077 D14)
     }, Math.max(0, origin() + at - now())));
   }
   function unhaptic({ id }) { clearTimeout(haptics.get(id)); haptics.delete(id); }
   load(files);
   return {
-    /** The runner's ops, in order: `play`, `end`, and a sequence's `haptic` and `unhaptic`. */
-    ops(list) { for (const op of list) ({ play, end, haptic, unhaptic })[op.op]?.(op); },
+    /** The runner's ops, in order: `play`, `set`, `end`, and a sequence's `haptic` and `unhaptic`. */
+    ops(list) { for (const op of list) ({ play, set, end, haptic, unhaptic })[op.op]?.(op); },
     /** A new boot's files: every voice of the last one ends now. */
     reset(list) {
       for (const v of voices.values()) { clearTimeout(v.timer); try { v.node?.stop(); } catch {} }
@@ -163,7 +202,7 @@ function installSound({ files, log, origin, root = document.getElementById('exac
     },
     /** The files this output decodes (a host compares a boot's against them). */
     get files() { return sources; },
-    /** `state.sounds.output` outside the agent. */
+    /** `state.sounds.output` outside the agent (D10). */
     state: () => ({ kind: 'web-audio', state: ctx.state, decoded: `${decoded}/${sources.length}`, voices: voices.size, ...counts }),
     context: ctx,
   };

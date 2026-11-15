@@ -81,7 +81,7 @@ component App
     match booted {
         Err(RunnerError::Shape { resource, why }) => {
             assert_eq!(resource, "session");
-            // The refusal names the field.
+            // The refusal names the field (LLP 1101.002 §0 P9).
             assert!(
                 why.starts_with("Wrong.model: a Number was declared"),
                 "{why}"

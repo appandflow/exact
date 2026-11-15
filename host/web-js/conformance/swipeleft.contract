@@ -1,0 +1,15 @@
+// Synthetic conformance plan: `swipeleft`, `swiperight`'s mirror (Charlie,
+// 2026-11-10). One row swipes left only, one both ways: each action runs once
+// when the finger lifts past the 64-point knee its way, and not short of it
+// or the other way on a node without that handler.
+component SwipeLeft
+  state said = ""
+  action say(way: string)
+    said = `${said}${way}`
+  view
+    column gap=12 padding=12
+      text said testId="said"
+      box testId="left-row" swipeleft=say("L") touch-action="pan-y" width=300 height=60 background-color="#dddddd" transition="translate -exact-spring(300, 30, 1)"
+        text "left only"
+      box testId="both-row" swipeleft=say("l") swiperight=say("r") touch-action="pan-y" width=300 height=60 background-color="#cccccc" transition="translate -exact-spring(300, 30, 1)"
+        text "both ways"

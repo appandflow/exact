@@ -1,4 +1,4 @@
-//! The shipped packages, built from
+//! @ref LLP 1139 D1, D3 (stage 12 E) — the shipped packages, built from
 //! their sources in this repository: an app that sets @exact/actions'
 //! PostButton's `fill`, `dim` and `pressed` sees each on its look, since a
 //! `:disabled` row beats the node's own base row and `:active` is the host's.
@@ -51,7 +51,7 @@ fn app_with(name: &str, packages: &[&str], design: &str, contract: &str) -> (Dir
             &dir.0.join("app/node_modules/@exact").join(package),
         );
     }
-    std::fs::write(dir.0.join("app/app.tamber"), design).unwrap();
+    std::fs::write(dir.0.join("app/app.forma"), design).unwrap();
     let app = dir.0.join("app/app.contract");
     std::fs::write(&app, contract).unwrap();
     (dir, app)
@@ -90,7 +90,7 @@ fn an_apps_post_button_fill_dim_and_pressed_reach_its_three_looks() {
     let (_dir, app) = app_with(
         "set",
         &["actions"],
-        &format!("tamber app\n\nparams\n  {POST_BUTTON}.fill = #ff0000  scheme=fixed\n  {POST_BUTTON}.dim = #00ff00  scheme=fixed\n  {POST_BUTTON}.pressed = #0000ff  scheme=fixed\n"),
+        &format!("forma app\n\nparams\n  {POST_BUTTON}.fill = #ff0000  scheme=fixed\n  {POST_BUTTON}.dim = #00ff00  scheme=fixed\n  {POST_BUTTON}.pressed = #0000ff  scheme=fixed\n"),
         BUTTONS,
     );
     // The press paint is the host's: the `:active` row names the param's
@@ -125,15 +125,15 @@ fn an_apps_post_button_fill_dim_and_pressed_reach_its_three_looks() {
 
 const ROWS: &str = "use ListRow from \"@exact/lists\"\n\ncomponent App\n  action press\n  view\n    column\n      list appearance=\"auto\" listStyle=\"inset-grouped\" flex=1\n        section\n          ListRow(id=\"plain\", symbol=\"settings\", title=\"Settings\", value=\"\", accessory=\"chevron\", selected=false, destructive=false, press=press)\n          ListRow(id=\"red\", symbol=\"delete\", title=\"Delete\", value=\"\", accessory=\"chevron\", selected=false, destructive=true, press=press)\n";
 
-/// @exact/lists' ListRow: its symbol takes the tint param,
+/// @exact/lists' ListRow (stage 13 C): its symbol takes the tint param,
 /// but a destructive row's symbol is the row's red, as its title is.
 #[test]
 fn a_list_rows_symbol_takes_its_tint_but_a_destructive_rows_is_its_red() {
-    let (_dir, app) = app_with("lists", &["lists"], "tamber app\n", ROWS);
+    let (_dir, app) = app_with("lists", &["lists"], "forma app\n", ROWS);
     let r = boot(&app);
     let k = r.kernel();
     let node = |test_id: &str| k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap();
-    // A symbol is drawn in its `color`: the param's on a
+    // A symbol is drawn in its `color` (LLP 1081 stage 2): the param's on a
     // plain row, the row's red, inherited, on a destructive one.
     let symbol_tint = |row: &str| k.node(node(row).children()[0]).unwrap().text_color();
     let ink = |row: &str| k.node(node(row).children()[1]).unwrap().text_color();

@@ -1,13 +1,15 @@
-// Native DOM edits, controlled source and shared undo.
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// @ref LLP 1045 D1/D5/D6 — native DOM edits, controlled source and shared undo.
 import { afterAll, test, expect } from 'bun:test';
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium as installed, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { buildEditor } from '../../web-js/module.mjs';
 import { browserMissing } from '../../../scripts/agent-playwright.mjs';
-import { need } from '../../../scripts/coverage.mjs';
+import { need, notApplicable } from '../../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const chrome = installed();
 const engines = ['chromium', 'firefox', 'webkit'];
 const missing = Object.fromEntries(await Promise.all(engines.map(async e => [e, await browserMissing(e)])));
@@ -18,14 +20,14 @@ const wasm = engines.some(e => !missing[e]) ? readFileSync(await buildEditor()) 
 async function editor(engine, source, drive, runtime = false, attrs = '') {
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
     const path = new URL(request.url).pathname;
-    if (['/markup-editor.js', '/navigation.js', '/atoms.js', '/geometry-glue.js'].includes(path)) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
+    if (['/markup-editor.js', '/navigation.js', '/atoms.js', '/geometry-glue.js'].includes(path)) return new Response(readFileSync(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/markup-editor.wasm') return new Response(wasm, { headers: { 'content-type': 'application/wasm' } });
     if (path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } }); // no data sources in this fixture
     if (runtime && path.endsWith('.js')) {
       // The JS target's modules over the host's glue; a module that
       // re-exports the host's own reaches it through `../web/`.
       const js = path.startsWith('/web/') ? resolve(WEB, path.slice(5)) : resolve(WEB, '../web-js', path.slice(1));
-      return new Response(Bun.file(existsSync(js) ? js : resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
+      return new Response(readFileSync(existsSync(js) ? js : resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     }
     return new Response(`<!doctype html><meta charset="utf-8"><textarea id="editor" markup="markdown" ${attrs} style="width:500px;height:240px"></textarea><pre id="echo"></pre>
       <script type="module">
@@ -37,8 +39,8 @@ async function editor(engine, source, drive, runtime = false, attrs = '') {
         const record = (type, value, start, end, direction, inputType, data, cancelable, composing) => events.push({ type, value, start, end, direction, inputType, data, cancelable, composing });
         if (${runtime}) {
           const { mde, on, onKey, onBeforeInput, onSelectionChange, onValue, Hosts } = await import('./rt.js');
-          const { commands } = await import('./commands.js');
-          window.command = (name, args) => commands(s => logs.push(s))[name](...args);
+          const commands = await import('./commands.js');
+          window.command = (name, args) => commands[name](s => logs.push(s))(...args);
           on(field, 'beforeinput', r => { record('beforeinput', r[0], ...r.slice(2)); if (prevent(r)) Hosts.preventDefault(); }, onBeforeInput);
           on(field, 'selectionchange', r => record('selectionchange', r[0], ...r.slice(2)), onSelectionChange);
           on(field, 'input', (v, r) => record('input', v, ...r.slice(2)), onValue);
@@ -97,7 +99,308 @@ function browser(engine) {
 }
 afterAll(async () => { for (const b of launched.values()) await (await b.catch(() => null))?.close(); }, 60000);
 
+async function dragSelection(page, field, from, to, destination, copy = false, changed = true) {
+  await field.focus();
+  const points = await field.evaluate((el, [from, to, destination]) => {
+    el.setSelectionRange(from, to);
+    const start = el.exactMarkup.rangeFrame(from, to);
+    const end = typeof destination === 'number' ? el.exactMarkup.rangeFrame(destination, destination) : null;
+    return { from: { x: start.x + start.width / 2, y: start.y + start.height / 2 },
+      to: end ? { x: end.x, y: end.y + end.height / 2 } : destination };
+  }, [from, to, destination]);
+  await settle(page);
+  await field.evaluate((el, changed) => {
+    // A changed drop can detach the source, so finish at its input.
+    // A cancelled drop keeps the source and finishes without an input.
+    window.dragDone = new Promise(ok => el.addEventListener(changed ? 'input' : 'dragend', ok, { once: true }));
+  }, changed);
+  const cdp = page.context().browser().browserType().name() === 'chromium' ? await page.context().newCDPSession(page) : null;
+  if (copy) await page.keyboard.down('Alt');
+  try {
+    await page.mouse.move(points.from.x, points.from.y);
+    if (cdp) {
+      await cdp.send('Input.setInterceptDrags', { enabled: true });
+      const dragged = new Promise(ok => cdp.once('Input.dragIntercepted', ok));
+      const timestamp = Date.now() / 1000, modifiers = copy ? 1 : 0;
+      // Chromium's macOS text-drag threshold is time since the press.
+      // Encode the held press in native timestamps, without sleeping.
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...points.from,
+        button: 'left', buttons: 1, clickCount: 1, modifiers, timestamp: timestamp - 0.25 });
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: points.from.x + 8, y: points.from.y + 8,
+        button: 'left', buttons: 1, modifiers, timestamp });
+      const { data } = await dragged;
+      for (const type of ['dragEnter', 'dragOver', 'drop']) {
+        await cdp.send('Input.dispatchDragEvent', { type, ...points.to, data, modifiers });
+      }
+    } else {
+      await page.mouse.down();
+      await page.mouse.move(points.from.x + 8, points.from.y + 8);
+      await page.mouse.move(points.to.x, points.to.y, { steps: 12 });
+      await page.mouse.up();
+    }
+    await page.evaluate(() => window.dragDone.then(() => {}));
+  } finally {
+    if (copy) await page.keyboard.up('Alt');
+    if (cdp) { await cdp.send('Input.setInterceptDrags', { enabled: false }); await cdp.detach(); }
+  }
+}
+
+// WebKit's macOS text-drag delay cannot be advanced by its pinned protocol:
+// Input.dispatchMouseEvent has no timestamp. Exercise its source-range drop
+// inputs explicitly; Chromium and Firefox below exercise native gestures.
+async function dropSelection(page, field, from, to, destination) {
+  await field.focus();
+  const pending = await field.evaluate((el, [from, to, destination]) => {
+    el.setSelectionRange(from, to);
+    const range = getSelection().getRangeAt(0), source = range.startContainer;
+    const target = new StaticRange({ startContainer: source, startOffset: range.startOffset,
+      endContainer: range.endContainer, endOffset: range.endOffset });
+    const end = el.exactMarkup.rangeFrame(destination, destination), text = el.value.slice(from, to);
+    el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true,
+      clientX: end.x, clientY: end.y + end.height / 2 }));
+    el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'deleteByDrag',
+      bubbles: true, cancelable: true, targetRanges: [target] }));
+    const pending = [el.value, source.isConnected];
+    // WebKit retains the source selection as the insertion range after a
+    // cancelled native deletion. The drop coordinates supply the caret.
+    el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertFromDrop', data: text,
+      bubbles: true, cancelable: true, targetRanges: [target] }));
+    return pending;
+  }, [from, to, destination]);
+  expect(pending[1]).toBe(true);
+  return pending[0];
+}
+
+for (const engine of engines) engineTest[engine](`${engine}: ${engine === 'webkit' ? 'Markdown drop inputs' : 'native Markdown drags'} move text in one undo step`, async () => {
+  for (const [source, word, at, expected, wrap] of [
+    ['alpha beta gamma delta', 'beta', 22, 'alpha  gamma deltabeta'],
+    ['alpha beta gamma delta', 'beta', 0, 'betaalpha  gamma delta'],
+    ['alpha **beta** gamma delta', 'beta', 26, 'alpha  gamma deltabeta'],
+    ['- alpha beta gamma delta', 'beta', 24, '- alpha  gamma deltabeta'],
+    ['alpha beta gamma delta', 'beta', 22, 'alpha  gamma deltabeta', true],
+    ['alpha beta gamma\ndelta', 'beta', 22, 'alpha  gamma\ndeltabeta'],
+    ['alpha beta😀 gamma delta', 'beta😀', 24, 'alpha  gamma deltabeta😀'],
+  ]) {
+    await editor(engine, source, async (page, field) => {
+      if (wrap) await field.evaluate(el => { el.style.width = '260px'; el.style.font = '20px monospace'; });
+      const from = source.indexOf(word);
+      if (engine === 'webkit') expect(await dropSelection(page, field, from, from + word.length, at)).toBe(source);
+      else await dragSelection(page, field, from, from + word.length, at);
+      expect(await field.evaluate(el => el.value)).toBe(expected);
+      const events = await heard(page);
+      expect(events.filter(e => e.type === 'beforeinput').map(e => e.inputType)).toEqual(['deleteByDrag', 'insertFromDrop']);
+      expect(events.filter(e => e.type === 'input').map(e => e.value)).toEqual([expected]);
+      await page.keyboard.press('ControlOrMeta+Z');
+      expect(await field.evaluate(el => el.value)).toBe(source);
+      await page.keyboard.press('ControlOrMeta+Shift+Z');
+      expect(await field.evaluate(el => el.value)).toBe(expected);
+    });
+  }
+}, 60000);
+
+engineTest.chromium('chromium: a Markdown drag can copy, leave the editor or be cancelled', async () => {
+  const source = 'alpha beta gamma delta';
+  for (const operation of ['copy', 'outside', 'cancel-drop', 'cancel-delete', 'cancel-insert']) {
+    await editor('chromium', source, async (page, field) => {
+      let destination = source.length;
+      if (operation === 'outside') {
+        destination = await field.evaluate(el => {
+          const other = document.createElement('textarea');
+          other.id = 'other'; el.after(other);
+          const box = other.getBoundingClientRect();
+          return { x: box.x + 5, y: box.y + 5 };
+        });
+      } else if (operation.startsWith('cancel-')) {
+        await field.evaluate((el, operation) => {
+          if (operation === 'cancel-drop') el.addEventListener('drop', e => e.preventDefault());
+          else window.prevent = e => e.inputType === (operation === 'cancel-delete' ? 'deleteByDrag' : 'insertFromDrop');
+        }, operation);
+      }
+      await dragSelection(page, field, 6, 10, destination, operation === 'copy', operation !== 'cancel-drop');
+      const expected = ['copy', 'cancel-delete'].includes(operation) ? source + 'beta'
+        : operation === 'cancel-drop' ? source : 'alpha  gamma delta';
+      expect(await field.evaluate(el => el.value)).toBe(expected);
+      if (operation === 'outside') expect(await page.locator('#other').inputValue()).toBe('beta');
+      if (operation === 'copy') expect((await heard(page)).filter(e => e.type === 'beforeinput').map(e => e.inputType)).toEqual(['insertFromDrop']);
+      if (operation !== 'cancel-drop') {
+        await field.focus();
+        await page.keyboard.press('ControlOrMeta+Z');
+        expect(await field.evaluate(el => el.value)).toBe(source);
+      }
+    });
+  }
+}, 60000);
+
 for (const engine of engines) {
+  engineTest[engine](`${engine}: a drag deletion settles without a drop and retires with its source`, async () => {
+    await editor(engine, 'alpha beta gamma delta', async (page, field) => {
+      await field.focus();
+      expect(await field.evaluate(async el => {
+        el.setSelectionRange(6, 10);
+        const done = new Promise(ok => el.addEventListener('input', ok, { once: true }));
+        el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'deleteByDrag', bubbles: true, cancelable: true }));
+        const pending = el.value;
+        await done;
+        return [pending, el.value];
+      })).toEqual(['alpha beta gamma delta', 'alpha  gamma delta']);
+      await page.keyboard.press('ControlOrMeta+Z');
+      expect(await field.evaluate(el => el.value)).toBe('alpha beta gamma delta');
+      for (const retire of ['replace', 'destroy']) {
+        expect(await field.evaluate(async (el, retire) => {
+          el.setSelectionRange(6, 10);
+          el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'deleteByDrag', bubbles: true, cancelable: true }));
+          if (retire === 'replace') el.value = 'a new source';
+          else el.exactMarkup.destroy();
+          // Run after the deletion's queued task, including when it was cleared.
+          await new Promise(ok => setTimeout(ok, 0));
+          return el.value;
+        }, retire)).toBe('a new source');
+      }
+    });
+  }, 60000);
+
+  engineTest[engine](`${engine}: Markdown emphasis continues across spaces until toggled or moved`, async () => {
+    for (const [format, marker] of [['bold', '**'], ['italic', '*'], ['strike', '~~']]) {
+      await editor(engine, '', async (page, field) => {
+        await field.focus();
+        if (format === 'bold') await page.keyboard.press('ControlOrMeta+B');
+        else await field.evaluate((el, format) => el.exactMarkup.format(format), format);
+        await page.keyboard.type('hello ');
+        expect(await field.evaluate(el => el.value)).toBe(`${marker}hello${marker} `);
+        await settle(page);
+        await page.keyboard.type('world');
+        expect(await field.evaluate(el => el.value)).toBe(`${marker}hello world${marker}`);
+        await page.keyboard.type(' ');
+        await field.evaluate((el, format) => el.exactMarkup.format(format), format);
+        await page.keyboard.type('plain');
+        expect(await field.evaluate(el => el.value)).toBe(`${marker}hello world${marker} plain`);
+        await page.keyboard.press('ControlOrMeta+Z');
+        expect(await field.evaluate(el => el.value)).toBe('');
+        await page.keyboard.press('ControlOrMeta+Shift+Z');
+        expect(await field.evaluate(el => el.value)).toBe(`${marker}hello world${marker} plain`);
+      });
+    }
+    await editor(engine, '**hello**', async (page, field) => {
+      await field.focus();
+      await field.evaluate(el => el.setSelectionRange(7, 7));
+      await page.keyboard.type(' world ');
+      expect(await field.evaluate(el => el.value)).toBe('**hello world** ');
+      await page.keyboard.press('ArrowLeft');
+      await settle(page);
+      await page.keyboard.press('ArrowRight');
+      await settle(page);
+      await page.keyboard.type('plain');
+      expect(await field.evaluate(el => el.value)).toBe('**hello world** plain');
+    });
+  }, 60000);
+
+  engineTest[engine](`${engine}: formatting whole Markdown lines keeps their block markers`, async () => {
+    const source = '# Title\n\n- one\n- [ ] task\n> quote';
+    await editor(engine, source, async (page, field) => {
+      await field.focus();
+      await field.evaluate(el => getSelection().selectAllChildren(el));
+      await page.keyboard.press('ControlOrMeta+B');
+      expect(await field.evaluate(el => el.value)).toBe('# **Title**\n\n- **one**\n- [ ] **task**\n> **quote**');
+      await page.keyboard.press('ControlOrMeta+Z');
+      expect(await field.evaluate(el => el.value)).toBe(source);
+    });
+  }, 60000);
+
+  engineTest[engine](`${engine}: emptying inline Markdown leaves no rule or code fence`, async () => {
+    await editor(engine, '', async (page, field) => {
+      await field.focus();
+      await page.keyboard.press('ControlOrMeta+B');
+      await page.keyboard.type('hi');
+      expect(await field.evaluate(el => el.value)).toBe('**hi**');
+      await page.keyboard.press('Backspace');
+      await page.keyboard.press('Backspace');
+      expect(await field.evaluate(el => [el.value, el.selectionStart, el.selectionEnd])).toEqual(['', 0, 0]);
+      expect(await field.locator('.md-rule, .md-code').count()).toBe(0);
+      await page.keyboard.type('x');
+      expect(await field.evaluate(el => el.value)).toBe('x');
+    });
+    for (const [source, expected] of [
+      ['intro\n\n~~x~~\n\nnext paragraph', 'intro\n\n\n\nnext paragraph'],
+      ['~~**_`x`_**~~\n\n**later**', '\n\n**later**'],
+      ['**~~_`x`_~~**\n\n**later**', '\n\n**later**'],
+      ['~~x~~ **later**', ' **later**'],
+      ['~~x~~ [later](https://example.com)', ' [later](https://example.com)'],
+      ['   ~~x~~ ~~later~~', '    ~~later~~'],
+      ['``x`` **later**', ' **later**'],
+      ['~~**_`x`_**~~ [later](https://example.com)', ' [later](https://example.com)'],
+      ['~~x~~**later**', '**later**'],
+      ['**x**~~later~~', '~~later~~'],
+      ['> x\n> keep', '\n> keep'],
+      ['> **x**\n> keep', '\n> keep'],
+      ['`x`\n``\nnext', '\n``\nnext'],
+      ['**`x`**\n``\nnext', '\n``\nnext'],
+    ]) {
+      await editor(engine, source, async (page, field) => {
+        await field.focus();
+        await field.evaluate(el => {
+          const at = el.value.indexOf('x') + 1;
+          el.setSelectionRange(at, at);
+        });
+        await page.keyboard.press('Backspace');
+        expect(await field.evaluate(el => el.value)).toBe(expected);
+        expect(await field.locator('.md-rule, .md-code').count()).toBe(0);
+        await page.keyboard.press('ControlOrMeta+Z');
+        expect(await field.evaluate(el => el.value)).toBe(source);
+      });
+    }
+  }, 60000);
+
+  engineTest[engine](`${engine}: Return in formatted Markdown keeps links and a Unicode caret`, async () => {
+    for (const [source, start, end, expected, position] of [
+      ['- [docs](https://example.com) here', 3, 3, '- \n- [docs](https://example.com) here', 5],
+      ['- **Note:** details', 4, 4, '- \n- **Note:** details', 5],
+      ['- **bold**', 6, 6, '- **bo**\n- **ld**', 13],
+      ['- **a😀b**', 5, 5, '- **a**\n- **😀b**', 12],
+      ['# [link](https://example.com) title', 5, 5, '# [li](https://example.com)\n[nk](https://example.com) title', 29],
+      ['- [docs](https://example.com)', 5, 7, '- [do](https://example.com)\n- ', 30],
+      ['- <https://example.com>', 14, 14, '- [https\\://exa](https://example.com)\n- [mple.com](https://example.com)', 41],
+    ]) {
+      await editor(engine, source, async (page, field) => {
+        await field.focus();
+        await field.evaluate((el, range) => el.setSelectionRange(...range), [start, end]);
+        await page.keyboard.press('Enter');
+        expect(await field.evaluate(el => [el.value, el.selectionStart, el.selectionEnd])).toEqual([expected, position, position]);
+        await page.keyboard.press('ControlOrMeta+Z');
+        expect(await field.evaluate(el => el.value)).toBe(source);
+        await page.keyboard.press('ControlOrMeta+Shift+Z');
+        expect(await field.evaluate(el => el.value)).toBe(expected);
+        await page.keyboard.type('X');
+        expect(await field.evaluate(el => el.value)).toBe(expected.slice(0, position) + 'X' + expected.slice(position));
+        await page.keyboard.press('ControlOrMeta+Z');
+        expect(await field.evaluate(el => el.value)).toBe(expected);
+      });
+    }
+  }, 60000);
+
+  engineTest[engine](`${engine}: Return and Backspace preserve nested Markdown and link targets`, async () => {
+    for (const [source, position, split, backspaced] of [
+      ['- **bold**', 6, '- **bo**\n- **ld**', '- **bo**\n**ld**'],
+      ['- [docs](u)', 5, '- [do](u)\n- [cs](u)', '- [do](u)\n[cs](u)'],
+      ['- **`a b`**', 6, '- **`a`**\n- **` b`**', '- **`a`**\n**` b`**'],
+      ['- **`a b`**', 7, '- **`a `**\n- **`b`**', '- **`a `**\n**`b`**'],
+      ['- **a😀b**', 5, '- **a**\n- **😀b**', '- **a**\n**😀b**'],
+      ['> - [x] **bold**', 12, '> - [x] **bo**\n> - [ ] **ld**', '> - [x] **bo**\n**ld**'],
+    ]) {
+      await editor(engine, source, async (page, field) => {
+        await field.focus();
+        await field.evaluate((el, p) => el.setSelectionRange(p, p), position);
+        await page.keyboard.press('Enter');
+        expect(await field.evaluate(el => el.value)).toBe(split);
+        await page.keyboard.press('Backspace');
+        expect(await field.evaluate(el => el.value)).toBe(backspaced);
+        await page.keyboard.press('ControlOrMeta+Z');
+        expect(await field.evaluate(el => el.value)).toBe(split);
+        await page.keyboard.press('ControlOrMeta+Shift+Z');
+        expect(await field.evaluate(el => el.value)).toBe(backspaced);
+      });
+    }
+  }, 60000);
+
   engineTest[engine](`${engine}: JS runtime forwards Markdown key cancellation in both directions`, async () => {
     await editor(engine, 'hello', async (page, field) => {
       await field.focus();
@@ -244,6 +547,35 @@ for (const engine of engines) {
     });
   }, 60000);
 
+  engineTest[engine](`${engine}: composition continues emphasis after trailing whitespace`, async () => {
+    for (const word of ['日本', 'é']) await editor(engine, '**hello**', async (page, field) => {
+      await field.focus();
+      await field.evaluate(el => el.setSelectionRange(7, 7));
+      await page.keyboard.type(' ');
+      await field.evaluate(el => {
+        el.dispatchEvent(new CompositionEvent('compositionstart'));
+        el.dispatchEvent(new CompositionEvent('compositionend'));
+      });
+      await settle(page);
+      expect(await field.evaluate(el => el.value)).toBe('**hello** ');
+      await field.evaluate((el, word) => {
+        el.dispatchEvent(new CompositionEvent('compositionstart'));
+        document.execCommand('insertText', false, word);
+      }, word);
+      expect(await field.evaluate(el => el.value)).toBe(`**hello** ${word}`);
+      await field.evaluate((el, word) => el.dispatchEvent(new CompositionEvent('compositionend', { data: word })), word);
+      await settle(page);
+      expect(await field.evaluate(el => el.value)).toBe(`**hello ${word}**`);
+      expect(await page.locator('#echo').textContent()).toBe(`**hello ${word}**`);
+      await page.keyboard.type(' next');
+      expect(await field.evaluate(el => el.value)).toBe(`**hello ${word} next**`);
+      await page.keyboard.press('ControlOrMeta+Z');
+      expect(await field.evaluate(el => el.value)).toBe('**hello**');
+      await page.keyboard.press('ControlOrMeta+Shift+Z');
+      expect(await field.evaluate(el => el.value)).toBe(`**hello ${word} next**`);
+    });
+  }, 60000);
+
   engineTest[engine](`${engine}: composition replaces selected hidden fences and preserves cancelled compositions`, async () => {
     const source = '# Heading\n\n[link](https://example.com)\n\n```js\ncode\n```';
     await editor(engine, source, async (page, field) => {
@@ -276,7 +608,7 @@ const heard = page => page.evaluate(() => events.splice(0));
 const only = (list, type) => list.filter(e => e.type === type).map(({ value, start, end, direction, inputType, data, cancelable, composing }) => [value, start, end, direction, inputType, data, cancelable, composing]);
 
 for (const engine of engines) for (const runtime of [false, true]) {
-  // The app's base direction for each line, as HTML's `dir`.
+  // @ref LLP 1045 D11 — the app's base direction for each line, as HTML's `dir`.
   engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: each line takes its paragraphDirs word, in place`, async () => {
     await editor(engine, 'One\nاثنان ثلاثة\n- [ ] أربعة\n', async (page, field) => {
       // The app's words: the runtime writes the textarea it replaced and forwards them; the glue syncs the editor.
@@ -491,13 +823,46 @@ for (const engine of engines) for (const runtime of [false, true]) {
       await command('setRangeText', 'editor', 'x', 3, 1);
       expect(await page.evaluate(() => logs.splice(0))).toEqual(['setRangeText "editor" refused: start exceeds end']);
       expect((await state())[0]).toBe('hello!');
-      // A caret the app puts in hidden syntax is drawn, and reads back, at its visible edge.
+      // A caret the app puts in hidden syntax is drawn, and reads back, at its visible edge (LLP 1045 D6).
       await command('setRangeText', 'editor', 'a **b** c', 0, 99, 'end');
       await command('setSelectionRange', 'editor', 3, 3);
       expect([2, 4]).toContain((await state())[1]);
     }, runtime);
   }, 60000);
 }
+
+// The editor's element copies the textarea's attributes, `autofocus` included: it is the same field, offered once.
+engineTest.chromium('chromium: a Markdown field keeps its autofocus offer when the editor replaces it', async () => {
+  await editor('chromium', '', async page => {
+    await page.evaluate(async () => {
+      const rt = await import('./rt.js');
+      const root = rt.h(document.body, 'div', 0, { id: 'exact-root' }, 0);
+      rt.mount(() => {
+        for (const name of ['pending', 'offered']) {
+          const box = rt.h(root, 'div', 0, { id: name + '-box' }, 0);
+          box.hidden = name !== 'offered';
+          rt.mde(rt.h(box, 'textarea', 0, { id: name, markup: 'markdown', autofocus: 'true' }, 0));
+        }
+      });
+    });
+    await page.waitForFunction(() => ['pending', 'offered'].every(id => document.getElementById(id)?.exactMarkup));
+    const result = await page.evaluate(async () => {
+      const rt = await import('./rt.js');
+      const offered = document.getElementById('offered'), pending = document.getElementById('pending');
+      const initial = document.activeElement === offered;
+      offered.blur();
+      rt.commit(() => {});
+      const once = document.activeElement === document.body;
+      document.getElementById('pending-box').hidden = false;
+      rt.commit(() => {});
+      const revealed = document.activeElement === pending;
+      pending.blur();
+      rt.commit(() => {});
+      return { initial, once, revealed, done: document.activeElement === document.body };
+    });
+    expect(result).toEqual({ initial: true, once: true, revealed: true, done: true });
+  }, true);
+});
 
 // Chrome's input method, through CDP: a composition's events carry the DOM's
 // text and selection in source offsets, hidden syntax counted.
@@ -525,6 +890,26 @@ engineTest.chromium('chromium: a composition reports source offsets as it compos
   }, runtime);
 }, 60000);
 
+engineTest.chromium('chromium: native IME continues emphasis after a space', async () => {
+  await editor('chromium', '**hello**', async (page, field) => {
+    const cdp = await page.context().newCDPSession(page);
+    await field.focus();
+    await field.evaluate(el => el.setSelectionRange(7, 7));
+    await page.keyboard.type(' ');
+    await cdp.send('Input.imeSetComposition', { text: 'に', selectionStart: 1, selectionEnd: 1 });
+    expect(await field.evaluate(el => el.value)).toBe('**hello** に');
+    await cdp.send('Input.imeSetComposition', { text: 'にほ', selectionStart: 2, selectionEnd: 2 });
+    expect(await field.evaluate(el => el.value)).toBe('**hello** にほ');
+    await cdp.send('Input.insertText', { text: '日本' });
+    await settle(page);
+    expect(await field.evaluate(el => [el.value, el.selectionStart, el.selectionEnd])).toEqual(['**hello 日本**', 10, 10]);
+    await page.keyboard.type(' next');
+    expect(await field.evaluate(el => el.value)).toBe('**hello 日本 next**');
+    await page.keyboard.press('ControlOrMeta+Z');
+    expect(await field.evaluate(el => el.value)).toBe('**hello**');
+  });
+}, 60000);
+
 engineTest.chromium('chromium: Markdown editing escapes an inert ancestor at an open modal', async () => {
   await editor('chromium', 'hello', async (page, field) => {
     await field.evaluate(el => {
@@ -546,4 +931,58 @@ engineTest.chromium('chromium: Markdown editing escapes an inert ancestor at an 
       }, target)).toEqual([false, 'hello']);
     }
   }, true);
+}, 60000);
+
+// A file saved as "UTF-8 with BOM" and decoded with `String::from_utf8` keeps
+// U+FEFF; every offset the editor reports counts it.
+engineTest.chromium('chromium: a Markdown source that starts with a byte order mark draws and edits as written', async () => {
+  const source = '\ufeff# Title\nfirst line\nsecond line';
+  await editor('chromium', source, async (page, field) => {
+    expect(await field.evaluate(el => el.value)).toBe(source);
+    expect(await field.locator('.md-line').allTextContents()).toEqual(['\ufeff# Title', 'first line', 'second line']);
+    await field.focus();
+    await field.evaluate((el, end) => el.setSelectionRange(end, end), source.length);
+    await settle(page);
+    await page.keyboard.insertText('!');
+    expect(await field.evaluate(el => el.value)).toBe(source + '!');
+    expect(only(await heard(page), 'input').map(e => e[0])).toEqual([source + '!']);
+  });
+}, 60000);
+
+// On a Mac the editor's chords are ⌘'s, and Control with a letter is the text
+// system's binding, as in a plain field: Playwright sends each with the AppKit
+// command Chrome attaches for a real keyboard (⌃A moveToBeginningOfParagraph:,
+// ⌃B moveBackward:, ⌃K deleteToEndOfParagraph:, ⌃Y yank:).
+const onAMac = process.platform === 'darwin' ? engineTest.chromium : notApplicable('Control is the command key off a Mac');
+onAMac('chromium: on a Mac, Control chords in a Markdown editor are the text bindings', async () => {
+  const source = 'alpha beta gamma\nsecond line here';
+  await editor('chromium', source, async (page, field) => {
+    // The editor reads a moved caret at `selectionchange`, after the key.
+    const state = async () => { await settle(page); return field.evaluate(el => [el.value, el.selectionStart, el.selectionEnd]); };
+    const at = async (from, to = from) => { await field.evaluate((el, [from, to]) => el.setSelectionRange(from, to), [from, to]); await settle(page); };
+    await field.focus();
+    await at(16);
+    await page.keyboard.press('Control+A');
+    expect(await state()).toEqual([source, 0, 0]);
+    await at(6, 10);
+    await page.keyboard.press('Control+B');
+    expect((await state())[0]).toBe(source);
+    await at(6, 10);
+    await page.keyboard.press('Control+I');
+    expect((await state())[0]).toBe(source);
+    await at(5);
+    await page.keyboard.press('Control+K');
+    expect(await state()).toEqual(['alpha\nsecond line here', 5, 5]);
+    await at(0);
+    await page.keyboard.press('Control+Y');
+    expect(await state()).toEqual([' beta gammaalpha\nsecond line here', 11, 11]);
+    await page.keyboard.press('Control+K');
+    await page.keyboard.press('Control+K');
+    expect(await state()).toEqual([' beta gammasecond line here', 11, 11]);
+    await page.keyboard.press('Control+Z');
+    expect((await state())[0]).toBe(' beta gammasecond line here');
+    await at(1, 5);
+    await page.keyboard.press('Meta+B');
+    expect((await state())[0]).toBe(' **beta** gammasecond line here');
+  });
 }, 60000);

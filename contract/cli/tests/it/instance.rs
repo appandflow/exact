@@ -1,5 +1,5 @@
-//! Per-instance state, proven on the runner — a row's state follows its key, a
-//! use's own state is its own, and neither leaks.
+//! LLP 1017 P4c: per-instance state, proven on the runner — a row's state
+//! follows its key, a use's own state is its own, and neither leaks.
 
 use exact_kernel::{Kernel, PropValue};
 use exact_plan::builder::PlanBuilder;
@@ -60,7 +60,7 @@ fn derived_row_state_in_action_props_uses_resolved_types_and_child_spans() {
         source.clone(),
         source
             .replace("Screen(entry=e, data=data, save=save)", "Screen(entry=e)")
-            // Bare names provide the values of those names.
+            // Bare names provide the values of those names (LLP 1035.005.000 D9).
             .replace(
                 "  view\n    main",
                 "  provide\n    data\n    save\n  view\n    main",
@@ -103,9 +103,9 @@ fn derived_row_state_in_action_props_uses_resolved_types_and_child_spans() {
         + 1;
     assert_eq!(error.id, "type-condition");
     assert_eq!(error.span.line as usize, line);
-    // A derive starts the type fixpoint as `?`, so a ternary over one could be
-    // refused outright while the same expression written inline compiles. Naming the
-    // type in the message defers the round, the way a binary operand does.
+    // A derive starts the type fixpoint as `?`, so a ternary over one used to be
+    // refused outright while the same expression written inline compiled. Naming the
+    // type in the message defers the round, the way a binary operand already did.
     let ternary_over_derive = r#"component T
   state count = 0
   derive ready = count > 0
@@ -197,8 +197,35 @@ fn a_child_may_not_own_a_resource() {
     let src = "shape S\n  id: string\ncomponent A\n  view\n    Row()\ncomponent Row\n  resource s = s() as shape S\n  view\n    text s.id\n";
     let e = contract::compile(src).unwrap_err();
     assert_eq!(e.id, "type-child-resource");
-    // It states the rule and names the root (chess #3).
-    assert_eq!(e.message, "only the root, the root file's first component (`A`), may declare a `resource`, `mutation`, or `task`; `Row` is a child, which may own state, derives, and actions. Move this declaration into `A` and pass what `Row` needs as props; or, if `Row` is the app, move it above `A`");
+    // It states the rule and names the root (chess #3), then the repairs a
+    // feature needs: prefixed names in the root, and a gate on what shows it.
+    assert_eq!(e.message, "only the root, the root file's first component (`A`), may declare a `resource`, `mutation`, or `task`; `Row` is a child, which may own state, derives, and actions. Declare `Row`'s resources, mutations and tasks in `A`, named with the feature's prefix (`rowS`); a `members A` block in a file of their own, which `A` lists with `members \"./row.contract\"`, keeps them together. Pass `Row` their values and the actions that send them as props (docs/contract-for-agents.md, \"A feature's requests\"). Gate a resource that only one tab or screen reads on that tab or screen showing, and it asks nothing while hidden: `resource rowS = s(…) when nav.tab == \"…\"`. Or, if `Row` is the app, move it above `A`");
+    // The repair it names compiles.
+    let fixed = "routes nav\n  tab home \"/\"\n  tab rows \"/rows\"\nshape S\n  id: string\ncomponent A\n  resource rowS = s() when nav.tab == \"rows\" as shape S else empty(id=\"\")\n  view\n    Row(s=rowS)\ncomponent Row\n  props\n    s: S\n  view\n    text s.id\n";
+    contract::compile(fixed).unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[test]
+fn a_childs_mutation_is_named_with_its_prefix_and_not_gated() {
+    let src = "component A\n  view\n    Composer()\ncomponent Composer\n  mutation sent as shape string\n  view\n    text \"x\"\n";
+    let e = contract::compile(src).unwrap_err();
+    assert_eq!(e.id, "type-child-resource");
+    assert!(e.message.contains("(`composerSent`)"), "{}", e.message);
+    assert!(!e.message.contains("when nav.tab"), "{}", e.message);
+}
+
+#[test]
+fn a_child_reading_device_facts_with_a_task_is_told_about_the_task() {
+    let src = "shape Viewport\n  pointer: string\ncomponent A\n  view\n    Pad()\ncomponent Pad\n  resource vp = exactViewport() as shape Viewport\n  task tick mount\n    every(16, step)\n  state n = 0\n  action step\n    n = n + 1\n  view\n    text vp.pointer\n";
+    let e = contract::compile(src).unwrap_err();
+    assert_eq!(e.id, "type-child-resource");
+    assert!(
+        e.message.starts_with(
+            "only the root, the root file's first component (`A`), may declare a `task`"
+        ),
+        "{}",
+        e.message
+    );
 }
 
 #[test]
@@ -212,13 +239,13 @@ fn a_childs_task_is_moved_to_the_root_keyed_on_what_opens_it() {
         e.message.starts_with(
             "only the root, the root file's first component (`A`), may declare a `task`"
         ) && e.message.contains(
-            "`task reveal when top(nav).name == \"icons\" key=top(nav).id` with `after(1, reveal)`"
+            "`task reveal when top(nav).name == \"icons\" key=top(nav).id` with `change(reveal)`"
         ),
         "{}",
         e.message
     );
     // The repair it names compiles, in the root.
-    let fixed = "routes nav\n  home \"/\"\n  icons \"/icons\"\ncomponent A\n  state n = 0\n  task reveal when top(nav).name == \"icons\" key=top(nav).id\n    after(1, reveal)\n  action reveal\n    n = n + 1\n  view\n    text \"x\"\n";
+    let fixed = "routes nav\n  home \"/\"\n  icons \"/icons\"\ncomponent A\n  state n = 0\n  task reveal when top(nav).name == \"icons\" key=top(nav).id\n    change(reveal)\n  action reveal\n    n = n + 1\n  view\n    text \"x\"\n";
     contract::compile(fixed).unwrap_or_else(|e| panic!("{e}"));
 }
 
@@ -261,6 +288,50 @@ fn child_derives_resolve_in_either_order_without_capturing_the_parent() {
         contract::compile(cycle).unwrap_err().id,
         "type-derive-cycle"
     );
+}
+
+#[test]
+fn view_binders_do_not_capture_child_derives() {
+    let component = r#"component Child
+  state item = "state"
+  state index = 9
+  state items = ["a", "b"]
+  state option = some("bound")
+  derive label = `${item}!${index}`
+  action change
+    item = "next"
+    index = 10
+  view
+    column
+      text label testId="outside"
+      for item, index in items key=item
+        text label testId=`in-${item}-${index}`
+      match option
+        case some(item)
+          text label testId=`match-${item}`
+        case none
+          text label testId="none"
+      for label in items key=label
+        text label testId=`direct-${label}`
+      button "Change" press=change testId="change"
+"#;
+    for prefix in ["", "component App\n  view\n    Child()\n"] {
+        let mut r = Runner::boot(
+            contract::compile(&format!("{prefix}{component}")).unwrap(),
+            Stations,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        for expected in ["state!9", "next!10"] {
+            let ids = ["outside", "in-a-0", "in-b-1", "match-bound"];
+            assert_eq!(ids.map(|id| text_of(&r, id)), [expected; 4], "{prefix}");
+            assert_eq!(text_of(&r, "direct-a"), "a");
+            assert_eq!(text_of(&r, "direct-b"), "b");
+            r.dispatch(view_of(&r, "change"), Event::Press).unwrap();
+        }
+    }
 }
 
 #[test]
@@ -755,10 +826,11 @@ fn a_row_owned_state_reaches_the_rows_of_the_uses_own_each() {
     }
 }
 
-/// Two compiler repros, by one ordered pass and not its (deferred) fixed point:
-/// a row's state is typed from its initializer before the derives that read it,
-/// and a `for` over a list a later write types (`state items = []`) no longer
-/// stops the row scopes the other rows' state is typed in.
+/// LLP 1088 D6's two compiler repros, by one ordered pass and not its
+/// (deferred) fixed point: a row's state is typed from its initializer
+/// before the derives that read it (shop F3), and a `for` over a list a
+/// later write types (`state items = []`) no longer stops the row scopes
+/// the other rows' state is typed in.
 #[test]
 fn a_rows_state_types_before_its_derives_and_an_untyped_list_waits() {
     let shop = "shape Item\n  name: string\n  images: string[]\nshape Product\n  id: string\n  items: Item[]\ncomponent App\n  resource products = loadProducts() as shape Product[]\n  view\n    column\n      for p in products key=p.id\n        Child(b=p)\ncomponent Child\n  props\n    b: Product\n  state pick = 0\n  derive chosen = b.items.at(pick)\n  derive images = match chosen { case some(i) => i.images, case none => [] }\n  view\n    column\n      for img, i in images key=img\n        text `${i} of ${images.length}`\n";
@@ -769,8 +841,9 @@ fn a_rows_state_types_before_its_derives_and_an_untyped_list_waits() {
         assert!(plan.is_ok(), "{src}\n{plan:?}");
     }
     // What that pass cannot grow: a derive of itself and an action handed
-    // itself are still refused, once. A derive that wraps itself in `some` is
-    // refused at its second option before it can grow.
+    // itself are still refused, once, as before (Astra's r3 review). A
+    // derive that wraps itself in `some` is refused at its second option
+    // (LLP 1090 D2) before it can grow.
     for (src, id) in [
         (
             "component App\n  derive d = d\n  view\n    text \"a\"\n",

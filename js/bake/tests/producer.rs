@@ -84,10 +84,14 @@ fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidate
     assert_eq!(first.bytecode, repeat.bytecode);
     assert_eq!(first.script, repeat.script);
     assert_eq!(first.receipt, repeat.receipt);
-    assert!(
-        !f.0.join("app.contract.d.ts").exists(),
-        "generated types stay in the snapshot"
-    );
+    if std::env::var("EXACT_UPDATE_TRUST").is_ok_and(|trust| trust != "development") {
+        assert!(!f.0.join("app.contract.d.ts").exists());
+    } else {
+        assert_eq!(
+            std::fs::read_to_string(f.0.join("app.contract.d.ts")).unwrap(),
+            first.declarations
+        );
+    }
     assert_eq!(std::fs::read_to_string(f.0.join("app.ts")).unwrap(), SOURCE);
     let candidate = paired(&first);
     assert!(
@@ -282,13 +286,13 @@ assert.equal(readDevGeneration(cache,prefix+'app.js'),null);
 assert.deepEqual(readDevGeneration(cache,prefix+'app.hbc')?.body,files.get('app.hbc'));
 assert.equal(readDevGeneration(cache,prefix+'private.js'),null);
 "#;
-    let result =
-        std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
-            .args(["--input-type=module", "-e", probe])
-            .arg(out)
-            .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-            .output()
-            .unwrap();
+    // Match the tooling's Bun: its relaunch cannot recover eval source from process.argv.
+    let result = exact_bake::bun()
+        .args(["--input-type=module", "-e", probe])
+        .arg(out)
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output()
+        .unwrap();
     assert!(
         result.status.success(),
         "{}",
@@ -417,16 +421,6 @@ fn native_host_sessions_prepare_together_and_keep_the_live_app_when_one_refuses(
 }
 
 #[test]
-fn cli_refuses_bad_arguments() {
-    let status = std::process::Command::new(env!("CARGO_BIN_EXE_exact-js-bake"))
-        .output()
-        .unwrap();
-    assert_eq!(status.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&status.stderr).contains("usage:"));
-    assert!(Path::new(env!("CARGO_MANIFEST_DIR")).is_dir());
-}
-
-#[test]
 fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
     if !exact_js::ENGINE_LINKED {
         return;
@@ -464,7 +458,8 @@ fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
     assert!(error.contains("error TS"), "{error}");
     // A source that lets the bake's refusal (`code: 'bake'`) through is the
     // device's to answer, as on the web build: no compiled value, the
-    // placeholder until a launch asks it.
+    // placeholder until a launch asks it (kanban2 #5: the native build
+    // stopped here).
     f.write(
         "app.ts",
         &SOURCE.replace(
@@ -899,7 +894,7 @@ fn web_build(app: &Path) -> Result<(), String> {
 }
 
 /// A package's declarations reach the type check of every producer from the
-/// capture ("Type-only package imports"): a type-only import
+/// capture (LLP 1027 D5, "Type-only package imports"): a type-only import
 /// checks against them, a changed `.d.ts` checks again, and a library the
 /// configuration does not load, or a global types package no file names, is
 /// refused alike.
@@ -1105,7 +1100,8 @@ fn type_only_package_imports_check_alike_and_package_code_never_runs() {
     refused(&mut every, "Cannot find name 'process'");
     put("logic.ts", &logic("2"));
     // A declaration that reaches outside the capture, or loads a library the
-    // configuration does not, is refused by every producer's graph check.
+    // configuration does not (the DOM's), is refused by every producer's graph
+    // check; one naming an ES library it leaves out loads nothing (packages.rs).
     let outside = Fixture(f.0.with_extension("outside"));
     std::fs::create_dir(&outside.0).unwrap();
     outside.write("outside.d.ts", "type Outside = string;\n");
@@ -1119,15 +1115,15 @@ fn type_only_package_imports_check_alike_and_package_code_never_runs() {
     refused(&mut every, "module outside captured app: ");
     put(
         "node_modules/rows/dist/index.d.ts",
-        &format!("/// <reference lib=\"es2024.arraybuffer\" />\n{index}"),
+        &format!("/// <reference lib=\"dom\" />\n{index}"),
     );
-    refused(&mut every, "lib.es2024.arraybuffer.d.ts");
+    refused(&mut every, "lib.dom.d.ts");
 }
 
 /// One TypeScript configuration (`js/bake/src/typescript.mjs`) in both
 /// producers and the web build: ES2023 runs on Hermes as in a browser, a
 /// `.ts` import path resolves, and what one refuses every one refuses with
-/// the same diagnostic.
+/// the same diagnostic (calc F2, calendar F9/F11).
 #[test]
 fn every_build_takes_one_typescript_configuration_and_refuses_alike() {
     let f = Fixture::new();
@@ -1237,7 +1233,7 @@ fn an_alias_resolves_a_mounted_source_alike_in_both_producers_and_names_only_the
 
 /// A first-frame source over the runtime's 100 ms budget still bakes: the
 /// budget is about a device, and a build machine's load must not fail a
-/// build. The loop is deterministic work, far over 100 ms
+/// build (LLP 1027 §6). The loop is deterministic work, far over 100 ms
 /// on any machine this runs on, so the test never depends on timing.
 #[test]
 fn a_slow_first_frame_source_bakes_whatever_the_wall_clock() {
@@ -1270,7 +1266,7 @@ fn a_slow_first_frame_source_bakes_whatever_the_wall_clock() {
 
 /// The clock in the app's own code is refused at build, by file and line,
 /// in both compilers, so a Bun test (no guard there) cannot hide it from a
-/// device that refuses it on first use.
+/// device that refuses it on first use (LLP 1027.000).
 #[test]
 fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
     if !exact_js::ENGINE_LINKED {
@@ -1311,7 +1307,7 @@ fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
     let error = producer.bake(&f.0, None).err().unwrap();
     assert!(error.contains("logic.ts:4:24: Date.now()"), "{error}");
     assert!(error.contains("logic.ts:4:44: Math.random()"), "{error}");
-    // The refusal names where randomness comes from instead.
+    // LLP 1116 D8: the refusal names where randomness comes from instead.
     assert!(
         error.contains(
             "seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md)"
@@ -1392,7 +1388,7 @@ export const i = () => Date['n\u006fw']();
     }
 }
 
-/// A native producer keeps package identity without symlink privilege.
+/// LLP 1091.001: a native producer keeps package identity without symlink privilege.
 #[cfg(windows)]
 #[test]
 fn windows_imported_packages_keep_identity_through_real_bakes() {
@@ -1491,3 +1487,14 @@ fn windows_imported_packages_keep_identity_through_real_bakes() {
 
 #[path = "producer/widgets.rs"]
 mod widgets;
+
+#[path = "producer/exports.rs"]
+mod exports;
+
+#[path = "producer/cli.rs"]
+mod cli;
+
+#[path = "producer/launch.rs"]
+mod launch;
+#[path = "producer/streams.rs"]
+mod streams;

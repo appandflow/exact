@@ -11,7 +11,7 @@ private final class CollectionContact: UIGestureRecognizer {
         guard contact == nil, let touch = touches.first else { return }
         contact = touch
         // A finger coming down on a list's port is the reader's gesture
-        // against its `scrollIntoView`, reported with the
+        // against its `scrollIntoView` (LLP 1070.000 §2.5), reported with the
         // pin's flush
         collections?.gestureBegan(around: touch.view, at: touch.timestamp)
         var view = touch.view
@@ -41,7 +41,7 @@ extension CollectionHost {
         }
         return false
     }
-    /// A list's facts on its own axes: a row list's offset,
+    /// A list's facts on its own axes (LLP 1070 H1): a row list's offset,
     /// port and measured sizes run along x, its cross along y.
     package func geometry(_ id: UInt32) -> CollectionFacts? {
         guard let node = presenter?.views[id], let scroll = node.scroll, !hidden(node) else { return nil }
@@ -64,7 +64,7 @@ extension CollectionHost {
             guard cross.isFinite else { return nil }
             let start = max(0, node.padding("left")), end = max(0, node.padding("right"))
             // From the first item: negative in the padding before it, down
-            // to that padding.
+            // to that padding (LLP 1010 §6.9).
             return CollectionFacts(offset: Double(max(-start, at.x + insets.left - content.minX)),
                 portMain: Double(portWidth), portCross: Double(portHeight), cross: Double(cross),
                 measurements: [], focus: nil, interaction: nil, paddingStart: Double(start), paddingEnd: Double(end))
@@ -77,8 +77,8 @@ extension CollectionHost {
             portMain: Double(portHeight), portCross: Double(portWidth), cross: Double(width),
             measurements: [], focus: nil, interaction: nil, paddingStart: Double(start), paddingEnd: Double(end))
     }
-    /// A smooth correction's native targets move with a page band's inset,
-    /// as the offset itself does (`NodeView.setPageBand`), and
+    /// A smooth correction's native targets move with a page band's inset
+    /// (LLP 1130 D3), as the offset itself does (`NodeView.setPageBand`), and
     /// so does where the batch found the port: its offset counts the band as
     /// padding before the first row, so the top of a list the band grew
     /// under mid-batch is the new band's top.
@@ -88,7 +88,7 @@ extension CollectionHost {
         offsetDrivers[id]?.moveOffsets(by: dy)
     }
     /// What UIKit's bars cover of the list's port at its start and end: its
-    /// page bands, which `geometry` counts as port and padding.
+    /// page bands (LLP 1130 D3), which `geometry` counts as port and padding.
     /// The runner aligns a row clear of them, as `scrollToItem(at:at:animated:)`
     /// aligns within the adjusted content insets.
     func covered(_ id: UInt32) -> [Double] {
@@ -169,7 +169,8 @@ extension CollectionHost {
             // Past the end under a finger or a fling, a correction back toward
             // the end that stays past it is UIKit's rubber band coming back on
             // its own.
-            // Corrected each report, a fling stopped dead at the end.
+            // Corrected each report, a fling stopped dead at the end (r27's
+            // tasks list).
             let end = horizontal ? scroll.contentSize.width + insets.right - scroll.bounds.width
                 : scroll.contentSize.height + insets.bottom - scroll.bounds.height
             let at = horizontal ? scroll.contentOffset.x : scroll.contentOffset.y, to = horizontal ? target.x : target.y
@@ -223,7 +224,7 @@ extension CollectionHost {
     /// scroll view's own `contentOffset`, as UIKit's scroll animation is: the
     /// offset every reader sees (hit-testing, a drag's start, stickies, the
     /// scroll event) is the one on screen. A later target while it runs
-    /// retargets it from where it is, never a jump: a list
+    /// retargets it from where it is, never a jump (LLP 1010 §6.8): a list
     /// following its end first heads for an estimated row, then the measured
     /// one. UIKit's `setContentOffset(_:animated:)` could only restart from
     /// rest, so a second target waited and landed at once.
@@ -304,13 +305,13 @@ extension CollectionHost {
         // anchor's correction moves with it instead: `shift`). The next
         // native offset notification supplies the continuing intent.
         // A `scrollIntoView`'s correction is the exception, as UIKit's own
-        // `scrollToItem` is: `setContentOffset(_:animated:
+        // `scrollToItem` is (LLP 1070.000 §2.6): `setContentOffset(_:animated:
         // false)` ends a deceleration and lands, and a finger down drags on
         // from there.
         let moving = scroll.isTracking || scroll.isDragging || scroll.isDecelerating
         guard authored || !moving else { return }
         // Under Reduce Motion a smooth correction lands at once, as an
-        // element's reveal does
+        // element's reveal does (LLP 1070.000 §14)
         var smooth = smooth && !DisplayPreferences.reducedMotion
         if moving {
             // What was sampled before it is not the reader's travel after it;
@@ -343,9 +344,9 @@ extension CollectionHost {
                 y: min(maximum, max(-insets.top, CGFloat(top) + content.minY - insets.top + node.pageBand.top)))
         }
         target = Self.reachable(target, in: scroll)
-        // A smooth correction is UIKit's scroll animation: the window is
-        // already built at the destination; rows in between are not (a
-        // declared deviation). Under the agent's frozen clock
+        // A smooth correction is UIKit's scroll animation (LLP 1070.000
+        // §6.2): the window is already built at the destination; rows in
+        // between are not (§11 declares it). Under the agent's frozen clock
         // it lands at once.
         let animate = smooth && !ExactEnv.agentFreezes && node.window != nil
         if !animate, animating.contains(id) {
@@ -408,7 +409,7 @@ extension CollectionHost {
         guard mean > 0 else { return 0 }
         let port = horizontal ? scroll.bounds.minX...scroll.bounds.maxX : scroll.bounds.minY...scroll.bounds.maxY
         // The run of rows that covers the port from its edge: a kept row
-        // past a gap of unbuilt rows is not in it, so the
+        // (LLP 1010 §6.11) past a gap of unbuilt rows is not in it, so the
         // list's end row ends the travel only when the run reaches it.
         var shortfall: CGFloat = 0
         if ahead > 0 {
@@ -431,7 +432,7 @@ extension CollectionHost {
         return shortfall > 0 ? UInt32(min(64, (shortfall / mean).rounded(.up))) : 0
     }
     /// Pins the row under a finger in `port`, the viewport or a presentation's
-    /// mount, so a list's window keeps it for the contact.
+    /// mount (LLP 1123 D2), so a list's window keeps it for the contact.
     @discardableResult
     func watchContacts(in port: UIView) -> UIGestureRecognizer {
         let recognizer = CollectionContact(target: nil, action: nil)
@@ -446,7 +447,7 @@ extension CollectionHost {
     /// for them with UIKit's animation: a tap on the status bar or on the
     /// selected tab, a remote's step. As a drag does, the move stops the
     /// host's animation where the port is, leaves a correction planned before
-    /// it stale, and ends the request under way there.
+    /// it stale, and ends the request under way there (LLP 1070.000 §2.5).
     func readerMoves(_ id: UInt32) {
         guard entries[id] != nil else { return }
         gestureBegan(id)
@@ -500,14 +501,14 @@ final class OffsetDriver: NSObject {
         began = CACurrentMediaTime()
         FrameClock.shared.want(self, .offsetDriver, rate: FrameClock.full(on: scroll?.window?.screen)) { [weak self] in self?.frame($0) }
     }
-    /// Native offsets move by `dy` under it (a page band's inset).
+    /// Native offsets move by `dy` under it (a page band's inset, LLP 1130 D3).
     func moveOffsets(by dy: CGFloat) { from.y += dy; to.y += dy }
     func retarget(_ target: CGPoint, serial: Int) {
         guard let scroll else { return }
         self.serial = serial
         // Before its first frame the motion has not shown: a followed end's
-        // measured row, a report after its estimate, is still its one target.
-        // After it, or once the port moved under it (content
+        // measured row, a report after its estimate, is still its one target
+        // (LLP 1010 §6.8). After it, or once the port moved under it (content
         // that shrank clamped it), a fresh ease from what shows.
         if !drawn, PixelGrid.same(scroll.contentOffset, from, in: scroll) {
             // Folded back onto the port: no motion at all.

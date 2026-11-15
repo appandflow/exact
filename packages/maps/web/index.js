@@ -1,4 +1,4 @@
-// @exact/maps on the web: `exact-map`, raster
+// @exact/maps on the web (LLP 1133.021 D1-D3, §12): `exact-map`, raster
 // tiles in Web Mercator from the source the app names in `app.json`
 // (`packages["@exact/maps"].web.tiles`, an XYZ template), with the source's
 // attribution, the package's pins and zoom buttons. map-demo's `index.js`,
@@ -6,16 +6,16 @@
 //
 // - Props are strings (`markers` its JSON). A camera prop moves the map
 //   only when its value changes, and only that prop: a new `zoom` zooms
-//   about the current centre, wherever the person panned.
+//   about the current centre, wherever the person panned (D1).
 // - `moveend` is emitted when the camera stops, whoever moved it: a drag's
 //   end, a wheel or key gesture once it rests, a button, a prop's move.
 // - `change` is the selected marker's id, or `""`, when the person selects
 //   or deselects; a `selected` prop selects without one.
 // - The person drags, wheels, pinches, and with the map focused uses the
-//   arrow keys and `+`/`-`. Markers are buttons in `markers` order,
+//   arrow keys and `+`/`-` (D2). Markers are buttons in `markers` order,
 //   each labelled by its title.
 // - Under the agent the tiles are plain, a flat colour with each tile's
-//   edges, so a screenshot is stable and offline; each marker is a
+//   edges, so a screenshot is stable and offline (§12); each marker is a
 //   part named by its id (`tap map/ferry`).
 
 const TILE = 256;
@@ -34,7 +34,7 @@ const STYLE = `
 .exact-map .zoom button + button { border-top: 1px solid #d5d9de; }
 .exact-map .credit { position: absolute; right: 0; bottom: 0; font: 11px system-ui, sans-serif; background: rgba(255,255,255,.8); padding: 2px 6px; color: #333; }
 `;
-// The platform-red pin (the marker colour), selected darker and larger.
+// The platform-red pin (D2's marker colour), selected darker and larger.
 const pin = () => `<svg viewBox="0 0 28 38" aria-hidden="true"><path d="M14 37C14 37 27 22 27 13.5A13 13 0 0 0 1 13.5C1 22 14 37 14 37Z" stroke="#fff" stroke-width="2"/><circle cx="14" cy="13.5" r="4.5" fill="#fff"/></svg>`;
 // Selection restyles the pin's own elements, so the element a press landed on stays in the marker.
 const restyle = (svg, selected) => { svg.setAttribute('width', selected ? 32 : 26); svg.setAttribute('height', selected ? 42 : 34); svg.firstChild.setAttribute('fill', selected ? '#c22a1f' : '#ea4335'); };
@@ -46,7 +46,7 @@ const project = (lat, lon, z) => {
 };
 const unproject = (x, y, z) => {
   const s = TILE * 2 ** z, n = Math.PI - 2 * Math.PI * y / s;
-  return [180 / Math.PI * Math.atan(Math.sinh(n)), ((x / s * 360 + 540) % 360) - 180];
+  return [180 / Math.PI * Math.atan(Math.sinh(n)), ((x / s * 360 % 360) + 360) % 360 - 180];
 };
 const round = (n, places) => Math.round(n * 10 ** places) / 10 ** places;
 const markersOf = text => {
@@ -198,7 +198,7 @@ class ExactMap {
     }));
   }
 
-  /** The element of marker `id`, a part a drive taps. */
+  /** The element of marker `id`, a part a drive taps (§12). */
   part(id) { const el = this.parts?.get(id); return el?.isConnected ? el : null; }
   partIds() { return [...(this.parts?.keys() ?? [])]; }
 
@@ -207,13 +207,15 @@ class ExactMap {
     const [zin, zout] = this.zoomBox.querySelectorAll('button');
     zin.addEventListener('click', ev => { ev.stopPropagation(); this.zoomBy(1); });
     zout.addEventListener('click', ev => { ev.stopPropagation(); this.zoomBy(-1); });
+    m.addEventListener('click', ev => {
+      const marker = ev.target.closest?.('.marker');
+      if (marker) this.select(marker.dataset.marker);
+    });
     const pointers = new Map();
     m.addEventListener('pointerdown', ev => {
-      if (ev.target.closest?.('.zoom')) return;
-      const marker = ev.target.closest?.('.marker');
-      if (marker) { this.pressed = marker.dataset.marker; return; }
+      if (ev.target.closest?.('.zoom, .marker')) return;
+      if (!pointers.size) this.dragged = false;
       pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-      this.dragged = false;
       try { m.setPointerCapture(ev.pointerId); } catch { /* a synthetic pointer */ }
       m.classList.add('dragging');
     });
@@ -233,12 +235,6 @@ class ExactMap {
       if (dx || dy) { this.dragged = true; this.panBy(-dx, -dy); }
     });
     const up = ev => {
-      if (this.pressed) {
-        const marker = ev.target.closest?.('.marker');
-        if (marker?.dataset.marker === this.pressed) this.select(this.pressed);
-        this.pressed = null;
-        return;
-      }
       if (!pointers.delete(ev.pointerId)) return;
       if (!pointers.size) {
         m.classList.remove('dragging');

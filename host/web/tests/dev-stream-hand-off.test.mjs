@@ -24,8 +24,8 @@ test('a wasm page stream on a socket handed to the loop\'s server ends with its 
   const until = async (pass, ms, what) => { const end = Date.now() + ms; while (!(await pass())) { if (Date.now() > end || dev.exitCode !== null) throw new Error(`${what}: not seen in ${said.slice(-2000)}`); await Bun.sleep(100); } };
   const base = `http://127.0.0.1:${port}`;
   const builds = async () => {
-    const { token } = await (await fetch(`${base}/__tamber/token`)).json();
-    const hello = await (await fetch(`${base}/__tamber`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).json();
+    const { token } = await (await fetch(`${base}/__forma/token`)).json();
+    const hello = await (await fetch(`${base}/__forma`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-exact-forma-token': token }, body: '{"method":"hello"}' })).json();
     return hello.ok.builds.length;
   };
   try {

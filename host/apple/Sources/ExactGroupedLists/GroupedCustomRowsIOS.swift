@@ -1,4 +1,4 @@
-// A custom grouped row on UIKit, its views carried into a
+// A custom grouped row on UIKit (LLP 1084 D7), its views carried into a
 // list cell, drawn as a standard cell beside it is: its leading symbol as
 // UIKit's list draws a cell's image, and the line under it starting under
 // its content, where a standard cell's starts under its text.

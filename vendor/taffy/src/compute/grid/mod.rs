@@ -13,7 +13,7 @@ use crate::{
     GridItemStyle, JustifyContent, LayoutGridContainer, RequestedAxis,
 };
 use crate::compute::ratio::container_sizes_through_ratio;
-use crate::compute::common::absolute::AbsolutePass;
+use crate::compute::common::absolute::{AbsoluteArea, AbsolutePass};
 #[cfg(feature = "content_size")]
 use crate::compute::common::scrollable_overflow::with_end_padding;
 use alignment::{align_and_position_item, align_tracks, static_position};
@@ -32,7 +32,7 @@ use crate::{CheapCloneStr, GridPlacement, OriginZeroGridPlacement};
 #[cfg(feature = "detailed_layout_info")]
 use types::{GridItem, GridTrackKind, TrackCounts};
 
-pub(crate) use types::{GridCoordinate, GridLine, OriginZeroLine, MAX_GRID_TRACKS, MAX_OZ_LINE, MIN_OZ_LINE};
+pub(crate) use types::{GridCoordinate, GridLine, LineLimit, OriginZeroLine, MAX_GRID_TRACKS};
 
 #[cfg(feature = "detailed_layout_info")]
 pub use types::{GridLineNames, GridLineNamesIter};
@@ -220,6 +220,9 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
     // type CustomIdent<'a> = <<Tree as LayoutPartialTree>::CoreContainerStyle<'_> as CoreStyle>::CustomIdent;
     let mut name_resolver = NamedLineResolver::new(&style, col_auto_repetition_count, row_auto_repetition_count);
 
+    // EXACT PATCH 70: the lines this grid places items between
+    let line_limit = LineLimit::with_max_line(style.grid_line_limit());
+
     // Clamp the explicit grid to MAX_GRID_TRACKS tracks in each axis
     // https://www.w3.org/TR/css-grid-1/#overlarge-grids
     let explicit_col_count = grid_template_col_count.max(name_resolver.area_column_count()).min(MAX_GRID_TRACKS);
@@ -238,7 +241,7 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
     // Estimate the number of rows and columns in the implicit grid (= the entire grid)
     // This is necessary as part of placement. Doing it early here is a perf optimisation to reduce allocations.
     let (est_col_counts, est_row_counts) =
-        compute_grid_size_estimate(explicit_col_count, explicit_row_count, child_styles_iter);
+        compute_grid_size_estimate(explicit_col_count, explicit_row_count, line_limit, child_styles_iter);
 
     // 4. Grid Item Placement
     // Match items (children) to a definite grid position (row start/end and column start/end position)
@@ -260,6 +263,7 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
         align_items.unwrap_or(AlignItems::STRETCH),
         justify_items.unwrap_or(AlignItems::STRETCH),
         &name_resolver,
+        line_limit,
     );
     // EXACT PATCH 17: with no alignment given, a replaced item is placed at
     // `start`, never stretched (CSS Grid 1 §6.2), as `align_and_position_item`
@@ -336,6 +340,7 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
             track.max_track_sizing_function.definite_value(parent_size, |val, basis| tree.calc(val, basis))
         },
         has_baseline_aligned_item,
+        (run_mode == RunMode::ComputeSize).then_some(node),
     );
     let initial_column_sum = columns.iter().map(|track| track.base_size).sum::<f32>();
     inner_node_size.width = inner_node_size.width.or_else(|| initial_column_sum.into());
@@ -357,6 +362,7 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
         &mut items,
         |track: &GridTrack, _, _| Some(track.base_size),
         false, // TODO: Support baseline alignment in the vertical axis
+        None,
     );
     let initial_row_sum = rows.iter().map(|track| track.base_size).sum::<f32>();
     inner_node_size.height = inner_node_size.height.or_else(|| initial_row_sum.into());
@@ -481,6 +487,7 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
             &mut items,
             |track: &GridTrack, _, _| Some(track.base_size),
             has_baseline_aligned_item,
+            (run_mode == RunMode::ComputeSize).then_some(node),
         );
 
         // Row sizing must be re-run (once) if:
@@ -543,6 +550,7 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
                 &mut items,
                 |track: &GridTrack, _, _| Some(track.base_size),
                 false, // TODO: Support baseline alignment in the vertical axis
+                None,
             );
         }
     }
@@ -668,6 +676,7 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
     // Position hidden and absolutely positioned children
     let contains_absolutes = tree.get_core_container_style(node).position() != Position::Static;
     let absolute_pass = AbsolutePass {
+        clearance: tree.get_core_container_style(node).absolute_clearance(),
         area_size: Size {
             width: f32_max(container_border_box.width - border.horizontal_axis_sum() - scrollbar_gutter.x, 0.0),
             height: f32_max(container_border_box.height - border.vertical_axis_sum() - scrollbar_gutter.y, 0.0),
@@ -678,6 +687,7 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
         #[cfg(feature = "content_size")]
         is_scroll_container,
     };
+    let AbsoluteArea { size: absolute_area, offset: absolute_offset, .. } = absolute_pass.inner_area();
     let mut order = items.len() as u32;
     (0..tree.child_count(node)).for_each(|index| {
         let child = tree.get_child_id(node, index);
@@ -705,7 +715,7 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
             // The Option is None if the style property is Auto and an unresolvable Span
             let maybe_col_indexes = name_resolver
                 .resolve_column_names(&child_style.grid_column())
-                .into_origin_zero(final_col_counts.explicit)
+                .into_origin_zero(final_col_counts.explicit, line_limit)
                 .resolve_absolutely_positioned_grid_tracks()
                 .map(|maybe_grid_line| {
                     maybe_grid_line.and_then(|line: OriginZeroLine| line.try_into_track_vec_index(final_col_counts))
@@ -714,7 +724,7 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
             // The Option is None if the style property is Auto and an unresolvable Span
             let maybe_row_indexes = name_resolver
                 .resolve_row_names(&child_style.grid_row())
-                .into_origin_zero(final_row_counts.explicit)
+                .into_origin_zero(final_row_counts.explicit, line_limit)
                 .resolve_absolutely_positioned_grid_tracks()
                 .map(|maybe_grid_line| {
                     maybe_grid_line.and_then(|line: OriginZeroLine| line.try_into_track_vec_index(final_row_counts))
@@ -772,28 +782,28 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
                     maybe_col_indexes
                         .end
                         .map(|index| rtl_line_as_end_edge(&columns, index))
-                        .unwrap_or(border.left + scrollbar_gutter.x),
+                        .unwrap_or(absolute_offset.x),
                     maybe_col_indexes
                         .start
                         .map(|index| rtl_line_as_start_edge(&columns, index))
-                        .unwrap_or(container_border_box.width - border.right),
+                        .unwrap_or(absolute_offset.x + absolute_area.width),
                 )
             } else {
                 (
-                    maybe_col_indexes.start.map(|index| line_as_start_edge(&columns, index)).unwrap_or(border.left),
+                    maybe_col_indexes.start.map(|index| line_as_start_edge(&columns, index)).unwrap_or(absolute_offset.x),
                     maybe_col_indexes
                         .end
                         .map(|index| line_as_end_edge(&columns, index))
-                        .unwrap_or(container_border_box.width - border.right - scrollbar_gutter.x),
+                        .unwrap_or(absolute_offset.x + absolute_area.width),
                 )
             };
 
             let grid_area = Rect {
-                top: maybe_row_indexes.start.map(|index| line_as_start_edge(&rows, index)).unwrap_or(border.top),
+                top: maybe_row_indexes.start.map(|index| line_as_start_edge(&rows, index)).unwrap_or(absolute_offset.y),
                 bottom: maybe_row_indexes
                     .end
                     .map(|index| line_as_end_edge(&rows, index))
-                    .unwrap_or(container_border_box.height - border.bottom - scrollbar_gutter.y),
+                    .unwrap_or(absolute_offset.y + absolute_area.height),
                 left: grid_area_left,
                 right: grid_area_right,
             };
@@ -818,13 +828,24 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
             tree.set_grid_origin(child, Point { x: grid_area.left, y: grid_area.top });
 
             if contains_absolutes {
-                let area = (
-                    Size {
+                let (left_index, right_index) = if direction.is_rtl() {
+                    (maybe_col_indexes.end, maybe_col_indexes.start)
+                } else {
+                    (maybe_col_indexes.start, maybe_col_indexes.end)
+                };
+                let area = AbsoluteArea {
+                    size: Size {
                         width: f32_max(grid_area.right - grid_area.left, 0.0),
                         height: f32_max(grid_area.bottom - grid_area.top, 0.0),
                     },
-                    Point { x: grid_area.left, y: grid_area.top },
-                );
+                    offset: Point { x: grid_area.left, y: grid_area.top },
+                    clearance: Rect {
+                        top: maybe_row_indexes.start.map_or(absolute_pass.clearance.top, |_| 0.0),
+                        right: right_index.map_or(absolute_pass.clearance.right, |_| 0.0),
+                        bottom: maybe_row_indexes.end.map_or(absolute_pass.clearance.bottom, |_| 0.0),
+                        left: left_index.map_or(absolute_pass.clearance.left, |_| 0.0),
+                    },
+                };
                 #[cfg_attr(not(feature = "content_size"), allow(unused_variables))]
                 let overflow_contribution = absolute_pass.place(tree, child, position, Some(area), Point::ZERO);
                 #[cfg(feature = "content_size")]
@@ -961,7 +982,7 @@ impl<S: CheapCloneStr> DetailedGridTracksInfo<S> {
         let placement = self
             .line_names
             .resolve_line_names(&placement, self.explicit_tracks)
-            .into_origin_zero(self.explicit_tracks)
+            .into_origin_zero(self.explicit_tracks, LineLimit::with_max_line(max_line as u16))
             .map(|placement| match placement {
                 OriginZeroGridPlacement::Line(line) if line.0 < min_line || line.0 > max_line => {
                     OriginZeroGridPlacement::Auto

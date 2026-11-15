@@ -14,7 +14,7 @@ fn main() {
         .unwrap_or_else(|e| panic!("bake: {e:?}"));
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
     std::fs::write(out_dir.join("app.plan"), baked.encode()).unwrap();
-    // The compatibility id for this platform, beside the
+    // The compatibility id (LLP 1030 D3a) for this platform, beside the
     // plan: what a bundle may depend on and this binary cannot replace.
     println!("cargo:rerun-if-changed=../app.json");
     println!("cargo:rerun-if-changed=../data");
@@ -33,7 +33,7 @@ fn main() {
     } else {
         "exact_linux_update"
     };
-    // The app's hatches, when it has `modules/linux/*.rs`.
+    // The app's hatches, when it has `modules/linux/*.rs` (LLP 1075.003.000.001 §5).
     let (hatches, run) = contract::native::rust_hatch_entry(&app_dir, &manifest, &target)
         .unwrap_or_else(|e| panic!("hatches: {e}"));
     std::fs::write(
@@ -43,7 +43,8 @@ fn main() {
             contract::rust_entry(
                 "orientation_fixture_data::Fixture",
                 "orientation_fixture_data::Fixture",
-                compat.inputs["rustMode"].as_str().unwrap()
+                compat.inputs["rustMode"].as_str().unwrap(),
+                &compat.inputs,
             )
             .unwrap()
         ),

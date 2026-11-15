@@ -1,8 +1,8 @@
-// The controls that carry a value, projected onto
+// @ref LLP 1069.001 D5 — the controls that carry a value, projected onto
 // AppKit as the checkbox is: `select` is an `NSPopUpButton`, its items read
 // from the kernel. Contract owns the value: the control moves at once,
 // reports HTML's `input` then `change`, and shows the bound value when it
-// changes, keeping the person's choice until then.
+// changes, keeping the person's choice until then (D4, amended 2026-10-04).
 #if os(macOS)
 import AppKit
 
@@ -37,12 +37,12 @@ extension ControlHost {
     }
 
     /// The control's size: a pop-up's is its widest item's, as HTML sizes a
-    /// select, which its cell measures and its intrinsic size may not.
+    /// select (D3), which its cell measures and its intrinsic size may not.
     func naturalSize(_ control: NSControl) -> CGSize {
         HostPhases.shared.count(.nativeControlMeasurements)
         let natural = control.intrinsicContentSize
         // A slider has no width of its own: it is as wide as its node, which
-        // the plan makes `width: 100%`. 129 is the
+        // the plan makes `width: 100%` (LLP 1115.000 D10.2). 129 is the
         // range's intrinsic width on every host (`ControlKind::default_size`):
         // what the node falls back to where that has nothing to resolve against.
         if control is NSSlider { return CGSize(width: 129, height: ceil(natural.height)) }
@@ -64,7 +64,8 @@ extension ControlHost {
         let before = presenter.selectOptions?(id)
         presenter.controlValue(id, value, input: true, change: true)
         // The bound value is shown when it changes, as the web build's select:
-        // an action that wrote none leaves the person's choice showing.
+        // an action that wrote none leaves the person's choice showing (LLP
+        // 1069.001 D4, amended 2026-10-04).
         guard presenter.selectOptions?(id) != before else { return }
         menus.removeValue(forKey: id)
         if let owner = presenter.views[id], let control = controls[id] {
@@ -81,7 +82,7 @@ extension ControlHost {
         return true
     }
 
-    /// The agent's `type <id> <value>`: the choice a menu would make.
+    /// The agent's `type <id> <value>` (D9): the choice a menu would make.
     func type(_ node: NodeView, _ value: String) -> [String: Any]? {
         if let slider = controls[node.id] as? NSSlider {
             guard slider.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
@@ -91,7 +92,7 @@ extension ControlHost {
             guard picker.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
             return typeDate(picker, node, value)
         }
-        if kinds[node.id] == "radio" { return typeRadio(node, value) }
+        if kinds[node.id] == "radio" { return typeRadio(node, value) } // x2apps survey #2
         // A checkbox (or `switch`) takes `true` or `false`, and is clicked when that differs, as on the web.
         if kinds[node.id] == "checkbox" || kinds[node.id] == "switch", let control = controls[node.id] {
             guard value == "true" || value == "false" else { return ["error": "checkbox \(node.id) takes true or false, not \"\(value)\""] }
@@ -122,8 +123,10 @@ extension ControlHost {
                 "options": menu?.options.map(\.label) ?? []]
     }
 }
-/// The pop-up itself receives focus and native editing keys, even with
-/// macOS Keyboard navigation off; its wrapper is never a second stop.
+/// The pop-up itself receives focus and native editing keys; its wrapper is
+/// never a second stop. With macOS Keyboard navigation off it is no Tab stop,
+/// as an `NSPopUpButton` is none (LLP 1115.000 D7.2), unless the author's
+/// `tabindex` makes it one.
 final class SelectField: NSPopUpButton {
     override class var cellClass: AnyClass? { get { PopupCellMac.self } set {} }
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
@@ -132,7 +135,7 @@ final class SelectField: NSPopUpButton {
     }
     weak var owner: NodeView?
     override var acceptsFirstResponder: Bool { owner?.acceptsNativeValueFocus(self) == true }
-    override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabbable == true }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabStop == true }
     override func becomeFirstResponder() -> Bool {
         guard acceptsFirstResponder, super.becomeFirstResponder() else { return false }
         owner?.focusEntered()

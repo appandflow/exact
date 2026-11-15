@@ -1,4 +1,4 @@
-//! Separable area reduction of premultiplied image pixels.
+//! Separable area reduction of premultiplied image pixels. @ref LLP 1149 D2.6.
 
 #[cfg(target_os = "macos")]
 pub mod apple;

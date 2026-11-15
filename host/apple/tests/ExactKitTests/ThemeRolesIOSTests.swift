@@ -4,11 +4,11 @@ import XCTest
 @testable import ExactKit
 @testable import ExactGroupedLists
 
-/// On UIKit, the roles the app's theme replaces, sent
+/// LLP 1095 D4's reach on UIKit: the roles the app's theme replaces, sent
 /// to the presenter at boot (`{"op": "roles"}`), colour the surfaces UIKit
 /// draws itself. A simulator runs it: bun host/apple/build.mjs --test --ios
 final class ThemeRolesIOSTests: GroupedListFixture {
-    /// A theme that replaces the grouped roles colours
+    /// LLP 1095 D4's reach: a theme that replaces the grouped roles colours
     /// UIKit's own list (its ground, the cards, the rows' text) where it
     /// would read the role; without one the platform's colours stay.
     func testAThemeThatReplacesTheGroupedRolesColoursTheNativeList() throws {

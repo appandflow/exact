@@ -4,9 +4,9 @@ import { resolve } from 'node:path';
 import { runTests } from '../../scripts/agent-test.mjs';
 import { webCompiler } from './module.mjs';
 
-// `clock until state <path> == <literal> within <ms>` in an authored
-// test on the JS target. The socket's first message is `hello`, which ends every settlement; the
-// mapper answers it with `identify`, as a chat client answers its gateway's HELLO. The peer sends `ready` 1 s of real time after
+// `clock until state <path> == <literal> within <ms>` (rules/DEFERRED.md, "Agent API", 2026-10-26) in an authored
+// test on the JS target. The socket's first message is `hello`, which ends every settlement (LLP 1016.000 D5); the
+// mapper answers it with `identify`, as Excord answers Discord's HELLO. The peer sends `ready` 1 s of real time after
 // the test taps `arm` (`atStep`), so `ready` can come only inside the step that waits for it. A timer every 100 ms
 // shows the clock stood still meanwhile.
 test('an authored test waits for a socket state past its first message, the clock frozen, and a miss names the last value', async () => {
@@ -26,8 +26,6 @@ test('an authored test waits for a socket state past its first message, the cloc
     timers.push(setTimeout(() => { for (const ws of identified) ws.send('ready'); sent.push(performance.now()); }, 1000));
   };
   const url = `ws://127.0.0.1:${peer.port}`;
-  // runTests names the app in EXACT_APP_DIR (scripts/app.mjs resolveApp): put back as found, so a later test file in
-  // the same run (agent-modal) resolves its own app.
   const appDir = process.env.EXACT_APP_DIR;
   let page;
   try {
@@ -95,8 +93,6 @@ test "a miss fails with the last value"
     page?.stop(true);
     peer.stop(true);
     rmSync(dir, { recursive: true, force: true });
-    if (appDir === undefined) delete process.env.EXACT_APP_DIR;
-    else process.env.EXACT_APP_DIR = appDir;
   }
   expect(process.env.EXACT_APP_DIR).toBe(appDir);
 }, 180_000);

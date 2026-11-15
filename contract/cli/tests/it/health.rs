@@ -1,9 +1,9 @@
-//! `@exact/health` admission in the runner: a permission per data type,
-//! chosen by a call's argument; one ticket for a request's list, answered
-//! whole or typed; `unknown` stored on an iOS target with the person's
-//! answer kept as facts, `denied` on an Android one; and the origin rule.
-//! The interface is its own substitute, so the implementation is played by
-//! the test as the host's native slot, over
+//! `@exact/health` admission in the runner (LLP 1133.026 D19 item 1, §11):
+//! a permission per data type, chosen by a call's argument; one ticket for
+//! a request's list, answered whole or typed; `unknown` stored on an iOS
+//! target with the person's answer kept as facts, `denied` on an Android
+//! one; and the origin rule. The interface is its own substitute, so the
+//! implementation is played by the test as the host's native slot, over
 //! `packages/health/fixture/health.json`, as the Apple and Android
 //! implementations answer under the agent.
 
@@ -78,7 +78,7 @@ struct Told {
     calls: Vec<Json>,
 }
 
-/// The fixture implementation: it answers from the fixture store,
+/// The fixture implementation (§11): it answers from the fixture store,
 /// applying the states and facts it was told, as the platform answers this
 /// app. A type the person did not share answers what HealthKit answers for
 /// it, the app's own samples: none.
@@ -295,11 +295,11 @@ fn day(r: &Runner<Granted>, date: f64) -> Option<f64> {
         .as_f64()
 }
 
-/// While a type is `prompt` its read fails naming the request; the request's
-/// list is one ticket; on an iOS target a typed partial answer stores
-/// `unknown` for both, and the person's answer is kept as facts, which the
-/// implementation applies: steps read the fixture's days, workouts nothing,
-/// and neither says it was denied.
+/// D6, D19 item 1, §11: while a type is `prompt` its read fails naming the
+/// request; the request's list is one ticket; on an iOS target a typed
+/// partial answer stores `unknown` for both, and the person's answer is
+/// kept as facts, which the implementation applies: steps read the
+/// fixture's days, workouts nothing, and neither says it was denied.
 #[test]
 fn ios_stores_unknown_and_keeps_the_answer_as_facts() {
     let (_app, mut r, fixture) = boot("ios", APP, "ios");
@@ -351,8 +351,8 @@ fn ios_stores_unknown_and_keeps_the_answer_as_facts() {
     assert_eq!(day(&r, OCT1 + 11.0 * DAY), Some(8412.0));
 }
 
-/// `steps@<date>` grants with a window; `allow` grants every permission the
-/// ticket asks.
+/// D19 item 1: `steps@<date>` grants with a window; `allow` grants every
+/// permission the ticket asks.
 #[test]
 fn a_typed_window_and_a_whole_allow() {
     let (_app, mut r, _) = boot("window", APP, "ios");
@@ -392,9 +392,9 @@ fn a_typed_window_and_a_whole_allow() {
     assert_eq!(facts["health.workouts"]["shared"], true);
 }
 
-/// On an Android target the states are readable: a typed partial answer
-/// grants steps and denies workouts, whose read then fails; `history` is a
-/// permission there and nowhere else.
+/// D5, D19 item 1: on an Android target the states are readable: a typed
+/// partial answer grants steps and denies workouts, whose read then fails;
+/// `history` is a permission there and nowhere else.
 #[test]
 fn android_denies_what_the_person_declined() {
     let src = APP.replace(
@@ -431,8 +431,8 @@ fn android_denies_what_the_person_declined() {
     assert_eq!(held(&r).1, json!(["health.steps", "health.workouts"]));
 }
 
-/// A tool's read and request fail `person-required` in every state; the
-/// status answers every caller.
+/// D7: a tool's read and request fail `person-required` in every state;
+/// the status answers every caller.
 #[test]
 fn a_tool_never_reads_health() {
     let src = APP.replace(
@@ -455,7 +455,8 @@ fn a_tool_never_reads_health() {
     assert_eq!(asked, 0);
 }
 
-/// `read` is a literal list; a computed one is refused at bake.
+/// D1, D19 item 4: `read` is a literal list; a computed one is refused at
+/// bake.
 #[test]
 fn a_computed_read_list_is_refused_at_bake() {
     let computed = APP.replace(
@@ -472,8 +473,8 @@ fn a_computed_read_list_is_refused_at_bake() {
     );
 }
 
-/// Android's `READ_*` permissions are those of the types the app's literal
-/// lists name, and history's where it sets the flag.
+/// D4, D19 item 4: Android's `READ_*` permissions are those of the types
+/// the app's literal lists name, and history's where it sets the flag.
 #[test]
 fn the_read_list_derives_its_android_permissions() {
     let app = App::new("derive", APP);

@@ -3,12 +3,14 @@ use std::sync::Arc;
 
 mod contexts;
 mod pad;
+mod pointers;
 mod sensor;
 mod triggers;
 pub(crate) use contexts::seed;
 pub use contexts::{Binding, Bindings, InputContexts};
 pub(crate) use pad::pad_index;
 pub use pad::{Curve, Pad, PadState, MAX_PADS, PAD_BUTTONS};
+pub use pointers::{PointerContact, PointerEdge};
 pub use sensor::{tilt_stick, SensorKind, SensorSample, SensorState, Tilt};
 pub use triggers::InputState;
 /// Register the input resources a world restores in any process: contexts,
@@ -170,6 +172,8 @@ impl Actions {
         Self::default()
     }
     fn add(&mut self, a: Action) {
+        // An unnamed action would read as a raw pointer contact (`Contact::action`).
+        assert!(!a.name.is_empty(), "an action needs a name");
         assert!(
             !self.entries.iter().any(|old| old.name == a.name),
             "duplicate action `{}`",
@@ -618,6 +622,30 @@ pub struct Input {
     sensors: SensorState,
     #[data(skip)]
     tick_samples: Vec<sensor::TickSample>,
+    // Every contact and this tick's edges; a restore rebuilds them from `contacts`.
+    #[data(skip)]
+    pointers: Vec<PointerContact>,
+    #[data(skip)]
+    pointer_edges: Vec<PointerEdge>,
+    // Whether the game has called `pad` (`reads_pads`).
+    #[data(skip)]
+    pads_read: PadsRead,
+}
+/// Set by `Input::pad`; never saved, never part of the world.
+#[derive(Default)]
+struct PadsRead(std::sync::atomic::AtomicBool);
+impl Clone for PadsRead {
+    fn clone(&self) -> Self {
+        Self(self.get().into())
+    }
+}
+impl PadsRead {
+    fn get(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    fn set(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 impl Input {
     /// Events produced by the preceding tick, in emission order for this type.
@@ -699,6 +727,16 @@ impl Input {
         {
             return Err("saved input needs finite points".into());
         }
+        let mut pointers: Vec<_> = saved
+            .contacts
+            .iter()
+            .filter(|p| p.action.is_empty())
+            .map(|p| p.id)
+            .collect();
+        pointers.sort_unstable();
+        if pointers.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err("saved pointer contacts must have unique ids".into());
+        }
         for p in &saved.contacts {
             if !p.origin.is_finite() || !p.position.is_finite() {
                 return Err(format!("control `{}` needs finite points", p.action));
@@ -774,6 +812,19 @@ impl Input {
     pub(crate) fn down(&self, code: &str) -> bool {
         self.keys.binary_search_by(|k| k.as_str().cmp(code)).is_ok()
             || pad::pad_index(code).is_some_and(|b| self.pads.iter().any(|p| p.down(b)))
+    }
+    /// Whether the world reads pads: an action or a rebinding names a pad
+    /// button or a stick, or the game has called `pad`.
+    pub(crate) fn reads_pads(&self) -> bool {
+        let pad = |keys: &[String]| keys.iter().any(|k| pad::pad_index(k).is_some());
+        self.pads_read.get()
+            || self.bindings.iter().any(|b| pad(&b.keys))
+            || self.actions().entries.iter().any(|a| {
+                pad(&a.keys)
+                    || a.stick
+                        .as_ref()
+                        .is_some_and(|s| !s.pads.is_empty() || s.keys.iter().any(|k| pad(k)))
+            })
     }
     /// The action's keys after `World::rebind` (a stick's are never rebound).
     fn keys_of<'a>(&'a self, a: &'a Action) -> &'a [String] {
@@ -893,6 +944,11 @@ impl Input {
     }
     /// A connected pad's state as the host last reported it.
     pub fn pad(&self, index: u32) -> Option<PadState> {
+        self.pads_read.set();
+        self.pad_state(index)
+    }
+    /// `pad` for the host and the agent, which are not the world reading it.
+    pub(crate) fn pad_state(&self, index: u32) -> Option<PadState> {
         self.pads.iter().find(|p| p.index == index).copied()
     }
     /// The agent's `state` input record: the declarations, the devices held
@@ -938,6 +994,7 @@ impl Input {
         if let Some(p) = &mut self.pointer {
             p.delta = Vec2::ZERO;
         }
+        self.clear_pointer_edges();
     }
     pub(crate) fn restore_dynamic(&mut self, saved: Self) {
         self.viewport = saved.viewport;
@@ -945,6 +1002,7 @@ impl Input {
         self.pointer = saved.pointer;
         self.contacts = saved.contacts;
         self.pads = saved.pads;
+        self.restore_pointers();
         self.clear_edges();
     }
     /// Held state changes; trigger timers start at `at_us`; no edges remain.
@@ -1071,6 +1129,7 @@ impl Input {
                 }
             }
             InputEvent::Blur { .. } => {
+                self.cancel_pointers(at_us);
                 self.keys.clear();
                 self.contacts.clear();
                 self.pads.clear();
@@ -1197,6 +1256,15 @@ impl Input {
                         self.contacts.retain(|p| p.id != id || !p.action.is_empty())
                     }
                 }
+                let ends =
+                    phase == PointerPhase::Cancel || (phase == PointerPhase::Up && buttons == 0);
+                let edge = PointerEdge {
+                    id,
+                    phase,
+                    position,
+                    world_us: at_us,
+                };
+                self.track_pointer(edge, motion, ends, primary_down);
             }
         }
     }

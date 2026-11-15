@@ -1,5 +1,5 @@
-// A swipe row whose actions keep their paint (what the author writes
-// wins). A row that names its swipe controls (`swipeTrailing`,
+// A swipe row whose actions keep their paint (LLP 1115 §2: what the author
+// writes wins). A row that names its swipe controls (`swipeTrailing`,
 // `swipeLeading`) takes UIKit's swipe, whose actions UIKit draws: rounded on
 // iOS 26 and later, whatever the author painted. When every control it names
 // says `appearance="none"`, as a header button keeps its paint by it, the

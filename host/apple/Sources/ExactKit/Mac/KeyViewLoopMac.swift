@@ -1,4 +1,4 @@
-// Tab on the Mac: the key-view loop the presenter builds
+// Tab on the Mac (LLP 1115.000 D7.2): the key-view loop the presenter builds
 // from the tree, and the person's Keyboard Navigation setting, which says
 // whether it reaches every control or only text fields and what takes keys
 // of its own. A `tabindex` the author wrote decides either way.
@@ -12,8 +12,8 @@ import AppKit
 enum KeyboardNavigation {
     /// What stands in for the person's setting: an agent's `prefer
     /// keyboard-navigation` or a test's. Under the agent it is off from
-    /// launch, the system's default and never the machine's, unless
-    /// `EXACT_DEVICE=real` asks for the machine's. Nil reads the
+    /// launch, the system's default and never the machine's (LLP 1069.007
+    /// D2), unless `EXACT_DEVICE=real` asks for the machine's. Nil reads the
     /// machine.
     nonisolated(unsafe) static var agent: Bool? = ExactEnv.agentMode && ExactEnv.environment["EXACT_DEVICE"] != "real" ? false : nil
     /// The setting now. Read at each use, so a change in System Settings is
@@ -23,30 +23,31 @@ enum KeyboardNavigation {
 }
 
 extension NodeView {
-    /// A box the author made a taker of keys: no button, with `focus`,
-    /// `blur` or `key` handlers, or a canvas that takes input. AppKit keeps a
-    /// custom view that accepts first responder in the Tab loop whatever
-    /// Keyboard Navigation says (measured on macOS 27.0), and focuses it on a
-    /// click (`takesClickFocus`).
+    /// A box the author made a taker of keys: no button or select, with
+    /// `focus`, `blur` or `key` handlers, or a canvas that takes input.
+    /// AppKit keeps a custom view that accepts first responder in the Tab
+    /// loop whatever Keyboard Navigation says (measured on macOS 27.0), and
+    /// focuses it on a click (`takesClickFocus`).
     var takesKeysOfItsOwn: Bool {
-        !isButton && !isRadio && (canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents))
+        !isButton && !isSelect && !isRadio && (canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents))
     }
     /// Whether Tab stops here. The author's `tabindex` wins: zero or more is
-    /// a stop, a negative one never. Without one, a stop by kind follows the
-    /// Keyboard Navigation setting as AppKit's controls do: off, only what
-    /// takes keys of its own; on, every control, a button, a pressable, a
-    /// radio group's one stop and a reorder grip included. (A text field's
-    /// stop is its own view's, and AppKit's.)
+    /// a stop (in a painted group, if its group's one stop), a negative one
+    /// never. Without one, a stop by kind follows the Keyboard Navigation
+    /// setting as AppKit's controls do: off, only what takes keys of its own;
+    /// on, every control, a button, a pressable, a radio group's or tablist's
+    /// one stop and a reorder grip included. (A text field's stop is its own
+    /// view's, and AppKit's.)
     var tabStop: Bool {
-        if let index = explicitTabIndex { return index >= 0 }
-        return tabbable && (KeyboardNavigation.on || takesKeysOfItsOwn)
+        if let index = explicitTabIndex { return index >= 0 && roleTabStop != false }
+        return (KeyboardNavigation.on || takesKeysOfItsOwn) && tabbable
     }
 }
 
 extension Presenter {
     /// The same editing descendant takes explicit, sequential and modal focus.
     func keyView(of v: NodeView) -> NSView {
-        // A list that is a table: the table is what takes the keys.
+        // A list that is a table: the table is what takes the keys (LLP 1115.002 D5).
         if let table = tables.feeds[v.id]?.table { return table }
         if v.kind == "native", let target = session?.natives.focusTarget(v) { return target }
         if v.isNativeButton, let button = controls.controls[v.id] as? NativeButtonMac { return button }
@@ -74,9 +75,28 @@ extension Presenter {
     func syncKeyViewLoop() {
         keyViewLoopMode = KeyboardNavigation.on
         keyViewBefore.removeAllObjects()
-        if let dialog = dialogs.active { keyViewLoop([dialog], from: dialogs.entries.last?.sheet?.content ?? viewport) }
-        else { keyViewLoop(root.subviews.compactMap { $0 as? NodeView }, from: viewport) }
-        for popover in menus.windowed { if let node = popover.node { keyViewLoop([node], from: popover.content) } }
+        for scope in keyViewScopes { keyViewLoop(scope.tops, from: scope.start) }
+    }
+    /// Each loop: the nodes under it, and the view it is entered from.
+    private var keyViewScopes: [(tops: [NodeView], start: NSView)] {
+        let page: (tops: [NodeView], start: NSView) = dialogs.active.map { ([$0], dialogs.entries.last?.sheet?.content ?? viewport) }
+            ?? (root.subviews.compactMap { $0 as? NodeView }, viewport)
+        return [page] + menus.windowed.compactMap { popover in popover.node.map { ([$0], popover.content) } }
+    }
+    /// The nodes under `tops` in the order Tab follows, none under an inert
+    /// or hidden one: a table's rows are in its cells, not among the list's
+    /// own subviews; a route in the detail's pane of a split is in that
+    /// pane's view, and stands where it was written (LLP 1115.002 D4); a
+    /// popover painted in the page follows its invoker.
+    private func inTabOrder(_ tops: [NodeView], _ visit: (NodeView) -> Void) {
+        func walk(_ v: NodeView) {
+            if v.inert || v.isHidden { return }
+            visit(v)
+            let own = v.container.subviews.compactMap { $0 as? NodeView }
+            for child in tables.feeds[v.id]?.mounted ?? navigation.split.authored(own, in: v.container) { walk(child) }
+            for popover in menus.following(v) { walk(popover) }
+        }
+        for top in tops { walk(top) }
     }
     /// One loop: the stops under `tops`, entered from `start`.
     private func keyViewLoop(_ tops: [NodeView], from start: NSView) {
@@ -89,21 +109,16 @@ extension Presenter {
         // a focused view that is no key view the same way. So does a
         // control that lost the focus by becoming disabled (`tabStart`).
         var starts: [(NSView, Int)] = []
-        func walk(_ v: NodeView) {
-            if v.inert || v.isHidden { return }
-            if Self.tabbable(v) { listed.append((keyView(of: v), v.tabOrder)) }
+        inTabOrder(tops) { v in
+            // A painted group's members are all in the loop: which one is its stop moves with the focus
+            // (LLP 1166.000 D1), and AppKit asks `canBecomeKeyView` at each Tab.
+            if Self.tabbable(v) || v.paintedGroup != nil { listed.append((keyView(of: v), v.tabOrder)) }
             else if keyView(of: v).acceptsFirstResponder || keyView(of: v) === tabStart { starts.append((keyView(of: v), listed.count)) }
             for run in v.syncInlineKeyViews() {
-                if run.canBecomeKeyView { listed.append((run, run.tabOrder)) }
+                if run.canBecomeKeyView || inlineRoleTabStop(run.id) != nil { listed.append((run, run.tabOrder)) }
                 else if run.acceptsFirstResponder { starts.append((run, listed.count)) }
             }
-            // A table's rows are in its cells, not among the list's own subviews; a route in the detail's
-            // pane of a split is in that pane's view, and stands where it was written.
-            let own = v.container.subviews.compactMap { $0 as? NodeView }
-            for child in tables.feeds[v.id]?.mounted ?? navigation.split.authored(own, in: v.container) { walk(child) }
-            for popover in menus.following(v) { walk(popover) }
         }
-        for top in tops { walk(top) }
         let tabbable = listed.enumerated().sorted { a, b in
             let ia = a.element.order, ib = b.element.order
             let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
@@ -137,11 +152,39 @@ extension Presenter {
     /// from one that is none, the stop before it in the tree.
     func tab(from view: NSView, back: Bool, in window: NSWindow) {
         flushKeyViewLoop()
+        if let next = outsideTheOrder(view, back: back) {
+            window.makeFirstResponder(next)
+            return
+        }
         if back, view.previousValidKeyView == nil, let before = keyViewBefore.object(forKey: view) {
             // Selected as AppKit selects a key view (a field's text with it), when it is one now.
             if let prior = before.previousKeyView, prior.nextValidKeyView === before { window.selectKeyView(following: prior) }
             else if before.canBecomeKeyView { window.makeFirstResponder(before) }
+            // No stop now (a painted group's member while another has the focus, LLP 1166.000 D1): the stop before it.
+            else { window.selectKeyView(preceding: before) }
         } else if back { window.selectPreviousKeyView(view) } else { window.selectNextKeyView(view) }
+    }
+
+    /// From a focused member of a painted group that can never be a stop (a
+    /// negative `tabindex`), which the loop keeps among the sorted stops: the
+    /// next or previous stop by its place in tree order, as HTML's sequential
+    /// navigation goes on from a focus outside its order (LLP 1166.000 D1),
+    /// and past either end the loop's first or last. Within the member's own
+    /// loop: the page's, the open dialog's, or a popover AppKit shows. Nil
+    /// for any other view, whose Tab is the loop's.
+    private func outsideTheOrder(_ view: NSView, back: Bool) -> NSView? {
+        guard let member = keyTarget(view), keyView(of: member) === view, (member.explicitTabIndex ?? 0) < 0, member.paintedGroup != nil,
+              let scope = keyViewScopes.first(where: { $0.start.window === view.window }) else { return nil }
+        var views: [NSView] = [], at: Int?
+        inTabOrder(scope.tops) { v in
+            if v === member { at = views.count } else if Self.tabbable(v) || v.paintedGroup != nil { views.append(keyView(of: v)) }
+            views += v.syncInlineKeyViews() as [NSView]
+        }
+        guard let at else { return nil }
+        let next = back ? views[..<at].last(where: \.canBecomeKeyView) : views[at...].first(where: \.canBecomeKeyView)
+        if let next { return next }
+        guard back else { return scope.start.nextValidKeyView }
+        return keyViewBefore.object(forKey: scope.start).flatMap { $0.canBecomeKeyView ? $0 : $0.previousValidKeyView }
     }
 
     /// Tab, or Shift-Tab, while the window itself is the first responder:
@@ -182,12 +225,12 @@ extension Presenter {
         return current == nil || current === window || current === window.contentView || current === viewport || current === session?.view
     }
 
-    /// The view a new window's caret goes to: the first
+    /// The view a new window's caret goes to (LLP 1115.000 D7.5): the first
     /// stop of the loop, which with Keyboard Navigation off is the first
     /// text field (or box that takes keys of its own) and with it on the
     /// first control. Nil when there is none, and when it is a canvas that
     /// takes input or a node painted through a canvas: a caret there would
-    /// be in the canvas's first frame (the readback fixture), so
+    /// be in the canvas's first frame (the readback fixture, LLP 1014), so
     /// such a window opens with nothing focused, as every window used to.
     var initialKeyView: NSView? {
         flushKeyViewLoop()
@@ -210,7 +253,7 @@ extension Presenter {
         window.makeFirstResponder(first)
     }
 
-    /// A Tab stop: an explicit `tabindex`
+    /// A Tab stop (LLP 1088 D7.3; LLP 1115.000 D7.2): an explicit `tabindex`
     /// ≥ 0, a text field, or what is one by kind under the Keyboard
     /// Navigation setting (`NodeView.tabStop`); an explicit negative never,
     /// though it still takes a click.
@@ -218,15 +261,16 @@ extension Presenter {
         if v.formDisabled || v.cssVisibilityHidden { return false }
         // A list that is a table is one stop, as AppKit's table is whatever
         // the Keyboard Navigation setting says; the node a row's click
-        // presses is none, since the table selects its rows.
+        // presses is none, since the table selects its rows (LLP 1115.002 D5).
         if let tables = v.presenter?.tables, !tables.feeds.isEmpty {
             if tables.feeds[v.id] != nil { return true }
             if v.explicitTabIndex == nil, tables.pressesRow(v) { return false }
         }
         if let index = v.explicitTabIndex, index < 0 { return false }
-        if v.field != nil || v.textArea != nil || v.isDateOrSelect { return true }
+        if v.roleTabStop == false { return false } // a painted group is one stop (LLP 1166.000 D1)
+        if v.field != nil || v.textArea != nil || v.isDate { return true }
         if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }
-        if v.isButton || v.kind == "toggle" || v.pressable { return v.explicitTabIndex != nil || KeyboardNavigation.on || v.takesKeysOfItsOwn }
+        if v.isButton || v.isSelect || v.kind == "toggle" || v.pressable { return v.explicitTabIndex != nil || KeyboardNavigation.on || v.takesKeysOfItsOwn }
         return v.canBecomeKeyView
     }
 }
@@ -252,8 +296,10 @@ final class InlineKeyView: NSView {
               !run.run(dark: owner.drawsDark).hidden else { return false }
         return !owner.formDisabled && owner.presenter?.inlineInert(id) == false
     }
+    /// As `NodeView.tabStop`: a member of a painted group is a stop only as
+    /// its group's one stop (LLP 1166.000 D1).
     override var canBecomeKeyView: Bool {
-        guard acceptsFirstResponder, let run else { return false }
+        guard acceptsFirstResponder, let run, owner?.presenter?.inlineRoleTabStop(id) != false else { return false }
         if let index = run.props["tabIndex"].flatMap(Int.init) { return index >= 0 }
         return KeyboardNavigation.on
     }
@@ -285,7 +331,17 @@ final class InlineKeyView: NSView {
         let key = NodeView.keyName(event)
         if key == "Tab", let window { owner?.presenter?.tab(from: self, back: event.modifierFlags.contains(.shift), in: window) }
         else if key == "Enter" || key == " " && run?.props["href"] == nil { _ = owner?.activateInline(id) }
+        // A member of a painted group takes its keys (RoleKeys.swift); its `key` handlers heard them first.
+        else if owner?.presenter?.controls.roleKey(inline: id, key, held: KeyCodes.held(event.modifierFlags)) == true {}
         else { super.keyDown(with: event) }
+    }
+}
+
+extension Presenter {
+    /// Inline run `id`'s responder, made when its paragraph has not made it yet.
+    func inlineKeyView(_ id: UInt32) -> InlineKeyView? {
+        guard inlineText(id) != nil, let owner = textHost(id) else { return nil }
+        return owner.inlineKeyViews[id] ?? owner.syncInlineKeyViews().first { $0.id == id }
     }
 }
 

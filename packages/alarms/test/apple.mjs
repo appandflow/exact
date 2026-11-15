@@ -1,4 +1,4 @@
-// @exact/alarms on iOS: Metronome's practice timer with the AlarmKit implementation
+// @exact/alarms on iOS (LLP 1133.030 §14 stage 1): Metronome's practice timer with the AlarmKit implementation
 // bound (`--bind alarms`), on a simulator of iOS 26 or later with a Dynamic Island. AlarmKit's own prompt and alert
 // are answered through XCTest's SpringBoard (`touch: 'platform'`); the clock is the wall's, which AlarmKit runs on.
 // A practice is five minutes, Metronome's shortest, so a run takes about twelve.

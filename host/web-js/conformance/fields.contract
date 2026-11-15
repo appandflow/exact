@@ -1,6 +1,6 @@
 // data: sparkline
 // Synthetic conformance plan: keyed rows whose items change some fields and
-// keep others, on Sparkline's `coins(version)`, where
+// keep others (LLP 1071.000 D2, D3), on Sparkline's `coins(version)`, where
 // each tick moves every third coin's series and keeps its name, ticker and
 // color. A binding reads one field, several, or the whole row through a
 // component derive; a key reads the row or, with `mode`, state beside it; a

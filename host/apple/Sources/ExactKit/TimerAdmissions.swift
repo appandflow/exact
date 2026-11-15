@@ -1,4 +1,4 @@
-// Observations for timer admission, sampled after every applied batch.
+// Observations for timer admission, sampled after every applied batch (LLP 1147).
 #if canImport(UIKit)
 import UIKit
 #else
@@ -121,7 +121,7 @@ final class TimerAdmissions {
             #if canImport(UIKit)
             let scroll = node.scrollView
             let held = scroll?.gestureRecognizers?.contains { ($0 as? TimerScrollTouch)?.held == true } == true
-            return held || scroll?.isTracking == true || scroll?.isDragging == true || scroll?.isDecelerating == true || node.scrollEnd?.owed == true
+            return held || scroll?.isTracking == true || scroll?.isDragging == true || scroll?.isDecelerating == true || node.scrollEnd?.live == true || node.scrollEnd?.owed == true
             #else
             return node.scrollEnd?.live == true || node.scrollEnd?.owed == true
             #endif
@@ -199,7 +199,7 @@ final class TimerAdmissions {
 
 #if canImport(UIKit)
 // Observe touches without recognizing, delaying, cancelling or preventing gestures
-private final class TimerScrollTouch: UIGestureRecognizer, UIGestureRecognizerDelegate {
+class TimerScrollTouch: UIGestureRecognizer, UIGestureRecognizerDelegate {
     private var touches: Set<ObjectIdentifier> = []
     private let changed: () -> Void
     var held: Bool { !touches.isEmpty }
@@ -217,7 +217,11 @@ private final class TimerScrollTouch: UIGestureRecognizer, UIGestureRecognizerDe
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { finish(touches) }
     private func finish(_ touches: Set<UITouch>) {
         for touch in touches { self.touches.remove(ObjectIdentifier(touch)) }
-        if self.touches.isEmpty { DispatchQueue.main.async { [weak self] in self?.changed() } }
+        if self.touches.isEmpty {
+            // finish the sequence so uikit can reset recognizers after a system gesture cancels it.
+            state = .failed
+            DispatchQueue.main.async { [weak self] in self?.changed() }
+        }
     }
     override func reset() { super.reset(); touches.removeAll(); DispatchQueue.main.async { [weak self] in self?.changed() } }
 }

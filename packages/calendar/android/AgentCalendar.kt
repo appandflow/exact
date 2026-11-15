@@ -1,4 +1,4 @@
-// The agent's calendars on Android, as Apple's `AgentCalendar.swift` is: what @exact/calendar
+// The agent's calendars on Android (LLP 1133.018 §10), as Apple's `AgentCalendar.swift` is: what @exact/calendar
 // reads and writes under the agent, where it asks the Calendar Provider for nothing. It is the package's
 // `fixture/calendar.json`, or another file there the agent's `store` names, which an APK carries as the app's assets
 // under `calendar-fixture/` (the fixture app's `assets/`), changed for the session by the app's writes and the
@@ -18,7 +18,7 @@ import java.time.format.DateTimeFormatter
 
 internal class AgentCalendar(private val assets: AssetManager) {
     companion object {
-        /** EventKit's predicate spans at most four years, which every target keeps. */
+        /** EventKit's predicate spans at most four years, which every target keeps (D2). */
         const val LONGEST = 4 * 365.25 * 86_400_000.0
         private val LOCAL = DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ss")
 
@@ -86,7 +86,7 @@ internal class AgentCalendar(private val assets: AssetManager) {
         }
     }
 
-    /** An occurrence's place in the order of every target's pages, which a cursor names. */
+    /** An occurrence's place in the order of every target's pages (D3), which a cursor names. */
     data class Key(val start: Double, val end: Double, val id: String, val recurrence: String) : Comparable<Key> {
         override fun compareTo(other: Key) = compareValuesBy(this, other, Key::start, Key::end, Key::id, Key::recurrence)
         override fun toString() = "${start.toLong()}|${end.toLong()}|$id|$recurrence"

@@ -1,4 +1,4 @@
-// `setMode` is the runner's own: it sets the window's mode in
+// `setMode` is the runner's own (LLP 1121 D5): it sets the window's mode in
 // the commit and no host is told, so it is not among the commands observed,
 // while the commands around it are, in order, beside the runtime's own
 // (a MIDI message, a sound command) in the same commit.

@@ -1,4 +1,4 @@
-//! Where a row's value came from, for `node`.
+//! Where a row's value came from, for `node` (LLP 1035.002 D1).
 
 use super::token_json;
 use crate::{DataSource, Runner};
@@ -7,9 +7,9 @@ use std::fmt::Write;
 
 /// Row `row`'s source on `node`, its own (`own`) row bound by an
 /// expression (`dynamic`) or not, or another's: `dynamic`, `heading` (a
-/// heading's implied size or weight), `authored`, `style`
-/// with the node whose platform text style gives it (a weight or a
-/// leading), `inherited` with the ancestor whose own row won (its view, its plan
+/// heading's implied size or weight, LLP 1115.000 D12.2), `authored`, `style`
+/// with the node whose platform text style gives it (a weight or a leading,
+/// D12.2), `inherited` with the ancestor whose own row won (its view, its plan
 /// site where it has one, and the token it read), or `initial`; the row's
 /// object closed.
 pub(super) fn write<D: DataSource>(
@@ -32,7 +32,7 @@ pub(super) fn write<D: DataSource>(
         match node.source_of(row) {
             Some(from) => {
                 // And the token the ancestor's own row read, its link; and that ancestor's plan site, which the
-                // design server names by its source (tamber/1.16 `fromAt`).
+                // design server names by its source (forma/1.16 `fromAt`).
                 let _ = write!(s, ",\"source\":\"inherited\",\"from\":{from}");
                 if let Some((site, _)) = runner.site_of(from) {
                     let _ = write!(s, ",\"fromSite\":{}", site.0);

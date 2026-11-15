@@ -1,8 +1,8 @@
-//! The session's app module on Apple: the Swift half is the
+//! The session's app module on Apple (LLP 1067.000): the Swift half is the
 //! app's module artifact, which `ExactKit` loads and owns per session; this
 //! half turns a source's long native call into a call to it and takes its
 //! answer. It is installed in the source's native slot as the host's
-//! handler, so it outlives activations and reaches a worker-built
+//! handler, so it outlives activations (Q6) and reaches a worker-built
 //! instance through the shared slot.
 #![allow(unsafe_code)] // One boxed reply crosses the C seam and comes back once.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -11,7 +11,7 @@ use std::ffi::c_void;
 
 /// `later(ctx, body, len, reply)`: a long native call's JSON body, on the
 /// executor's thread. The host copies the body, dispatches the call to the
-/// main thread and returns; `reply` is answered exactly once, from
+/// main thread (Q5) and returns; `reply` is answered exactly once, from
 /// any thread, with `exact_app_reply` ([`reply`]).
 pub type LaterFn = extern "C" fn(*mut c_void, *const u8, usize, *mut c_void);
 
@@ -26,7 +26,7 @@ pub fn handler(later: LaterFn, ctx: *mut c_void) -> exact_runner::NativeHandler 
 
 /// `call(ctx, body, len, slot)`: a `native.call`'s JSON body, on the
 /// source's thread. The host answers it before returning (on the main
-/// thread), with `exact_app_answer(slot, …)` ([`answer`]).
+/// thread, D4), with `exact_app_answer(slot, …)` ([`answer`]).
 pub type CallFn = extern "C" fn(*mut c_void, *const u8, usize, *mut c_void);
 
 /// Where a synchronous call's answer lands: on the caller's stack.

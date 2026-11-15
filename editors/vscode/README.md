@@ -2,7 +2,12 @@
 
 Syntax highlighting and editing defaults for the current `.contract` language,
 and `$exact-contract`, a problem matcher for the Contract compiler's
-diagnostics. This extension has no runtime code or dependencies.
+diagnostics. Its only runtime code, `extension.js`, registers `.contract` with
+the TypeScript 7 extension when that is installed and the workspace sets
+`js/ts.contentMappers.enabled`, so a project's content mapper
+(`editors/content-mapper`) answers hover, definition, references, rename and
+errors in a contract opened on its own. Without that setting it does nothing.
+It has no dependencies.
 
 To package and install from the repository root:
 
@@ -21,8 +26,8 @@ tags, events and host commands come from `contract/lower/src/tags.rs`,
 `contract/analyze/src/lib.rs` (`HANDLERS`) and `contract/syntax/src/lib.rs`
 (`HOST_COMMANDS`), all three listed by `contract vocab --json`; `cargo test -p
 contract --test it vscode_grammar` compares the grammar's lists with them and
-names any word missing or no longer the compiler's. `docs/contract-grammar.md`
-describes the language. Attribute names match structurally, including hyphens,
+names any word missing or no longer the compiler's. See LLP 1006 §2 and LLP
+1017.000 P1/P9 for the language and CSS names. Attribute names match structurally, including hyphens,
 so adding a CSS property needs no grammar update. The compiler validates names
 and values; highlighting is not validation.
 
@@ -31,7 +36,8 @@ resources (with `with`) and mutations, actions with `let` locals, host commands,
 record constructors, component `provide` sections, styles, keyframes,
 HTML/SVG/native tags, events, types, authored tests, double-quoted
 strings, and backtick templates with nested interpolations. Single quotes are
-not Contract strings. There is no language server or semantic completion.
+not Contract strings. The grammar itself is no language server: what an editor
+knows about a contract's names comes from `editors/content-mapper`.
 
 ## Building and testing from VS Code
 

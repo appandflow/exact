@@ -1,4 +1,4 @@
-//! A state part: `:active`, `:hover`,
+//! A state part (LLP 1121 D8, stage 8 A): `:active`, `:hover`,
 //! `:focus-visible`, `:disabled` or `:checked` on its own line, then an
 //! indented block of the state's rows, in a `style` (literal) or under a
 //! node (computed, as its own attributes are). Each row is carried as an
@@ -41,12 +41,8 @@ impl Parser {
             return Err(SyntaxError {
                 id: "syntax-state",
                 message: format!(
-                    "`{state}` is not a state Contract has; a state part is one of {}",
-                    STATES
-                        .iter()
-                        .map(|s| format!("`:{s}`"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    "`{state}` is not a state Contract has; a state part is one of {} (LLP 1121 D8)",
+                    STATES.iter().map(|s| format!("`:{s}`")).collect::<Vec<_>>().join(", ")
                 ),
                 span,
             });
@@ -54,9 +50,7 @@ impl Parser {
         if matches!(self.peek_kind(), TokenKind::Punct(":")) {
             return Err(SyntaxError {
                 id: "syntax-state",
-                message: format!(
-                    "`{state}` stands alone: a state part names one state, never a combination"
-                ),
+                message: format!("`{state}` stands alone: a state part names one state, never a combination (LLP 1121 D8)"),
                 span,
             });
         }
@@ -78,7 +72,7 @@ impl Parser {
             if p.at_state() || p.at_part() || matches!(p.peek_kind(), TokenKind::Ident(_)) && !p.at_continuation() {
                 return p.err(
                     "syntax-state",
-                    format!("a block in `{state}`: a state part holds rows only, never another state or part"),
+                    format!("a block in `{state}`: a state part holds rows only, never another state or part (LLP 1121 D8)"),
                 );
             }
             if literal {

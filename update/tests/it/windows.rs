@@ -1,4 +1,4 @@
-//! Unqualified durability must refuse before touching the store.
+//! LLP 1026 D11a: unqualified durability must refuse before touching the store.
 use super::support::{embedded, open_store, Temp};
 use exact_update::Trust;
 use std::collections::BTreeMap;

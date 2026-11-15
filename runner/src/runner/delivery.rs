@@ -1,4 +1,4 @@
-//! The `delivery` resource: the one thing a Contract app can
+//! The `delivery` resource (LLP 1030 D7): the one thing a Contract app can
 //! read about its own delivery, and the one thing a host tells the runner.
 //!
 //! The runner answers the source [`crate::delivery::SOURCE`] itself, before
@@ -17,8 +17,8 @@ use exact_kernel::{CommitReceipt, Kernel};
 use exact_plan::{Plan, TypeKind, Value};
 
 impl<D: DataSource> Runner<D> {
-    /// Boot with the host's snapshot of the app's kept secrets:
-    /// what the platform's store holds under the names the data
+    /// Boot with the host's snapshot of the app's kept secrets (LLP 1018
+    /// D1): what the platform's store holds under the names the data
     /// crate's grants allow, read by the host before this call. A resource
     /// with no compiled value — one that read the store at bake — answers
     /// from it now, so the first frame is a returning user's.
@@ -46,13 +46,16 @@ impl<D: DataSource> Runner<D> {
 
     /// Boot fresh state at a supplied clock, before evaluating initializers
     /// and resource arguments. Rendering never advances it or fires timers.
+    /// Delivery facts are available to the first component state initializers.
+    #[allow(clippy::too_many_arguments)] // the host boot facts
     pub fn boot_at(
-        plan: Plan,
+        plan: impl Into<crate::Program>,
         data: D,
         kernel: Kernel,
         viewport: crate::Viewport,
         launch: &str,
         now_ms: f64,
+        delivery: Delivery,
     ) -> Result<Runner<D>, RunnerError> {
         Self::boot_inner(
             RunnerLinks::ALL,
@@ -61,7 +64,7 @@ impl<D: DataSource> Runner<D> {
             kernel,
             Seed::At(now_ms),
             Vec::new(),
-            Delivery::default(),
+            delivery,
             viewport,
             launch,
         )
@@ -95,7 +98,7 @@ impl<D: DataSource> Runner<D> {
         .map(Runner::linking_every_device)
     }
 
-    /// [`Runner::boot_with_delivery`], with what the host links.
+    /// [`Runner::boot_with_delivery`], with what the host links (LLP 1047 D3).
     #[allow(clippy::too_many_arguments)] // the host boot facts
     pub fn boot_with_delivery_linked(
         links: RunnerLinks,
@@ -124,22 +127,21 @@ impl<D: DataSource> Runner<D> {
     /// Tell the runner its delivery facts. Every resource reading
     /// [`crate::delivery::SOURCE`] is answered again in one commit; `None`
     /// when the facts did not change, or when no resource reads them.
+    /// A refused commit keeps the previous facts.
     pub fn set_delivery(
         &mut self,
         delivery: Delivery,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
-        if delivery == self.delivery {
-            return Ok(None);
-        }
-        self.delivery = delivery;
-        let which: Vec<usize> = (0..self.plan.resources.len())
-            .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
-            .collect();
-        self.recommit(which, "delivery")
+        self.replace_fact(
+            |r| &mut r.delivery,
+            delivery,
+            SOURCE,
+            |r, _, readers| r.recommit(readers, "delivery"),
+        )
     }
 
     /// [`Runner::set_delivery`] with the binary's own three facts read out
-    /// of the archive's `compat.json` — the compatibility id,
+    /// of the archive's `compat.json` (LLP 1030 D3a) — the compatibility id,
     /// whether an update store is linked, and the executors — and everything
     /// else left as it was.
     pub fn set_delivery_from_compat(
@@ -154,7 +156,7 @@ impl<D: DataSource> Runner<D> {
     /// shape names its fields. A field the runner does not know is a
     /// refusal — bake catches it first, as `bake-delivery-field`.
     pub(super) fn delivery_answer(&self, i: usize) -> Result<Value, DataError> {
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i);
         if row.args.len > 0 {
             return Err(DataError::BadArguments(format!(
                 "{SOURCE} takes no arguments"

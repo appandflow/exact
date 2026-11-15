@@ -1,4 +1,5 @@
-// Inspect mode on the JS target's development page: the wasm page's (host/web/dev.js), with no runner in the
+// Inspect mode on the JS target's development page (LLP 1122 D4, D5; T2b,
+// the JS target): the wasm page's (host/web/dev.js), with no runner in the
 // page. The dev loop serves it at /__dev/inspect.js and the page's dev client
 // loads it; it is in no build's dist. While inspect mode is on, every input
 // is taken here (a cover takes the pointer, a gate on the window the rest),
@@ -37,8 +38,8 @@ async function inspectTable() {
 }
 
 /** The design the page runs now, when a live edit moved it from the one the
- * table's values were set in (a token's row takes its value from the page's
- * current design): its tokens by name, from the dev loop's
+ * table's values were set in (theme2's ruling: a token's row takes its value
+ * from the page's current design): its tokens by name, from the dev loop's
  * snapshot when that is the page's design; else none known (`tokens: null`). */
 async function liveDesign(t) {
   const now = globalThis.exact?.designDigest ?? null;
@@ -235,14 +236,14 @@ async function nodeOf(el) {
       if (row) found = { at, ...ownRow(t, at, row, lv) };
       else if (e?.b && t.implied.includes(name)) { const row = impliedRow(t, at, name, lv); if (row) found = { at, ...row }; }
     }
-    // (And the ancestor's plan site, which the design server names by its source: tamber/1.16 `fromAt`.)
+    // (And the ancestor's plan site, which the design server names by its source: forma/1.16 `fromAt`.)
     if (found) { const { at, ...row } = found; style[name] = { ...row, source: "inherited", from: viewOf(at), ...(siteOf(at) != null ? { fromSite: siteOf(at) } : {}) }; continue; }
     style[name] = { value: t.initial[name], source: "initial" };
   }
   const modes = modesOf(el);
   return { type: entry.t, site, instance, modes, style, testId: el.getAttribute("data-testid") };
 }
-/** A boundary `el`'s implied row `name`: the text the
+/** A boundary `el`'s implied row `name` (LLP 1121 D7): the text the
  * nearest own row above it reads, set again in the boundary's tuple; none
  * when that row reads no token. */
 function impliedRow(t, el, name, lv) {
@@ -284,7 +285,7 @@ async function selectedReport(el, click = null, moved = null) {
   return envelope(selected);
 }
 
-// A click's selection carries a token (tamber/1.7) the outline answering it
+// A click's selection carries a token (forma/1.7) the outline answering it
 // names: that one scrolls nothing. A selection is its element in a page: a
 // refresh after a reload finds it again by its site and instance path.
 let clicks = 0, asks = 0;
@@ -302,7 +303,7 @@ async function select(el, clicked = false, click = null, moved = null) {
   }
   env.report(r);
 }
-// `inspect` `{select: {up, plan, from, instance}}` (tamber/1.16; 1.17 by this page's own tree): the selection moves up
+// `inspect` `{select: {up, plan, from, instance}}` (forma/1.16; 1.17 by this page's own tree): the selection moves up
 // `up` copies, as a click on the node it lands on would select it, reported with `moved: {up, stepped}`. Walking up from
 // the selection, its own copy seen, each ancestor of a copy not yet seen is one step (a slot's host among them, a
 // component that only renders another none); at step `up` it lands on that copy's outermost ancestor; with fewer, on
@@ -331,7 +332,7 @@ async function selectUp({ up, plan, from, instance }) {
   const el = inspecting.selected?.el;
   if (!inspecting.on || !el?.isConnected || !Number.isSafeInteger(up)) { await refresh(); return; }
   // (Only the selection, its instance and the plan the server took them from. One that moved since on its way here is
-  // no inability: the page reports its selection as it is now, and the tool's chain follows.)
+  // no inability (theme2 15:02): the page reports its selection as it is now, and the tool's chain follows.)
   if (inspecting.selected.plan !== (globalThis.exact?.plan ?? null) || plan !== inspecting.selected.plan || from !== inspecting.selected.site || JSON.stringify(instance ?? []) !== inspecting.selected.instance) { await refresh(); return; }
   const copies = copiesHeld.plan === plan ? copiesHeld.list : null;
   if (!copies) { await refresh(); return; }
@@ -504,7 +505,7 @@ function outlineSites(frame) {
   // nowhere, never another copy of it (Apple pass #2: a move scrolled to a copy rows away); else (the tool's
   // Outline, or a selection kept across a reload, its element unknown) the first. As host/web/dev.js and the Apple
   // hosts' Inspect.revealing.
-  // (shown: rendered and not `visibility: hidden`, whose box would still take a scroll)
+  // (shown: rendered and not `visibility: hidden`, whose box would still take a scroll; Astra's round 1)
   const shown = (el) => el.isConnected && (el.checkVisibility?.({ visibilityProperty: true }) ?? true);
   const was = inspecting.selected;
   const holds = was?.el && was.plan === frame.plan && wanted.has(String(was.site));
@@ -523,7 +524,7 @@ function outlineSites(frame) {
 }
 
 /** An `inspect` or `outline` frame from the build channel. */
-/** `hold {revision, hold}` (*1.11*): `{site, instance, state}` of this page's plan, the element
+/** `hold {revision, hold}` (LLP 1122 D4, D8; *1.11*): `{site, instance, state}` of this page's plan, the element
  * by its site and instance path (exactly one), held by the input glue as the real state; null lets it go. What it
  * holds or let go, and why, is reported (`held`). */
 // One at a time, in order; one a newer frame replaced while it waited is dropped unsaid (the newer one says).

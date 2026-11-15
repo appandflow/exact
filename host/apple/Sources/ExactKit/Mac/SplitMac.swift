@@ -1,9 +1,9 @@
-// A list and its detail are a split view. Where a
+// @ref LLP 1115.002 D4 — a list and its detail are a split view. Where a
 // stack's root route holds a list whose rows push (the runner's rule,
 // `Runner::stack_split`, shared by every host that splits), a hand-built
 // Mac window shows the list and the detail side by side: an
 // `NSSplitViewController` whose divider, minimums and narrowing are
-// AppKit's. On the Mac it is so at every window width (measured): the
+// AppKit's. On the Mac it is so at every window width (measured, D4): the
 // window stops narrowing instead.
 //
 // **Which view is which pane.** The page's view is the list's column: the
@@ -11,14 +11,14 @@
 // column as it narrows beside a sidebar. The stack's routes above the list,
 // up to its first sheet, live in the detail's pane: each is a subtree of
 // the one session laid out in a containing block the pane's size
-// (`BlockHost`), so nothing about a route changes but the box it is
+// (`BlockHost`, D8.2), so nothing about a route changes but the box it is
 // laid out in. The pane shows the top one. With none it shows the box the
-// root route marks `navigationSplit="placeholder"`, as
+// root route marks `navigationSplit="placeholder"` (LLP 1116.006 D2), as
 // the web's shell does, or else says so in AppKit's words.
 //
-// **A row of the list draws no disclosure chevron**: a table's row
+// **A row of the list draws no disclosure chevron** (D5): a table's row
 // draws none in its cell (TableInkMac.swift), and a painted list's row (the
-// grouped form) draws none while its list is the list's column.
+// grouped form, D6) draws none while its list is the list's column.
 //
 // **What a row's detail is.** A route some row of the list links to is
 // that row's detail (the rule names the pairs), and so is one that came
@@ -27,6 +27,8 @@
 // hand-built split's detail has no Back, and its row is the list's selected
 // row. A route pushed from inside the detail is above it, and the window's
 // Back leads from that (BackMac.swift, at the bar's leading end).
+// A detail no row owns takes the list's first current press (`aria-current`
+// other than empty or `false`), read again as the list changes.
 //
 // **The selected row looks selected.** A table's is AppKit's selection. A
 // painted list's row is drawn as an inset table draws its selected row
@@ -97,15 +99,19 @@ final class SplitHost {
     private unowned let presenter: Presenter
     init(_ presenter: Presenter) { self.presenter = presenter }
 
-    /// Whose the window is where two headers are in view: the list's. Its
-    /// heading is the
-    /// window's title and the detail's stays the first line of its pane,
-    /// which is what SwiftUI's three columns and AppKit's show. False is
-    /// the other reading, SwiftUI's two columns: the detail's heading is
-    /// the title and the list's stays over its rows. Either way each
-    /// header's buttons are over its own column (`splitHeaderRoutes`,
-    /// HeaderMac.swift; `WindowToolbarHost.present`).
-    var listOwnsWindow = true { didSet { if listOwnsWindow != oldValue { sync() } } }
+    /// Whose the window is where two headers are in view (LLP 1115.002 §5
+    /// Q10, settled 2026-11-12), as SwiftUI's split measured: in two
+    /// columns the detail's, as System Settings titles the window with the
+    /// pane shown, its heading and subtitle the window's and the list's the
+    /// first lines of its column; beside a sidebar, in three, the list's, as
+    /// Mail's and SwiftUI's three columns are, the detail's heading the
+    /// first line of its pane. With no detail shown the list owns it. Nil is
+    /// that rule; true or false fixes one reading, for a comparison. Either
+    /// way each header's buttons are over its own column
+    /// (`splitHeaderRoutes`, HeaderMac.swift; `WindowToolbarHost.present`).
+    var listOwnsWindow: Bool? = nil { didSet { if listOwnsWindow != oldValue { sync() } } }
+    /// Whether the list owns the window now, by `listOwnsWindow`'s rule.
+    var listOwns: Bool { listOwnsWindow ?? (controller?.hasSidebar == true) }
     /// A stack that pushes, not a split: the driver's own chrome (`--chrome
     /// agent`), as it paints the header, the tablist and a list's rows. A
     /// test of the pushed stack says so.
@@ -129,7 +135,7 @@ final class SplitHost {
         /// Where in the stack the pane begins: the topmost route at or
         /// under the one shown that is a row's detail, else the first.
         let base: Int
-        /// The press of the row whose detail that is, where it is known.
+        /// The owning row's press, else the list's current press for a detail no row owns.
         let row: UInt32?
     }
     private(set) var shown: Shown?
@@ -274,6 +280,20 @@ final class SplitHost {
         return answer
     }
 
+    /// The same outer press owners the split rule walks, in authored order.
+    /// Table cells hold their rows apart from the list's native children.
+    private func currentRow(in list: NodeView) -> UInt32? {
+        let children = presenter.tables.feeds[list.id].map { $0.children ?? $0.rows.map(\.node) }
+            ?? list.container.subviews.compactMap { $0 as? NodeView }
+        for row in children where presenter.views[row.id] === row && row.style["display"]?.string != "none"
+            && row.props["popover"] == nil && row.props["navigationSplit"] != "placeholder" {
+            if row.handlers.contains("press") || row.props["href"]?.isEmpty == false {
+                if let current = row.props["accessibilityCurrent"], !["", "false"].contains(current) { return row.id }
+            } else if let current = currentRow(in: row) { return current }
+        }
+        return nil
+    }
+
     /// Each batch, inside the navigation's pass, which gates the routes by
     /// the answer: what the selected stack of the first root shows.
     /// `routes` is that stack and `selected` the route its root shows.
@@ -298,14 +318,16 @@ final class SplitHost {
             rowOf[detail.id] = (rule.rows[detail.id] ?? pressing, rule.locations[detail.id])
         }
         // One that has moved since (`replace` keeps a route's id) to where no row's press or link took it
-        // keeps its place in the pane and has no row.
+        // keeps its place in the pane and loses its row association (LLP 1127 D3).
         for (route, entry) in rowOf where entry.row != nil {
             if let at = entry.at, let now = rule.locations[route], now != at { rowOf[route] = (nil, now) }
         }
         seen.formUnion(pane.map(\.id))
         let base = top >= 1 ? stride(from: top, through: 1, by: -1).first { rowOf[routes[$0].id] != nil } ?? 1 : 1
+        let owner = top >= 1 ? rowOf[routes[base].id] : nil
+        let current = detail != nil && owner?.row == nil ? rule.list.flatMap { presenter.views[$0] }.flatMap { currentRow(in: $0) } : nil
         shown = Shown(root: root, list: list, table: rule.list, width: rule.width.map { CGFloat($0) }, routes: pane, detail: detail,
-                      base: base, row: top >= 1 ? rowOf[routes[base].id]?.row : nil)
+                      base: base, row: owner?.row ?? current)
         if !wanted {
             wanted = true
             presenter.afterBatch { [weak self] in self?.onWanted?() }
@@ -371,7 +393,7 @@ final class SplitHost {
         pane.positionChanged = { [weak self, weak pane] in
             if let pane { self?.resized(pane.bounds.size) }
         }
-        // The pointer over the pane hovers what is under it, as over the page: in the key window.
+        // The pointer over the pane hovers what is under it, as over the page: in the key window (LLP 1115.000 D7.9).
         if pane.pointerTracking == nil {
             pane.pointerTracking = { [weak presenter] event in
                 if event.window?.isKeyWindow == true || event.type == .mouseExited { presenter?.trackPointer(event) }
@@ -467,7 +489,7 @@ final class SplitHost {
         return (presenter.tables.authoredRow(of: row) ?? row).rowPress === node
     }
 
-    /// Draw `row` selected, and no other row of a painted list. Asked
+    /// Draw `row` selected, and no other row of a painted list (D5). Asked
     /// again after every batch, and as its window's key state or first
     /// responder changes.
     private func mark(_ row: NodeView?) {
@@ -559,8 +581,7 @@ final class SplitHost {
         for route in shown { presenter.blocks.resize(route, .size(size), placement: controller.map { placement(of: route, in: $0.detailPane) } ?? nil) }
     }
 
-    /// The list's selected row is the row whose detail the pane shows; when
-    /// the detail goes, or is no row's, no row is.
+    /// Show the detail's owning or current row; no detail or no such row clears it.
     private func select(_ shown: Shown) {
         guard let table = shown.table, let feed = presenter.tables.feeds[table] else { return }
         if shown.detail == nil {

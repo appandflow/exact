@@ -4,7 +4,7 @@
 
 use exact_plan::{EventKind, HandlersRow, Plan};
 
-/// A package view's declared event: a `message`
+/// A package view's declared event (LLP 1133.021 §9 item 2): a `message`
 /// handler whose one bound argument is the literal `exact:event:<name>`
 /// (contract-lower's `native_typed.rs`): its name and its action's
 /// parameter types, as `rt.js` `viewEvent` decodes the arguments.
@@ -25,6 +25,7 @@ pub(crate) fn declared(plan: &Plan, h: &HandlersRow) -> Option<(String, Vec<Stri
 pub(crate) fn piece(event: EventKind) -> Option<&'static str> {
     match event {
         EventKind::Swiperight => Some("onSwipe"),
+        EventKind::Swipeleft => Some("onSwipeLeft"),
         EventKind::Pan => Some("onPan"),
         EventKind::Panrelease => Some("onPanRelease"),
         EventKind::Select => Some("onSelect"),
@@ -53,6 +54,7 @@ pub(crate) fn binder(event: EventKind) -> Option<&'static str> {
         EventKind::Message => Some("onMessage"),
         EventKind::Scroll => Some("onScroll"),
         EventKind::Scrollend => Some("onScrollend"),
+        EventKind::Scrolldragstart | EventKind::Scrolldragend => Some("onScrollDrag"),
         EventKind::Refresh => Some("onRefresh"),
         EventKind::Dblclick => Some("onDblclick"),
         EventKind::Pointerdown | EventKind::Pointerup | EventKind::Pointermove => Some("onPointer"),
@@ -66,13 +68,14 @@ pub(crate) fn binder(event: EventKind) -> Option<&'static str> {
         EventKind::Copy | EventKind::Cut | EventKind::Paste => Some("onClipboard"),
         EventKind::Selectionchange => Some("onSelectionChange"),
         EventKind::Toggle => Some("onToggle"),
-        // An iframe's guest (the root's `navigate`
+        EventKind::Load | EventKind::Error => Some("onImage"),
+        // @ref LLP 1020.002 D2 — an iframe's guest (the root's `navigate`
         // is `navigateTo`, emit.rs), with its `FrameNavigation`.
         EventKind::Navigate
         | EventKind::Currententrychange
         | EventKind::Navigatesuccess
         | EventKind::Navigateerror => Some("onFrameNavigation"),
-        // A capture's `FrameCapture`, always refused on the web.
+        // @ref LLP 1020.002 D7 — a capture's `FrameCapture`, always refused on the web.
         EventKind::Capture => Some("onFrameCapture"),
         _ => None,
     }
@@ -100,6 +103,8 @@ mod tests {
             Message,
             Scroll,
             Scrollend,
+            Scrolldragstart,
+            Scrolldragend,
             Refresh,
             Dblclick,
             Pointerdown,
@@ -123,10 +128,12 @@ mod tests {
             Navigatesuccess,
             Navigateerror,
             Capture,
+            Load,
+            Error,
         ] {
             assert!(binder(k).is_some(), "{k:?}");
         }
-        for k in [Load, Cancel, Play, Pause, Timeupdate] {
+        for k in [Cancel, Play, Pause, Timeupdate] {
             assert!(binder(k).is_none(), "{k:?}");
         }
     }

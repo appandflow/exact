@@ -1,4 +1,4 @@
-// Shared-element flights on UIKit.
+// Shared-element flights on UIKit (LLP 1013.000 D4, D5).
 //
 // A `flight` op names a view whose shared-element name arrived from
 // another. It comes before the batch's destroys, so the leaver is still
@@ -23,7 +23,7 @@ struct FlightLook {
     /// The leaver's decoded image, drawn while the arriver's own is still
     /// loading: a new node's raster lands a turn or more after the commit
     /// that hides the leaver, and a flight drawing nothing until then showed
-    /// no photo at all for a frame or two on a device.
+    /// no photo at all for a frame or two on a device (LLP 1013.000 D4).
     var stand: NativeRasterLease? = nil
     /// A view scaled whole in its clip (`FlightScale`): `applyTransform`
     /// keeps this scale while it flies, as a style would otherwise undo it.
@@ -52,7 +52,7 @@ final class Flight {
     var slot: UIView?
     var container: UIView?
     /// A view that is not an image flies scaled inside this: the shown box,
-    /// its radius and its clip.
+    /// its radius and its clip (D4.4).
     var clip: UIView?
     var geometry: BatchOp?
     var saved: (interaction: Bool, hidden: Bool)?
@@ -64,7 +64,7 @@ final class FlightLayer: UIView {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
 }
 
-/// A flight's clip: the shown box of a view flying scaled.
+/// A flight's clip: the shown box of a view flying scaled (D4.4).
 final class FlightClip: UIView {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
 }
@@ -230,7 +230,7 @@ extension Presenter {
               !DisplayPreferences.reducedMotion else {
             flights.removeValue(forKey: f.id)
             // Not flying (reduced motion, nothing captured): its place still
-            // comes into view.
+            // comes into view (D5).
             if let view = views[f.id], view.window != nil { afterBatch { [weak self, weak view] in if let view { self?.scrollIntoView(view) } } }
             return
         }
@@ -242,7 +242,7 @@ extension Presenter {
         slot.isHidden = true
         parent.insertSubview(slot, belowSubview: view)
         // Once the batch is done: a virtualized list hears a scroll made
-        // inside one as no move of its own. The flight
+        // inside one as no move of its own (LLP 1013.000 D5). The flight
         // re-reads its slot each frame, so it follows.
         afterBatch { [weak self, weak slot, weak f] in
             guard let self, let slot, let f else { return }
@@ -250,7 +250,7 @@ extension Presenter {
             self.showFlight(f)
         }
         guard let own = ViewPresentation.root(of: parent) else { slot.removeFromSuperview(); flights.removeValue(forKey: f.id); return }
-        // The flight goes in B's presentation, unless A's encloses
+        // The flight goes in B's presentation (D4 step 3), unless A's encloses
         // it: then in A's, so a photo closing from an overlay above the routes
         // into a thumbnail in a route stays above that overlay as it fades,
         // as UIKit's and Signal's zooms keep the image above their backdrops.
@@ -261,7 +261,7 @@ extension Presenter {
             l.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             root.addSubview(l)
             // Above every ranked sibling, as a transition snapshot is: a
-            // route's document plane sits at rank ½, and a
+            // route's document plane sits at rank ½ (LLP 1083.000 D4), and a
             // flight layer left at depth 0 drew under it, so a flight landing
             // in a route was never seen.
             l.setPaintForeground()
@@ -281,7 +281,7 @@ extension Presenter {
             view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
             view.flightLook = FlightLook(image: CGRect(origin: .zero, size: size))
         } else {
-            // Its own look, at its own size, scaled in a clip.
+            // Its own look, at its own size, scaled in a clip (D4.4).
             let clip = FlightClip(frame: f.source.rect.isNull ? .zero : layer.convert(f.source.rect, from: nil))
             clip.isUserInteractionEnabled = false
             clip.layer.masksToBounds = true
@@ -307,7 +307,7 @@ extension Presenter {
         if let clip = f.clip {
             // Scaled whole at its own layout, the slot's size, in a clip that
             // is the shown box; the radius is the clip's, in the shown box's
-            // units, as the leaver's was captured.
+            // units, as the leaver's was captured (D4.4).
             let layout = slot.bounds.size
             let s = FlightScale.of(shown: shown.size, layout: layout) ?? 1
             let ratio = to.width / max(layout.width, 1)
@@ -338,9 +338,9 @@ extension Presenter {
         CATransaction.commit()
     }
 
-    /// Every scroller between the slot and its presentation scrolls by the
-    /// least that shows it whole (`scrollIntoView`'s `nearest`), innermost
-    /// first, at once.
+    /// Every scroller between the slot and its presentation scrolls it into
+    /// view by `scrollIntoView`'s `nearest` (CSSOM View), innermost first,
+    /// at once (LLP 1013.000 D5).
     private func scrollIntoView(_ slot: UIView) {
         let root = ViewPresentation.root(of: slot)
         var ancestor = slot.superview
@@ -350,13 +350,8 @@ extension Presenter {
                 let inset = sv.adjustedContentInset
                 let visible = sv.pageBounds.inset(by: inset)
                 var offset = sv.contentOffset
-                func nearest(_ lo: CGFloat, _ hi: CGFloat, _ vlo: CGFloat, _ vhi: CGFloat) -> CGFloat {
-                    if lo >= vlo && hi <= vhi { return 0 }
-                    if hi - lo > vhi - vlo { return lo - vlo }
-                    return lo < vlo ? lo - vlo : hi - vhi
-                }
-                offset.x += nearest(r.minX, r.maxX, visible.minX, visible.maxX)
-                offset.y += nearest(r.minY, r.maxY, visible.minY, visible.maxY)
+                offset.x += IntoView.aligned("nearest", target: r.minX, r.maxX, port: visible.minX, size: visible.width) - visible.minX
+                offset.y += IntoView.aligned("nearest", target: r.minY, r.maxY, port: visible.minY, size: visible.height) - visible.minY
                 offset.x = min(max(offset.x, -inset.left), max(-inset.left, sv.contentSize.width - sv.bounds.width + inset.right))
                 offset.y = min(max(offset.y, -inset.top), max(-inset.top, sv.contentSize.height - sv.bounds.height + inset.bottom))
                 if offset != sv.contentOffset { sv.setContentOffset(PixelGrid.offset(offset, in: sv), animated: false) }

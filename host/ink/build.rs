@@ -1,4 +1,4 @@
-//! The portable shader is checked in every backend dialect.
+//! The portable shader is checked in every backend dialect. @ref LLP 1149 D6.1.
 
 use naga::back::{glsl, hlsl, msl, spv};
 use naga::valid::{Capabilities, ValidationFlags, Validator};
@@ -133,7 +133,7 @@ fn main() {
     }
 }
 
-// SDKs and minima follow canvas/vello/build.rs.
+// SDKs and minima follow canvas/vello/build.rs. @ref LLP 1149 D6.1.
 fn build_metal(out: &Path) {
     println!("cargo:rustc-check-cfg=cfg(exact_ink_metal)");
     let target = std::env::var("TARGET").unwrap();
@@ -203,7 +203,7 @@ fn metallib(sdk: &str, min: &str, src: &Path, out: &Path) {
 
 /// Naga 30 emits SM5.1 sampler heaps even with V5_0. Ink has exactly one
 /// statically bound sampler, so lower that generated indirection to s0.
-/// This is a translation correction, checked again by fxc.
+/// @ref LLP 1149 D6.2 — a translation correction, checked again by fxc in C6.
 fn fixed_sampler_hlsl(source: &str) -> String {
     let mut declarations = 0;
     let mut sampler = 0;
@@ -248,6 +248,7 @@ fn fixed_sampler_hlsl(source: &str) -> String {
 }
 
 // The cross-check has no Windows SDK. Empty binaries refuse at device creation.
+// @ref LLP 1149 D6.1.
 fn build_dxbc(out: &Path, entries: &[String]) {
     println!("cargo:rerun-if-env-changed=PATH");
     let windows = std::env::var("TARGET").unwrap().contains("windows");

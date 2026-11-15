@@ -1,9 +1,9 @@
-//! `crypto.subtle` on the Hermes executor: the byte work
-//! behind the prelude's `SubtleCrypto`, through `__exact_bytes`. The prelude
-//! owns the WebCrypto shapes (algorithm names, errors, promises); this owns
-//! the arithmetic.
+//! The Hermes executor's bytes door (`__exact_bytes`): WebCrypto
+//! (LLP 1069.005) and byte transfers that bypass the string door. The
+//! prelude owns the WebCrypto shapes (algorithm names, errors, promises);
+//! this owns the arithmetic.
 //!
-//! Digests are pure: no read, no mark, any time.
+//! @ref LLP 1069.005 D1 — digests are pure: no read, no mark, any time.
 
 use std::ffi::{c_char, c_void, CStr};
 
@@ -13,7 +13,7 @@ use crate::{c_string, HostState};
 
 /// A SHA-2 digest of `data`, lowercase hex: the name is the prelude's,
 /// already normalized (`SHA-256`, `SHA-384`, `SHA-512`). The Rust
-/// sources' own, so both languages hash with one implementation.
+/// sources' own (D5), so both languages hash with one implementation.
 fn digest(name: &str, data: &[u8]) -> Result<String, String> {
     let sha = match name {
         "SHA-256" => Sha::Sha256,
@@ -24,7 +24,7 @@ fn digest(name: &str, data: &[u8]) -> Result<String, String> {
     Ok(hex(&exact_data::crypto::digest(sha, data)))
 }
 
-/// Host op 12: `authCallback()`, this native build's
+/// Host op 12: `authCallback()` (LLP 1069.006 D2), this native build's
 /// callback, a device fact, so bake compiles no answer that asks.
 /// (`placement` is the web worker realm's question alone.)
 pub(crate) fn auth_callback(state: &mut HostState, what: &str) -> Option<String> {
@@ -44,7 +44,7 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
     text
 }
 
-/// ECDSA P-256 behind the prelude's `CryptoKey`, by
+/// ECDSA P-256 behind the prelude's `CryptoKey` (LLP 1069.005 D1b), by
 /// handle into `state.keys`: 2 generate(extractable "1"/"0") →
 /// `{"private":h,"public":h}`; 3 sign(handle, data) → `r‖s` as hex; 4
 /// import(`{"jwk":…,"extractable":…}`) → a handle; 5 export(handle) → the
@@ -60,7 +60,7 @@ fn ec(state: &mut HostState, op: u32, a: &str, data: &[u8]) -> Result<String, St
         | DataError::Unavailable(m)
         | DataError::UnknownSource(m)
         | DataError::Interface(m)
-        | DataError::DeferredAtBake(m)
+        | DataError::DeferredAtBake { message: m, .. }
         | DataError::Overrun(m)
         | DataError::Failed(_, m, _) => m,
     };
@@ -105,7 +105,7 @@ fn ec(state: &mut HostState, op: u32, a: &str, data: &[u8]) -> Result<String, St
         }
         5 => Ok(key(state, a)?.to_jwk().map_err(message)?.to_json()),
         // No store here (a let-go chain, background work): refused, never
-        // read as "no key kept".
+        // read as "no key kept" (LLP 1146 D3).
         6 | 7 if store_ptr.is_none() && state.between_answers => {
             Err(super::door::no_store(if op == 6 {
                 "store.keepKey"
@@ -137,11 +137,16 @@ fn ec(state: &mut HostState, op: u32, a: &str, data: &[u8]) -> Result<String, St
 }
 
 /// The bytes door (`__exact_bytes(op, a, arrayBuffer)`). Ops: 1 digest(name);
-/// 2–7 ECDSA P-256 and kept keys ([`ec`]); 8 the video gate's stub decode,
+/// 2–7 ECDSA P-256 and kept keys ([`ec`]); 8 LLP 1133.003 §9's stub decode,
 /// under the agent only, which copies the bytes at `a`'s offset and length
 /// and drops them; 9 the
 /// binary message being mapped, written into the buffer, which the prelude
-/// made its size; 10 releases an unreachable key after the shim's weak-owner sweep.
+/// made its size; 10 releases an unreachable key or codec after the shim's
+/// weak-owner sweep; 11 admits a fetch with its body copied from the buffer
+/// (`a` is its ticket, a space, then the request metadata as JSON);
+/// 12–15 the Compression standard's codecs
+/// (`compression.rs` [`crate::compression::door`]; 15 copies what the last
+/// write or end yielded into the buffer, which the prelude made its size).
 ///
 /// # Safety
 /// Called by the shim on the engine's thread with `ctx` the `HostState` the
@@ -159,17 +164,22 @@ pub(crate) unsafe extern "C" fn bytes_door(
     // Op 9 writes: no shared slice of the buffer may live while it does.
     // SAFETY: the shim hands over JSI's `ArrayBuffer::data`, the prelude's
     // own buffer, writable and `len` long for this call.
-    if op == 9 {
-        let (status, text) = if len == state.binary.len() {
+    if op == 9 || op == 15 {
+        let (source, what) = if op == 9 {
+            (&mut state.binary, "message")
+        } else {
+            (&mut state.codec_out, "codec")
+        };
+        let (status, text) = if len == source.len() {
             if len > 0 {
-                std::ptr::copy_nonoverlapping(state.binary.as_ptr(), bytes as *mut u8, len);
+                std::ptr::copy_nonoverlapping(source.as_ptr(), bytes as *mut u8, len);
+            }
+            if op == 15 {
+                source.clear();
             }
             (0, String::new())
         } else {
-            (
-                1,
-                "message: a buffer that is not the message's size".to_string(),
-            )
+            (1, format!("{what}: a buffer that is not the output's size"))
         };
         *out = c_string(&text);
         return status;
@@ -185,9 +195,24 @@ pub(crate) unsafe extern "C" fn bytes_door(
         10 => {
             if let Ok(handle) = a.parse::<u64>() {
                 state.keys.remove(&handle);
+                state.codecs.remove(&handle);
             }
             Ok(String::new())
         }
+        11 => match a.split_once(' ') {
+            Some((ticket, wire)) => {
+                crate::door::fetch(state, ticket, wire, Some(data)).map(|_| String::new())
+            }
+            None => Err("fetch: no ticket or request metadata".into()),
+        },
+        12..=14 => crate::compression::door(
+            &mut state.codecs,
+            &mut state.next_key,
+            &mut state.codec_out,
+            op,
+            &a,
+            data,
+        ),
         8 if state.agent.is_none() => Err("decode: the gate's stub decode is the agent's".into()),
         8 => {
             let mut range = a.split(' ').map(str::parse::<usize>);
@@ -303,11 +328,7 @@ mod tests {
         let (status, text) = call(&mut state, 9, "", &mut wrong);
         assert_eq!(
             (status, text.as_str(), wrong),
-            (
-                1,
-                "message: a buffer that is not the message's size",
-                [0, 0]
-            )
+            (1, "message: a buffer that is not the output's size", [0, 0])
         );
         let mut right = [0u8; 3];
         assert_eq!(call(&mut state, 9, "", &mut right).0, 0);

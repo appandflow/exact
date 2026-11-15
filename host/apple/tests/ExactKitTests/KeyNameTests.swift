@@ -6,7 +6,7 @@ import AppKit
 
 /// A character key's `KeyboardEvent.key` as Chrome reports it on a Mac:
 /// Option's character with Option down (Option+A is "å"), Control's
-/// unmodified key, a dead key's plain one.
+/// unmodified key, a dead key's plain one (Grok's batch 2 review).
 final class KeyNameTests: XCTestCase {
     func testOptionTypesItsCharacterAndControlKeepsThePlainKey() {
         XCTAssertEqual(KeyCodes.typed(option: true, characters: "å", ignoringModifiers: "a"), "å")

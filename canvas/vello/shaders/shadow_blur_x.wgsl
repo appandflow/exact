@@ -1,4 +1,4 @@
-// Canvas 2D shadows, pass 1 of 2: a horizontal Gaussian of the
+// Canvas 2D shadows, pass 1 of 2 (LLP 1056 §1): a horizontal Gaussian of the
 // shape's coverage (its paint's alpha), sigma in device pixels.
 
 struct Params {

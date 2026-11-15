@@ -1,5 +1,5 @@
-//! What the compiler refuses about values and names, and what bake's layout
-//! lint refuses that the compiler cannot see.
+//! LLP 1017 P1: what the compiler refuses about values and names, and what
+//! bake's layout lint refuses that the compiler cannot see.
 
 use contract::BakeError;
 use exact_plan::Value;
@@ -25,11 +25,69 @@ fn an_old_spelling_is_refused_with_the_css_name() {
     assert!(e.message.contains("`aria-label`"), "{e}");
 }
 
-/// A state part on an element (`:hover` then its rows) is linted as lowering
-/// folds it: a row its state takes passes, checked as the row it lowers to
-/// (`:active`'s colour as the press's, which inherits nothing); a row it
-/// takes none of, or a name that is no row, is refused (a chat app's emoji
-/// button).
+#[test]
+fn activity_placements_do_not_add_lint_errors() {
+    let source = r#"component App
+  state n = 1
+  view
+    text "x"
+
+component Departure
+  props
+    train: number
+  view
+    view slot="lockScreen"
+      text `${train}`
+    view slot="minimal"
+      text `${train}`
+"#;
+    contract::compile(source).unwrap_or_else(|e| panic!("{e}"));
+    let errors = |src: &str| {
+        let Err(errors) =
+            contract::compile_path_source_all(std::path::Path::new("app.contract"), src, false)
+        else {
+            panic!("the unrelated error must refuse the app");
+        };
+        errors.into_iter().map(|e| e.id).collect::<Vec<_>>()
+    };
+    let broken = source.replace("state n = 1", "state n = 1 + \"a\"");
+    assert_eq!(errors(&broken), ["type-operand"]);
+    let analyzed = source.replace(
+        "  state n = 1",
+        "  mutation saved as shape string\n  action go\n    send saved = command(\"one\")\n    send saved = command(\"two\")",
+    );
+    assert_eq!(errors(&analyzed), ["analyze-send-twice"]);
+
+    // A placement's other attributes and its children still get checked.
+    let invalid = broken
+        .replace("slot=\"minimal\"", "slot=\"minimal\" width=true")
+        .replace("text `${train}`", "text `${train}` color=\"bleu\"");
+    assert_eq!(
+        errors(&invalid),
+        [
+            "type-operand",
+            "lower-attr-value",
+            "lower-attr-value",
+            "lower-attr-value"
+        ]
+    );
+
+    // Ordinary lowering still refuses a placement attribute in the app's view.
+    for src in [
+        "component App\n  view\n    view slot=\"lockScreen\"\n      text \"x\"\n".into(),
+        source.replace("text \"x\"", "view\n      Departure(train=1)"),
+    ] {
+        let error = contract::compile(&src).unwrap_err();
+        assert_eq!(error.id, "lower-unknown-attr");
+        assert!(error.message.contains("`slot`"), "{error}");
+    }
+}
+
+/// A state part on an element (LLP 1121 D8, `:hover` then its rows) is linted
+/// as lowering folds it: a row its state takes passes, checked as the row it
+/// lowers to (`:active`'s colour as the press's, which inherits nothing); a
+/// row it takes none of, or a name that is no row, is refused (Excord's
+/// emoji button, f8b012ef1e).
 #[test]
 fn an_elements_state_part_is_linted_as_lowering_folds_it() {
     let src = |state: &str, row: &str| {
@@ -46,6 +104,10 @@ fn an_elements_state_part_is_linted_as_lowering_folds_it() {
         ("hover", "opacity = 1"),
         ("active", "opacity=0.5"),
         ("active", "color=\"#000000\""),
+        ("hover", "color=\"#000000\""),
+        ("focus-visible", "color=\"#000000\""),
+        ("hover", "scale=1.08"),
+        ("focus-visible", "scale = 1.1"),
     ] {
         assert!(
             lint(state, row).is_empty(),
@@ -54,7 +116,7 @@ fn an_elements_state_part_is_linted_as_lowering_folds_it() {
         );
         contract::compile(&src(state, row)).unwrap_or_else(|e| panic!("{state} {row}: {e}"));
     }
-    // A prop put in before the fold: a row that reads one is the fold's to judge, not the lint's.
+    // A prop put in before the fold: a row that reads one is the fold's to judge, not the lint's (Astra's re-check).
     let param = "component App\n  view\n    Dim(level=0.8)\ncomponent Dim\n  props\n    level: number\n  view\n    column opacity=0.6\n      :hover\n        opacity=level\n      text \"a\"\n";
     let found = contract_lower::lint(&contract_syntax::parse(param).unwrap());
     assert!(found.is_empty(), "{found:?}");
@@ -62,9 +124,15 @@ fn an_elements_state_part_is_linted_as_lowering_folds_it() {
     for (state, row, id) in [
         ("hover", "opacty=1", "lower-state-row"),
         ("hover", "width=10", "lower-state-row"),
-        ("hover", "color=\"#000000\"", "lower-state-row"),
+        ("hover", "-exact-tint-color=\"#000000\"", "lower-state-row"),
         ("active", "-exact-press-opacity-to=0.5", "lower-state-row"),
         ("active", "color=\"inherit\"", "lower-attr-value"),
+        ("hover", "color=\"inherit\"", "lower-attr-value"),
+        (
+            "focus-visible",
+            "color=\"currentColor\"",
+            "lower-attr-value",
+        ),
     ] {
         let found = lint(state, row);
         assert_eq!(found.first().copied(), Some(id), "{state} {row}: {found:?}");
@@ -128,15 +196,15 @@ fn a_shorthand_read_from_a_name_is_left_to_lowering() {
     // Type tokens across the known arms, a prop's arm left out and a
     // derive's body in its place.
     let design =
-        "tamber t\n\ntheme\n  type.a = 700 1rem Georgia\n  type.b: type = 1rem\n  space.md = 8px\n";
+        "forma t\n\ntheme\n  type.a = 700 1rem Georgia\n  type.b: type = 1rem\n  space.md = 8px\n";
     let lint_designed = |view: &str| {
         let source = format!(
             "component App\n  view\n    Run(face=\"type.a\", on=true)\ncomponent Run\n  props\n    face: string\n    on: bool\n  state title = \"-exact-body\"\n  derive good = on ? face : \"-exact-body\"\n  derive bad = on ? \"twelve\" : good\n  view\n    {view}\n"
         );
         let mut file = contract_syntax::parse(&source).unwrap();
         file.design = Some(contract_syntax::DesignSource {
-            path: "app.tamber".into(),
-            home: "app.tamber".into(),
+            path: "app.forma".into(),
+            home: "app.forma".into(),
             text: design.into(),
             source_id: 1,
             bindable: false,
@@ -169,11 +237,11 @@ fn a_shorthand_read_from_a_name_is_left_to_lowering() {
         ),
         (
             font("(on ? \"type.a\" : \"type.b\")"),
-            Some("tamber-type-longhands"),
+            Some("forma-type-longhands"),
         ),
         (
             font("(on ? \"type.a\" : \"bold 12px serif\")"),
-            Some("tamber-kind"),
+            Some("forma-kind"),
         ),
         (
             font("(on ? \"-exact-body\" : \"space.md\")"),
@@ -212,7 +280,8 @@ fn a_shorthand_read_from_a_name_is_left_to_lowering() {
     assert!(e.message.contains("subtraction"), "{e}");
 }
 
-/// What a React Native port writes first is refused with what to write.
+/// What a React Native port writes first is refused with what to write
+/// (the euxy port, 2026-10-17: 19 of 50 compiles refused).
 #[test]
 fn a_react_native_habit_is_refused_with_what_to_write() {
     for (line, id, needle) in [
@@ -364,16 +433,59 @@ fn a_horizontal_scroll_can_grow_vertically_with_its_contents() {
 
 #[test]
 fn bake_refuses_a_pressable_with_zero_area() {
-    let src = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button press=go width=0 height=0 testId=\"go\"\n";
-    let plan = contract::compile(src).unwrap();
-    let e = contract::bake(plan, NoData).unwrap_err();
-    match e {
-        BakeError::Lint { id, message, .. } => {
-            assert_eq!(id, "bake-zero-size");
-            assert!(message.contains("testId=\"go\""), "{message}");
+    for attrs in ["width=0 height=0", "flex-grow=0", "flex-basis=0"] {
+        let src = format!("component A\n  state n = 0\n  action go\n    n = 1\n  view\n    row height=44\n      button press=go {attrs} testId=\"go\"\n");
+        let plan = contract::compile(&src).unwrap();
+        let e = contract::bake(plan, NoData).unwrap_err();
+        match e {
+            BakeError::Lint { id, message, .. } => {
+                assert_eq!(id, "bake-zero-size", "{attrs}: {message}");
+                assert!(message.contains("testId=\"go\""), "{message}");
+            }
+            other => panic!("{attrs}: {other:?}"),
         }
-        other => panic!("{other:?}"),
     }
+}
+
+fn empty_controls_sized_by_flex(attrs: &str, width: f32) {
+    for control in ["button press=go", "link href=\"/close\""] {
+        for applied in [attrs, "class=Size"] {
+            let src = format!(
+                "style Size\n  {attrs}\ncomponent App\n  action go\n  view\n    column width=300\n      row height=44\n        {control} {applied} aria-label=\"Close\" testId=\"close\"\n"
+            );
+            let plan = contract::compile(&src).unwrap_or_else(|e| panic!("{src}\n{e}"));
+            contract::check(&plan).unwrap();
+            let plan = contract::bake(plan, NoData).unwrap();
+            let mut runner = exact_runner::Runner::boot(
+                plan,
+                NoData,
+                exact_kernel::Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+            .unwrap();
+            let root = runner.kernel().roots()[0];
+            runner
+                .kernel_mut()
+                .compute_layout(root, exact_kernel::Offer::definite(300.0, 100.0))
+                .unwrap();
+            let kernel = runner.kernel();
+            let key = kernel.find_by_test_id("close")[0];
+            let frame = kernel.node_by_key(key).unwrap().frame;
+            assert_eq!((frame.width, frame.height), (width, 44.0), "{src}");
+        }
+    }
+}
+
+#[test]
+fn empty_controls_can_take_their_size_from_flex_grow() {
+    empty_controls_sized_by_flex("flex=1", 300.0);
+    empty_controls_sized_by_flex("flex-grow=1", 300.0);
+}
+
+#[test]
+fn empty_controls_can_take_their_size_from_flex_basis() {
+    empty_controls_sized_by_flex("flex-basis=40", 40.0);
 }
 
 /// Ledger2 Rough 4: an absolutely positioned button is sized by its insets
@@ -396,18 +508,38 @@ fn an_inset_sized_button_has_area() {
     assert!(format!("{e}").contains("zero area"), "{e}");
 }
 
-/// The web's JS target bakes nothing; `contract::check` refuses there what
-/// every native bake would, before the page's module answers. Hidden
-/// controls and descendants have no pressable layout until shown.
+/// The web's JS target checks layout before the page's module answers.
+/// Hidden controls and descendants have no pressable layout until shown.
 #[test]
 fn check_refuses_without_data_what_no_answer_could_change() {
     let hidden = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button \"Down\" press=go display=\"none\" aria-keyshortcuts=\"Shift+ArrowDown\" testId=\"down\"\n";
-    contract::check(&contract::compile(hidden).unwrap()).unwrap();
     let nested = hidden
         .replace("    column\n", "    column display=\"none\"\n")
         .replace(" display=\"none\" aria-keyshortcuts", " aria-keyshortcuts");
-    contract::check(&contract::compile(&nested).unwrap()).unwrap();
-    contract::bake(contract::compile(&nested).unwrap(), NoData).unwrap();
+    for src in [hidden, nested.as_str()] {
+        let plan = contract::compile(src).unwrap();
+        contract::check(&plan).unwrap();
+        contract::bake(plan, NoData).unwrap();
+    }
+    for dimension in ["width", "height"] {
+        let src = hidden.replace(
+            "display=\"none\"",
+            &format!("{dimension}=0 padding=0 border-width=0"),
+        );
+        let plan = contract::compile(&src).unwrap();
+        for result in [
+            contract::check(&plan),
+            contract::bake(plan, NoData).map(|_| ()),
+        ] {
+            match result.unwrap_err() {
+                BakeError::Lint { id, message, .. } => {
+                    assert_eq!(id, "bake-zero-size", "{dimension}: {message}");
+                    assert!(message.contains("testId=\"down\""), "{message}");
+                }
+                other => panic!("{dimension}: {other:?}"),
+            }
+        }
+    }
     // A label the module answers is empty until it does: not this check's
     // to judge, nor a `scroll` that only its answered rows reach the bound
     // of (unanswered, it is exactly as tall as its header).
@@ -487,7 +619,7 @@ fn conditional_style_checks_preserve_computation_and_match_bindings() {
     let top = |runner: &exact_runner::Runner<NoData>| {
         let kernel = runner.kernel();
         let key = kernel.find_by_test_id("branch")[0];
-        kernel.node_by_key(key).unwrap().style.top
+        kernel.node_by_key(key).unwrap().style.top.clone()
     };
     assert_eq!(top(&runner), exact_kernel::Dimension::Points(20.0));
     runner.act("toggle", vec![]).unwrap();
@@ -497,8 +629,8 @@ fn conditional_style_checks_preserve_computation_and_match_bindings() {
 
 #[test]
 fn a_platform_colour_is_a_plan_literal_never_data() {
-    // State may choose between the plan's literals; a string that came from
-    // an action's argument names no platform colour.
+    // LLP 1095 D3: state may choose between the plan's literals; a string
+    // that came from an action's argument names no platform colour.
     let source = r##"component App
   state on = false
   state named = "#000000"
@@ -603,7 +735,6 @@ fn a_bound_string_on_a_number_row_is_refused_as_its_literal_is() {
     for (node, name) in [
         ("text \"a\" opacity=`${size / 20}`", "opacity"),
         ("column flex-grow=label", "flex-grow"),
-        ("text \"a\" z-index=label", "z-index"),
         ("text \"a\" font-weight=`${size}0`", "font-weight"),
         ("view column-count=label", "column-count"),
         ("view column-rule-width=`${size}px`", "column-rule-width"),
@@ -696,7 +827,7 @@ fn number_only_style_choices_accept_valid_css_wide_keywords() {
 }
 
 /// The `style=` hint's suggestion is read back as a node's attributes and
-/// compiled: what it suggests must compile.
+/// compiled: what it suggests must compile (the euxy port, review round 2).
 #[test]
 fn the_style_hint_suggests_only_what_compiles() {
     let hint = |style: &str| {
@@ -902,15 +1033,23 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         // inherited row has.
         (app("", "view alt=\"x\""), "lower-attr-tag", "`alt` belongs to `image`, not `view`; another element's accessible name is `aria-label`"),
         (app("", "view background-color=\"inherit\""), "lower-attr-value", "`background-color=\"inherit\"`: `background-color` does not inherit, and exact2 inherits only the rows CSS inherits; write the value"),
-        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `transparent`, or one in its own space: `color(display-p3 1 0 0)`, `oklch()`, `oklab()`, `lab()`, `lch()` — `light-dark(a, b)` of two, a role (`\"-exact-secondary-label\"`, `\"CanvasText\"`), or `-exact-platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal"),
-        (app("", "text \"a\" color=`-exact-platform-color(ios ${draft}Color, #000)`"), "lower-platform-color-literal", "`color`: write `-exact-platform-color(…)` whole, as a string literal (a branch of `?:` or `match` may be one); it is never built from a template, a concatenation or data, so the platform colours a plan names are fixed when it compiles"),
-        // `14px` on a pixel row is CSS's; a negative font size is not.
+        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `transparent`, or one in its own space: `color(display-p3 1 0 0)`, `oklch()`, `oklab()`, `lab()`, `lch()` (LLP 1100) — `light-dark(a, b)` of two, a role (`\"-exact-secondary-label\"`, `\"CanvasText\"`: LLP 1095, LLP 1081), or `-exact-platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal"),
+        // A colour CSS refuses is refused naming the rule it breaks.
+        (app("", "text \"a\" color=\"rgb(255 0 0 0.5)\""), "lower-attr-value", "`color=\"rgb(255 0 0 0.5)\"` is not a valid `color`: the space-separated syntax puts a `/` before the alpha: `rgb(255 0 0 / 0.5)` (CSS Color 4 §4.1.1)"),
+        (app("", "text \"a\" color=\"rgb(100%, 0, 0)\""), "lower-attr-value", "`color=\"rgb(100%, 0, 0)\"` is not a valid `color`: the comma-separated syntax takes three numbers or three percentages, not both: `rgb(255, 0, 0)` or `rgb(100%, 0%, 0%)` (CSS Color 4 §5.1)"),
+        (app("", "text \"a\" color=\"hsl(none, 100%, 50%)\""), "lower-attr-value", "`color=\"hsl(none, 100%, 50%)\"` is not a valid `color`: the comma-separated syntax takes no `none`; the space-separated one does: `rgb(none 0 0)` (CSS Color 4 §4.1.2)"),
+        (app("", "text \"a\" color=\"rgb(5. 0 0)\""), "lower-attr-value", "`color=\"rgb(5. 0 0)\"` is not a valid `color`: a number's `.` is followed by a digit, and its exponent's `e` by digits: `5` or `5.0`, not `5.` (CSS Syntax 3 §4.3.13)"),
+        // A fault no rule names certainly keeps the general description.
+        (app("", "text \"a\" color=\"hsl(120px 100% 50%)\""), "lower-attr-value", "`color=\"hsl(120px 100% 50%)\"` is not a valid `color`: a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `transparent`, or one in its own space: `color(display-p3 1 0 0)`, `oklch()`, `oklab()`, `lab()`, `lch()` (LLP 1100) — `light-dark(a, b)` of two, a role (`\"-exact-secondary-label\"`, `\"CanvasText\"`: LLP 1095, LLP 1081), or `-exact-platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal"),
+        (app("", "text \"a\" color=\"rgb (255 0 0)\""), "lower-attr-value", "`color=\"rgb (255 0 0)\"` is not a valid `color`: a function's `(` follows its name with no space between: `rgb(…)`, not `rgb (…)` (CSS Syntax 3 §4.3.4)"),
+        (app("", "text \"a\" color=`-exact-platform-color(ios ${draft}Color, #000)`"), "lower-platform-color-literal", "`color`: write `-exact-platform-color(…)` whole, as a string literal (a branch of `?:` or `match` may be one); it is never built from a template, a concatenation or data, so the platform colours a plan names are fixed when it compiles (LLP 1095 D3)"),
+        // `14px` on a pixel row is CSS's (LLP 1102 §3.10); a negative font size is not.
         (app("", "text \"a\" font-size=\"-2px\""), "lower-attr-value", "`font-size=\"-2px\"` is not a valid `font-size`: expected a nonnegative length"),
         // A `font-size`'s one `min()` holds a text style to a pixel cap.
         (app("", "image \"symbol:add\" font-size=\"min(1.25rem, 24px)\""), "lower-attr-value", "`font-size=\"min(1.25rem, 24px)\"` is not a valid `font-size`: a `font-size` is a number, a `px`, `rem` or `em` length, a text style (`-exact-title3`), or `min(<text style>, <px cap>)`, which grows with the reader's text size up to the cap (`min(-exact-title3, 24px)`)"),
         (app("", "text \"a\" width=10px"), "syntax-unquoted-length", "`width=10px` needs quotes: a value with a unit is a string, `width=\"10px\"` (a bare number is pixels)"),
         (app("", "text \"a\" className=\"x\""), "lower-unknown-attr", "`text` has no attribute `className`; `class` names a `style` declared in this file, as in `class=Card`"),
-        // A React Native port's `style=`: the word is `class=`, or the declarations are attributes.
+        // The euxy port's `style=`: the word is `class=`, or the declarations are attributes.
         (app("", "text \"a\" style=\"title\""), "lower-unknown-attr", "`text` has no attribute `style`; write `class=title`: a look nodes share is a `style Name` block in the file, named with `class=Name`, and a node's own look is its attributes"),
         (app("", "text \"a\" style=\"padding: 8px; color: red;\""), "lower-unknown-attr", "`text` has no attribute `style`; write the declarations as attributes, `padding=\"8px\" color=\"red\"`: a node's look is its attributes, and a look nodes share is a `style Name` block in the file, named with `class=Name`"),
         (
@@ -923,7 +1062,7 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
             "syntax-expected-newline",
             "expected end of line, found `=`; `==` compares, and only a statement assigns",
         ),
-        // A React Native port's `after(0, …)`: 0 would be due in the commit that armed it.
+        // The euxy port's `after(0, …)`: 0 would be due in the commit that armed it.
         (
             app("  task t mount\n    after(0, tick)\n  action tick\n    draft = \"x\"\n", "text draft"),
             "lower-timer-interval",
@@ -934,11 +1073,11 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
             "syntax-expected-expression",
             "expected an expression, found `{`; Contract has no `{…}`: a handler names an action (`press=add`, `press=add(item)`) and a value is written directly (`width=10`)",
         ),
-        // Common guesses: a tag, a count, a placeholder.
+        // The app farm's guesses (round 1): a tag, a count, a placeholder.
         (app("", "heading \"T\""), "lower-unknown-tag", "unknown tag `heading`; a heading is `h1` (to `h6` for the level)"),
         (app("", "grid"), "lower-unknown-tag", "unknown tag `grid`; a grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s"),
-        (app("  state xs = [1]\n", "text count(xs).toString()"), "type-refused-idiom", "write `x.length`, of text or of a list"),
-        (app("  state xs = [1]\n", "text xs.size.toString()"), "type-not-a-record", "`number[]` has no fields: write `x.length`, of text or of a list"),
+        (app("  state xs = [1]\n", "text count(xs).toString()"), "type-refused-idiom", "`count` is not in Contract: write `x.length`, of text or of a list"),
+        (app("  state xs = [1]\n", "text xs.size.toString()"), "type-not-a-record", "`number[]` has no fields: `size` is not in Contract: write `x.length`, of text or of a list"),
         (
             app("  resource todos = todosOf() as shape Todo[] else []\n", "text \"a\""),
             "syntax-placeholder-call",
@@ -955,8 +1094,8 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
     }
 }
 
-/// A prop written with a default is told props have none, and the `option`
-/// form the refusal names compiles.
+/// A prop written with a default (the euxy port's) is told props have none,
+/// and the `option` form the refusal names compiles.
 #[test]
 fn a_prop_default_is_refused_naming_the_option_form() {
     let app = |props: &str, read: &str, pass: &str| {
@@ -1017,14 +1156,14 @@ fn the_element_lint_finds_nothing_in_any_app() {
             continue;
         };
         let mut file = contract_syntax::parse(&src).unwrap();
-        // The app's design is the driver's to read, as `contract build` does.
-        let design = path.with_file_name("app.tamber");
+        // The app's design is the driver's to read (LLP 1121 D2), as `contract build` does.
+        let design = path.with_file_name("app.forma");
         file.design =
             std::fs::read_to_string(&design)
                 .ok()
                 .map(|text| contract_syntax::DesignSource {
                     path: design.display().to_string(),
-                    home: "app.tamber".into(),
+                    home: "app.forma".into(),
                     text,
                     source_id: 1,
                     bindable: false,
@@ -1183,8 +1322,7 @@ fn one_run_reports_every_independent_mistake_call_sites_first() {
 }
 
 /// A refused member is skipped and the passes after the syntax check the
-/// rest; what they say about a refused name is left out, since it may only
-/// be that the name is missing.
+/// rest; errors caused by the missing refused declaration are left out.
 #[test]
 fn a_refused_member_does_not_hide_the_other_passes_refusals() {
     let source = "component App\n  state n = 0\n  action pick\n    match none\n      case some(r) => n = r\n      case none => n = 0\n  action bump\n    n = n + \"x\"\n  view\n    button \"go\" press=pick color=missingName\n";

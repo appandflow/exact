@@ -1,5 +1,5 @@
 // The suite writes the id `exact new` gave the app. The list is read only
-// once the suite asks, since the first read while `prompt` asks.
+// once the suite asks, since the first read while `prompt` asks (D7).
 import { photoAssets } from '@exact/photos';
 
 export const appId = '__APP_ID__';

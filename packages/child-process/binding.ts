@@ -1,15 +1,15 @@
-// @exact/child-process: programs a desktop app's data code
+// @exact/child-process (LLP 1133.007): programs a desktop app's data code
 // starts, with Node's `child_process` names. The executor implements it on
 // macOS and Linux (`executor` in exact.json); the bake writes this file as
 // the package's binding on every target, and where no host starts programs
 // every name rejects NotSupportedError and `processStatus().available` is
-// false. It deviates from Node only where its declaration says so.
+// false. Its declared deviations from Node are LLP 1133.007 D1's.
 
-/** The signals `kill` and `killSignal` take. */
+/** The signals `kill` and `killSignal` take (D2). */
 export type Signal =
   | "SIGTERM" | "SIGINT" | "SIGHUP" | "SIGQUIT" | "SIGUSR1" | "SIGUSR2" | "SIGSTOP" | "SIGCONT" | "SIGKILL";
 
-/** One event of a child, in order. */
+/** One event of a child, in order (D2). */
 export type ChildEvent =
   | { type: "spawn"; pid: number | null; restarts: number }
   | { type: "stdout" | "stderr"; data: string | ArrayBuffer }
@@ -20,7 +20,7 @@ export type ChildEvent =
   | { type: "ready-timeout" }
   | { type: "error"; kind: string; message: string };
 
-/** One incarnation's handle: its stdin, and signals to its process group. */
+/** One incarnation's handle (D2): its stdin, and signals to its process group. */
 export interface Child {
   readonly pid: number | null;
   readonly exitCode: number | null;
@@ -45,7 +45,7 @@ export interface CommonOptions {
   exactStdinFrom?: string;
 }
 
-/** `spawn`'s options. */
+/** `spawn`'s options (D2, D4). */
 export interface SpawnOptions<T> extends CommonOptions {
   stdio?: "pipe" | "ignore" | Array<"pipe" | "ignore">;
   /** After release's signal, `SIGKILL` follows this many milliseconds later (default 5000). */
@@ -58,7 +58,7 @@ export interface SpawnOptions<T> extends CommonOptions {
   exactStream: (event: ChildEvent, child: Child) => T;
 }
 
-/** `execFile`'s options. */
+/** `execFile`'s options (D3). */
 export interface ExecFileOptions extends CommonOptions {
   /** Written to stdin, which is then closed. */
   input?: string | ArrayBuffer | ArrayBufferView;
@@ -75,7 +75,7 @@ export interface ExecFileResult<O = string | ArrayBuffer> {
   signal: Signal | null;
 }
 
-/** The module's permission fact: never `prompt`, since nothing asks. */
+/** The module's permission fact (§6): never `prompt`, since nothing asks. */
 export interface ProcessStatus {
   available: boolean;
   state: "granted" | "denied" | "unknown";
@@ -93,7 +93,7 @@ type Implementation = {
 const implementation = (globalThis as { __exact_child_process?: Implementation }).__exact_child_process;
 
 function absent(name: string): Promise<never> {
-  const error = Object.assign(new Error(`${name}: NotSupportedError: this platform starts no programs`), { code: "NotSupportedError" });
+  const error = Object.assign(new Error(`${name}: NotSupportedError: this platform starts no programs (LLP 1133.007)`), { code: "NotSupportedError" });
   return Promise.reject(error);
 }
 
@@ -114,12 +114,12 @@ export function execPath(target: string): Promise<string | null> {
   return implementation ? implementation.execPath(target) : absent("execPath");
 }
 
-/** The login shell's variables that `env.read login:<NAME>` lines name. */
+/** The login shell's variables that `env.read login:<NAME>` lines name (D5). */
 export function loginShellEnvironment(): Promise<Record<string, string>> {
   return implementation ? implementation.loginShellEnvironment() : absent("loginShellEnvironment");
 }
 
-/** The app's own variables that `env.read <NAME>` lines name. */
+/** The app's own variables that `env.read <NAME>` lines name (D5). */
 export function appEnvironment(): Promise<Record<string, string>> {
   return implementation ? implementation.appEnvironment() : absent("appEnvironment");
 }

@@ -70,7 +70,10 @@ pub(crate) mod inline {
 }
 
 #[cfg_attr(
-    not(all(feature = "intl", any(target_os = "linux", windows))),
+    not(all(
+        feature = "intl",
+        any(target_os = "linux", ibex2_android_intl, windows)
+    )),
     allow(dead_code)
 )]
 pub(crate) mod intl_number {
@@ -86,7 +89,10 @@ pub(crate) mod intl_number {
 }
 
 #[cfg_attr(
-    not(all(feature = "intl", any(target_os = "linux", windows))),
+    not(all(
+        feature = "intl",
+        any(target_os = "linux", ibex2_android_intl, windows)
+    )),
     allow(dead_code)
 )]
 pub(crate) mod intl_case {
@@ -125,7 +131,10 @@ pub(crate) fn is_intl(op: u32) -> bool {
 }
 
 #[cfg_attr(
-    not(all(feature = "intl", any(target_os = "linux", windows))),
+    not(all(
+        feature = "intl",
+        any(target_os = "linux", ibex2_android_intl, windows)
+    )),
     allow(dead_code)
 )]
 pub(crate) mod intl_datetime {
@@ -155,7 +164,7 @@ pub(crate) mod async_ops {
     pub(crate) const FS_REALPATH: u32 = 119;
     pub(crate) const FS_ATOMIC_WRITE_FILE: u32 = 120;
     pub(crate) const FS_COMPRESS_IMAGE: u32 = 121;
-    // Exact patch 24.
+    // Exact patch 24 (exact2 LLP 1133.007 D6a).
     pub(crate) const FS_LSTAT: u32 = 122;
     pub(crate) const FS_READLINK: u32 = 123;
     pub(crate) const FS_ACCESS: u32 = 124;

@@ -1,4 +1,4 @@
-//! CSS multi-column layout: one flow, cut into columns.
+//! @ref LLP 1093 D1–D7, D10 — CSS multi-column layout: one flow, cut into columns.
 //!
 //! A multi-column container's in-flow content is laid out once by Taffy, as
 //! one column of the used column width (the *flow thread*, vendored Taffy's
@@ -31,14 +31,14 @@ use crate::{Dimension, FlexDirection, FlexWrap, Kernel, Overflow};
 pub struct Column {
     /// Left edge.
     pub x: f32,
-    /// Top edge: the container's content top.
+    /// Top edge: the container's content top, moved by `align-content`.
     pub y: f32,
     /// The used column width.
     pub width: f32,
     /// The column height.
     pub height: f32,
     /// Whether some box (a zero-height one included) is in this column. A
-    /// column rule is drawn between two columns that both hold one.
+    /// column rule is drawn between two columns that both hold one (D7).
     pub holds: bool,
 }
 
@@ -53,7 +53,7 @@ pub struct Columns {
     pub gap: f32,
 }
 
-/// One piece of a box that straddles columns: a rectangle in the box's
+/// One piece of a box that straddles columns (D7): a rectangle in the box's
 /// published (union) frame, sliced as CSS's `box-decoration-break: slice`
 /// slices it. A paragraph's fragment also names its lines: the line boxes
 /// `lines` paint at their unfragmented content positions plus (dx, dy).
@@ -70,8 +70,9 @@ pub struct Fragment {
     /// The paragraph's line boxes in this fragment, `start..end`; empty for
     /// a box that is not a paragraph.
     pub lines: (u32, u32),
-    /// What to add to a point of the unfragmented box (its own border-box
-    /// space, as one column laid it out) to place it in this fragment.
+    /// Translation from the unfragmented box into this fragment. For text,
+    /// it includes the anonymous item's placement: add it directly to the
+    /// paragraph's content positions.
     pub dx: f32,
     /// See [`Fragment::dx`].
     pub dy: f32,
@@ -85,17 +86,17 @@ impl Fragment {
 }
 
 /// Why a box in a multi-column flow is kept whole where Chrome would
-/// fragment it. Journalled once per box, when it does not fit
+/// fragment it (LLP 1093 D10). Journalled once per box, when it does not fit
 /// its column; `message` says what to change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FragmentRefusal {
-    /// A `height`, `min-height` or `max-height`.
+    /// D10.1, D10.7: a `height`, `min-height` or `max-height`.
     Height,
-    /// A row or wrapped flexbox, a grid, or a nested multi-column box.
+    /// D10.2: a row or wrapped flexbox, a grid, or a nested multi-column box.
     Layout,
-    /// Its own background, border, radius, shadow, filter or clip.
+    /// D10.3: its own background, border, radius, shadow, filter or clip.
     Decoration,
-    /// One-node Markdown.
+    /// D10.6: one-node Markdown.
     Markdown,
 }
 
@@ -171,7 +172,7 @@ impl FragState {
     }
 }
 
-/// Whether a style makes its node a multi-column container: a block
+/// Whether a style makes its node a multi-column container (D1): a block
 /// container whose `column-count` or `column-width` is not `auto`.
 pub(crate) fn is_multicol(s: &StyleProps) -> bool {
     s.display == Display::Block && (s.column_count != 0 || s.rare.column_width != Dimension::Auto)
@@ -187,7 +188,7 @@ fn gap(s: &StyleProps) -> f32 {
     }
 }
 
-/// The engine's multicol field for `slot`: its rows, and the height and
+/// The engine's multicol field for `slot` (D2): its rows, and the height and
 /// overflow its last cut wrote.
 pub(crate) fn taffy_multicol(arena: &NodeArena, slot: u32) -> Option<taffy::Multicol> {
     let s = arena.style(slot);
@@ -197,8 +198,11 @@ pub(crate) fn taffy_multicol(arena: &NodeArena, slot: u32) -> Option<taffy::Mult
     let cut = arena.frag.multicol.get(&slot);
     Some(taffy::Multicol {
         count: (s.column_count != 0).then_some(s.column_count),
-        width: match s.rare.column_width.resolve(arena.env()) {
-            Dimension::Points(w) => Some(w.max(0.0)),
+        // "Used values will be clamped to a minimum of 1px" (CSS Multi-column
+        // Layout 1 §3.1): a width of zero beside a zero gap made the count
+        // u32::MAX, and the cut ran that many times.
+        width: match s.rare.column_width.resolve(&arena.env_of(slot)) {
+            Dimension::Points(w) => Some(w.max(1.0)),
             _ => None,
         },
         // Across, in whole columns under a terminal's space rule.
@@ -211,7 +215,7 @@ pub(crate) fn taffy_multicol(arena: &NodeArena, slot: u32) -> Option<taffy::Mult
     })
 }
 
-/// How a box takes part in a flow.
+/// How a box takes part in a flow (D3).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Kind {
     /// Its children continue in the next column.
@@ -222,7 +226,7 @@ pub(crate) enum Kind {
     Monolithic(Option<FragmentRefusal>),
 }
 
-/// Whether a box paints decoration a host would have to slice.
+/// Whether a box paints decoration a host would have to slice (D10.3).
 fn decorated(s: &StyleProps) -> bool {
     use crate::style::ColorValue;
     let background = match s.background_color {
@@ -232,10 +236,10 @@ fn decorated(s: &StyleProps) -> bool {
     };
     let borders = s.border_widths().into_iter().any(|w| w > 0.0);
     let radius = [
-        s.border_radius_top_left,
-        s.border_radius_top_right,
-        s.border_radius_bottom_right,
-        s.border_radius_bottom_left,
+        s.border_radius_top_left.clone(),
+        s.border_radius_top_right.clone(),
+        s.border_radius_bottom_right.clone(),
+        s.border_radius_bottom_left.clone(),
     ]
     .iter()
     .any(|r| !matches!(r, Dimension::Points(p) if *p == 0.0));
@@ -256,7 +260,8 @@ pub(crate) fn kind(arena: &NodeArena, slot: u32) -> Kind {
     let floor = |d: Dimension| {
         !matches!(d, Dimension::Auto) && !matches!(d, Dimension::Points(v) if v <= 0.0)
     };
-    let sized = sized(s.height) || floor(s.min_height) || sized(s.max_height);
+    let sized =
+        sized(s.height.clone()) || floor(s.min_height.clone()) || sized(s.max_height.clone());
     match arena.node_type(slot) {
         NodeType::Text if sized => Kind::Monolithic(Some(FragmentRefusal::Height)),
         NodeType::Text
@@ -312,7 +317,7 @@ pub(crate) fn in_flow(arena: &NodeArena, slot: u32) -> bool {
 
 /// Cut every multi-column container under `root`, writing each one's used
 /// height and overflow into the engine and laying out again until the cuts
-/// hold (the flow thread depends on the column width only, so a second
+/// hold (D5: the flow thread depends on the column width only, so a second
 /// pass reaches the fixed point; a nested container may take one more).
 /// Returns the extra engine passes.
 pub(crate) fn settle(
@@ -417,7 +422,7 @@ fn laid_out_under(arena: &NodeArena, root: u32, slot: u32) -> Option<bool> {
         if s == root {
             return Some(shown);
         }
-        // A host's containing block is another layout's.
+        // A host's containing block is another layout's (LLP 1115.002 D8.2).
         if arena.blocks.holds(s) {
             return None;
         }
@@ -497,7 +502,7 @@ fn store(arena: &mut NodeArena, slot: u32, cut: cut::Cut, old: Old) -> bool {
 }
 
 /// The kernel-only monolithic boxes the last cuts kept whole across a
-/// column's end, in no particular order.
+/// column's end, in no particular order (LLP 1093 D10).
 pub(crate) fn skipped(arena: &NodeArena) -> Vec<NodeKey> {
     let mut keys: Vec<NodeKey> = arena.frag.refusals.keys().map(|&s| arena.key(s)).collect();
     keys.sort_by_key(|k| k.index);
@@ -506,7 +511,7 @@ pub(crate) fn skipped(arena: &NodeArena) -> Vec<NodeKey> {
 
 impl Kernel {
     /// The fragments of a box that straddles columns of a multi-column
-    /// container, as last laid out: one per column it touches,
+    /// container, as last laid out (LLP 1093 D7): one per column it touches,
     /// in its published (union) frame. `None` for a box wholly in one column
     /// or outside every multi-column flow, which is hit and painted as its
     /// frame. A multi-column `text` has one fragment per column holding
@@ -531,7 +536,7 @@ impl Kernel {
         slots.into_iter().map(|s| self.arena().key(s)).collect()
     }
 
-    /// A multi-column container's columns as last laid out.
+    /// A multi-column container's columns as last laid out (LLP 1093 D7).
     pub fn columns(&self, key: NodeKey) -> Option<&Columns> {
         let slot = self.arena().resolve(key)?;
         self.arena().frag.multicol.get(&slot).map(|m| &m.columns)

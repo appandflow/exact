@@ -65,7 +65,7 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
     check('orbit moves sign placed box',Math.abs(after.x-first.x)>1,after);
     check('HUD stays at kernel frame',equal(await box('hud'),hud));
     if(host==='macos') {
-      // The ax element's frame, in viewport points, y down; an
+      // The ax element's frame (LLP 1080.002), in viewport points, y down; an
       // element present in the platform's tree is exposed, not hidden.
       const sign=node(await s.tree(),'sign'), ax=(await axNames(s)).frame('sign');
       check('accessible sign text uses the placed frame',sign?.props.text==='The lantern path' && !!ax && !!firstAX && Math.abs(ax.w-after.w)<0.1 && Math.abs(ax.h-after.h)<0.1 && Math.abs((ax.x-firstAX.x)-(after.x-first.x))<0.1 && Math.abs((ax.y-firstAX.y)-(after.y-first.y))<0.1,{sign,ax,firstAX});

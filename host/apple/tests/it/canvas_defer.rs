@@ -1,4 +1,4 @@
-//! Where canvas draws are deferred, the turns main waits on
+//! LLP 1072 §8.5: where canvas draws are deferred, the turns main waits on
 //! lay canvases out and say a draw is owed; `canvas_draw` runs it, and a
 //! frame's tick draws in its own turn.
 use exact_apple::Host;

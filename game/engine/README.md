@@ -2,7 +2,8 @@
 
 Start with the [runnable example](../README.md#the-programming-model) or the
 [starter game](../new/logic/src/lib.rs). Gameplay implements `Game::setup` and
-`Game::tick`; components and resources hold its saved state. `World` owns time
+`Game::tick`, and `Game::first_frame` for what depends on the canvas's size before
+anything is drawn; components and resources hold its saved state. `World` owns time
 and randomness; `Sim` owns input. The renderer interpolates completed ticks.
 
 ## State and queries
@@ -57,7 +58,13 @@ Derived caches can follow writes without rescanning: `revision::<C>()` names a
 column's write generation, and `changed::<C>(since)` lists the entities whose `C`
 row was borrowed mutably, inserted or removed after it (a despawned slot reports
 its index). Neither is saved or hashed; compare only within one
-`presentation_generation`.
+`presentation_generation`. After replacing app data in the same world, call
+`w.invalidate_presentation()` once. It advances that generation and resets draw
+histories. The canvas's `presented` waits for a complete frame whose shown models
+and textures are delivered and prepared, just as after restore. Simulation state,
+saves and hashes stay unchanged, and `Game::first_frame` does not run again.
+`Sim::picture_generation()` counts these new pictures; a paranoid rebuild
+advances `presentation_generation` but not it.
 
 `w.dt()` is one fixed step. `w.tick_end()` names the endpoint currently being
 written; use it when retargeting motion. `w.now()` names the completed boundary.
@@ -99,7 +106,8 @@ per row, so iterating a query costs no more than the join itself. A single-row g
 pushes and pops one record on its column; position reads copy the row out and only
 check for an exclusive lease. A leaked guard or query (`mem::forget`) keeps its rows
 refused; after the next spawn, despawn, insert or remove, a leaked query holds every
-row of its components, because its matched rows can no longer be known.
+row of its components, because its matched rows can no longer be known. The design and its
+measurements are in LLP 1046.003 §Row leases.
 
 ## Arguments and restart
 
@@ -146,9 +154,19 @@ bound a new message refuses. A device event displaces the oldest move, otherwise
 the oldest non-message; if all entries are messages it refuses the new device event.
 A displaced pointer's deltas join its next queued event when one exists. Each
 kind journals once per overflow episode, which ends below capacity. Paused input
-updates held state directly without tick edges or queued wheel deltas.
+updates held state directly without tick edges or queued wheel deltas, after the
+device events still queued from before the pause.
 Tables, pads and sequence markers use this contract when admitted;
 this engine currently admits keys, pointers, controls, wheels, messages and typed events.
+
+`Input::pointer()` is the primary pointer only. `Input::pointers()` is every contact
+down (each touch, the mouse while a button is held), sorted by id, and
+`Input::pointer_events()` this tick's Down, Up and Cancel edges per id in the order
+they happened, stamped in world microseconds. A contact that ended this tick stays in
+`pointers()` with `down: false` until the next; deltas and edges clear at each tick
+while contacts still down remain. Blur cancels every contact; paused input leaves no
+edges. A save holds each active contact's id, origin and position, in the raw contacts
+that touch actions read, and no edges.
 
 ## HUD and events
 
@@ -159,7 +177,9 @@ and validates it against its shape: missing fields default, extra names are
 ignored, and wrong kinds refuse by field name. Rust field names are not checked
 against the Contract shape at bake time.
 
-Publication delivers and journals only changed values. In records, unit and `None`
+Publication delivers and journals only changed values. Numbers compare by bits,
+with all NaNs equal and signed zeros distinct, as in saves and hashes. Non-finite
+numbers deliver and journal as `null`. In records, unit and `None`
 publish as `null`; `Some(())` refuses because it is indistinguishable from `None` in
 Contract JSON. Record publication rejects enum variants and integers outside
 ±9,007,199,254,740,991 before publishing any field. Ordinary scalar integer
@@ -213,6 +233,11 @@ observed session. `pinSave` also checks the saved marker and retained input queu
 that a pin should accept in the authored files. Arguments tune settings a save
 should not carry.
 
+`Camera::shift` moves the projected image in normalized device coordinates,
+without changing the camera pose or perspective: `(0., 0.25)` moves every depth
+up by one eighth of the viewport height. It defaults to zero and applies to
+perspective and orthographic cameras, rendered frames, layout and picking.
+
 ## Movement, animation and sound
 
 `w.character("player").step(direction, jump)` moves a `Character` and reports its
@@ -245,8 +270,15 @@ owed serial.
 
 Animation order is explicit: `let motion = animation::step(w)`, apply root motion,
 then query sockets. The result owns its markers so component writes can follow.
+Model redelivery in the same tick resamples the pose and preserves playback state.
 Reverse one-shots start at their end; saved playback state keeps a completed
-controller from restarting after restore.
+controller from restarting after restore. A marker at the starting position fires
+on the first playback step and on Animator transitions that restart playback.
+Transitions between loops retain phase and do not repeat the departure marker,
+including after a pause or restore.
+Later steps emit markers as playback crosses them, including loop boundaries.
+Paused states, zero-weight layers and incoming states at half fade weight or less
+emit no markers.
 
 Attach `animation::Layers(vec![animation::Layer::new(Animation::play("hit").once())
 .additive().weight(0.5).mask(["spine"])])` beside the base `Animation`, `Blend`
@@ -268,6 +300,9 @@ where it was born instead, at the emitter's pose and scale that tick (a rocket's
 trail is one emitter). `WorldSpace` saves those birth poses, so a restored trail
 draws where the continuous one does. `Shape::Box(size)` emits over an
 area (rain, snow).
+Invalid emitters do not emit or draw. The journal names the failing field and its
+limits once per refusal, and again if the reason changes or recurs after recovery.
+`spread` is a half-angle in radians, from zero through π.
 `ParticleLook` beside an `Emitter` textures its particles from a `.tex` atlas
 (`atlas: [columns, rows]`, a flipbook at `fps`, or the frames spread over each
 lifetime) and stretches them along their motion (`stretch`: seconds of velocity
@@ -280,8 +315,11 @@ definitions in setup; a sample names a `.sound` asset declared in `Game::ASSETS`
 registration saves its frames, rate and channels. `w.play("chime").start()` creates
 a voice with optional gain, pitch, pan, start offset and fade-in; dropping the play
 builder does nothing. A looping definition plays until `audio::stop` or
-`audio::fade`. Call `audio::step(w)` after game logic. Voices and definitions are
-saved and hashed; PCM is delivery, outside both. Playback, PCM generation and the
+`audio::fade`. `audio::pitch(w, id, rate)` changes a playing voice's rate each tick,
+bounded to 0.01..16 as `Play::pitch` is (non-finite becomes 1). Outputs smooth the
+change over about 10 ms without restarting; saved progress integrates the rates
+at tick boundaries (LLP 1046.003). Call `audio::step(w)` after game logic. Voices
+and definitions are saved and hashed; PCM is delivery, outside both. Playback, PCM generation and the
 budgets belong to the separate [audio executor](../audio/README.md).
 
 ### Procedural characters
@@ -345,9 +383,12 @@ codec and puts the surface at Y = 0. Insert it in `setup`, or register it
 caustics and shafts out at present time without changing the resource
 (`Renderer::set_water_effects`, [renderer](../render/README.md#water)).
 
-`Game::SAMPLES` selects scene sampling for the renderer's lifetime: override it
-with `const SAMPLES: SceneSamples = SceneSamples::One` for 1×, or leave the 4×
-MSAA default. It is a renderer construction choice, not saved simulation state.
+`Game::SAMPLES` selects scene sampling: override it with `const SAMPLES:
+SceneSamples = SceneSamples::One` for 1×, or leave the 4× MSAA default.
+`Game::samples(args)` chooses it per arguments (`SAMPLES` by default); a change
+makes the renderer again under the same world. It is a renderer construction
+choice, not saved simulation state. A target's sRGB view follows `SAMPLES`, read
+when the canvas is made; at a runtime change the renderer encodes sRGB itself.
 It is the ceiling of the quality ladder (`Game::quality`, [game/README.md](../README.md#arguments-pause-and-restart)):
 the `Low` rung draws one sample whatever it says.
 At 1×, `Game::DEPTH_PREPASS = true` can reduce opaque overdraw. It adds a depth
@@ -405,6 +446,29 @@ level bytes or generated output refuse restore by name. Keep other generator inp
 in the level or saved setup arguments; identity checks cannot prove a generator is
 deterministic. See the [level example](../games/asset-fixture/logic/src/lib.rs).
 
+A look the player picks at any time (a table theme, a dice skin) is a cosmetic model:
+a tick writes `Mesh::asset("walnut-d6.model")`, and `Game::present` supplies its content
+with `p.cosmetic_model(name, || model)` for every name a `Mesh` shows, at every present.
+The closure runs only when the name is not resident. A cosmetic model is never declared,
+saved or hashed: `w.model(name)` stays `None`, its textures are requested as a generated
+model's are, and load order never reaches a tick. It retires, freeing its CPU and GPU
+memory, when no `Mesh` shows it and the renderer no longer draws it. Rebuilds and
+restores keep it resident, and the present that follows registers what the new world
+shows. A name is immutable while registered and may take new content once it retired;
+a declared, generated or delivered model's name is refused.
+
+Agent `layout` and `Sim::layout` can project the CPU bounds registered by
+`cosmetic_model`, even while textures are pending. An authored `ModelBounds`
+still takes precedence. These read-only inspection bounds describe the current
+`Mesh`, not the renderer's temporary fallback. `World::model`, simulation
+bounds, picking, saves and hashes remain independent of cosmetic residency.
+
+Until a model a `Mesh` names can draw, the stock renderer keeps drawing the rigid model
+that entity drew before (keyed by the full entity id), so a swapped skin never shows
+blank, and keeps it if the new one fails; no game code reads readiness. A skinned or
+animated model draws nothing until its own arrives, as does an entity that drew nothing
+before.
+
 ## Settling and data formats
 
 `Sim::settle` advances world time and reports what remains busy. Components, RNG,
@@ -441,9 +505,69 @@ The stock renderer draws these built-in presentation components without a shader
 moves its displayed hierarchy, and socketed props follow the drawn rig), `Opacity`
 (dithered coverage fading, multiplied down the Parent chain; it never reveals a child
 of a hidden ancestor), `Tint` (a primitive's colour multiply and added emission) and,
-for models, `NodeMaterials`/`MaterialOverrides`. `World::drawn(e)` is the displayed
+for models, `NodeMaterials`/`MaterialOverrides`. `MaterialOverride.textures` (a
+`TextureSlots` of base colour, normal, metallic-roughness, occlusion and emissive
+names) replaces a material's textures on one instance, so one model per shape takes
+every skin: each named `.tex` is requested while an instance names it and released when
+none draws it, and until all of an instance's named textures can draw, it keeps the ones
+it drew before (the model's own the first time). `MaterialOverride.uv_offset` scrolls
+the base colour and emission textures on one instance, after the material's own UV
+transform: a tail running along a ribbon, flowing water. Set `uv_offset_previous`
+to the previous tick's unwrapped offset to interpolate the pair at display time;
+leave it `None` for the current offset at every frame. Optional `roughness`,
+`metallic`, `clearcoat` and `clearcoat_roughness` replace the material factors
+on that instance; `None` keeps each factor. Values are clamped to [0, 1],
+non-finite values are ignored, and roughness/metallic still multiply texture
+channels. A zero coat removes it. Unlit and custom materials ignore these factors. `World::drawn(e)` is the displayed
 pose and opacity, in the same walk as `World::is_visible`. Picking, layout, physics
 and gameplay use the simulated pose.
+
+For a camera translated directly by a touch, `PointerPan` presents the newest
+received position without waiting for its simulation tick. Each tick applies
+the chosen contact's `delta` to the camera in world units. In `Game::present`,
+write that contact's `id`, `position` and that tick's `delta` to `PointerPan`,
+with `horizontal` and `vertical` giving the same world-space translation per
+canvas point. Keep the mapping fixed during the drag. Include the contact's
+release tick, and set `delta` to zero on later ticks with no movement. For example,
+the tick and presentation can share `horizontal = Vec3::X * 0.02` and
+`vertical = Vec3::Z * 0.02`; a ten-point horizontal move translates the eye and
+everything parented under it by 0.2 world units. Panning the eye preserves its
+direction, so a separately stored target must receive that same tick translation.
+Set optional `bounds: Some([min, max])` to clamp the presented camera position
+in world space to the same limits the tick applies. The default `None` keeps
+today's unbounded translation. Infinite limits leave an axis unbounded; NaN or
+reversed bounds are ignored. Only the frame's own translation is limited, and the
+limits only shorten it on each axis: a frame with no unshown pointer motion draws
+the camera where its tick put it, and a camera already outside the limits is not
+pulled in. Children
+receive the camera's clamped translation. Between ticks, the part of the latest
+tick not yet drawn is limited the same way, so a tick that stopped at a limit
+does not hold the drawn camera there when a newer sample turns back. This
+assumes the camera's parent, if any, does not move between ticks.
+For a target-based camera, add the eye-to-target offset to the target limits.
+After the release tick, set `delta` to zero: any tick-driven coast uses normal
+interpolation and needs no frame-time adjustment. This adds no spring or
+prediction and does not handle rotation or a locked mouse.
+
+The stock `WorldSurface` supplies the frame sample automatically. A custom
+renderer can call `Sim::frame_pointer(id)` and pass the result to
+`Feed::pointer_sample` before each frame. The snapshot retains the newest host
+input timestamp in `at_ms`; it is not world time. `current_contact` is false
+while a new Down has not reached a tick, so an old anchor cannot follow a reused
+pointer id. A late event older than an already delivered sample also invalidates
+that anchor until a newer sample reaches a tick. Movement after release or
+cancellation cannot reuse the ended contact's anchor. Read contact edges from `Input::pointer_events`, not the snapshot's
+last phase. Reads and camera compensation change neither hashes nor saves;
+restore discards host samples, including the absolute timestamps of queued input.
+The camera trace reports the compensated camera and projection. Its stride is 37:
+the first 32 slots retain their meanings, and slots 32–36 are sample-present (0 or
+1), pointer x and y in canvas points, `at_ms`, and `current_contact` (0 or 1).
+An absent sample writes five zeroes. The sample timestamp and frame time at slot 0
+share the host input clock; their difference is sample age, not display latency.
+`Sim::pick` and spatial reads keep using the simulation camera, as they do with
+`MouseLook`; a frame-time visual query must use that frame's view and projection.
+Measure native input and presented frames together on a device before making a
+physical latency claim.
 
 `NodeOffsets` moves marked model nodes after clips, layers and IK. Save a gait's
 phase and amplitude, then derive its rows without collecting entities:
@@ -474,7 +598,7 @@ non-finite values or nonpositive scale are ignored; zero quaternions mean identi
 Rest mirrors keep their winding. Clip scale tracks must retain each rest-axis sign;
 validation names the clip and node on refusal. Cubic Bezier controls must also
 retain those signs, conservatively excluding tangent overshoot through zero.
-Presentation payload pages are reused, then reclaimed after two consecutive
+Presentation payload pages are reused, then reclaimed after 60 consecutive
 empty presents. `World::presentation_bytes()` reports retained payload and index
 metadata, whose capacity is bounded by the highest entity index used.
 
@@ -486,11 +610,11 @@ follow the offsets. Keep any pose gameplay needs in simulation state.
 **The authoring rule: save the cause, derive the appearance.** Anything later
 gameplay reads stays simulation state; only its look is presentation. Examples:
 
-- A shooter's aim recoil: the shot (its tick and spread, drawn from the world RNG
+- Rivals' aim recoil: the shot (its tick and spread, drawn from the world RNG
   because it changes where the bullet goes) is simulation; the gun kick is an
   `Offset` derived in `present` from ticks since `last_shot_tick`, with any jitter
   from `p.rng(salt)`.
-- A garden game's mutation: the roll and the weight it sets are simulation (they change
+- Garden's mutation: the roll and the weight it sets are simulation (they change
   sale price and growth); the shimmer of a mutated fruit is a `NodeMaterials` or
   `Tint` derived from that saved mutation.
 - Tracers and explosions that gameplay never queries may be emitters; entities a
@@ -519,7 +643,7 @@ World saves (EXGAME v6) are columnar: the entity table and each component
 storage store their rows' shape (tags, field and variant names, sequence lengths)
 once and their scalars as run-length or dictionary-coded columns, so repeated
 values cost nothing per entity and no name or entity key is repeated per row.
-The garden game's scale world saves in about 9 bytes per entity, against 247 in v3.
+Grow a Garden's scale world saves in about 9 bytes per entity, against 247 in v3.
 Resources save as their values. The encoding is byte-identical on every host.
 
 Loads allow at most 16 Mi entity slots, 64 MiB per string, and 2 GiB of input and

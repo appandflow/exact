@@ -4,8 +4,8 @@ import XCTest
 @testable import ExactKit
 @testable import ExactGroupedLists
 
-/// Over `scripts/fixtures/tab-edge.contract`: each route
-/// keeps its own scroll, as a covered route stays mounted and a
+/// LLP 1116.005 D3 over `scripts/fixtures/tab-edge.contract`: each route
+/// keeps its own scroll, as a covered route stays mounted (LLP 1038 §7) and a
 /// hand-built UINavigationController keeps the controller it covers. A tab's
 /// root scrolled partway, a row's press pushes a screen that opens at its
 /// top; UIKit's Back returns to the root where it was left, and the next

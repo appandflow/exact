@@ -1,4 +1,4 @@
-// Bench: a serial monitor for a development board, and a firmware updater for a board in USB
+// Bench (LLP 1133.037 §12.2): a serial monitor for a development board, and a firmware updater for a board in USB
 // DFU mode. The bytes are this module's: the log's lines (`serial.ts`) and DFU's requests (`dfu.ts`); Contract reads
 // what they make of them.
 import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
@@ -56,7 +56,7 @@ type Started = Result<'startUpdate'>;
 
 const DFU = { vendorId: null, productId: null, classCode: 0xfe, subclassCode: 0x01, protocolCode: null, serialNumber: null };
 
-/** The DFU boards plugged in where the platform lists them, else those the person chose in the browser. A
+/** The DFU boards plugged in where the platform lists them (D3), else those the person chose in the browser. A
  * Contract read of `attachedDevices` would fail on the web, so the choice between the two is made here. */
 async function boardList(attachedList: boolean): Promise<Device[]> {
   return attachedList ? attachedDevices({ filters: [DFU] }) : (await getDevices({})).filter((d) => dfuInterface(d));

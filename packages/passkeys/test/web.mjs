@@ -1,6 +1,6 @@
-// @exact/passkeys on the web, real: the auth
+// @exact/passkeys on the web, real (LLP 1133.011 §11 stage 1): the auth
 // fixture's web build, with no agent, at `http://localhost:<port>` (the RP
-// ID `localhost`; an IP address is not one), against the fixture
+// ID `localhost`; an IP address is not one, D14), against the fixture
 // server's relying party, which verifies every response.
 //
 // Chromium runs each ceremony on its virtual authenticator (CDP's
@@ -111,7 +111,7 @@ try {
       check(engine, 'modal get: it supersedes the pending conditional one, and the server verifies the assertion',
         back === 'Signed in as fixture.test' && quiet === '' && (await log()).assertions === 2, `${back} / ${quiet} ${JSON.stringify(await log())}`);
       // The server forgets the passkey (the app drops its record): the next sign-in hears `unknown-credential`, and the
-      // app signals it.
+      // app signals it (D11).
       await tab.getByTestId('forget-passkey').click();
       const forgot = await until('passkey', (t) => t === 'The server forgot this passkey');
       check(engine, 'forget: the app drops the passkey\'s record', forgot === 'The server forgot this passkey', String(forgot));

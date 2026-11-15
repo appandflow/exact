@@ -16,7 +16,7 @@
 //! with Windows Update. [`os_icu`] reports what this process observes; it is a
 //! diagnostic, never a pinned identity, and nothing here claims a digest.
 //!
-//! OS ICU bound by full System32 path, probe-gated INTL, observed versions.
+//! @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — OS ICU bound by full System32 path, probe-gated INTL, observed versions
 
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::sync::OnceLock;

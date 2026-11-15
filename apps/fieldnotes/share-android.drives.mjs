@@ -1,4 +1,4 @@
-// The Android share drive: shares sent to Fieldnotes on Android as
+// LLP 1133.024 §20 stage 3's drive: shares sent to Fieldnotes on Android as
 // another app sends them, an `ACTION_SEND` intent from `adb shell am start`,
 // read back under the agent on the Canvas reader. Warm, the intent resolves
 // by the filters the build derived (`-p`, no component) and must reach the

@@ -1,8 +1,8 @@
-//! `touch-action`: what a value leaves to the platform.
+//! `touch-action`: what a value leaves to the platform (LLP 1057.001 §2).
 
 impl crate::generated::TouchAction {
     /// Whether the value leaves pinch zoom to the platform: `auto`,
-    /// `manipulation` or any value naming `pinch-zoom`.
+    /// `manipulation` or any value naming `pinch-zoom` (LLP 1057.001 §2).
     pub fn pinch_zoom(self) -> bool {
         matches!(self, Self::Auto | Self::Manipulation) || self.name().ends_with("pinch-zoom")
     }

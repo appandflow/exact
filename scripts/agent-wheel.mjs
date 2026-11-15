@@ -1,4 +1,4 @@
-// The macOS driver's trackpad: `tap <target> wheel <dx> <dy> fling|hold`
+// The macOS driver's trackpad (LLP 1142 D3): `tap <target> wheel <dx> <dy> fling|hold`
 // and `tap <target> wheel 0 0 release`, posted through the window server by
 // `host/apple/wheel.swift` so AppKit runs the gesture as a person's.
 import { spawn, spawnSync } from 'node:child_process';

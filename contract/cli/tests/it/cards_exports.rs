@@ -1,5 +1,5 @@
-//! `@exact/cards` exports Avatar and
-//! VerifiedBadge by its entry's `use` lines, params as declared (`size`, and
+//! LLP 1121 stage 15 B batch 1: `@exact/cards` exports Avatar and
+//! VerifiedBadge by its entry's `use` lines, params unchanged (`size`, and
 //! VerifiedBadge's `ink` and `mark`, explicit, with no defaults). A consumer
 //! app outside the repository, the package installed under its
 //! `node_modules` as the in-repo source, `use`s both from "@exact/cards"
@@ -7,8 +7,8 @@
 //! and its plan holds both components' own nodes, each named in the source
 //! map by its declaring identity. The cards' style `Name`, in the same file
 //! and not exported, is still refused, so the export is the `use` line's.
-//! VerifiedBadge's `badge` is `enum<"none", "verified", "verifier">`, so a
-//! `""` is refused; PersonRow
+//! Batch 2: VerifiedBadge's `badge` is `enum<"none", "verified", "verifier">`
+//! (it was a string, "" for none), so batch 1's `""` is refused; PersonRow
 //! is exported too, its trailing control in its slot.
 #![cfg(unix)]
 
@@ -54,8 +54,8 @@ fn consumer(tag: &str, source: &str) -> PathBuf {
     );
     std::fs::write(dir.join("app.contract"), source).unwrap();
     std::fs::write(
-        dir.join("app.tamber"),
-        "tamber consumer\n\ntheme\n  ink = #111111\n",
+        dir.join("app.forma"),
+        "forma consumer\n\ntheme\n  ink = #111111\n",
     )
     .unwrap();
     std::fs::write(
@@ -85,7 +85,7 @@ fn a_consumer_uses_avatar_and_verified_badge_from_the_package_and_its_plan_holds
         assert!(libs.contains(&identity), "no {identity} in {libs:?}");
     }
     // Each badge's own labelled column, and both stacked symbols (the
-    // ground and the check, each an icon token), are in the plan.
+    // ground and the check, stage 14 C's icon tokens), are in the plan.
     for s in ["verified-badge", "verifier-badge"] {
         assert!(plan.strings.iter().any(|x| x == s), "no {s} in the plan");
     }
@@ -206,7 +206,8 @@ fn a_consumer_uses_person_row_from_the_package_with_its_trailing_slot() {
     let under = |outer: &str, inner: &str| holds(k, node(outer).id, node(inner).id);
     assert!(under("ada", "trailing") && !under("ada-link", "trailing"));
     assert!(under("ada-link", "verified-badge"));
-    // The link takes the pill and the description too: only the slot is outside it.
+    // The link takes the pill and the description too (theme2's 2b
+    // condition): only the slot is outside it.
     for text in ["Follows you", "Maps."] {
         let k = r.kernel();
         let found = k

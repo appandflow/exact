@@ -3,8 +3,8 @@
 //! text change → `if` flip, a timer under the seekable clock, `match` on an
 //! option, and the refusals that leave the kernel untouched.
 //!
-//! This plan is also the first expected output of the compiler corpus:
-//! compiling the equivalent `.contract` must yield these tables.
+//! This plan is also the first expected output of the compiler corpus
+//! (LLP 1004 D6): compiling the equivalent `.contract` must yield these tables.
 
 use exact_kernel::{Kernel, NodeType, PropId, StyleId};
 use exact_plan::asm::Asm;
@@ -197,7 +197,7 @@ impl DataSource for LaterWrites {
     }
 }
 
-/// What an agent's `clock` jump relies on: a timer's send
+/// What an agent's `clock` jump relies on (LLP 1016 D5): a timer's send
 /// replied to before the next tick commits; one the next tick fired over
 /// is superseded, and its reply has nowhere to land.
 #[test]
@@ -246,12 +246,22 @@ fn a_timers_send_lands_only_if_its_reply_beats_the_next_tick() {
     assert_eq!(requests.len(), 2);
     let (first, last) = (requests[0].ticket, requests[1].ticket);
     let dropped = r
-        .fulfill(first, exact_runner::Outcome::Storage(b"three".to_vec()))
+        .fulfill_measured(
+            first,
+            exact_runner::Outcome::Storage(b"three".to_vec()),
+            Some(exact_runner::CompletionTiming {
+                cached: false,
+                elapsed_ms: 17,
+                delivery_wait_ms: 0,
+            }),
+        )
         .unwrap();
     assert!(dropped.is_none());
     let line = format!("reply {first} dropped: no such request in flight");
     assert!(
-        r.journal().any(|l| l.contains(&line)),
+        r.journal().any(|l| l.contains(&line)
+            && l.contains("; wall 17 ms")
+            && !l.contains("delivery wait")),
         "{:?}",
         r.journal().collect::<Vec<_>>()
     );
@@ -260,14 +270,17 @@ fn a_timers_send_lands_only_if_its_reply_beats_the_next_tick() {
         .fulfill_measured(
             last,
             exact_runner::Outcome::Storage(b"four".to_vec()),
-            Some(212)
+            Some(exact_runner::CompletionTiming {
+                cached: true,
+                elapsed_ms: 212,
+                delivery_wait_ms: 37
+            })
         )
         .unwrap()
         .is_some());
     assert_eq!(r.slot("result"), Some(&Value::some(Value::str("four"))));
-    assert!(r
-        .journal()
-        .any(|line| line.starts_with("t=1200 fulfil ") && line.contains("wall 212 ms")));
+    assert!(r.journal().any(|line| line.starts_with("t=1200 fulfil ")
+        && line.contains("; HTTP cache; wall 212 ms; delivery wait 37 ms")));
 }
 
 fn style_id(name: &str) -> u16 {
@@ -844,7 +857,7 @@ fn commands_exit_the_side_and_refusals_leave_the_kernel_untouched() {
     let err = r.act("rogue", vec![]).unwrap_err();
     assert!(matches!(
         err,
-        RunnerError::Trap(Trap::WriteNotDeclared { slot: 2, .. })
+        RunnerError::Evaluation { ref error, .. } if matches!(**error, RunnerError::Trap(Trap::WriteNotDeclared { slot: 2, .. }))
     ));
     assert_eq!(r.slot("nowMs"), Some(&Value::Number(0.0)));
     assert_eq!(r.kernel().export(None).unwrap(), before);
@@ -1109,7 +1122,7 @@ fn clock_seeks_have_an_exact_domain_and_a_bounded_catch_up() {
     assert!(resumed.error.is_none());
 }
 
-/// The identity gate: a named plan boots only against the
+/// The identity gate (LLP 1023 D5): a named plan boots only against the
 /// crate naming the same app; unnamed — either side — matches anything,
 /// so fixtures and stand-ins stay bootable.
 #[test]
@@ -1142,9 +1155,16 @@ fn app_identity_gate() {
         Default::default(),
         "/",
     ) {
-        Err(RunnerError::AppMismatch { plan, host }) => {
+        Err(RunnerError::AppMismatch { plan, host, fix }) => {
             assert_eq!(plan, "com.exact.other");
             assert_eq!(host, "com.exact.mine");
+            // The refusal names both causes: the data source's declaration, and a plan from elsewhere.
+            assert!(
+                fix.contains("`fn app_id`")
+                    && fix.contains("must say \"com.exact.other\"")
+                    && fix.contains("the plan is the wrong one"),
+                "{fix}"
+            );
         }
         Err(other) => panic!("expected AppMismatch, got {other:?}"),
         Ok(_) => panic!("expected AppMismatch, got a boot"),

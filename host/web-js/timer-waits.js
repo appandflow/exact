@@ -1,4 +1,4 @@
-// Timer admission observations and wake planning.
+// Timer admission observations and wake planning (LLP 1147).
 import { rt } from './rt-link.js';
 import { beatAfter } from './beat.js';
 
@@ -41,7 +41,10 @@ export function timerWaits() {
       if (clock.agent || clock.stopped || rt.poisoned?.()) { return; }
       const now = Math.max(clock.now, rt.wall());
       if (!clock.timers.some(t => t.wait && t.due <= now)) { return; }
-      while (rt.advance(now, true)) {
+      // `true` resumes after a change timer's boundary; a journal line (a refused timer, the fire limit) ends this
+      // turn, and `drive` schedules the rest.
+      for (let step; (step = rt.advance(now, true));) {
+        if (step !== true) { rt.drive(); return; }
         if (clock.agent || clock.stopped || rt.poisoned?.()) { return; }
       }
       const supported = 'onscrollend' in window;

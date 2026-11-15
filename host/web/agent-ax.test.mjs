@@ -1,6 +1,6 @@
-// `tree --ax`'s comparison reads each host through its own platform's table, which is
-// where a platform's own form of a control is expected: UIKit's toggle value has its oracle here. Hand-written
-// replies, as agent.test.mjs's.
+// @ref LLP 1115.000 D14.4 — `tree --ax`'s comparison reads each host through its own platform's table, which is
+// where a platform's own form of a control is expected: UIKit's toggle value (D13.3) has its oracle here. Hand-written
+// replies, as agent.test.mjs's (LLP 1080.002 D6).
 import { expect, test } from 'bun:test';
 import { axParity } from '../../scripts/agent-ax.mjs';
 
@@ -49,7 +49,7 @@ test('tree --ax: each platform has its row, AppKit\'s its own forms, and a platf
 });
 
 test('tree --ax: Android says a control by its class, a heading by a flag and a link and a tab by a role description', () => {
-  // The reader's nodes, as `Access.kt` makes them and `tree --ax` reads them back on a phone.
+  // LLP 1115.001 D13: the reader's nodes, as `Access.kt` makes them and `tree --ax` reads them back on a phone.
   const droid = (role, name, id, native, states = {}) => reply([el(role, name, id, { states, native })], 'android');
   const web = (role, name, id, states = {}) => reply([el(role, name, id, { states })]);
   expect(details(web('checkbox', 'Milk', 'milk', { checked: true }), droid('checkbox', 'Milk', 'milk', { class: 'android.widget.CheckBox' }, { checked: true }))).toEqual([]);

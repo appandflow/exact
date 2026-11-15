@@ -16,7 +16,12 @@ impl<D: DataSource> Host<D> {
         self.advanced(a)
     }
 
-    /// The agent API's read operations: `tree`, `state`, and
+    /// Action endings are delivery, separate from the agent's recent history.
+    pub fn take_ended_actions(&mut self) -> String {
+        format!("{{\"ended\":{}}}", self.runner.take_ended_actions())
+    }
+
+    /// The agent API's read operations (LLP 1012): `tree`, `state`, and
     /// `logs` from the runner; `settle` — the clock at which the last
     /// transition in flight ends, milliseconds, `null` when quiescent — from
     /// the engine (and a resource's re-ask), which is what the presenter's
@@ -38,8 +43,8 @@ impl<D: DataSource> Host<D> {
                 None => "{\"settle\":null}".to_string(),
             };
         }
-        // A native content region's frames are the host's, not the kernel's:
-        // `layout agree` must not compare them.
+        // A native content region's frames are the host's, not the kernel's
+        // (LLP 1080.001 D2): `layout agree` must not compare them.
         if exact_runner::agent::field_str(request, "op").as_deref() == Some("frames") {
             return exact_runner::agent::frames(&self.runner, request, &|id| {
                 self.native_protected_id(id)
@@ -59,7 +64,7 @@ impl<D: DataSource> Host<D> {
         reply
     }
 
-    /// The agent's `sensorEvents`: what the substitute's
+    /// The agent's `sensorEvents` (LLP 1133.013 D6): what the substitute's
     /// canvas inputs owe their surfaces up to `to`, which the Swift agent
     /// hands each surface before it steps the worlds a frame; `inputs` is
     /// false when no input runs or has an end still to deliver.

@@ -1,11 +1,11 @@
-//! A node's state looks in `layout <node>`: each
+//! A node's state looks in `layout <node>` (LLP 1121 D8; stage 9 E): each
 //! look's rows as a style row is, its value and the token it read.
 
 use super::{quote, row, token_fields};
 use crate::{DataSource, Runner};
 use exact_kernel::{NodeRef, StyleId};
 
-/// A node's looks as `"looks":{"hover":{row:{value,token?}},
+/// A node's looks (LLP 1121 D8) as `"looks":{"hover":{row:{value,token?}},
 /// "focus_visible":{…}}`, the states it has; nothing when it has none.
 pub(super) fn write<D: DataSource>(runner: &Runner<D>, node: &NodeRef<'_>, s: &mut String) {
     let looks = node.looks();

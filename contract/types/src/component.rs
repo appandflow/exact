@@ -1,14 +1,16 @@
 //! One component's declarations, action bodies and view, checked in the
 //! order their types need: initializers, derives to a fixpoint, resources,
-//! handler call sites, action bodies, then the view.
+//! handler call sites, settled writes and derives, action bodies, then the view.
 
 use super::{
     checks::{self, check_view, infer_owned_state_initializers},
     err, infer, record_source, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
+mod derives;
+
 use crate::calls::CAPTURE;
 use contract_syntax::inline::calls::shown;
-use contract_syntax::{Component, Expr, Node, Owner, Param, Span, Stmt, TemplatePart};
+use contract_syntax::{Binding, Component, Expr, Node, Owner, Param, Span, Stmt};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[cfg(test)]
@@ -96,8 +98,8 @@ pub(crate) fn check_component(
         .chain(c.actions.iter().map(|a| (&a.name, a.span)))
     {
         if let Some(first) = seen.insert(name.clone(), span) {
-            // `mutation exported` and `action exported`: say that the kinds
-            // share one set of names.
+            // The survey diary's `mutation exported` and `action exported`:
+            // say that the kinds share one set of names.
             sink.push(TypeError {
                 id: "type-duplicate-name",
                 message: format!(
@@ -137,34 +139,17 @@ pub(crate) fn check_component(
         ct.props.push(ty);
     }
     for r in &c.resources {
-        let t = sink.keep(shapes.resolve(&r.shape));
+        let t = sink.keep(shapes.resolve_value(&r.shape, &format!("resource `{}`", r.name)));
         let over = r.each.is_some() && t != Ty::Unknown;
         ct.resources
             .push(if over { Ty::List(Box::new(t)) } else { t });
     }
     for m in &c.mutations {
-        let t = sink.keep(shapes.resolve(&m.shape));
-        // A mutation holds `option<T>` of its answer.
+        let t = sink.keep(shapes.resolve_value(&m.shape, &format!("mutation `{}`", m.name)));
+        // A mutation holds `option<T>` of its answer (LLP 1090 D2).
         sink.keep_unit(shapes.bounded(&Ty::Option(Box::new(t.clone())), m.shape.span()));
         ct.mutations.push(t);
-        // What a send to this mutation refreshes.
-        for (i, (name, span)) in m.refreshes.iter().enumerate() {
-            if !c.resources.iter().any(|r| &r.name == name) {
-                sink.push(TypeError {
-                    id: "type-refreshes-not-resource",
-                    message: format!(
-                        "`{name}` is not a resource: `refreshes` names this component's resources"
-                    ),
-                    span: *span,
-                });
-            } else if m.refreshes[..i].iter().any(|(n, _)| n == name) {
-                sink.push(TypeError {
-                    id: "type-refreshes-duplicate",
-                    message: format!("`{name}` is already named in `refreshes`"),
-                    span: *span,
-                });
-            }
-        }
+        super::mutations::check(c, m, sink);
     }
     // Slots from initializers (may hold `?` inside an option).
     if !c.states.is_empty() {
@@ -195,7 +180,7 @@ pub(crate) fn check_component(
                 sink.push(e);
                 Ty::Unknown
             } else {
-                sink.keep(infer(&s.expr, &scope, shapes))
+                sink.keep(state_type(s, &scope, shapes))
             };
             // Duplicate declarations were refused above. Each initializer sees
             // only earlier slots, without copying their names and types again.
@@ -208,7 +193,12 @@ pub(crate) fn check_component(
         let mut params = Vec::new();
         for p in &a.params {
             params.push(match &p.ty {
-                Some(t) => sink.keep(shapes.resolve(t)),
+                Some(t) => {
+                    sink.keep(shapes.resolve_value(
+                        t,
+                        &format!("parameter `{}` of action `{}`", p.name, a.name),
+                    ))
+                }
                 None => Ty::Unknown,
             });
         }
@@ -219,66 +209,21 @@ pub(crate) fn check_component(
     // reads it (a derive, a view head, a handler's or a resource's
     // argument) must see that type, whatever the declaration order.
     ct.derives = vec![Ty::Unknown; c.derives.len()];
-    // One ordered pass first, not a fixed point: a row's state is typed from
-    // its initializer before the derives that read it (`derive chosen =
-    // at(…, pick)` over a row's `state pick = 0`). Its refusals are made
-    // where the same pass runs again below, once
+    // One ordered pass first, not a fixed point (LLP 1088 D6 is deferred): a
+    // row's state is typed from its initializer before the derives that read
+    // it (shop F3's `derive chosen = at(…, pick)` over a row's `state pick =
+    // 0`). Its refusals are made where the same pass runs again below, once
     // the derives and resources a child's state may read have types.
     let _ = infer_owned_state_initializers(c, &mut ct, types, owners);
-    let order = derive_order(c);
+    let derives = derives::Dependencies::new(c);
     for _round in 0..(c.states.len() + 2) {
-        settle_derives(c, &mut ct, types, &order);
+        derives.settle(c, &mut ct, types);
         if ct.slots.iter().all(Ty::is_complete) || !probe_writes(c, &mut ct, types) {
             break;
         }
     }
-    // Everything must now type; re-infer derives strictly to surface errors.
     let scope = types.component_scope(c, &ct);
-    let results: Vec<_> = c
-        .derives
-        .iter()
-        .map(|d| infer(&d.expr, &scope, shapes))
-        .collect();
-    // A derive left incomplete because one it reads was refused is refused
-    // with it, not reported again as a cycle (`derive bill = Number(text)`,
-    // then `derive total = bill + tip`).
-    let reads = derive_reads(c);
-    let mut refused: Vec<bool> = results.iter().map(Result::is_err).collect();
-    for &i in &order {
-        if matches!(&results[i], Ok(t) if !t.is_complete()) && reads[i].iter().any(|&d| refused[d])
-        {
-            refused[i] = true;
-        }
-    }
-    for ((i, d), result) in c.derives.iter().enumerate().zip(results) {
-        match result {
-            Ok(t) if !t.is_complete() && refused[i] => {}
-            // What types only incompletely depends on itself; what fails to
-            // type is refused for that reason alone.
-            // An `[]` nothing pairs with a typed list is the one leaf that
-            // leaves a `?` without a cycle.
-            Ok(t) if !t.is_complete() => sink.push(match empty_list_in(&d.expr) {
-                Some(span) => TypeError {
-                    id: "type-cannot-infer",
-                    message: format!(
-                        "cannot infer what `[]` holds in `{}`: pair it with a typed arm (`match`/`?:`) or write it where a `T[]` is declared",
-                        d.name
-                    ),
-                    span,
-                },
-                None => TypeError {
-                    id: "type-derive-cycle",
-                    message: format!(
-                        "cannot infer the type of `{}`: it depends on itself through other derives",
-                        d.name
-                    ),
-                    span: d.span,
-                },
-            }),
-            Ok(t) => ct.derives[i] = t,
-            Err(e) => sink.push(e),
-        }
-    }
+    let after_derives = sink.errors.len();
     let mut resource_args = Vec::with_capacity(c.resources.len());
     for r in &c.resources {
         let (each, errors) = crate::each::args_scope(r, &scope, shapes);
@@ -306,7 +251,7 @@ pub(crate) fn check_component(
         shapes,
         &mut miscounted,
     ));
-    // Then the calls in action bodies, before any body is checked.
+    // Then the calls in action bodies (LLP 1089 D8), before any body is checked.
     crate::calls::refine(c, &mut ct, types);
     share_captures(c, &mut ct);
     // A handler whose payload does not fit its action, which it left with
@@ -318,41 +263,45 @@ pub(crate) fn check_component(
             sink.push(e.clone());
         }
     }
-    // Action bodies: writes refine slots; assignments must unify. Two
-    // rounds, so a `send` whose argument is a state a later action writes
-    // (`state q = none`, typed by `q = some(s)`) records the written type
-    // whatever the declaration order: the first round refines the slots and
-    // its findings are dropped, the second reports.
-    for round in 0..2 {
-        let mut scratch = Sink::default();
-        let report = if round == 0 { &mut scratch } else { &mut *sink };
-        let mut scope = types.component_scope(c, &ct);
-        let names = crate::actions::Names::new(c);
-        for (ai, a) in c.actions.iter().enumerate() {
-            scope.push(
-                a.params
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        (
-                            p.name.clone(),
-                            Ref::Param(i as u32),
-                            ct.actions[ai][i].clone(),
-                        )
-                    })
-                    .collect(),
-            );
-            scope.enter_action();
-            // A lifted child action is `name#N`.
-            let lifted = a.name.contains('#');
-            let written = crate::actions::check_body(
-                &a.body, &scope, lifted, &names, &mut ct, shapes, report,
-            );
-            scope.pop();
-            scope.retype_written(c, &ct, &written);
+    // Handler parameters can type more writes. Settle those slots and their
+    // derives before checking assignments or recording source signatures.
+    for _round in 0..(c.states.len() + 2) {
+        derives.settle(c, &mut ct, types);
+        if ct.slots.iter().all(Ty::is_complete) || !probe_writes(c, &mut ct, types) {
+            break;
         }
     }
-    // The seam's signatures: every resource's arguments against
+    let mut scope = types.component_scope(c, &ct);
+    let names = crate::actions::Names::new(c);
+    for (ai, a) in c.actions.iter().enumerate() {
+        scope.push(
+            a.params
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    (
+                        p.name.clone(),
+                        Ref::Param(i as u32),
+                        ct.actions[ai][i].clone(),
+                    )
+                })
+                .collect(),
+        );
+        scope.enter_action();
+        // A lifted child action is `name#N` (LLP 1017 P4c).
+        let lifted = a.name.contains('#');
+        let written =
+            crate::actions::check_body(&a.body, &scope, lifted, &names, &mut ct, shapes, sink);
+        scope.pop();
+        scope.retype_written(c, &ct, &written);
+    }
+    // Keep derive causes before errors from resources and actions that read them.
+    let later_errors = sink.errors.split_off(after_derives);
+    derives.check(c, &mut ct, types, sink);
+    for e in later_errors {
+        sink.push(e);
+    }
+    // The seam's signatures (LLP 1027 D2): every resource's arguments against
     // the final scope, unified with the sends' (recorded as their bodies were
     // checked). One source, one signature.
     {
@@ -360,6 +309,7 @@ pub(crate) fn check_component(
         for (i, r) in c.resources.iter().enumerate() {
             let each = crate::each::args_scope(r, &scope, shapes).0;
             let scope = each.as_ref().unwrap_or(&scope);
+            sink.keep_unit(crate::each::gate(r, scope, shapes));
             // An argument that failed above is reported there, once.
             let params: Vec<Ty> = r
                 .args
@@ -389,12 +339,12 @@ pub(crate) fn check_component(
             let result = crate::each::answer(r, &ct.resources[i]);
             sink.keep_unit(record_source(&mut ct, &r.source, params, result, r.span));
         }
-        // A placeholder is a source call over values:
+        // @ref LLP 1048.003 D6 — a placeholder is a source call over values:
         // the build answers it once for every launch, so its arguments read
         // no state, and its answer is the resource's shape.
         for (i, r) in c.resources.iter().enumerate() {
             let Some(p) = &r.placeholder else { continue };
-            // `empty(field=value, …)` is the
+            // @ref LLP 1054.000.002 D2 — `empty(field=value, …)` is the
             // compiler's constant, not a source.
             if p.source == crate::placeholder::EMPTY {
                 if let Err(errors) = crate::placeholder::materialize(
@@ -410,7 +360,7 @@ pub(crate) fn check_component(
                 }
                 continue;
             }
-            // `else Row(title="…")`: a shape's call
+            // `else Row(title="…")` (app farm round 1): a shape's call
             // builds a record, and a placeholder is a source's.
             if shapes.declared.contains(&p.source) {
                 sink.push(TypeError {
@@ -470,8 +420,8 @@ pub(crate) fn check_component(
                 continue;
             }
             if p.name.starts_with(CAPTURE) {
-                // Hidden: what an action prop was curried with, said once,
-                // at that prop's binding.
+                // Hidden: what an action prop was curried with (LLP 1089
+                // D7), said once, at that prop's binding.
                 said.push(p.name.clone());
                 sink.push(untyped_capture(c, &p.name, p.span));
                 continue;
@@ -480,8 +430,8 @@ pub(crate) fn check_component(
         }
     }
     // A child's `provide` section and the view type. The expanded root's
-    // section is checked with its uses (`check_root`), after the expansion,
-    // so a provided value is refused where a child reads it.
+    // section is checked with its uses (`check_root`), after expansion,
+    // to preserve action invocation diagnostics (LLP 1006 §3).
     let scope = types.component_scope(c, &ct);
     if owners.is_none() {
         for b in &c.provides {
@@ -525,29 +475,25 @@ impl Scope {
     }
 }
 
-/// A prop or inject named like an app `fn`, where the component calls
+/// An action prop or inject named like an app `fn`, where the component calls
 /// that name in an expression: `subst_expr` can replace the call's head
 /// with the supplied name, although the checker resolved the app fn. A
 /// handler's own call (`press=name(…)`) is the action's both ways, and a
 /// name only handlers use, or nothing does, clashes with nothing.
 fn hides_fn(c: &Component, p: &Param, ty: &Ty, kind: &str, shapes: &Shapes) -> Option<TypeError> {
-    if !shapes.fns.contains_key(&p.name) {
+    if !matches!(ty, Ty::Action(_)) || !shapes.fns.contains_key(&p.name) {
         return None;
     }
     let call = expression_call(c, &p.name)?;
     let name = &p.name;
-    let what = if matches!(ty, Ty::Action(_)) {
-        let mut chars = name.chars();
-        let on: String = chars
-            .next()
-            .map(|c| c.to_ascii_uppercase())
-            .into_iter()
-            .chain(chars)
-            .collect();
-        format!("action {kind} `{name}` (as in `on{on}`)")
-    } else {
-        format!("{kind} `{name}`")
-    };
+    let mut chars = name.chars();
+    let on: String = chars
+        .next()
+        .map(|c| c.to_ascii_uppercase())
+        .into_iter()
+        .chain(chars)
+        .collect();
+    let what = format!("action {kind} `{name}` (as in `on{on}`)");
     Some(TypeError {
         id: "type-prop-hides-fn",
         message: format!(
@@ -565,16 +511,12 @@ fn hides_fn(c: &Component, p: &Param, ty: &Ty, kind: &str, shapes: &Shapes) -> O
 /// a node `for` or `match` still count.
 fn expression_call(c: &Component, name: &str) -> Option<Span> {
     fn in_expr(e: &Expr, name: &str) -> Option<Span> {
-        first_free(e, &|n| n == name, &|_| false).map(|(_, span)| span)
+        first_free(e, &|n| n == name, &mut |_| false).map(|(_, span)| span)
     }
     fn in_nodes(nodes: &[Node], name: &str) -> Option<Span> {
-        nodes.iter().find_map(|n| match n {
-            Node::Children { .. } => None,
+        Node::walk(nodes).find_map(|n| match n {
             Node::Element {
-                positional,
-                attrs,
-                children,
-                ..
+                positional, attrs, ..
             } => positional
                 .iter()
                 .find_map(|e| in_expr(e, name))
@@ -585,33 +527,8 @@ fn expression_call(c: &Component, name: &str) -> Option<Span> {
                         }
                         value => in_expr(value, name),
                     })
-                })
-                .or_else(|| in_nodes(children, name)),
-            Node::Use { args, children, .. } => args
-                .iter()
-                .find_map(|a| in_expr(&a.value, name))
-                .or_else(|| in_nodes(children, name)),
-            Node::When {
-                cond,
-                then,
-                otherwise,
-                ..
-            } => in_expr(cond, name)
-                .or_else(|| in_nodes(then, name))
-                .or_else(|| in_nodes(otherwise, name)),
-            Node::Each {
-                list, key, body, ..
-            } => in_expr(list, name)
-                .or_else(|| in_expr(key, name))
-                .or_else(|| in_nodes(body, name)),
-            Node::Match {
-                subject,
-                some,
-                none,
-                ..
-            } => in_expr(subject, name)
-                .or_else(|| in_nodes(&some.1, name))
-                .or_else(|| in_nodes(none, name)),
+                }),
+            n => n.exprs().find_map(|e| in_expr(e, name)),
         })
     }
     c.derives
@@ -661,11 +578,14 @@ pub(crate) fn handler_attr(name: &str) -> bool {
             | "dragleave"
             | "atompress"
             | "swiperight"
+            | "swipeleft"
             | "refresh"
             | "reachstart"
             | "reachend"
             | "scroll"
             | "scrollend"
+            | "scrolldragstart"
+            | "scrolldragend"
             | "pan"
             | "panrelease"
             | "heightrelease"
@@ -711,33 +631,6 @@ pub(crate) fn handler_attr(name: &str) -> bool {
             | "resize"
             | "intersect"
     )
-}
-
-/// Derives to a fixpoint, so order does not matter and `?` fills. Each is
-/// inferred after the derives it reads, and its type enters the scope at
-/// once, so a set without a cycle settles in one round (and one to confirm)
-/// rather than one round per link of a chain.
-fn settle_derives(c: &Component, ct: &mut ComponentTypes, types: &Types, order: &[usize]) {
-    let first_derive = c.props.len() + c.injects.len() + c.states.len();
-    let mut scope = types.component_scope(c, ct);
-    for _round in 0..(c.derives.len() + 2) {
-        let mut changed = false;
-        for &i in order {
-            // An expression over a derive not yet typed (`current.ok` while
-            // `current` is still `?`) waits for a later round; the strict
-            // pass reports what never types.
-            if let Ok(t) = infer(&c.derives[i].expr, &scope, &types.shapes) {
-                if t != ct.derives[i] {
-                    scope.retype(first_derive + i, t.clone());
-                    ct.derives[i] = t;
-                    changed = true;
-                }
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
 }
 
 /// Check every action body against a copy of the types, its findings
@@ -800,18 +693,18 @@ fn refine_params_from_view(
                 ..
             } => {
                 // A checkbox's `change` and `input` carry whether it is
-                // checked; a text field's, its text.
+                // checked (LLP 1069.001 D4); a text field's, its text.
                 let control = contract_syntax::input_control(tag, attrs);
                 let checkbox = control == Some("checkbox");
                 // A text field's `select` is HTML's, its selection the
-                // `InputEvent`; the Markdown editor's
+                // `InputEvent` (x2apps codeedit #2); the Markdown editor's
                 // carries its formats.
                 let payload_control = contract_syntax::payload_control(tag, attrs);
                 let field = payload_control == Some("field");
-                // A file input's `change` carries the picked files;
-                // its `cancel`, nothing.
+                // A file input's `change` carries the picked files (LLP
+                // 1069.002 D3); its `cancel`, nothing.
                 let file = control == Some("file");
-                // A range's carry its number.
+                // A range's carry its number (LLP 1069.001 D4).
                 let range = control == Some("range");
                 // A bound `type` that could name a control is lowering's
                 // refusal (`lower-input-type`), not a payload guessed here;
@@ -907,7 +800,8 @@ fn refine_params_from_view(
                                 "select" if field => vec![Ty::Record("InputEvent".into())],
                                 "select" => vec![Ty::Record("MarkdownSelection".into())],
                                 // A drag's numbers and a drop's keys, as
-                                // analysis's `handler_arity` counts them.
+                                // analysis's `handler_arity` counts them
+                                // (LLP 1057 §1.1).
                                 "scroll" | "pan" | "panrelease" | "heightrelease" | "resize" => {
                                     vec![Ty::Number, Ty::Number]
                                 }
@@ -978,9 +872,9 @@ fn refine_params_from_view(
                                         if !counted {
                                             continue;
                                         }
-                                        // A repair that only retyped the
-                                        // parameter would drop the guard on
-                                        // a radio's deselection.
+                                        // LLP 1116.018: a repair that only
+                                        // retyped the parameter dropped the
+                                        // guard on a radio's deselection.
                                         let param = &c.actions[ai].params[last].name;
                                         let keep = match (&ty, &declared) {
                                             (Ty::String, Ty::Number) => format!(
@@ -1060,7 +954,7 @@ fn refine_params_from_view(
 }
 
 /// Every lifted action of one use takes the same hidden captures, of the
-/// same values: one that a handler or a call types gives its
+/// same values (LLP 1089 D7): one that a handler or a call types gives its
 /// type to the others, a sibling nothing binds included.
 fn share_captures(c: &Component, ct: &mut ComponentTypes) {
     let mut typed: BTreeMap<&str, Ty> = BTreeMap::new();
@@ -1124,134 +1018,28 @@ fn handed_on<'b>(body: &'b [Stmt], capture: &str) -> Option<(&'b str, Span)> {
     })
 }
 
-/// Derive indices, each after the derives its expression names (a cycle is
-/// left in declaration order; the fixpoint refuses it).
-/// The derives each derive reads, by index.
-fn derive_reads(c: &Component) -> Vec<Vec<usize>> {
-    let index: BTreeMap<&str, usize> = c
-        .derives
-        .iter()
-        .enumerate()
-        .map(|(i, d)| (d.name.as_str(), i))
-        .collect();
-    c.derives
-        .iter()
-        .map(|d| {
-            let mut out = Vec::new();
-            names(&d.expr, &mut out);
-            out.iter().filter_map(|n| index.get(n).copied()).collect()
-        })
-        .collect()
-}
-
-fn names<'a>(e: &'a Expr, out: &mut Vec<&'a str>) {
-    use contract_syntax::TemplatePart;
-    match e {
-        Expr::Ident(n, _) => out.push(n),
-        Expr::Call(n, args, _) => {
-            out.push(n);
-            args.iter().for_each(|a| names(a, out));
-        }
-        Expr::Some(x, _)
-        | Expr::Unary(_, x, _)
-        | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _)
-        | Expr::Typed(x, _, _) => names(x, out),
-        Expr::Binary(_, a, b, _) => {
-            names(a, out);
-            names(b, out);
-        }
-        Expr::Ternary(a, b, x, _) => {
-            names(a, out);
-            names(b, out);
-            names(x, out);
-        }
-        Expr::Match {
-            subject,
-            some,
-            none,
-            ..
-        } => {
-            names(subject, out);
-            names(some, out);
-            names(none, out);
-        }
-        Expr::Let { value, body, .. } => {
-            names(value, out);
-            names(body, out);
-        }
-        Expr::Arrow { body, .. } => names(body, out),
-        Expr::Template(parts, _) => parts.iter().for_each(|p| {
-            if let TemplatePart::Expr(x) = p {
-                names(x, out)
-            }
-        }),
-        Expr::List(items, _) => items.iter().for_each(|x| names(x, out)),
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
-    }
-}
-
-fn derive_order(c: &Component) -> Vec<usize> {
-    fn visit(i: usize, reads: &[Vec<usize>], seen: &mut [bool], order: &mut Vec<usize>) {
-        if std::mem::replace(&mut seen[i], true) {
-            return;
-        }
-        for &d in &reads[i] {
-            visit(d, reads, seen, order);
-        }
-        order.push(i);
-    }
-    let reads = derive_reads(c);
-    let (mut seen, mut order) = (vec![false; c.derives.len()], Vec::new());
-    for i in 0..c.derives.len() {
-        visit(i, &reads, &mut seen, &mut order);
-    }
-    order
-}
-
-/// The first `[]` in `e`, whose element type nothing fixed when `e` typed
-/// as a `?[]`.
-fn empty_list_in(e: &Expr) -> Option<Span> {
-    match e {
-        Expr::List(items, span) if items.is_empty() => Some(*span),
-        Expr::List(items, _) => items.iter().find_map(empty_list_in),
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {
-            None
-        }
-        Expr::Template(parts, _) => parts.iter().find_map(|p| match p {
-            TemplatePart::Expr(x) => empty_list_in(x),
-            _ => None,
-        }),
-        Expr::Some(x, _)
-        | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _)
-        | Expr::Typed(x, _, _)
-        | Expr::Unary(_, x, _) => empty_list_in(x),
-        Expr::Call(_, args, _) => args.iter().find_map(empty_list_in),
-        Expr::Binary(_, a, b, _) => empty_list_in(a).or_else(|| empty_list_in(b)),
-        Expr::Ternary(a, b, c, _) => empty_list_in(a)
-            .or_else(|| empty_list_in(b))
-            .or_else(|| empty_list_in(c)),
-        Expr::Match {
-            subject,
-            some,
-            none,
-            ..
-        } => empty_list_in(subject)
-            .or_else(|| empty_list_in(some))
-            .or_else(|| empty_list_in(none)),
-        Expr::Let { value, body, .. } => empty_list_in(value).or_else(|| empty_list_in(body)),
-        Expr::Arrow { body, .. } => empty_list_in(body),
-    }
-}
-
 /// The first name in `e` the component declares: state a placeholder's
-/// arguments may not read.
+/// arguments may not read (LLP 1048.003 D6).
 fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
-    first_free(e, &|_| false, &|name| scope.lookup(name).is_some())
+    first_free(e, &|_| false, &mut |name| scope.lookup(name).is_some())
 }
 
-/// A state's initializer runs before any resource
+/// A state's initializer's type. A declared type (`state n: number = …`,
+/// LLP 1116.015 D2) is checked here, where a refusal can name the state.
+pub(crate) fn state_type(s: &Binding, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
+    let Expr::Typed(value, declared, _) = &s.expr else {
+        return infer(&s.expr, scope, shapes);
+    };
+    let declared = shapes.resolve_value(declared, &format!("state `{}`", s.name))?;
+    let t = infer(value, scope, shapes)?;
+    super::fits(&declared, &t, value, scope, shapes).ok_or_else(|| TypeError {
+        id: "type-state-initializer",
+        message: super::enums::initializer_error(&s.name, &declared, value, &t),
+        span: value.span(),
+    })
+}
+
+/// @ref LLP 1088 D4 — a state's initializer runs before any resource
 /// answers and before any derive, so it reads only props, injects and the
 /// states declared above it. A name it reads that the component declares
 /// otherwise is refused as what it is; an unknown name keeps its
@@ -1275,13 +1063,13 @@ pub(crate) fn initializer_scope(
     // names, and of those only an action is callable; any other name a
     // call makes is the roster's (`state length = length("abc")`).
     let calls = |name: &str| {
-        !matches!(name, "failed" | "failure" | "pending")
+        !matches!(name, "failed" | "failure" | "pending" | "current")
             && !crate::records::is_record_call(name, shapes)
             && !shapes.fns.contains_key(name)
             && c.actions.iter().any(|a| a.name == name)
             && scope.lookup(name).is_none()
     };
-    let (name, span) = first_free(&c.states[i].expr, &calls, &|name| {
+    let (name, span) = first_free(&c.states[i].expr, &calls, &mut |name| {
         scope.lookup(name).is_none() && declared(name)
     })?;
     let shown = name.split('#').next().unwrap_or_default();
@@ -1328,60 +1116,15 @@ fn member_path(e: &Expr, name: &str) -> Option<String> {
         }
     }
     let mut best: Option<String> = None;
-    let mut visit = |x: &Expr| {
+    for x in e.walk() {
         if let Some(c) = chain(x).filter(|_| matches!(x, Expr::Member(..)) && root(x) == Some(name))
         {
             if best.as_ref().is_none_or(|b| c.len() > b.len()) {
                 best = Some(c);
             }
         }
-    };
-    walk_exprs(e, &mut visit);
-    best
-}
-
-/// Visit `e` and every expression inside it.
-fn walk_exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
-    f(e);
-    match e {
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {}
-        Expr::Template(parts, _) => parts.iter().for_each(|p| {
-            if let TemplatePart::Expr(x) = p {
-                walk_exprs(x, f)
-            }
-        }),
-        Expr::List(items, _) => items.iter().for_each(|a| walk_exprs(a, f)),
-        Expr::Some(x, _)
-        | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _)
-        | Expr::Typed(x, _, _)
-        | Expr::Unary(_, x, _) => walk_exprs(x, f),
-        Expr::Call(_, args, _) => args.iter().for_each(|a| walk_exprs(a, f)),
-        Expr::Binary(_, a, b, _) => {
-            walk_exprs(a, f);
-            walk_exprs(b, f);
-        }
-        Expr::Ternary(a, b, c, _) => {
-            walk_exprs(a, f);
-            walk_exprs(b, f);
-            walk_exprs(c, f);
-        }
-        Expr::Match {
-            subject,
-            some,
-            none,
-            ..
-        } => {
-            walk_exprs(subject, f);
-            walk_exprs(some, f);
-            walk_exprs(none, f);
-        }
-        Expr::Let { value, body, .. } => {
-            walk_exprs(value, f);
-            walk_exprs(body, f);
-        }
-        Expr::Arrow { body, .. } => walk_exprs(body, f),
     }
+    best
 }
 
 /// The first free name in `e` (not bound by a `let`, a `match` or an arrow
@@ -1390,66 +1133,30 @@ fn walk_exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
 fn first_free(
     e: &Expr,
     calls: &dyn Fn(&str) -> bool,
-    hit: &dyn Fn(&str) -> bool,
+    hit: &mut dyn FnMut(&str) -> bool,
 ) -> Option<(String, Span)> {
     fn walk(
         e: &Expr,
         calls: &dyn Fn(&str) -> bool,
-        hit: &dyn Fn(&str) -> bool,
+        hit: &mut dyn FnMut(&str) -> bool,
         bound: &mut Vec<String>,
     ) -> Option<(String, Span)> {
-        let within = |name: &str, x: &Expr, bound: &mut Vec<String>| {
-            bound.push(name.to_string());
-            let found = walk(x, calls, hit, bound);
-            bound.pop();
-            found
-        };
         match e {
             Expr::Ident(name, span) => {
-                (!bound.contains(name) && hit(name)).then(|| (name.clone(), *span))
+                return (!bound.contains(name) && hit(name)).then(|| (name.clone(), *span));
             }
-            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) => None,
-            Expr::List(items, _) => items.iter().find_map(|a| walk(a, calls, hit, bound)),
-            Expr::Template(parts, _) => parts.iter().find_map(|p| match p {
-                TemplatePart::Expr(x) => walk(x, calls, hit, bound),
-                _ => None,
-            }),
-            Expr::Some(x, _)
-            | Expr::Member(x, _, _)
-            | Expr::NamedArg(_, x, _)
-            | Expr::Typed(x, _, _)
-            | Expr::Unary(_, x, _) => walk(x, calls, hit, bound),
-            Expr::Call(name, args, span) => {
-                if !bound.contains(name) && calls(name) {
-                    return Some((name.clone(), *span));
-                }
-                args.iter().find_map(|a| walk(a, calls, hit, bound))
+            Expr::Call(name, _, span) if !bound.contains(name) && calls(name) => {
+                return Some((name.clone(), *span));
             }
-            Expr::Binary(_, a, b, _) => {
-                walk(a, calls, hit, bound).or_else(|| walk(b, calls, hit, bound))
-            }
-            Expr::Ternary(a, b, c, _) => walk(a, calls, hit, bound)
-                .or_else(|| walk(b, calls, hit, bound))
-                .or_else(|| walk(c, calls, hit, bound)),
-            Expr::Match {
-                subject,
-                var,
-                some,
-                none,
-                ..
-            } => walk(subject, calls, hit, bound)
-                .or_else(|| within(var, some, bound))
-                .or_else(|| walk(none, calls, hit, bound)),
-            Expr::Let {
-                name, value, body, ..
-            } => walk(value, calls, hit, bound).or_else(|| within(name, body, bound)),
-            Expr::Arrow { params, body, .. } => {
-                bound.extend(params.iter().cloned());
-                let found = walk(body, calls, hit, bound);
-                bound.truncate(bound.len() - params.len());
-                found
-            }
+            _ => {}
         }
+        e.scoped_operands().find_map(|(x, binds)| {
+            let depth = bound.len();
+            bound.extend(binds.iter().map(String::from));
+            let found = walk(x, calls, hit, bound);
+            bound.truncate(depth);
+            found
+        })
     }
     walk(e, calls, hit, &mut Vec::new())
 }

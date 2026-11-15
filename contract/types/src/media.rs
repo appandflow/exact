@@ -1,11 +1,11 @@
-//! A media element's commands by HTML's method names:
+//! A media element's commands by HTML's method names (podcast F8, F18):
 //! `fastSeek(id, seconds)` seeks every time it runs, where the bound
 //! `currentTime` seeks only when its value changes, and `load(id)` loads the
 //! source again (a retry after an `error`, or a file that changed).
 //! `requestPictureInPicture(id)` floats an `image` and `exitPictureInPicture()`
-//! ends it; `presentation="window"` or `"panel"` asks for a
+//! ends it (LLP 1042 §9); `presentation="window"` or `"panel"` asks for a
 //! floating window Exact draws in place of the platform's, with its `title`,
-//! `width` and `height`.
+//! `width` and `height` (LLP 1042 §9.1).
 use super::{err, infer, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};
 

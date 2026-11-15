@@ -206,8 +206,8 @@ impl DataSource for Burst {
 /// 146 ordered sends at once through the Bridge, sixteen in flight: the
 /// seventeenth is refused at the limit, the next 128 are held and run in
 /// their turn, and the 129th held is refused in its place, after them. Every
-/// settlement is in issue order: a refusal past the holding cap settles after
-/// the held work.
+/// settlement is in issue order (the Bluesky clone's boot; Astra and Grok,
+/// round 1: a refusal past the holding cap settled before the held work).
 #[test]
 fn a_burst_past_the_limit_and_the_holding_cap_settles_in_issue_order() {
     const CHILD: &str = "EXACT_EXECUTOR_BURST_TEST";

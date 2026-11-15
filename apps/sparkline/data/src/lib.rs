@@ -1,4 +1,4 @@
-//! Sparkline's data: forty coins, each with a 48-point random walk
+//! Sparkline's data (LLP 1055): forty coins, each with a 48-point random walk
 //! turned into the chart's `points` in a 96 × 32 box (the minimum at the
 //! bottom, the maximum at the top) and the last point, where the pulse sits.
 //! `coins(version)` moves every third coin's series on by `version` steps, so

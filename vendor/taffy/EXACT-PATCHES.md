@@ -1,10 +1,11 @@
 # Vendored Taffy — Exact patches
 
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
-  `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (2026-09-18).
-  Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68 and 69 below remain. `[patch.crates-io]`
+  `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
+  The archive's `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75 and 76 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
+- **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
   `BlockContext` belongs to block_layout; float_layout is unnecessary and
   disabled. No float row is exposed. Upstream's other newly default features
@@ -26,9 +27,9 @@ available to Exact until its dependency is refreshed and checked.
 
 | Patch | Current upstream coverage |
 | --- | --- |
-| 10 | Block percentage padding was merged in [#1187](https://github.com/DioxusLabs/taffy/pull/1187). The remaining two flex paths are merged in [#1209](https://github.com/DioxusLabs/taffy/pull/1209); 16 new Chrome-generated variants, eight failing before the fix. |
-| 11 | Missing sizing-mode and margin-collapse cache inputs are submitted in [#1210](https://github.com/DioxusLabs/taffy/pull/1210); three restyle regressions fail before the fix. The original percentage-parent-height regression already passes current main and is retained as a control, so no additional parent-height key change was submitted. |
-| 12 | Submitted as [#1213](https://github.com/DioxusLabs/taffy/pull/1213), with 500 new Chrome-derived variants. Shared ratio resolution covers block/flex/grid/absolute/root paths, min/max transfer, content minima, percentage bases and content-box ratio semantics. Includes #1210 as a prerequisite and explicitly credits/reconciles overlaps with [#1184](https://github.com/DioxusLabs/taffy/pull/1184) (`l7aromeo`) and [#1081](https://github.com/DioxusLabs/taffy/pull/1081), [#1098](https://github.com/DioxusLabs/taffy/pull/1098), [#1157](https://github.com/DioxusLabs/taffy/pull/1157) (`nicoburns`). |
+| 10 | Block percentage padding was merged in [#1187](https://github.com/DioxusLabs/taffy/pull/1187). The remaining two flex paths are merged in [#1209](https://github.com/DioxusLabs/taffy/pull/1209), by `ccheever`; 16 new Chrome-generated variants, eight failing before the fix. |
+| 11 | Missing sizing-mode and margin-collapse cache inputs are submitted in [#1210](https://github.com/DioxusLabs/taffy/pull/1210), by `ccheever`; three restyle regressions fail before the fix. The original percentage-parent-height regression already passes current main and is retained as a control, so no additional parent-height key change was submitted. |
+| 12 | Submitted as [#1213](https://github.com/DioxusLabs/taffy/pull/1213), by `ccheever`, with 500 new Chrome-derived variants. Shared ratio resolution covers block/flex/grid/absolute/root paths, min/max transfer, content minima, percentage bases and content-box ratio semantics. Includes #1210 as a prerequisite and explicitly credits/reconciles overlaps with [#1184](https://github.com/DioxusLabs/taffy/pull/1184) (`l7aromeo`) and [#1081](https://github.com/DioxusLabs/taffy/pull/1081), [#1098](https://github.com/DioxusLabs/taffy/pull/1098), [#1157](https://github.com/DioxusLabs/taffy/pull/1157) (`nicoburns`). |
 | 14 | Negative-margin contribution fixes are already submitted in [#1165](https://github.com/DioxusLabs/taffy/pull/1165) and its dependent [#1166](https://github.com/DioxusLabs/taffy/pull/1166), by `nicoburns`. The earlier [#1164](https://github.com/DioxusLabs/taffy/pull/1164) is merged. Of 32 Chrome variants, eight fail current main and all pass at #1166 head `6c6fcb15a80d58c2ce9f38139e6780df79b86dea`. |
 | 17 | The absolute-inset half is merged in [#1203](https://github.com/DioxusLabs/taffy/pull/1203). Replaced grid alignment is submitted in [#1158](https://github.com/DioxusLabs/taffy/pull/1158), by `nicoburns`, on top of #1157. The three natural-size grid probes fail on current main and pass at #1158's head. Ratio sizing remains tracked with patch 12. |
 | 18 | The shared out-of-flow solver and hoisting are merged in [#1194](https://github.com/DioxusLabs/taffy/pull/1194); the auto-margin inset condition is merged in [#1202](https://github.com/DioxusLabs/taffy/pull/1202). Negative block-axis auto margins and inset/static-position shrink-to-fit are covered by existing [#1206](https://github.com/DioxusLabs/taffy/pull/1206), by `nicoburns`. Ratio semantics remain tracked with patch 12. |
@@ -47,9 +48,10 @@ five doctests). A broader audit passed 7,925 XML cases. Its 500 new XML variants
 come from 125 HTML fixtures; natural-ratio choice remains with the host, while
 `aspect_ratio_content_box` declares the chosen ratio's sizing box. Formatting,
 feature checks, gentest compilation, clippy (existing warnings only), and an
-independent exact-commit review passed. The final pass
+independent exact-commit review passed. The authorized seven-round final pass
 resolved the earlier block, grid, absolute and column-flex regressions without
-changing browser expectations.
+changing browser expectations. See the completed submission record in
+`issues/closed/20260930-taffy-patches-not-sent-upstream.md`.
 The submission itself changes no vendored code; other ticket fixes below are
 recorded separately. Refreshing the vendor after upstream merges is still owed.
 
@@ -143,8 +145,8 @@ behavior oracle. The measurement-count assertion is the negative control.
 
 ## Patch 8: the automatic minimum is measured only where used — upstream
 
-**Added** 2026-09-19 as commit `9d282bcd` (patch 7 on trunk's 0.9.2).
-Reconciled with 0.14.
+**Original implementer:** Claude (Fable 5.1), 2026-09-19, owner commit
+`9d282bcd` (patch 7 on trunk's 0.9.2). Reconciled with 0.14 in M15.
 
 The supplied upstream 0.14.0 `src/compute/flexbox.rs`,
 `determine_flex_base_size`, already uses
@@ -154,29 +156,29 @@ The option includes an authored minimum or the scroll container's zero
 when the automatic minimum actually needs min-content. No port or additional
 vendor source change is needed: **zero lines** beyond retained patches 3–5.
 
-The original rationale still applies: 0.9.2's eager `unwrap_or` discarded
+The owner's rationale still applies: 0.9.2's eager `unwrap_or` discarded
 this measurement when a minimum was already known. A flex reader list laid
 out its entire mounted content at zero width on every window change, evicting
-row layouts before measuring again at the real width. A 2.3 MB document,
+row layouts before measuring again at the real width. His 2.3 MB document,
 three seconds at 3,600 px/s, went from 59,682 to 614 measure calls, unchanged
-row calls 57,793 to 9, and CoreText measurements 694 to 455. These are
+row calls 57,793 to 9, and CoreText measurements 694 to 455. These are his
 0.9.2 measurements, not a new 0.14 timing claim.
 
-**Held by** the unchanged `kernel/tests/it/reader.rs` regression
+**Held by** his unchanged `kernel/tests/it/reader.rs` regression
 `a_scroller_in_a_flex_row_is_not_probed_for_a_minimum_it_does_not_use`
 (only 628px text offers; 5974px column), and the two adjacent intrinsic-cache
 regressions, now with an ordinary non-scrolling box that requires the probe.
-The `text_measurement_cache.rs::a_padded_text_that_flexes_wraps_in_its_content_box`
+His `text_measurement_cache.rs::a_padded_text_that_flexes_wraps_in_its_content_box`
 also retains its 260px border box / 244px content box / 56px height assertions.
 The 0.14 kernel adapter now takes both text offers from content space while
 keeping `LayoutInput`'s independent height proof and `LayoutOutput` baselines.
 
-The 0.9.2 upstream suite report was 2,181 passed, 6 failed, 4 ignored
-both with and without the patch. Those results are historical, not results
-for this 0.14 package. 0.14 validation: all 8 tests in the reader and
+The owner's 0.9.2 upstream suite report was 2,181 passed, 6 failed, 4 ignored
+both with and without his patch. Those results are historical, not results
+for this 0.14 package. M15 validation: all 8 tests in the owner's reader and
 text-measurement-cache suites pass with their expectations unchanged; the
 source-identical 0.14 scratch copy passes 130 unit tests and 5 doctests using
-the upgrade's offline setup (unused uncached roxmltree dev dependency omitted).
+M8's offline setup (unused uncached roxmltree dev dependency omitted).
 The generated browser conformance corpus is absent from the supplied package.
 
 ## Changed expectations in the upgrade
@@ -196,11 +198,11 @@ The generated browser conformance corpus is absent from the supplied package.
   geometry/scroll-height cases all remain unchanged. Chrome confirmation of
   this horizontal extent is owed outside the sandbox.
 
-## Block-context offsets investigation — no new patch shipped
+## M8 Part B investigation — no new patch shipped
 
 `BlockContext` exists without float_layout, but its private `y_offset` and
 `insets` are provisional, not always the final child border-box origin.
-An instrumented source copy under ignored `target/textflow-scratch/`
+An instrumented source copy under ignored `target/textflow-scratch/m8/`
 ran these cases; it is not linked into Exact:
 
 - A 50px preceding block with 40px bottom margin followed by a paragraph
@@ -219,13 +221,14 @@ alone is therefore insufficient for the requested arbitrary block parent
 chain. A sound continuation needs settled margin-strut/position semantics
 and the wrapping context's identity within the BFC, as well as the leaf
 callback parameter and cache treatment. No relayout loop or partial offset
-API was introduced. The vendor diff for it is **zero lines**.
+API was introduced. The Part B vendor diff is **zero lines**.
 
-Auto-height exclusions need no vendor change: the kernel restricts them to block contexts, where a leaf's
+Auto-height exclusions landed later without any vendor change (LLP 1043.000
+§8, "Stage 2"): the kernel restricts them to block contexts, where a leaf's
 offset depends only on preceding content, and re-lays out to a verified fixed
 point instead of reading `BlockContext` at measure time. Still zero lines here.
 
-## 0.14 upgrade validation
+## M8 validation and handoff
 
 All Cargo commands ran offline with EXACT_UPDATE_TRUST=development. Bun's
 frozen offline install passed. Exact's public measure API and native ABI are
@@ -241,7 +244,7 @@ The five checks on the final source:
 | bun scripts/caps.mjs | Pass: 715 source files, 93 vendored files excluded |
 | bun scripts/boot.mjs | Pass: 2 modules, 1 wasm reference, 138248 reachable JS bytes |
 
-The final workspace suite, with three allowed exclusions (exact-js,
+The final workspace suite, with the brief's three exclusions (exact-js,
 exact-js-bake, exact-js-web), completed in 2670.502s: **1632 passed, 2 failed,
 9 ignored, 283 targets**. It is not a green workspace result:
 
@@ -252,7 +255,7 @@ exact-js-bake, exact-js-web), completed in 2670.502s: **1632 passed, 2 failed,
   It passed the first workspace run; two isolated retries failed too (2 and 1
   cells). Stop after those three failures. The test and worker implementation
   are untouched, and its fixture does not compute layout. This remains an
-  open investigation, not a claimed resolved flake.
+  investigation for the orchestrator, not a claimed resolved flake.
 
 The first workspace suite had 1632 passes and only the Keychain failure,
 before the final block-default regression test was added. An earlier focused
@@ -273,10 +276,10 @@ Additional results:
 - Web glue: 21 tests pass. `bun host/web/build.mjs textflow-web` passes.
 - `bun host/apple/build.mjs --app textflow` passes with the supplied Swift shim
   first on PATH. Swift XCTest: 159 of 163 tests pass; ten assertions fail in the
-  same four untouched MacShortcut/MacToolbar window/sheet tests recorded before the upgrade.
+  same four untouched MacShortcut/MacToolbar window/sheet tests recorded by M9.
 - Release Linux screenshots: all six scenes, 100% and 115%, at 960x900 and
   clock zero, captured and visually inspected. Every 100% image is pixel-identical
-  to the earlier reference captures; all twelve match the debug captures. Explicit
+  to the requested M9 reference; all twelve match the debug captures. Explicit
   EXACT_PAINTER=cpu is required here: default GPU discovery never became ready
   in three attempts (including a 120s probe).
 
@@ -289,11 +292,12 @@ with capacities proportional to encountered container sizes. The padded
 baseline and explicit block-BFC cases are additional negative controls.
 
 Logs, timing samples, offset probes, and inspected linux-cpu-*.png captures
-were kept under target/textflow-scratch/. Outside the sandbox, rerun the full
+are under target/textflow-scratch/m8/. Outside the sandbox, rerun the full
 workspace suite including the three JS packages, the Swift suite, and drive
 all six scenes in macOS and Chrome at both font sizes. Confirm reader.html's
-horizontal overflow interpretation in Chrome. No seventh scene or
-fixed-height-slack removal has been claimed.
+horizontal overflow interpretation in Chrome. B/C remain pending; no seventh
+scene or fixed-height-slack removal has been claimed. QUEUE.md also records
+LLP 1001's now-obsolete block-image deviation for a governing-doc follow-up.
 
 ### Layout timings
 
@@ -323,7 +327,8 @@ machine. The measure-count and sparse-work assertions remain unchanged.
 
 Reconcile every `EXACT PATCH` marker with this inventory, compare against the
 selected upstream package, and run the available upstream tests and Exact's
-five checks. The crates.io package does not include the generated browser
+checks. Each remaining patch carries at least one marker, and there are no
+patches 22 to 24. The crates.io package does not include the generated browser
 conformance corpus. Do not describe those absent fixtures as tested.
 
 ## Patch 9: sparse layout writes and caller-proven boundary replay (S6)
@@ -411,7 +416,7 @@ reader, exclusion, region and upstream differential expectations are unchanged.
 
 ## Patch 10: percentage padding and border resolve against the inline size — to upstream
 
-**Added** 2026-09-23 (found by a kernel review).
+**Implementer:** Claude, 2026-09-23 (found by the 2026-09-22 kernel review).
 
 `src/compute/block.rs::generate_item_list` resolved each child's padding and
 border with `resolve_or_zero(node_inner_size, …)`, a `Size` basis, so the top
@@ -434,11 +439,11 @@ format; the cases above are that fixture's content. Held by
 nine literal-Chrome cases, including the `padding-top: 56.25%` embed idiom,
 which a zero `height` already kept right (only the box's own padding
 counts then). Taffy's 130 unit tests pass on the patched source (a scratch
-copy without the uncached roxmltree dev-dependency, as in the 0.14 upgrade).
+copy without the uncached roxmltree dev-dependency, as in M8).
 
 ## Patch 11: the layout cache is keyed on every layout input — to upstream
 
-**Added** 2026-09-25 (found by `layout_equality`'s seeds).
+**Implementer:** Claude, 2026-09-25 (found by `layout_equality`'s seeds).
 
 `src/tree/cache.rs::CacheKey` left three inputs out of the key under which it
 reuses a result, so an entry computed under one input answered another:
@@ -476,7 +481,7 @@ and three trees laid out, restyled and laid out again against a fresh tree:
 block to flex and block to grid (margin collapse; grid differs from the block
 only in the flag), and a block losing its height under a percentage-height flex
 child. All six fail on the unpatched source and pass patched; Taffy's 135 unit
-tests and 5 doctests pass (scratch copy without roxmltree, as in the 0.14 upgrade).
+tests and 5 doctests pass (scratch copy without roxmltree, as in M8).
 
 **Held by** `kernel/tests/it/layout_equality.rs`: `seed_2423214_…`,
 `pane_seed_405_…`, `pane_seed_503_…` and `pane_seed_1412_…`, each failing before.
@@ -486,7 +491,7 @@ passes before and after.
 
 ## Patch 12: sizing through `aspect-ratio` as CSS does — to upstream
 
-**Added** 2026-09-25.
+**Implementer:** Claude (Opus 5.5), 2026-09-25, for LLP 1053 G1.
 
 Upstream applies a ratio by `Size::maybe_apply_aspect_ratio` wherever a size,
 min or max is resolved, in the box-sizing box, into any unset axis. Patch 5's
@@ -530,7 +535,7 @@ carries the box. The call sites are:
   does not size (`transfer_into_unsized`); the base-size and automatic-minimum
   measurements drop a provisional stretched cross size for ratio items.
 
-**Extended 2026-09-30** to the paths the
+**Extended 2026-09-30 (Claude, Fable 5.1, for LLP 1074 T2)** to the paths the
 first tranche left on upstream's `maybe_apply_aspect_ratio`:
 - a flex and a grid container's own size, min and max (`flexbox.rs`
   `compute_flexbox_layout` and `compute_constants`; `grid/mod.rs`);
@@ -562,7 +567,7 @@ passes.
 
 ## Patch 13: `TaffyTree` resolves `calc()` through a caller's function
 
-**Added** 2026-09-24 (a messaging app's
+**Implementer:** Claude, 2026-09-24 (the iOS Messages port's
 `calc(100% - 89px)`).
 
 Upstream's `calc` feature stores a `calc()` length as an opaque pointer and
@@ -586,7 +591,7 @@ a resolver; either removes this patch.
 
 ## Patch 14: a flex item's intrinsic contribution clamps before its margin — to upstream
 
-**Added** 2026-09-26.
+**Implementer:** Claude (Opus 5.5), 2026-09-26, for LLP 1054 P1.
 
 `determine_container_main_size`'s intrinsic path (`compute/flexbox.rs`, the
 min/max-content contribution of an item with a min or max main size) added
@@ -603,7 +608,7 @@ header the port found). Upstream has the same order.
 
 ## Patch 15: a node's style is shared — Exact's
 
-**Added** 2026-09-27, for a long list's memory.
+**Implementer:** Claude (Opus 5.5), 2026-09-27, for the crypto list's memory.
 
 `NodeData::style` is an `Rc<Style>` (`src/tree/taffy_tree.rs`), and
 `new_leaf`, `new_leaf_with_context`, `new_with_children`, `set_style` and
@@ -620,12 +625,12 @@ want an `Arc` or a style store keyed by handle; this stays Exact's.
 
 ## Patch 16: a replaced element that holds children is sized as a leaf — Exact's
 
-**Added** 2026-09-27, for `canvas`'s default size.
+**Implementer:** Claude (Opus 5.5), 2026-09-27, for `canvas`'s default size.
 
 `TaffyView::compute_child_layout` (`src/tree/taffy_tree.rs`) dispatches a
 node with children to its display's algorithm, which sizes an auto box from
 those children. A canvas is a replaced element whose children are laid out
-in its box and never size it (the web's `layoutsubtree`). A
+in its box and never size it (LLP 1014 D1, the web's `layoutsubtree`). A
 node whose style says `item_is_replaced` and that has a measure context is
 therefore sized by the measure function, as a leaf with no children is; on
 `PerformLayout` its display's algorithm then lays the children out at that
@@ -636,7 +641,7 @@ container; this stays Exact's.
 
 ## Patch 17: a replaced element never stretches to a grid area or its insets — to upstream
 
-**Added** 2026-09-27, with patch 16.
+**Implementer:** Claude (Opus 5.5), 2026-09-27, with patch 16.
 
 Upstream stretches an auto-sized grid item whose `justify-self`/`align-self`
 are `normal`, and derives an absolutely positioned box's size from opposing
@@ -656,7 +661,7 @@ box, and a loaded image).
 
 ## Patch 18: one solver for an absolutely positioned box — to upstream
 
-**Added** 2026-09-30.
+**Implementer:** Claude (Fable 5.1), 2026-09-30, for LLP 1074 T2 and T4.
 
 Upstream sizes and places an absolutely positioned box three times, in
 `compute/block.rs`, `compute/flexbox.rs` and `compute/grid/alignment.rs`, and
@@ -687,13 +692,13 @@ block, flex and grid containers, LTR and RTL.
 
 ## Patch 19: a root is a block-level box in its offer — Exact's
 
-**Added** 2026-09-30.
+**Implementer:** Claude (Fable 5.1), 2026-09-30, for LLP 1074 T2 and T4.
 
 `compute/mod.rs::compute_root_layout` resolved a root's size only for
 `display: block`, through upstream's ratio transfer, stretched an auto width
 less its margins, and then placed the root at the origin whatever its margins
 said. The kernel worked around the first part by rewriting every root's `width:
-auto` to `100%` under border-box sizing, which left a root's
+auto` to `100%` under border-box sizing (LLP 1010 §1), which left a root's
 margins unsubtracted and made its `min-width`, `max-width` and authored height
 border-box under `box-sizing: content-box`.
 
@@ -718,7 +723,7 @@ height is its content height.
 
 ## Patch 20: `Position::Static` and the CSS containing block — to upstream
 
-**Added** 2026-09-30.
+**Implementer:** Claude (Fable 5.1), 2026-09-30, for LLP 1074 T1.
 
 Upstream has `Relative` and `Absolute`, and every container lays its own
 absolutely positioned children out against its own padding box. CSS places
@@ -786,7 +791,7 @@ minimum for height-derived widths (block, flex, grid, absolute boxes and roots).
 
 ## Patch 21: table-marked containers shrink to fit in block flow — to upstream
 
-**Added** 2026-10-02, for form-control block sizing.
+**Implementer:** Codex, 2026-10-02, for the form-control block-sizing QUEUE item.
 
 Upstream avoids assigning a stretched known width to a table item, which is
 enough for a measured leaf but not for a container: a flex container still
@@ -831,7 +836,7 @@ with the ordinary checked-in smoke counts restored afterward.
 
 ## Patch 26: block `align-content` moves absolute children's static positions — to upstream
 
-**Added** 2026-10-04, for a reversed button layout.
+**Implementer:** Claude (Opus 5.5), 2026-10-04, for the button reversal (LLP 1001 §1).
 
 Upstream shifts only in-flow children by the group offset, and none when
 nothing is in flow. CSS Box Alignment aligns the block container's content,
@@ -847,7 +852,8 @@ center`, HTML's anonymous button box. **Held by**
 
 ## Patch 27: a multi-column container's flow thread — Exact's
 
-**Added** 2026-10-04, for CSS multi-column layout. Upstream has no multicol.
+**Implementer:** Claude (Opus 5.5), 2026-10-04, for LLP 1093 D2 (CSS
+multi-column layout). Upstream has no multicol.
 
 A block container's style may carry `multicol: Some(Multicol { count, width,
 gap, used_height, overflow })` (`style::block`). Such a container:
@@ -862,7 +868,7 @@ gap, used_height, overflow })` (`style::block`). Such a container:
   (`Multicol::columns`): W is their available width and their basis for
   percentage widths (Chrome: `width: 50%` is 100px in a 400px two-column
   box). A content-sized U is the content's width as one column, which the
-  columns then divide;
+  columns then divide (LLP 1093 D10.5 declares it);
 - **takes `used_height` only at `container_outer_height`**, after its
   children: the columns' content-box height the caller cut, plus the box's
   vertical padding and border, then the existing `min-height`/`max-height`
@@ -883,7 +889,7 @@ in), beside the 512-tree comparison Patch 7 left behind.
 
 ## Patch 28: a column item's main size is measured at its fit-content cross size — to upstream
 
-**Added** 2026-10-05, for a messaging app's bubbles.
+**Implementer:** Claude (Opus 5.5), 2026-10-05, for the Signal Clone's bubbles.
 
 CSS Flexbox §9.2 3E: when a flex item's main size is in its block axis and its
 cross size is auto and not definite, the flex base size is measured with
@@ -896,9 +902,8 @@ the text in two lines spilling out. Patch 25's fit-content clamp held only for
 the final layout. The base-size and minimum-content probes now pass a
 fit-content cross size measured from the item's own max- and min-content
 contributions, clamped to its min and max and floored at its padding and
-border, through the helper and condition determine_hypothetical_cross_size already
-uses for the final width (`common::fit_content_width`; a column, an auto
-cross size, no ratio, not a compressible replaced element), so the two agree.
+border (`common::fit_content_width`). Non-ratio items use that helper for
+their final width too; a ratio item's final width follows its flexed height.
 That helper's clamp is corrected to CSS's order, max(min-content,
 min(max-content, available)): it let max-content win when a negative margin
 inverts the two, where Chrome takes the min-content (patch 25's grid, column
@@ -907,9 +912,10 @@ when a probe needs it. A leaf is measured so too: a leaf wraps to the space
 only while its min-content fits it, and a word that only `overflow-wrap:
 break-word` breaks makes its fit-content width its `max-width`; measured at
 the space, a padded chat bubble at `max-width: 100%` of a 75% column was two
-lines taller than its text. Stretched items, sizing
-keywords and items with a ratio are as before; a wrapping column in a row (an item whose own main axis is
-the parent's cross axis) is not covered.
+lines taller than its text (chat-rooms, round 26). Stretched items and sizing
+keywords retain their own paths; non-replaced ratio items use the same
+fit-content width for main-size measurement. A wrapping column in a row
+(an item whose own main axis is the parent's cross axis) is not covered.
 
 **Held by** `browser_flex::a_fit_content_flex_item_in_a_column_is_as_tall_as_its_wrapped_lines`
 (six Chrome 154 cases through the web host: the row holding a wrapping row
@@ -924,9 +930,9 @@ text clipped; it is 60, as in Chrome.
 
 ## Patch 29: a marked subtree's layout, replayed from one like it — Exact's
 
-**Added** 2026-10-08, for `android/row`.
+**Implementer:** Claude (Opus 5.5), 2026-10-08, `android/row`.
 
-A list row rebound to another item, or built like its neighbours,
+A list row rebound to another item (LLP 1078), or built like its neighbours,
 is laid out by the same algorithms over the same styles as rows before it;
 only its leaves can answer differently, and in most feeds they rarely do. On
 the Android Canvas host the easy list's row cost 77 flex-container computes a
@@ -1035,8 +1041,8 @@ reuse, stale-key absence, and preservation of an unrelated survivor context.
 
 ## Patch 33: a flex item's length in its container's main size is clamped by its maximum — to upstream
 
-**Added** 2026-10-12, for a column whose height ignored a leaf's
-`max-height`.
+**Implementer:** Claude (Opus 5.5), 2026-10-12, for issue X86
+(`issues/closed/20261012-column-height-ignores-leaf-max-height.md`).
 
 `determine_container_main_size` sums the items' lengths for a container
 whose main size is automatic. Four of its sites let an item's flex base size
@@ -1051,14 +1057,14 @@ automatic, holding a text leaf at `max-height: 160px`, was therefore as tall
 as the whole text:
 
 - in definite space, whatever the leaf: a row's unstretched item when the row
-  has a definite height (as when the probe row is the window's height), and
-  an absolutely positioned column (a T3 Code
+  has a definite height (the issue's cases A to C, whose probe row is the
+  window's height), and an absolutely positioned column (case D; a T3 Code
   popover reached 16,000 pt while its textarea was laid out clamped);
 - under a max-content offer (an item of a row whose height is automatic, a
   block's child), when the leaf is a scroll container (`overflow: hidden`)
   or may not shrink. A textarea is not a scroll container in Taffy (the
-  kernel makes only a scroll view and a list scroll by default), so a
-  textarea column in a block held.
+  kernel makes only a scroll view and a list scroll by default), so the
+  issue's case H, a textarea column in a block, held.
 
 A box clamps its own measured size, and under a max-content offer a leaf that
 neither scrolls nor refuses to shrink takes the measured arm, which clamps, so
@@ -1084,8 +1090,8 @@ leaves and a gap; the absolutely positioned column, with a margin and a
 negative one; a `flex-shrink: 0` leaf in a row's column and in a block's,
 with a `height`, a `min-height` and a margin; a column in a block; a block,
 a row and a column holding a box as controls; and six rows of an unbroken
-word at `max-width: 130px`. On macOS the probe lays out its three rows and the
-absolute column at 132, 132, 130 and 132 pt (898, 434, 656 and 706 before), and a column
+word at `max-width: 130px`. On macOS the issue's probe lays out cases A to D
+at 132, 132, 130 and 132 pt (898, 434, 656 and 706 before), and a column
 holding a content-sized textarea typed past its maximum stays at the
 textarea's height.
 
@@ -1207,7 +1213,7 @@ canvases in an absolute flex row. The 29 cases cover authored and between-insets
 heights, min/max clamping, a minimum above the maximum, a percentage height,
 an authored height overriding insets, growing and zero-grow items, authored
 border-box ratios, and automatic-height controls with only a maximum.
-Separate automatic-height constraint gaps remain open.
+The separate automatic-height constraint gaps are recorded in `QUEUE.md`.
 
 ## Patch 41: restrict intrinsic flex stretching to eligible items
 
@@ -1227,7 +1233,8 @@ used height, with automatic and zero item minima.
 
 ## Patch 42: a recorded call is looked up among its own box's calls — Exact's
 
-**Added** 2026-10-18, for a memo recorder whose repeats were quadratic.
+**Implementer:** Claude (Opus 5.5), 2026-10-18, for
+`issues/closed/20261017-memo-recorder-repeats-quadratic.md`.
 
 Patch 29's `Recorder::repeats` asks whether the trace already holds a box's
 answer under an input, once for every answer a recorded layout takes from
@@ -1245,7 +1252,7 @@ once, and no lookup makes more than three comparisons; the scan made up to
 `a_lookup_answers_as_a_scan_of_every_recorded_call_does` (20,000 recordings
 and lookups in a fixed pseudo-random order, each lookup checked against a
 scan of every recorded call), both run by hand (`cargo test --manifest-path
-vendor/taffy/Cargo.toml --lib tree::memo`; no CI job runs taffy's unit tests),
+vendor/taffy/Cargo.toml --lib tree::memo`; no lane runs taffy's unit tests),
 and the kernel's `layout::memo_tests`, which compare replayed layouts with
 fresh ones bit for bit.
 
@@ -1680,9 +1687,12 @@ Patch 12 still excludes a provisional stretched width in wrapping columns.
 Cross sizing derives the width from the flexed height ([§9.4](https://www.w3.org/TR/css-flexbox-1/#cross-sizing)).
 Patch 50's automatic inline minimum is resolved at this stage for columns:
 `minimum_ratio_width` accepts the used border-box height and keeps the larger
-of its transferred width and the content's min-content width. Other layout
-callers retain the preferred-height calculation. Final stretch still uses
-authored width bounds, preserving Patch 50's intrinsic-width protection.
+of its transferred width and the content's min-content width. With an auto
+preferred height, that content probe retains the width cap transferred from
+`max-height`; flexing supplies the ratio transfer without making the probe
+definite. Other layout callers retain the preferred-height calculation.
+Final stretch still uses authored width bounds, preserving Patch 50's
+intrinsic-width protection.
 
 **Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
 32 literal `Chrome 151 ratio column shrink` cases measured with Chrome
@@ -1772,8 +1782,7 @@ A non-replaced container's `ContentSize` probe with a supplied height keeps
 its authored maximum width instead of the width transferred from `max-height`.
 The automatic inline minimum's container probe supplies its clamped definite
 height; an indefinite-height probe retains the transferred cap, including
-for a flex basis. A leaf's probe leaves both dimensions unknown so it reaches
-its text measurer: supplying a height would derive a width and return early.
+for a flex basis. Leaves use the same height distinction (Patch 64).
 The minimum combines that independent content width with the height transfer.
 Block uses the same ratio-aware content measurement as flex and grid: a
 derived width is an automatic minimum that wider content can exceed, unless
@@ -1785,8 +1794,9 @@ A row item with a definite height keeps that wider content minimum when
 flex chooses its automatic minimum. Specified widths and maximum widths
 still cap it. When flex chooses its main-axis automatic minimum, auto-height
 rows, columns and replaced elements retain the transferred cap; the
-hypothetical-size clamp is unchanged. A column item's inline minimum can
-still exceed its transferred width cap, as in block, absolute and root layout.
+hypothetical-size clamp is unchanged. A column item with a definite preferred
+height can still exceed its transferred width cap, as in block, absolute and
+root layout.
 This follows Chrome 151.0.7922.34, measured on 2026-10-19.
 [Flexbox §4.5](https://www.w3.org/TR/css-flexbox-1/#min-size-auto) defines a
 converted cross-axis maximum for the content suggestion of non-replaced
@@ -2024,23 +2034,26 @@ The flex basis then agrees with the hypothetical size instead of exceeding
 it and freezing growth under [Flexbox §9.7](https://www.w3.org/TR/css-flexbox-1/#resolve-flexible-lengths).
 The flexible-length freeze rule is unchanged.
 
-`minimum_ratio_width` now supplies the clamped height to leaves as well as
-containers. For this min-content probe, the shared helper makes the width
-transfer a floor and removes the transferred width cap, so wider text is
-still measured independently. This replaces Patch 57's leaf-only
-unknown-height probe: omitting the height would now cap the text minimum.
+When the preferred height is definite, `minimum_ratio_width` supplies the
+clamped height to leaves as well as containers. For this min-content probe,
+the shared helper makes the width transfer a floor and removes the
+transferred width cap, so wider text is still measured independently. When
+the preferred height is auto, the probe leaves height unknown so its
+transferred cap still bounds the content minimum, even when a flex column
+supplies a used height for the ratio transfer.
 Cross-size resolution with a supplied height keeps the ratio-derived
 preferred width so text wraps at that width. Replaced leaves, vertical
 probes and probes with a known width retain their existing sizing path.
 
 **Held by** `browser_position::positioned_boxes_roots_and_ratios_match_chrome`:
-18 literal `Chrome 151 ratio text growth` cases, measured with Chrome
+literal `Chrome 151 ratio text growth` cases, measured with Chrome
 151.0.7922.34 on 2026-10-24, with the monospace advance normalized to 10px.
 Ten frames in nine cases failed before the patch: the reported
 leaf changes from 60×60 to 200×60, and content-box padding from 80×80 to
 200×80. Controls cover a zero basis, explicit minima, hidden overflow,
 a width cap, ratio 2, both box-sizing modes, definite heights, stretch,
-a growing sibling, and no ratio or height cap. The existing block
+a growing sibling, auto-height columns with auto and zero height minima,
+and no ratio or height cap. The existing block
 growth, definite-height inline minima, replaced-element, percentage-height
 and exclusion-height tests remain passing.
 
@@ -2049,8 +2062,11 @@ normalizing both letters and spaces to 10px. Seven failed when the helper
 also handled column cross-size resolution: the reported leaf measured
 130×100 instead of 100×100. They cover flexed and percentage heights,
 ratios and box sizing, with stretch, overflow, inline bounds, row, block
-and absolute controls. The auto-height column with a 100px height cap
-already measured 60×60 before Patch 64; it remains an open case.
+and absolute controls. Main-size measurement resolves an auto-height
+column item's fit-content width before deriving its ratio height. The
+100px height cap gives a 100×100 box even though the text wraps into
+60px-wide lines; the 60px cap, definite-height and flexed-height cases
+retain their measured frames.
 
 ## Cargo workspace boundary
 
@@ -2116,9 +2132,18 @@ RTL, overflow safety, margins, bounds, percentages, insets, box sizing,
 text, and block-level flex/grid children. The 72 mismatched frames before
 the patch now match Chrome. `block_justify_self_overrides_the_container_default`
 also failed before the patch and holds the vendor's per-item override; no
-Contract attribute is added. The remaining fixture records an open absolute-child
-case: automatic insets still give x=0 instead of Chrome's
-x=40. Floats remain disabled in Exact.
+Contract attribute is added. Floats remain disabled in Exact.
+
+Absolute children align inside the parent's inline content-box edges when
+both inline insets are automatic, including descendants hoisted to a
+positioned ancestor. Explicit insets retain precedence. Chrome 151.0.7922.34
+(2026-11-12) applies overflow safety from an absolute child's own `justify-self`
+only; the parent's `safe` modifier does not affect its static position.
+Physical left/right keywords are preserved until layout: block static
+positions treat them as inline start/end, while in-flow block and grid items
+keep their physical meaning. The fixture adds 70 cases for these paths;
+`absolute_block_justify_self_overrides_the_container_default` covers the
+vendor's per-item override in both directions, including overflow safety.
 
 ## Patch 67: a scroll container's end padding extends its children's margin boxes
 
@@ -2204,3 +2229,176 @@ patch), `a_relative_row_without_insets_moves_nothing_however_aligned`,
 `a_popover_row_before_a_viewport_keeps_its_cells_on_it` and
 `a_relative_rows_cells_take_the_engines_offset`. Every `browser_*` Chrome
 case and the layout-equality comparisons pass unchanged.
+
+## Patch 70: a grid container may raise its highest line — Exact's
+
+Taffy clamps every placement to lines −10,000 to 10,000 and every span to
+10,000 tracks (`MAX_GRID_TRACKS`, its reading of
+[CSS Grid 1 §8.1.2](https://www.w3.org/TR/css-grid-1/#overlarge-grids)), so
+items placed past the 10,000th track all land in it. A table laid out as a
+grid (`kernel/src/layout/table.rs`, LLP 1153 D7.3) gives each row a track of
+its own, and Chrome lays out a table of any length. An authored grid keeps
+the limit, past which the kernel refuses its values (LLP 1001 §1).
+
+`RareStyle::grid_line_limit` (read through
+`GridContainerStyle::grid_line_limit`; 10,000 by default) is the highest
+line, in OriginZero coordinates, at which a grid places an item, and the
+largest span, up to `i16::MAX`. `LineLimit` carries it to everything that
+read the constants: the conversion to OriginZero lines, the grid size
+estimate, the placement of in-flow and absolutely positioned items, and the
+detailed layout info (which takes the limit that covers its own lines). So
+that every track index still fits an `i16`, the lowest line rises as the
+highest passes 22,767; at `i16::MAX`, the kernel's value for a table, nothing
+is placed before the explicit grid, where a table places nothing. Since a
+line and a span may each reach `i16::MAX`, adding a span to a line saturates
+(`OriginZeroLine` plus or minus a `u16`), and the result is clamped as
+before. The `into_origin_zero*` methods of `GridPlacement`,
+`Line<GridPlacement>`, `NonNamedGridPlacement` and `Line<NonNamedGridPlacement>`
+take a `LineLimit`, which Taffy does not export, so only Taffy calls them.
+The explicit grid's own limit of 10,000 tracks is unchanged.
+
+Chrome for Testing 156.0.8078.4 lays 10,010 rows of `tr > td > div` (a 20 × 10
+div) out with row 10,000 at y 140,002 and row 10,009 at 140,128, the table
+140,142 tall; before the patch Exact put every row from 10,000 on at row
+9,999's 139,988, the table 140,002 tall. On an Apple M5 Pro at the
+`host-dev` profile, best of three, a first layout of 10,010 such rows takes
+96 ms (98 before the patch), and of 30,000 rows 321 ms (313); a layout after
+one cell's width changes takes 74 ms (75) and 238 ms (235).
+
+**Held by** `kernel/tests/it/table.rs`'s
+`a_tables_rows_past_ten_thousand_follow_each_other` (Chrome's frames above),
+which failed before the patch, and
+`compute::grid::placement::tests::test_placement_algorithm::a_raised_line_limit_places_rows_past_ten_thousand`
+(a raised limit's lines, spans and lowest line, and the default limit's
+placements unchanged). Every `browser_*` Chrome case and the layout-equality
+comparisons pass unchanged.
+
+## 71. Styles own their opaque calculation handles
+
+`RareStyle::keep_calc` retains an evaluator's owner beside the style's raw
+calculation handles, including grid tracks. Style clones share these owners;
+the last drop releases them. Ordinary styles allocate no owner list. The
+kernel uses weak hash indexes, so dropping a style can reclaim calculations
+without invalidating a detached dimension or another retained style.
+
+Held by the kernel's calculation reclamation and retained-style tests.
+
+## Patch 72: keep every size answer used during a pass — to upstream
+
+`Cache` records the tree's wrapping `u16` pass on each stored or used size
+answer. The first nine slots fill across passes. Once full, new answers replace
+an earlier pass's entry, starting at the eviction cursor; when none remains,
+the slots grow. Looking for a slot clears no marks. The pass occupies two
+padding bytes in the 24-byte key, so a size entry stays 32 bytes. Zero is
+reserved: after 65,535 passes the tree resets every cache stamp to zero and
+starts at one, retaining answers without confusing an old pass with this one
+(LLP 1165 D3).
+
+Both engine entry points advance the tree's pass. Row recording and replay
+carry it through the same cache accessors, including the clears after a stopped
+replay. A hit calls no measure function and does not record `Replay::probed`:
+that boundary record was made when the answer was stored and is cleared with
+the cache.
+
+A size computation that lays children out for baseline alignment drops the
+node's final-layout entry and every ancestor's, in flexbox and grid track
+sizing. Those entries otherwise describe descendants laid out for another
+question. Row traces record the node and replay the ancestor walk on the
+receiving tree. Dropping a final entry preserves the dirty-propagation mark,
+so a later edit still invalidates ancestors even when no size answers remain.
+Other size computations leave the final entry alone;
+margin-bearing answers and clears retain their existing rules.
+
+`All` is the default. Tests can select the nine-entry clock (`Nine`) or no size
+cache (`Off`). Opt-in counts separate computed answers from replayed stores, detect
+repeats between clears, retain each node's peak occupancy until the caller resets
+counts, and observe occupancy in successfully replayed subtrees.
+The kernel resets counts once for a layout, so its page and host blocks sum.
+Disabled tracking returns before updating counters or collecting questions.
+
+On this 64-bit host the cache object grows from 120 to 136 bytes: seven bytes
+widen the eviction cursor from `u8` to `usize`, eight hold patch 74's optional
+pointer, and one is additional alignment padding. With one, three and nine
+answers, respectively, cache storage is 232, 232 and 424 bytes, against
+216, 216 and 408 before (allocated slots, no allocator metadata). Patch 74
+describes the conditional additional storage.
+
+**Held by** `kernel/tests/it/size_cache.rs`, the kernel's `layout::size_cache`,
+`layout::size_cache::shapes_tests`, `layout::memo_tests`, and
+`kernel/tests/it/layout_equality/size_cache.rs`. The public-API regressions,
+including wraparound, both lookups, cache bytes and descendant geometry after
+flex and grid baseline probes, run in kernel test targets. Frames, scroll
+extents and flow results agree under `All`, `Nine` and `Off` in the directed
+cases, small shapes and generators without baseline alignment. The baseline
+generator variant compares `All` and `Nine` with rehydrated and replayed trees;
+`Off` is not self-consistent there (QUEUE.md). The cold and resized baseline
+chains agree under all three.
+The depth tests check zero repeats and bound each node's peak at 64 answers plus
+eight for each level above the node. A separate full-seed test counts both lost
+and retained height proofs, by layout and by leaf, allowing `All` at most 5%
+more losses than `Nine`.
+
+The remaining private lazy-allocation tests in `tree::cache::tests` are run
+by hand: `cargo test --manifest-path vendor/taffy/Cargo.toml --lib
+--no-default-features --features std,taffy_tree,flexbox,grid,block_layout,content_size,calc,parse`.
+The vendored crate is outside the workspace and runs in neither test lane.
+
+## Patch 73: aspect-ratio size answers match the requested axis — to upstream
+
+`Cache::get` requires an exact requested axis when a node has an aspect ratio.
+Patches 12 and 64 compute a ratio leaf's width differently for a horizontal
+probe, so an answer for both axes cannot answer that probe (LLP 1165 D3).
+
+**Held by** `kernel/tests/it/size_cache.rs::a_ratio_leaf_answers_only_the_requested_axis`:
+a 2:1 leaf capped at 20 points high answered a horizontal probe with a cached
+width of 180 before the repair; an uncached probe answers 40.
+
+## Patch 74: keep the offer beside an indefinite known size — to upstream
+
+A flex container still reads available space on an axis whose known size is
+indefinite. Replacing that offer with the known size in the cache key aliases
+different questions (LLP 1165 D3).
+
+The common key stays 24 bytes. Only entries with a known but indefinite size
+and a non-default offer allocate extra storage: an optional boxed vector of
+packed offers indexed by slot. Slot zero names the final layout and subsequent
+slots name size entries. The owner costs 24 bytes and each allocated slot
+eight bytes on this host; an absent offer means max-content on both axes.
+A lookup reads its slot directly instead of scanning the offers for each
+candidate entry. Replacement updates the slot, and clears retain its
+allocation as they retain the size slots. This avoids adding eight bytes to
+every key and size entry.
+
+**Held by** `kernel/tests/it/size_cache.rs::an_indefinite_known_width_keeps_the_available_space`,
+for size probes and final layouts, with and without a ratio and percentage
+children. Before the repair a descendant kept 90 points of overflow from the
+old offer; a fresh layout under the new offer gives 45.
+
+## Patch 75: native clearance narrows the absolute containing block — Exact only
+
+The kernel supplies a container's `absolute_clearance` separately from its
+padding (LLP 1123 D3). The shared absolute solver sizes and places descendants
+inside that clearance, including percentage sizes, constraints, insets, padding
+and margins. Grid areas retain their explicit track edges; automatic edges use
+the cleared padding box. An inset marked by `inset_credit` already references
+the same edge's safe area, so its resolved length credits only the clearance
+applied to that edge of its containing block. Explicit grid lines keep the
+authored inset.
+Host blocks lay out separately and do not inherit an ancestor's clearance.
+
+**Held by** `kernel/tests/it/cover.rs`, `kernel/tests/it/cover/sizing.rs` and
+`kernel/src/kernel/owner_tests.rs`, including literal Chrome inner-box geometry,
+the Duo's 951-point allocation and 49-point bottom cover, changing covers,
+static descendants, nested positioned boxes and independent host blocks.
+
+## Patch 76: fractional flex factors share the space beside the gaps — to upstream
+
+When a line's unfrozen flex factors sum below one, `resolve_flexible_lengths`
+distributes that fraction of the initial free space (CSS Flexbox §9.7 step 4b).
+The initial free space already excludes the line's gaps; 0.14.0 subtracted them
+again, growing and shrinking alike. Taffy 0.15.1 has the same line.
+
+**Held by** `kernel/tests/it/browser_flex.rs::fractional_flex_factors_share_the_space_beside_the_gap`:
+two items with `flex-grow: 0.25` and 100-point content, 40 points apart in a
+300-point row, are 115 wide in Chrome; before the repair their targets fell to
+95 and the automatic minimum held them at 100.

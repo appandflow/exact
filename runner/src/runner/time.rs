@@ -1,8 +1,20 @@
 //! Host-owned date answers; never baked or carried.
+//! @ref LLP 1027.000.000
 use super::{DataError, DataSource, Runner, RunnerError};
 use crate::time::{Place, WallTime, SOURCE};
 use exact_kernel::CommitReceipt;
 use exact_plan::{TypeKind, Value};
+
+/// The store's name for the language the app chose (`setLocale`), beside
+/// its persisted state: no state is named `#locale`, which is the locale
+/// slot's name. JSON text, as a persisted string is.
+pub(crate) const CHOSEN: &str = "exact.state.#locale";
+
+/// A tag `setLocale` takes: what [`crate::time::Place::validate`] takes for
+/// the viewer's locale.
+fn valid_tag(tag: &str) -> bool {
+    !tag.is_empty() && tag.len() <= 64 && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
 
 impl<D: DataSource> Runner<D> {
     /// What the host last said about the date.
@@ -62,20 +74,18 @@ impl<D: DataSource> Runner<D> {
         {
             return Ok(None);
         }
-        let previous = self.time;
-        self.time = time;
-        let which: Vec<usize> = (0..self.plan.resources.len())
-            .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
-            .collect();
-        let result = if which.is_empty() && !self.live_times.is_empty() {
-            self.tick_live_times()
-        } else {
-            self.recommit(which, "time")
-        };
-        if result.is_err() {
-            self.time = previous;
-        }
-        result
+        self.replace_fact(
+            |r| &mut r.time,
+            time,
+            SOURCE,
+            |r, _, readers| {
+                if readers.is_empty() && !r.live_times.is_empty() {
+                    r.tick_live_times()
+                } else {
+                    r.recommit(readers, "time")
+                }
+            },
+        )
     }
 
     /// What the host last said about the viewer and this launch.
@@ -117,41 +127,146 @@ impl<D: DataSource> Runner<D> {
             self.log(format!("place refused: {error:?}"));
             return Err(error);
         }
-        let changed = place != self.place;
-        let previous = std::mem::replace(&mut self.place, place);
-        // An ordinary slot write, so dependency tracking
-        // re-renders exactly the `t(...)` readers. The checkpoint the commit
-        // takes already holds the new value: a refusal restores it here.
-        let written = self.plan.locale.and_then(|slot| {
-            let i = slot.0 as usize;
-            let resolved = self.plan.resolve_locale(&self.place.locale)?;
-            let value = Value::str(resolved);
-            (self.slots[i] != value).then(|| (i, std::mem::replace(&mut self.slots[i], value)))
-        });
-        let which: Vec<usize> = (0..self.plan.resources.len())
-            .filter(|i| {
-                (changed || written.is_some())
-                    && self.plan.str(self.plan.resources[*i].source) == SOURCE
-            })
-            .collect();
-        if which.is_empty() && written.is_none() {
-            return if self.live_times.is_empty() {
-                Ok(None)
-            } else {
-                self.tick_live_times()
-            };
-        }
-        let result = self.commit_again(which, "place");
-        if result.is_err() {
-            self.place = previous;
-            if let Some((i, old)) = written {
-                self.slots[i] = old;
-            }
-        }
-        result.map(Some)
+        self.replace_fact(
+            |r| &mut r.place,
+            place,
+            SOURCE,
+            |r, _, mut readers| {
+                // The locale slot is part of this fact's commit (LLP 1060 D4):
+                // the table the app's choice resolves to, else the viewer's.
+                let written = r.write_locale();
+                if !written.is_empty() && readers.is_empty() {
+                    readers = r
+                        .resource_rows()
+                        .enumerate()
+                        .filter_map(|(i, row)| (r.plan.str(row.source) == SOURCE).then_some(i))
+                        .collect();
+                }
+                let result = if readers.is_empty() && written.is_empty() {
+                    if r.live_times.is_empty() {
+                        Ok(None)
+                    } else {
+                        r.tick_live_times()
+                    }
+                } else {
+                    r.commit_again(readers, "place").map(Some)
+                };
+                if result.is_err() {
+                    for (i, old) in written {
+                        r.slots[i] = old;
+                    }
+                }
+                result
+            },
+        )
     }
 
-    /// Take the topics the source's native module announces,
+    /// The language the app chose with `setLocale`, kept across launches;
+    /// `None` while it follows the host's, and for a plan that never runs
+    /// `setLocale` (a choice an earlier version kept chooses nothing).
+    pub fn chosen_locale(&self) -> Option<String> {
+        let text = self.store.kept(CHOSEN)?;
+        let tag = super::persist::decode_string(text).filter(|t| valid_tag(t))?;
+        crate::uses::chooses_locale(&self.plan).then_some(tag)
+    }
+
+    /// The tag the strings table is resolved from: the app's choice, else
+    /// the viewer's locale.
+    pub(super) fn requested_locale(&self) -> String {
+        self.chosen_locale()
+            .unwrap_or_else(|| self.place.locale.clone())
+    }
+
+    /// Write the table [`Runner::requested_locale`] resolves to into the
+    /// locale slot, and the format locale into the format slot: the index
+    /// and old value of each slot that changed.
+    fn write_locale(&mut self) -> Vec<(usize, Value)> {
+        let mut changed = Vec::new();
+        let Some(i) = self.plan.locale.map(|s| s.0 as usize) else {
+            return changed;
+        };
+        let requested = self.requested_locale();
+        let Some(table) = self.plan.resolve_locale(&requested) else {
+            return changed;
+        };
+        let value = Value::str(table);
+        if self.slots[i] != value {
+            changed.push((i, std::mem::replace(&mut self.slots[i], value)));
+        }
+        if let Some(f) = self.plan.format.map(|s| s.0 as usize) {
+            let value = Value::str(&self.format_locale_of(i));
+            if self.slots[f] != value {
+                changed.push((f, std::mem::replace(&mut self.slots[f], value)));
+            }
+        }
+        changed
+    }
+
+    /// The format locale (LLP 1054.000.003 D6): the table in the locale slot
+    /// `i`, with the hour cycle the viewer's regional format forces.
+    pub(super) fn format_locale_of(&self, i: usize) -> String {
+        let table = self.slots[i].as_str().unwrap_or_default();
+        let place = &self.place;
+        let format = if place.format_locale.is_empty() {
+            &place.locale
+        } else {
+            &place.format_locale
+        };
+        exact_plan::strings::format_tag(table, format)
+    }
+
+    /// The commit's `setLocale`s from `from` on, each applied and taken
+    /// out, before its settlement: the app's choice is kept in the store
+    /// (so the next launch's first frame reads it), the locale slot takes
+    /// the table it resolves to, and every `exactTime` is asked again for
+    /// `resolvedLocale`. `setLocale("")` forgets the choice. No host is
+    /// told: each reads the resolved table after the commit, as after
+    /// `set_place`.
+    pub(super) fn take_set_locale(&mut self, from: usize) {
+        let mut i = from;
+        while i < self.commands.len() {
+            if self.commands[i].name != "setLocale" {
+                i += 1;
+                continue;
+            }
+            let args = self.commands.remove(i).args;
+            let Some(tag) = (match &args[..] {
+                [tag] => tag.as_str().filter(|t| t.is_empty() || valid_tag(t)),
+                _ => None,
+            }) else {
+                let mut said = String::new();
+                for (i, a) in args.iter().enumerate() {
+                    if i > 0 {
+                        said.push_str(", ");
+                    }
+                    crate::agent::untyped_json(a, &mut said);
+                }
+                self.log(format!(
+                    "setLocale({said}) refused: a BCP 47 tag (\"de\", \"pt-BR\"), or \"\" for the host's locale"
+                ));
+                continue;
+            };
+            if tag.is_empty() {
+                self.store.forget_kept(CHOSEN);
+            } else {
+                let mut text = String::new();
+                crate::agent::quote(tag, &mut text);
+                self.store.keep(CHOSEN, text.into_bytes());
+            }
+            if !self.write_locale().is_empty() {
+                let readers: Vec<usize> = self
+                    .resource_rows()
+                    .enumerate()
+                    .filter_map(|(i, row)| (self.plan.str(row.source) == SOURCE).then_some(i))
+                    .collect();
+                for r in readers {
+                    self.force_refresh(r);
+                }
+            }
+        }
+    }
+
+    /// Take the topics the source's native module announces (LLP 1016.002),
     /// calling `wake` from the announcing thread; the host then calls
     /// [`Runner::apply_announced`] on its own. A source with no native
     /// handle announces nothing.
@@ -171,10 +286,14 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Every topic a current answer watches, once each, sorted: what a host
-    /// that announces on its own behalf (a document watch) must listen for
-    /// after a commit.
+    /// that announces on its own behalf (a document watch, LLP 1069.010.000
+    /// D1) must listen for after a commit.
     pub fn watched_topics(&self) -> Vec<String> {
-        let mut topics: Vec<String> = self.watching.iter().flatten().cloned().collect();
+        let mut topics: Vec<String> = crate::vm::Column::rows(&self.resources, |row| &row.watching)
+            .iter()
+            .flatten()
+            .cloned()
+            .collect();
         topics.sort();
         topics.dedup();
         topics
@@ -194,13 +313,13 @@ impl<D: DataSource> Runner<D> {
     /// between two calls coalesce, so a fast producer costs one re-ask.
     pub fn apply_announced(&mut self) -> (Vec<CommitReceipt>, Option<RunnerError>) {
         // A module's reply that carried handles may have left its
-        // implementation for a request no longer in flight.
+        // implementation for a request no longer in flight (LLP 1133.009 D6).
         self.dispose_dropped();
         let topics = std::mem::take(&mut *self.announced.lock().unwrap_or_else(|e| e.into_inner()));
         let mut receipts = Vec::new();
-        for topic in topics {
+        for topic in self.declaration_topics(topics) {
             // An event a bound implementation emitted, said through its
-            // module's `changed`: raised, not a topic.
+            // module's `changed` (LLP 1133.004 D6): raised, not a topic.
             if let Some(event) = topic.strip_prefix(super::modules::EMITTED) {
                 self.raise_emitted(event);
                 continue;
@@ -214,23 +333,23 @@ impl<D: DataSource> Runner<D> {
                 }
                 continue;
             }
-            // A wake a bound implementation raised.
+            // A wake a bound implementation raised (LLP 1133.017 D8).
             if let Some(wake) = topic.strip_prefix(super::modules::TOLD) {
                 self.raise_told_wake(wake);
                 continue;
             }
             // A person's act on a bound implementation's own screen, on a
-            // list the runner keeps.
+            // list the runner keeps (LLP 1133.033 §13).
             if let Some(choice) = topic.strip_prefix(super::modules::CHOSEN) {
                 self.listed_choice(choice);
                 continue;
             }
-            // An implementation's own objects, for `state.extensions`.
+            // An implementation's own objects, for `state.extensions` (LLP 1133.008 D8 item 9).
             if let Some(state) = topic.strip_prefix(super::modules::STATED) {
                 self.disclosed_told(state);
                 continue;
             }
-            // A foreground-service claim under the agent.
+            // A foreground-service claim under the agent (LLP 1133.033 D21).
             if let Some(claim) = topic.strip_prefix(super::modules::CLAIMED) {
                 self.foreground_service_told(claim);
                 continue;
@@ -241,16 +360,16 @@ impl<D: DataSource> Runner<D> {
                 Err(error) => return (receipts, Some(error)),
             }
         }
-        // Then the module events raised meanwhile.
+        // Then the module events raised meanwhile (LLP 1133.004 D6).
         let (events, error) = self.deliver_module_events();
         receipts.extend(events);
         (receipts, error)
     }
 
-    /// The device says `topic` changed: every resource whose
+    /// The device says `topic` changed (LLP 1016.002): every resource whose
     /// answer watches it is asked again, in one commit; none, no commit.
     ///
-    /// A resource with a request in flight is not
+    /// @ref LLP 1016.002 D4 — a resource with a request in flight is not
     /// asked now: forgetting that request would drop its reply, and a topic
     /// that changes faster than the source answers would starve the
     /// resource. The request is marked instead; its reply lands as any
@@ -258,35 +377,41 @@ impl<D: DataSource> Runner<D> {
     /// however many announcements came meanwhile.
     pub fn changed(&mut self, topic: &str) -> Result<Option<CommitReceipt>, RunnerError> {
         let mut which = Vec::new();
-        for i in 0..self.watching.len() {
-            // An upload is asked once for its arguments.
-            if !self.watching[i].iter().any(|t| t == topic) || self.upload_stands(i) {
+        for i in 0..self.resources.len() {
+            // An upload is asked once for its arguments (LLP 1016.000 D10).
+            if !self.resources[i].watching.iter().any(|t| t == topic) || self.upload_stands(i) {
                 continue;
             }
             // A stream keeps no reply to wait for, and a refused request
             // never ran: those are asked now, as before.
-            let flight = self.pending.iter_mut().find(|p| {
+            let mut in_flight = false;
+            let mut log = None;
+            for p in self.pending.iter_mut().filter(|p| {
                 p.target == crate::Target::Resource(i)
                     && p.stream.is_none()
                     && !p.refused
                     && p.refusal.is_none()
-            });
-            match flight {
-                Some(p) if p.ask_again => {}
-                Some(p) => {
+            }) {
+                in_flight = true;
+                if !p.ask_again {
                     p.ask_again = true;
-                    let (ticket, name) = (p.ticket, self.target_name(crate::Target::Resource(i)));
-                    self.log(super::lines::waits_for(topic, ticket, &name));
+                    log.get_or_insert(p.ticket);
                 }
-                None => which.push(i),
+            }
+            if let Some(ticket) = log {
+                let name = self.target_name(crate::Target::Resource(i));
+                self.log(super::lines::waits_for(topic, ticket, &name));
+            }
+            if !in_flight {
+                which.push(i);
             }
         }
-        // Each reader asks again under its own last ask's origin.
+        // Each reader asks again under its own last ask's origin (LLP 1133.002 D12).
         self.reasking(|r| r.recommit(which, "changed"))
     }
 
     pub(super) fn time_answer(&self, i: usize) -> Result<Value, DataError> {
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i);
         if row.args.len > 0 {
             return Err(DataError::BadArguments(format!(
                 "{SOURCE} takes no arguments"

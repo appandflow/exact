@@ -1,4 +1,4 @@
-//! Dropping across lists on the Apple host: a board of
+//! Dropping across lists on the Apple host (LLP 1094 stage 4): a board of
 //! three grouped lists, one empty, through the grouped calls Swift makes.
 use super::*;
 use exact_kernel::MonospaceMeasurer;

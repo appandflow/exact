@@ -1,10 +1,10 @@
-//! `filter` and `clip-path` (CSS Filter Effects and
-//! CSS Masking): their grammars, linked by use on the web.
+//! `filter` and `clip-path` (LLP 1055.000 D10, D14; CSS Filter Effects and
+//! CSS Masking): their grammars, linked by use on the web (LLP 1047 D2).
 //!
 //! The two parsers, and the path grammar `clip-path: path()` reads, are
 //! ~4 KiB of a web core that none of Caltrain, RealWorld or the video player
 //! uses. A web artifact links them when its plan binds either row, and a
-//! plan that binds one unlinked is refused at boot, so an unlinked
+//! plan that binds one unlinked is refused at boot (D6), so an unlinked
 //! artifact never parses one. Native artifacts and the compiler parse
 //! without it.
 

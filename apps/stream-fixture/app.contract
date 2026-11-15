@@ -1,4 +1,4 @@
-// The stream fixture: H.264 as the T3 Code device player
+// The stream fixture (LLP 1133.003 §9): H.264 as the T3 Code device player
 // receives it, from `serve.mjs`: serve-sim's `stream.avcc` body (a byte
 // stream) and serve-emu's SEMU frames (a WebSocket). Each stream's mapper
 // parses its framing and hands every frame to the decoder, answering an

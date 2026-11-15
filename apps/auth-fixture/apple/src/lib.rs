@@ -1,4 +1,4 @@
-//! The auth fixture on Apple: its TypeScript signs in
+//! The auth fixture on Apple (LLP 1069.006): its TypeScript signs in
 //! against the local fixture server through `ASWebAuthenticationSession`.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));

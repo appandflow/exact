@@ -1,7 +1,7 @@
 //! What the checker learns late still types what reads it early: a state
 //! typed only by an action's write, as derives, view heads and handler
 //! arguments read it; and a prop's declared type, as the `none` passed to
-//! it.
+//! it (LLP 1004 D3).
 
 use exact_kernel::{Kernel, PropId};
 use exact_runner::{DataError, DataSource, Runner, Value};

@@ -1,4 +1,4 @@
-//! Terminal colour depth and palette reduction.
+//! Terminal colour depth and palette reduction (LLP 1101 D5).
 
 use crate::grid::Rgb;
 /// The output palette; `exactSurface("terminal").colors` reports its bit depth.

@@ -1,6 +1,6 @@
 // linux: layout
 // agent: scale=3
-// `hairline.contract` at 3x, a phone's scale: a
+// `hairline.contract` at 3x (LLP 1115.000 D10.3, D14.2), a phone's scale: a
 // hairline is a third of a point, where an authored `0.5` is a device pixel
 // and a half on one host and snapped to one on another. The same boxes, the
 // browser's against the kernel's.

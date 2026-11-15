@@ -1,4 +1,4 @@
-// Strings compare in UTF-16 code-unit order: a proper prefix
+// Strings compare in UTF-16 code-unit order (LLP 1088 D1): a proper prefix
 // first, no locale, and U+E000 after an astral character, whose high
 // surrogate is smaller — code-point order would put it before.
 component App

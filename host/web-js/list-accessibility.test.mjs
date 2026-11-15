@@ -1,11 +1,12 @@
 import { test, expect } from 'bun:test';
+import { EXE } from '../../scripts/paths.mjs';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 import { withLook } from '../web/look.mjs';
 import { createDocument } from './dom.js';
-import { listItem, unwrapListItem } from '../web/navigation.js';
+import { listItem, unwrapListItem } from '../web/navigation/lists.js';
 
 test('the render DOM writes list items and unwraps their rows', () => {
   const previous = globalThis.document, doc = createDocument();
@@ -56,7 +57,7 @@ test.each(['chromium', 'webkit'])('list items keep links, layout and identity on
   const style = withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8')).match(/<style>([\s\S]*?)<\/style>/)[1];
   let server, browser;
   try {
-    const compiled = spawnSync(resolve(root, 'target/debug/exact-web-js'), ['js', resolve(import.meta.dir, 'conformance/list-items.contract'), '-o', dir], { encoding: 'utf8' });
+    const compiled = spawnSync(resolve(root, `target/debug/exact-web-js${EXE}`), ['js', resolve(import.meta.dir, 'conformance/list-items.contract'), '-o', dir], { encoding: 'utf8' });
     expect(compiled.status, compiled.stderr).toBe(0);
     server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
       const path = new URL(request.url).pathname.slice(1);

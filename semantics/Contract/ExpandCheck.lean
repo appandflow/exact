@@ -123,11 +123,89 @@ private def childFactsEnv : CompSem.CEnv :=
 
 -- Before settlement, a child's status read must reach its resource,
 -- rather than report the quiet status of an unknown name.
-#guard ["pending", "failed", "failure"].all fun which =>
+#guard ["pending", "failed", "failure", "current"].all fun which =>
   ["viewport", "page"].all fun name =>
     match CompSem.ceval 10 childFactsEnv (.inst "Child" [] []) [] (.call which [.var name]) with
     | .error .pending => true
     | _ => false
+
+private def typingProgram (events : List String) : CProgram :=
+  { root := {
+      name := "App",
+      states := [{ name := "text", ty := .string, init := .str "" }],
+      actions := [
+        { name := "input", params := [("value", .string)],
+          body := [.assign "text" (.var "value")] },
+        { name := "change", params := [("value", .string)],
+          body := [.assign "text" (.str "changed")] }],
+      view := [.element "column" [] [] [] [
+        .element "input" [] [("testId", .str "field")]
+          (events.map fun e => (e, e, [])) []]] } }
+
+#guard [(["input"], "typed"), (["change"], "changed"), (["change", "input"], "typed")].all
+  fun (handlers, expected) =>
+    let p := typingProgram handlers
+    let (c, _) := CompSem.cboot p {}
+    match CompSem.cstep p {} c (.change "field" "typed") with
+    | (c, .ok) => (lookup "text" c.slots).any (Value.same (.str expected))
+    | _ => false
+
+#guard
+  let p := typingProgram ["input", "change"]
+  let (c, _) := CompSem.cboot p {}
+  match CompSem.cstep p {} c (.other "field" "change" (.some (.str "typed"))) with
+  | (c, .ok) => (lookup "text" c.slots).any (Value.same (.str "changed"))
+  | _ => false
+
+-- A clock step past a change task and a later timer stops after the change,
+-- at its time, as `advance` and the runner do; the next step fires the
+-- timer. The compiler gives every change task a key, which `cboot` refuses,
+-- so no corpus case reaches this.
+private def changeThenTimer : CProgram :=
+  { root := {
+      name := "App",
+      states := [{ name := "followed", ty := .bool, init := .bool false },
+                 { name := "fired", ty := .bool, init := .bool false }],
+      actions := [
+        { name := "follow", params := [], body := [.assign "followed" (.bool true)] },
+        { name := "ding", params := [], body := [.assign "fired" (.bool true)] }],
+      tasks := [
+        { name := "follow", kind := .change, ms := .num 0, action := "follow" },
+        -- 50: 0x4049000000000000.
+        { name := "once", kind := .after, ms := .num 0x4049000000000000, action := "ding" }] } }
+
+#guard
+  let p := changeThenTimer
+  let (c, _) := CompSem.cboot p {}
+  let read (c : CompSem.CConfig) name := (lookup name c.slots).any (Value.same (.bool true))
+  match CompSem.cadvance p {} c 100 with
+  | (c, .ok) =>
+    read c "followed" && !read c "fired" && c.now == 0 &&
+    match CompSem.cadvance p {} c 100 with
+    | (c, .ok) => read c "fired" && c.now == 100
+    | _ => false
+  | _ => false
+
+-- Two timers due at once, the `wait=idle` one declared first: the other
+-- fires first (`Timer.precedes`), as in `advance`, so the idle one's write
+-- is the last. 50: 0x4049000000000000; 1 and 2: 0x3FF…, 0x4000….
+private def idleTie : CProgram :=
+  { root := {
+      name := "App",
+      states := [{ name := "last", ty := .number, init := .num 0 }],
+      actions := [
+        { name := "idle", params := [], body := [.assign "last" (.num 0x3FF0000000000000)] },
+        { name := "busy", params := [], body := [.assign "last" (.num 0x4000000000000000)] }],
+      tasks := [
+        { name := "idle", kind := .after, waitKind := 4, ms := .num 0x4049000000000000, action := "idle" },
+        { name := "busy", kind := .after, ms := .num 0x4049000000000000, action := "busy" }] } }
+
+#guard
+  let p := idleTie
+  let (c, _) := CompSem.cboot p {}
+  match CompSem.cadvance p {} c 100 with
+  | (c, .ok) => (lookup "last" c.slots).any (Value.same (.num 1))
+  | _ => false
 
 /-- Both checks for one case, as lines: `#expand-error`, `#struct`, `#types`
 (each with what differs, or `ok`), then the flat observation after

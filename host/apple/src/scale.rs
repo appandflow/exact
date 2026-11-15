@@ -1,4 +1,4 @@
-//! The display's scale as a layout input: UIKit's
+//! The display's scale as a layout input (LLP 1115.000 D10.3): UIKit's
 //! `displayScale`, AppKit's `backingScaleFactor`, which a hairline
 //! (`-exact-hairline`) is one device pixel of. The presenter says it after
 //! boot and when its view moves to another display, beside the page's
@@ -6,7 +6,7 @@
 use super::*;
 
 /// A kernel for a session of this host, after the host has said which
-/// platform's looks it shows: the looks Exact draws itself
+/// platform's looks it shows (LLP 1115.002 D6): the looks Exact draws itself
 /// are rows of the kernel's schema with a column a platform, and a plan's
 /// rows read theirs as they are set. The Mac's are its own; iOS's column is
 /// tvOS's, visionOS's and watchOS's too. Said for the process, before any plan boots.
@@ -23,7 +23,7 @@ pub(crate) fn kernel(measurer: Box<dyn TextMeasurer>) -> Kernel {
 }
 
 impl<D: DataSource> Host<D> {
-    /// The root font size `rem` follows: a relayout in
+    /// The root font size `rem` follows (LLP 1069.000 D3): a relayout in
     /// one commit, no resource asked again; the same size commits nothing.
     pub fn set_root_font_size(&mut self, px: f64) -> String {
         self.presence.unauthored = true;
@@ -58,17 +58,30 @@ impl<D: DataSource> Host<D> {
     }
 }
 
-/// Explicit inputs for a headless boot. Presented sessions that tell these
-/// after boot retain their existing first-layout defaults.
+/// What a boot's first layout reads of its view: the root font size and
+/// display scale last told (valid ones, before or after a boot), and the
+/// insets told while no host runs, which the boot that installs one takes. A
+/// headless boot (LLP 1126 D8) tells them before it, as an iOS view does
+/// before its first (`ExactSession.primeView`); a session that tells them
+/// only after its first boot lays that one out at the defaults.
 #[derive(Clone, Copy, Default)]
 pub(crate) struct LaunchLayout {
     pub root_font_size: Option<f32>,
     pub display_scale: Option<f32>,
+    /// The scale Canvas 2D backs its bitmaps at (`exact_canvas_display`):
+    /// the session's latest, told before or after a boot, for every boot.
+    pub canvas_scale: Option<f64>,
+    /// The safe-area insets (top, right, bottom, left) told before the next
+    /// boot, so its first layout is at the view's real port rather than
+    /// laid out again when they are told after it. Taken by that boot.
+    pub insets: Option<[f32; 4]>,
 }
 impl LaunchLayout {
     pub const NONE: Self = Self {
         root_font_size: None,
         display_scale: None,
+        canvas_scale: None,
+        insets: None,
     };
     pub fn prepare(self, kernel: &mut Kernel) -> Result<(), HostError> {
         if let Some(size) = self.root_font_size {
@@ -79,6 +92,12 @@ impl LaunchLayout {
         if let Some(scale) = self.display_scale {
             kernel
                 .set_display_scale(scale)
+                .map_err(|e| HostError::Runner(RunnerError::Kernel(e)))?;
+        }
+        if let Some([top, right, bottom, left]) = self.insets {
+            let env = kernel.env().with_insets(top, right, bottom, left);
+            kernel
+                .set_env(env)
                 .map_err(|e| HostError::Runner(RunnerError::Kernel(e)))?;
         }
         Ok(())

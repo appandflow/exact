@@ -4,8 +4,8 @@
 // holds the Rust owner, and every semantic operation still crosses the one
 // primitive/handle host-call boundary.
 
-// JavaScript owns object shape; Rust owns semantics.
-// Private bootstrap bindings are removed before hardening.
+// @ref LLP 0057#3-the-boundary — JavaScript owns object shape; Rust owns semantics
+// @ref LLP 0067#3-the-check — private bootstrap bindings disappear before hardening
 
 #include "../../include/ibex2_jsi.h"
 

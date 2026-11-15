@@ -1,5 +1,5 @@
-//! Caltrain's GPU module: the aurora, the glass and the deck,
-//! which are shaders. The line map left it for Canvas 2D; it is
+//! Caltrain's GPU module (LLP 1009): the aurora, the glass and the deck,
+//! which are shaders. The line map left it for Canvas 2D (LLP 1056); it is
 //! drawn by the data crate (`caltrain_data::map`).
 
 #![deny(missing_docs)]
@@ -19,7 +19,7 @@ use exact_gpu::{Registry, Surface};
 /// binding number, an offset, or an entry point's name is never restated
 /// here by hand, and a shader edit that moves one is a build error, not a
 /// wrong picture. The text itself is not here: it travels as an asset and
-/// is registered at run time (`exact_gpu::shaders`).
+/// is registered at run time (LLP 1030 D8, `exact_gpu::shaders`).
 pub mod shaders {
     include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
 }

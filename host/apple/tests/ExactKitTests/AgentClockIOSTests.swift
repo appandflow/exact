@@ -3,7 +3,7 @@ import XCTest
 @testable import ExactKit
 import UIKit
 
-/// Platform timing's first `clock`: the host ran on the
+/// Platform timing's first `clock` (LLP 1080.000 §12): the host ran on the
 /// wall's time until then, motion included, so the clock is taken over at the
 /// wall and never set behind it; a hold begun after it is not refused.
 final class AgentClockIOSTests: XCTestCase {
@@ -123,7 +123,7 @@ final class AgentClockIOSTests: XCTestCase {
         XCTAssertEqual(agent.recognizedPan("down", ["id": Int(handle.id)])?["delivery"] as? String, "unsupported", "beside the scroll view the binding is offered it")
     }
 
-    /// The agent's tap is what a finger there delivers: its
+    /// The agent's tap is what a finger there delivers (LLP 1012 §1): its
     /// `pointerdown` and `pointerup`, bubbled, then the press; a finger held
     /// off any `pan` node is the same with time between, and a lift beside
     /// its target presses nothing, as a touch up outside a control.
@@ -357,11 +357,11 @@ final class AgentClockIOSTests: XCTestCase {
         let session = try booted()
         let r = try holdAfter(session, ["to": 100.0])
         XCTAssertGreaterThanOrEqual(session.clock ?? 0, r.wall, "the clock stays at the wall")
-        XCTAssertTrue(r.held, "a hold after it is not refused as ClockWentBackwards")
+        XCTAssertTrue(r.held, "a hold after it is not refused (before §12: ClockWentBackwards)")
     }
 
-    /// The app's own native motion on the wall clock:
-    /// `clock settle` waits for it once, up to 1.5 s, and says
+    /// The app's own native motion on the wall clock (LLP 1012, amended
+    /// 2026-10-16): `clock settle` waits for it once, up to 1.5 s, and says
     /// `settled: false`, reason `motion`, when it runs past that; a seek's
     /// steps wait for none, its last for up to the whole jump.
     func testTheClockWaitsForTheAppsOwnMotionOnceAndSaysWhenItRunsOn() throws {

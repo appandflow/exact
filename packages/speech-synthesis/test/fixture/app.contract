@@ -1,4 +1,4 @@
-// The conformance fixture: every name of
+// The conformance fixture (LLP 1133.001 D7, LLP 1133.012 §10): every name of
 // @exact/speech-synthesis, sent and read as an app would, each answer shown
 // by testId for the suites.
 use speak, cancelSpeech, pauseSpeech, resumeSpeech, speechSynthesisState, speechUtterance, speechSynthesisVoices, SpeechUtteranceInfo, SpeechSynthesisState, SpeechUtterance, SpeechSynthesisVoices from "@exact/speech-synthesis"

@@ -1,6 +1,6 @@
 //! The animatable properties and their values.
 //!
-//! Targets are style; the vocabulary is CSS's.
+//! @ref LLP 1002 §2 (targets are style; the vocabulary is CSS's)
 //!
 //! v1 animates the four CSS properties a compositor applies without relayout:
 //! the individual transform properties `translate`, `scale`, `rotate`, and
@@ -9,15 +9,15 @@
 //! in degrees, `opacity` a number; each interpolates componentwise and
 //! linearly (CSS Transitions §4, "animation type: by computed value"). The
 //! numeric `height` trial adds a scalar in pixels, with host-owned admission
-//! and layout. Its CSS initial `auto` has no numeric value.
-//! SVG 2's `stroke-dashoffset` and `r` are scalars in user units,
-//! as are the geometry rows `cx`, `cy`, `x`, `y`, `rx` and `ry`.
+//! and layout (LLP 1041 §8.12). Its CSS initial `auto` has no numeric value.
+//! SVG 2's `stroke-dashoffset` and `r` are scalars in user units (LLP 1055 D6),
+//! as are the geometry rows `cx`, `cy`, `x`, `y`, `rx` and `ry` (LLP 1055.000 D15).
 //! Colours (`color`, `background-color`, `fill`, `stroke`) are four
 //! components, premultiplied sRGB red, green, blue and alpha in 0–1, so
 //! componentwise interpolation is CSS Color 4's premultiplied interpolation
-//! of legacy colours.
+//! of legacy colours (LLP 1055.000 D6).
 //!
-//! Paint motion adds the four border sides' colours, a symbol's
+//! Paint motion (LLP 1062) adds the four border sides' colours, a symbol's
 //! `-exact-tint-color`, and `box-shadow` as two engine properties: its geometry
 //! (offset and blur, in points) and its colour, the shadow's opacity folded
 //! into the alpha, so a shadow from `none` is CSS's transparent, zero-length
@@ -26,17 +26,17 @@
 //! `font-weight` and `font-stretch` are numbers (CSS Fonts 4: a weight, a
 //! percentage). They change glyph advances, so the runner moves them, a
 //! style commit each presented frame, and layout follows as for any commit;
-//! no host's engine is given their targets. So does
+//! no host's engine is given their targets (LLP 1019 §13 D10). So does
 //! `font-variation-settings`, whose value is one axis: its number, then its
 //! tag in two 16-bit halves ([`Value::axis`]), which an `f32` on the wire
 //! carries exactly. A keyframe declares one value per axis it names.
 //!
 //! `layout` is not a CSS property: it is a node's laid-out box in its parent
-//! (origin and size), which a `-exact-layout-transition` row animates.
+//! (origin and size), which a `-exact-layout-transition` row animates (LLP 1063).
 //! It is never authored in `transition` or `@keyframes`, so it is outside
 //! [`Property::ALL`] and never on the wire.
 //!
-//! `d` is SVG 2's path data as a property. A path is not a
+//! `d` is SVG 2's path data as a property (LLP 1055.000 D15). A path is not a
 //! [`Value`]: the engine's `d` slot holds a transition's progress, 0 to 1,
 //! and the paths at its two ends live beside it ([`crate::path`]). It is
 //! named by `transition` (never `@keyframes` yet), so it is outside
@@ -56,11 +56,11 @@ pub enum Property {
     Opacity = 3,
     /// Numeric CSS `height`, in logical pixels; host admission is explicit.
     Height = 4,
-    /// SVG 2 `stroke-dashoffset`, in user units.
+    /// SVG 2 `stroke-dashoffset`, in user units (LLP 1055 D6).
     StrokeDashoffset = 5,
-    /// SVG 2 `r`, a circle's radius in user units.
+    /// SVG 2 `r`, a circle's radius in user units (LLP 1055 D6).
     R = 6,
-    /// CSS `color`.
+    /// CSS `color` (LLP 1055.000 D6).
     Color = 7,
     /// CSS `background-color`.
     BackgroundColor = 8,
@@ -68,7 +68,7 @@ pub enum Property {
     Fill = 9,
     /// SVG `stroke`, when it is a colour.
     Stroke = 10,
-    /// SVG 2 `cx`, in user units.
+    /// SVG 2 `cx`, in user units (LLP 1055.000 D15).
     Cx = 11,
     /// SVG 2 `cy`.
     Cy = 12,
@@ -80,7 +80,7 @@ pub enum Property {
     Rx = 15,
     /// SVG 2 `ry`.
     Ry = 16,
-    /// `border-top-color`.
+    /// `border-top-color` (LLP 1062).
     BorderTopColor = 17,
     /// `border-right-color`.
     BorderRightColor = 18,
@@ -95,18 +95,18 @@ pub enum Property {
     /// `box-shadow`'s colour, its opacity folded into the alpha. Named only
     /// by `box-shadow`, never on its own.
     ShadowColor = 23,
-    /// CSS `font-weight`, a number.
+    /// CSS `font-weight`, a number (LLP 1019 §13 D10).
     FontWeight = 24,
     /// CSS `font-stretch`, a percentage of normal width.
     FontStretch = 25,
     /// One axis of CSS `font-variation-settings` ([`Value::axis`]).
     FontVariationSettings = 26,
     /// The laid-out box in the parent, in points: origin (`x`, `y`) and size
-    /// (`z` wide, `w` high). Its target is layout's answer,
+    /// (`z` wide, `w` high) (LLP 1063). Its target is layout's answer,
     /// observed by a host after layout; only a node's `-exact-layout-transition` row
     /// moves it, never `transition`.
     Layout = 27,
-    /// SVG 2 `d`, a path's data. Its slot's value is a
+    /// SVG 2 `d`, a path's data (LLP 1055.000 D15). Its slot's value is a
     /// running transition's progress from one path to the next; the paths
     /// are [`crate::path::PathValue`]s the engine keeps beside it.
     D = 28,
@@ -163,8 +163,9 @@ impl Property {
     pub const SLOTS: usize = Property::COUNT + 2;
 
     /// The paint properties: repainted, never laid out. A native host's
-    /// paint pass owns them: CSS's box colours and
-    /// `box-shadow`, and an SVG element's `fill` and `stroke`.
+    /// paint pass owns them (LLP 1062 D2): CSS's box colours and
+    /// `box-shadow`, and an SVG element's `fill` and `stroke` (LLP 1055.000
+    /// D6).
     pub const PAINT: [Property; 11] = [
         Property::Color,
         Property::BackgroundColor,
@@ -217,7 +218,7 @@ impl Property {
 
     /// The name a browser knows the property by: [`Property::name`], but
     /// `-exact-tint-color`, which the web host carries as the registered
-    /// custom property `--exact-tint`.
+    /// custom property `--exact-tint` (LLP 1062 D6).
     pub fn css_name(self) -> &'static str {
         match self {
             Property::TintColor => "--exact-tint",
@@ -226,7 +227,7 @@ impl Property {
     }
 
     /// From a name an author writes; `box-shadow`'s colour half has none,
-    /// and the host's own `--exact-tint` is not one.
+    /// and the host's own `--exact-tint` is not one (LLP 1081 D5).
     pub fn from_author_name(name: &str) -> Option<Property> {
         Property::ALL
             .into_iter()
@@ -235,7 +236,7 @@ impl Property {
 
     /// From a name in stored plan text: an author name, or the
     /// [`Property::css_name`] a serialized keyframes rule carries
-    /// `-exact-tint-color` by. Author text goes through
+    /// `-exact-tint-color` by (LLP 1081 D5). Author text goes through
     /// [`Property::from_author_name`].
     pub fn from_name(name: &str) -> Option<Property> {
         Property::ALL
@@ -269,7 +270,7 @@ impl Property {
     /// velocity across an interruption. The web lowers these springs to
     /// frames; every other property (paint, SVG geometry and paint) plays a
     /// spring as its curve from rest, a CSS `linear()` easing, on every host
-    ///.
+    /// (LLP 1062 D3).
     pub fn springs(self) -> bool {
         matches!(
             self,
@@ -332,7 +333,7 @@ pub struct Value {
     /// Fourth component (`translate`'s y percentage; a colour's alpha; a
     /// layout box's height).
     pub w: f64,
-    /// A colour stored as premultiplied OKLab rather than sRGB.
+    /// A colour stored as premultiplied OKLab rather than sRGB (LLP 1100 D2).
     pub oklab: bool,
 }
 
@@ -392,6 +393,16 @@ impl Value {
         let rgb = [self.x / alpha, self.y / alpha, self.z / alpha].map(exact_color::srgb_to_linear);
         let [l, a, b] = exact_color::MixSpace::Oklab.from_linear_srgb(rgb);
         Value::oklab(l, a, b, alpha)
+    }
+
+    /// Whether `other` is the same value: a colour in the other encoding is
+    /// compared in OKLab, where a transition between the two keeps it.
+    pub fn same(self, other: Value) -> bool {
+        if self.oklab == other.oklab {
+            self == other
+        } else {
+            self.to_oklab() == other.to_oklab()
+        }
     }
 
     /// A colour's straight extended linear sRGB and alpha, unclipped.

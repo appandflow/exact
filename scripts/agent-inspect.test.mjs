@@ -1,10 +1,12 @@
-// `state <name>` (agent-inspect.mjs `stateOp`): a state, derive or resource (or a field of the record)
+// `state <name>` (agent-inspect.mjs `stateOp`, LLP 1116.007 D3.9): a state, derive or resource (or a field of the record)
 // reads by name, down a dotted path, as `expect state` does, even where a view carries the name; a plain view's is the record.
 import { test, expect } from 'bun:test';
 import { render, renderTrace, renderFrameHealthReport, renderFrameHealthMetrics, perfOp, readTrack, renderPerf, stateOp, tapRefusal, nextCommitTasks, settleBound, planLocators, perfDelta } from './agent-inspect.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { open } from './agent-session.mjs';
+import { launchFacts } from './agent-launch.mjs';
 
 test('bounded frame report and capture controls bypass legacy perf collection', async () => {
   const asked = [];
@@ -54,6 +56,28 @@ test('health windows use finalized cursors and preserve the source without start
   await expect(perfOp(unobserved, ['frames', 'health', 'scroll'])).rejects.toThrow('unobserved');
 });
 
+test('Android live windows read their baseline once the lease lends the clock, and follow the clock it returns', async () => {
+  const requests = [], cursor = { version: 3 };
+  const s = { host: 'android', now: 500, op: async request => {
+    requests.push(request);
+    if (request.capture === 'start') return { capture: true, lent: true, clock: 500 };
+    if (request.capture === 'stop') return { capture: false, lent: false, clock: 1700 };
+    return request.cursor ? { available: true, source: request.source, window: { kind: 'delta' } } : { available: true, cursor };
+  }, perf: () => { throw new Error('legacy sampler'); } };
+  const reply = await perfOp(s, ['frames', 'live', '1']);
+  expect([reply.source, reply.windowFrames.source]).toEqual(['app', 'window']);
+  expect(renderFrameHealthMetrics(reply)).toContain('frame health · window');
+  expect(requests.map(request => request.capture ?? `${request.cursor ? 'delta' : 'health'} ${request.source}`)).toEqual(['start', 'health app', 'health window', 'delta app', 'delta window', 'stop']);
+  expect(s.now).toBe(1700);
+  // A capture the host cannot lend (a production bake, collection off) reads nothing
+  const refused = { host: 'android', op: async request => (request.capture ? { available: false, capture: false, reason: 'collection-disabled' } : {}) };
+  expect((await perfOp(refused, ['frames', 'live', '1'])).reason).toBe('collection-disabled');
+  await expect(perfOp(s, ['frames', 'live', '30001'])).rejects.toThrow();
+  // A manual stop's clock is the driver's from then on
+  await perfOp(s, ['frames', 'capture', 'stop']);
+  expect(s.now).toBe(1700);
+});
+
 test('Apple live windows use a host-side wait and release their lease on errors', async () => {
   const requests = [], cursor = { version: 1 };
   const s = { host: 'ios', op: async request => {
@@ -74,9 +98,9 @@ test('compact reports expose measured stages and preserve unknown evidence', () 
     columns: ['sequence', 'capture', 'generation', 'age_us', 'flags', 'target_offset_us', 'period_us', 'requested_period_us', 'gap_us', 'callback_us',
       'before_gap_us', 'before_callback_us', 'after_offset_us', 'after_gap_us', 'after_callback_us',
       'owner_queued_offset_us', 'owner_began_offset_us', 'owner_finished_offset_us', 'main_landed_offset_us',
-      'apply_began_offset_us', 'apply_finished_offset_us', 'work_target_offset_us', 'operations'],
+      'apply_began_offset_us', 'apply_finished_offset_us', 'work_target_offset_us', 'operations', 'frame_start_offset_us'],
     hitches: [['12', '1', '0', 1000, 17, 8000, 8000, 8000, 24000, 1000, 8000, 500, null, null, null,
-      -10000, -9000, -5000, -3000, -3000, -1000, 0, 40]] };
+      -10000, -9000, -5000, -3000, -3000, -1000, 0, 40, null]] };
   const text = renderFrameHealthReport(report);
   expect(text).toContain('overwritten 7');
   expect(text).toContain('last observed apply ended 1.000 ms before event');
@@ -85,6 +109,17 @@ test('compact reports expose measured stages and preserve unknown evidence', () 
   expect(text).toContain('owner queue 1.000 ms · owner wall 4.000 ms · main wait 2.000 ms · apply 2.000 ms');
   expect(text).toContain('following gap/work unknown / unknown');
   expect(text).toContain('not causal attribution');
+  expect(text).toContain('since reset: ? callbacks · frame intervals ? · missed unknown · late unknown\n  frame time unmeasured · work unmeasured');
+  // Exact's frames as the card's Share gives them beside the screen's: every frame's timing since the reset, and the
+  // other source
+  const shared = { ...report, coreSinceReload: { callbacks: '600', frameIntervals: '599', missedFrames: '2', lateFrames: '3',
+      frameTimeBoundsNs: { median: [16500000, 17000000], p99: [33000000, 33500000], maximum: [48000000, null] },
+      workBoundsNs: { median: [4000000, 4500000], p99: [17000000, 17500000], maximum: [20000000, 20500000] } },
+    otherSources: [{ source: 'ui-update', retainedEvents: 16 }], selection: "one-source; the card's Share gives ui-update as a report of its own" };
+  const sharedText = renderFrameHealthReport(shared);
+  expect(sharedText).toContain('since reset: 600 callbacks · frame intervals 599 · missed 2 · late 3');
+  expect(sharedText).toContain('frame time median 16.50–17.00 ms, p99 33.00–33.50 ms, maximum 48.00–∞ ms · work median 4.00–4.50 ms, p99 17.00–17.50 ms, maximum 20.00–20.50 ms');
+  expect(sharedText).toContain("other sources: ui-update (16 retained) · one-source; the card's Share gives ui-update as a report of its own");
   const powered = structuredClone(report);
   powered.hitches[0][4] += 2 ** 23 + 2 ** 16 + 2 ** 33 + 2 ** 34 + 2 ** 36;
   expect(renderFrameHealthReport(powered)).toContain('workload motion · thermal serious · low power true');
@@ -96,6 +131,12 @@ test('compact reports expose measured stages and preserve unknown evidence', () 
   expect(render('perf', report)).toBe(text);
   expect(() => renderFrameHealthReport({ ...report, hitches: Array(17).fill(report.hitches[0]) })).toThrow();
   expect(() => renderFrameHealthReport({ ...report, hitches: [['bad']] })).toThrow();
+  const late = { ...report, hitches: [['13', '1', '0', 1000, 128, -4000, 0, 0, 0, 0, 0, 0, null, null, null,
+    null, null, null, null, null, null, null, null, -12000]] };
+  expect(renderFrameHealthReport(late)).toContain('frame work target overrun');
+  expect(renderFrameHealthReport(late)).toContain('work 12.000 ms · budget 8.000 ms · finished 4.000 ms past deadline');
+  late.hitches[0][4] |= 64;
+  expect(renderFrameHealthReport(late)).toContain('work unknown · budget unknown · finished unknown past deadline');
 });
 
 test("the screen's report gives each late frame's work against its deadline, and its neighbours' work", () => {
@@ -107,6 +148,9 @@ test("the screen's report gives each late frame's work against its deadline, and
       ['53', '1', '1', 531878, 2 ** 23 + 2, 12258, 13461, 10607, null, null, 0, null, 0, null]] };
   const text = renderFrameHealthReport(report);
   expect(text).toContain("the screen's UI updates against UIKit's deadlines");
+  expect(renderFrameHealthReport({ ...report, coreSinceReload: { callbacks: '3640', lateFrames: '95', frameTimeBoundsNs: null,
+    workBoundsNs: { median: [4000000, 4500000], p99: [17000000, 17500000], maximum: [62000000, 62500000] } } }))
+    .toContain('since reset: 3640 updates · late 95\n  work median 4.00–4.50 ms, p99 17.00–17.50 ms, maximum 62.00–62.50 ms');
   expect(text).toContain('#40 / capture 1 / generation 1 · 1329.860 ms ago · commit seen past its deadline');
   expect(text).toContain("work 39.821 ms · deadline 10.176 ms after its work's effective start, the commit less its work · previous update's work 3.695 ms · next update's effective start 39.830 ms after this one's, work 24.790 ms");
   const waitedPast = structuredClone(report);
@@ -190,12 +234,12 @@ test('a release build\'s first trace says its frames were not measured yet, and 
   expect(text).not.toContain('presented 0');
 });
 
-// A late frame's phases, and the build to look for when no map fits.
+// LLP 1142 D1, D2: a late frame's phases, and the build to look for when no map fits.
 test('a late frame names its phases, and a trace no map fits names the host build', () => {
   const late = { t: 41210, interval: 16.67, missed: 1, overrun: 17, seq: null, batches: 2, apply: 0.3,
     phases: [{ phase: 'text', ms: 4.1, segments: 12 }, { phase: 'rows', ms: 9.4, segments: 3 }], unattributed: 3.17 };
   const frames = { period: { ms: 8.33, source: 'target' }, lifetime: { presented: 9, late: 1, missed: 1, overruns: 1, segments: 1 }, window: {}, late: [late], records: [] };
-  const text = renderTrace({ identity: { host: 'macos', app: 'chat', hostBuild: { commit: 'abcdef1234567890', dirty: true, machine: 'M5' } }, frames, journal: { lines: [] },
+  const text = renderTrace({ identity: { host: 'macos', app: 'excord', hostBuild: { commit: 'abcdef1234567890', dirty: true, machine: 'M5' } }, frames, journal: { lines: [] },
     plan: 'ab'.repeat(32), perf: { plan: 'ab'.repeat(32), seq: 1, clock: 0, incarnation: 1, sites: [{ site: 4, source: { status: 'unavailable' } }] } });
   expect(text).toContain('no transaction range · 2 batches');
   expect(text).toContain('of its 16.67 ms: rows 9.4 (3) · text 4.1 (12) · unattributed 3.17');
@@ -227,6 +271,42 @@ test('perf during subtracts each handler\'s dispatches and drops the ones that d
   expect(perfDelta(read(2), read(60)).handlers).toEqual([{ site: 3, event: 'hover in', dispatched: 58, committed: 58 }]);
 });
 
+test('world perf during refuses replacement even when tick and restart counters match', async () => {
+  const before = { tick: 12, restarted: 0, spanTicks: 4, incarnation: 'module:7', generation: 1, spans: [] };
+  for (const [changed, reason] of [
+    [{ incarnation: 'module:8' }, 'world incarnation'],
+    [{ incarnation: 'replacement:7' }, 'world incarnation'],
+    [{ generation: 2 }, 'recording generation'],
+  ]) {
+    let current = before;
+    const s = { perf: async () => current };
+    await expect(perfOp(s, ['world:world', 'during'], 'perf world:world during "clock +0"', async () => {
+      current = { ...before, ...changed };
+    })).rejects.toThrow(reason);
+  }
+});
+
+test('world perf carries its recording cursor through the session and keeps valid spans', async () => {
+  const asked = [], spans = { incarnation: 'module:7', generation: 2, spanTicks: 4, spans: [{ name: 'tick.other', count: 1 }] };
+  const s = await open({ reuse: { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask(req) {
+      if (req.op === 'tree') return { nodes: [{ id: 1, props: { testId: 'world' }, depth: 0 }] };
+      asked.push(req);
+      return { world: { tick: 12, restarted: 0, perf: { tickSpans: spans } } };
+    },
+  } });
+  const got = await perfOp(s, ['world:world', 'during'], 'perf world:world during "clock +0"', async () => {});
+  expect(asked).toEqual([
+    { op: 'state', id: 1, world: true, perf: true },
+    { op: 'state', id: 1, world: true, perf: true, span_since: { incarnation: 'module:7', generation: 2, ticks: 4 } },
+  ]);
+  expect(got).toEqual({ target: 'world:world', tick: 12, restarted: 0, ...spans,
+    from: { tick: 12, incarnation: 'module:7', generation: 2, spanTicks: 4 } });
+  expect(renderPerf(got)).toContain('world incarnation module:7 · recording generation 2');
+  delete spans.generation;
+  await expect(s.perf('world:world')).rejects.toThrow('names no world incarnation or recording generation');
+});
+
 test('state world events uses the world seam and an optional type filter', async () => {
   const calls = [], s = {state: async (...args) => { calls.push(args); return {events:[]}; }};
   await stateOp(s, ['world','events','Hit']);
@@ -236,7 +316,7 @@ test('state world events uses the world seam and an optional type filter', async
   expect(calls[1][4]).toEqual({world:true, events:true});
 });
 
-// A target covered by what may leave on a timer the frozen clock never reaches: the refusal names the
+// A target covered by what may leave on a timer the frozen clock never reaches (euxy FRICTION 9): the refusal names the
 // tasks still waiting and the step that runs them; with none waiting it is as it was.
 test('a covered target\'s refusal names the tasks waiting on the clock', async () => {
   const covered = (tasks, clock = 0) => tapRefusal({ state: async () => ({ clock, tasks }), tree: async () => ({ nodes: [] }) }, 'go', new Error('tap #333: node #6 covers its middle'));
@@ -245,7 +325,7 @@ test('a covered target\'s refusal names the tasks waiting on the clock', async (
   expect((await covered({})).message).toBe('tap #333: node #6 covers its middle');
 });
 
-// A task due a commit later (an `after(1, …)` an answer armed) is what `clock settle` runs and
+// A task due a commit later (an `after(1, …)` an answer armed, euxy FRICTION 7) is what `clock settle` runs and
 // `clock data` names; one due later, one spent and one past are not.
 test('the tasks due a commit later are those within 1 ms of the clock', async () => {
   const session = { state: async () => ({ tasks: { importLink: 1001, later: 1002, spent: null, past: 999, now: 1000, adopt: 1000.5 } }) };
@@ -289,7 +369,7 @@ test('resource declarations refuse incomplete or malformed source spans', async 
   }
 });
 
-// A scroll handler that changed the tree on every event of a fling is said once, with what to do; one that
+// LLP 1144 D3: a scroll handler that changed the tree on every event of a fling is said once, with what to do; one that
 // commits rarely, or a press, is only counted.
 test('perf names a scroll handler that commits on every event', () => {
   const r = { target: 'transcript', seq: 9, clock: 0, incarnation: 1, sites: [], handlers: [
@@ -300,12 +380,20 @@ test('perf names a scroll handler that commits on every event', () => {
   expect(text).not.toContain('each press event');
 });
 
-// Each resource's asks between two reads; a host that counts none has no `resources`.
+// LLP 1146 D3: each resource's asks between two reads; a host that counts none has no `resources`.
 test('perf … during subtracts each resource\'s asks', () => {
   const read = (asked) => ({ plan: 'p', incarnation: 1, seq: asked, clock: 0, sites: [], resources: [{ name: 'channels', asked }, { name: 'servers', asked: 4 }] });
   expect(perfDelta(read(2), read(8)).resources).toEqual([{ name: 'channels', asked: 6 }]);
   const bare = { plan: 'p', incarnation: 1, seq: 1, clock: 0, sites: [] };
   expect(perfDelta(bare, bare).resources).toBeUndefined();
+});
+
+test('perf deltas match list members through reordering and removal', () => {
+  const member = (id, asked) => ({ name: 'items', member: `items[${id}]`, asked });
+  const read = resources => ({ plan: 'p', incarnation: 1, seq: 1, clock: 0, sites: [], resources });
+  const before = read([member(1, 1), member(2, 5)]);
+  expect(perfDelta(before, read([member(2, 5), member(1, 2)])).resources).toEqual([member(1, 1)]);
+  expect(perfDelta(before, read([member(1, 2), member(3, 1)])).resources).toEqual([member(1, 1), member(3, 1)]);
 });
 
 test('layout shows what a pressed paint shows, beside the computed base', () => {
@@ -419,8 +507,16 @@ test('a stop freezes the track and the driver reads a multi-page tail to the end
   expect(renderPerf(out)).toContain('12 rows');
 });
 
-test("tree shows Exact's picture-in-picture window on the floating image's row", () => {
+test("tree shows Exact's picture-in-picture window on the floating image's row (LLP 1042 §9.1)", () => {
   const window = { presentation: 'window', title: 't3code://app', open: true, frame: [1051, 683, 284, 178], controls: ['minimize', 'back', 'close'], controlsShown: true };
   const text = render('tree', { epoch: 1, incarnation: 1, clock: 0, nodes: [{ id: 7, depth: 0, type: 'Image', props: { testId: 'pip' }, pictureInPicture: window }] });
   expect(text.split('\n')[1]).toBe('Image#7 [pip] pictureInPicture{window "t3code://app" open at 1051,683,284,178 controls minimize,back,close shown}');
+});
+
+test("a world's perf prints its counters; only `state <canvas> draws` is a draw list (#207)", () => {
+  // `state world.0.perf`: there `draws` is the last frame's draw count.
+  const perf = { wallClock: true, pixels: [1280, 720], draws: 15, instances: 11, triangles: 5425 };
+  expect(render('state', perf, { name: 'world.0.perf' }).split('\n')).toEqual(['wallClock true', 'pixels [1280,720]', 'draws 15', 'instances 11', 'triangles 5425']);
+  const draws = { tick: 4, hash: '0x1', draws: [{ pass: 'opaque', draw: 'mesh', winding: 'ccw', writes: 'color' }] };
+  expect(render('state', draws, { name: 'world', look: true })).toBe('tick 4 · hash 0x1\nopaque        · mesh · ccw · writes color');
 });

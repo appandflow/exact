@@ -1,8 +1,10 @@
-// The navigation, sheet, keyboard and focus rules,
+// The navigation, sheet, keyboard and focus rules (LLP 1035.001 slice 1),
 // held as assertions about decisions: no window, no run loop, no clock,
 // nothing that can flake on timing. `NavigationRules` is what UIKit's
-// projection applies; this file is what says the projection keeps
-// them. See also `rules/RULES.md` §Loop shape.
+// projection applies; this file is what says the projection's rules are
+// the RFC's.
+//
+// @ref LLP 1035.001 D1–D5, D8; `rules/RULES.md` §Loop shape
 #if os(macOS)
 import AppKit
 import XCTest
@@ -110,7 +112,7 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(input.field!.isEnabled); XCTAssertFalse(area.textArea!.isEditable)
     }
 
-    // Shared first controller is insufficient for a swap.
+    // @ref LLP 1038 D6 — shared first controller is insufficient for a swap.
     func testPushOrPopRequiresACompletePrefix() {
         XCTAssertTrue(NavigationRules.isPushOrPop(from: [1], to: [1, 2, 3]))
         XCTAssertTrue(NavigationRules.isPushOrPop(from: [1, 2, 3], to: [1]))
@@ -119,7 +121,7 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.isPushOrPop(from: [1, 2], to: [4, 5]))
     }
 
-    /// The stack is the prefix through the selected route; a key that
+    /// D1: the stack is the prefix through the selected route; a key that
     /// matches no route leaves the stack alone (less what left the tree, below).
     func testTheStackIsThePrefixThroughTheSelectedRoute() {
         let keys = ["", "thread", "details:thread", "compose"]
@@ -128,9 +130,9 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(NavigationRules.stack(routeKeys: keys, selected: "elsewhere"))
     }
 
-    /// A key that matches no route leaves the stack alone, less the
+    /// D1: a key that matches no route leaves the stack alone, less the
     /// routes that left the tree; and macOS's hide-and-inert projection
-    /// follows it. A chat-rooms app keyed its list "rooms" while
+    /// follows it. Chat-rooms (bake-off round 6) keyed its list "rooms" while
     /// its root named the visit, "0" at the stack's root: Cancel on its sheet
     /// (the route gone, the key "0" again) left the list inert.
     func testAKeyThatMatchesNoRouteKeepsWhatIsLeftOfTheStackShown() throws {
@@ -172,7 +174,7 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertEqual(NavigationRules.segments(presentations: ["modal"]), [0..<0, 0..<1])
     }
 
-    /// Only a completed gesture from the still-selected route may
+    /// D2: only a completed gesture from the still-selected route may
     /// dispatch. Finishing an old programmatic Back cannot cancel Compose.
     func testACompletedPopBelongsToItsInteractiveSource() {
         XCTAssertTrue(NavigationRules.dispatchesBack(shownKey: "", rootKey: "thread", sourceKey: "thread", modalActive: false))
@@ -187,38 +189,36 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "", rootKey: "compose", sourceKey: "compose", modalActive: true))
     }
 
-    /// UIKit's finished pop decides: the app follows it when its top is among the routes UIKit took
-    /// away, however the source's node or the root's key fared during the swipe.
-    func testTheAppFollowsAPopUIKitFinished() {
-        // A swipe from Updates back to Settings: the app still names Updates
-        XCTAssertTrue(NavigationRules.appIsBehind(poppedKeys: ["updates"], uikitTop: "settings", shownKeys: ["settings", "updates"], rootKey: "updates"))
-        // UIKit's long-press Back menu took two routes away
-        XCTAssertTrue(NavigationRules.appIsBehind(poppedKeys: ["updates", "log"], uikitTop: "settings", shownKeys: ["settings", "updates", "log"], rootKey: "log"))
+    /// D2: a pop UIKit committed takes the router from its selected route to
+    /// the deepest route beneath it that UIKit kept.
+    func testAPopUIKitCommittedTakesTheRouterToTheDeepestRouteItKept() {
+        // UIKit's Back from Updates to Settings: one step, the authored Back
+        XCTAssertEqual(NavigationRules.backTarget(shownKeys: ["settings", "updates"], popped: ["updates"], selected: "updates")?.to, "settings")
+        XCTAssertEqual(NavigationRules.backTarget(shownKeys: ["settings", "updates"], popped: ["updates"], selected: "updates")?.steps, 1)
+        // UIKit's long-press Back menu, or a tap on the selected tab, took two routes: a history jump
+        XCTAssertEqual(NavigationRules.backTarget(shownKeys: ["settings", "updates", "log"], popped: ["updates", "log"], selected: "log")?.steps, 2)
         // The app selected Updates again during a pop from Log to Settings: the pop took it
-        XCTAssertTrue(NavigationRules.appIsBehind(poppedKeys: ["updates", "log"], uikitTop: "settings", shownKeys: ["settings", "updates"], rootKey: "updates"))
-        // Nothing popped is the app's top: nothing popped, or the app already went back
-        XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: [], uikitTop: "updates", shownKeys: ["settings", "updates"], rootKey: "updates"))
-        XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: ["updates"], uikitTop: "settings", shownKeys: ["settings"], rootKey: "settings"))
-        // A route the app pushed during the pop was never on UIKit's stack
-        XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: ["thread"], uikitTop: "inbox", shownKeys: ["inbox", "thread", "compose"], rootKey: "compose"))
-        // UIKit's top is above the app's top in the app's stack, or not in it
-        XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: ["updates"], uikitTop: "log", shownKeys: ["settings", "updates", "log"], rootKey: "updates"))
-        XCTAssertFalse(NavigationRules.appIsBehind(poppedKeys: ["updates"], uikitTop: "specs", shownKeys: ["settings", "updates"], rootKey: "updates"))
+        XCTAssertEqual(NavigationRules.backTarget(shownKeys: ["settings", "updates"], popped: ["updates", "log"], selected: "updates")?.to, "settings")
+        // The pop took a route under the one the app pushed meanwhile, or none of the router's
+        XCTAssertNil(NavigationRules.backTarget(shownKeys: ["inbox", "thread", "compose"], popped: ["thread"], selected: "compose"))
+        XCTAssertNil(NavigationRules.backTarget(shownKeys: ["settings", "updates"], popped: [], selected: "updates"))
+        // Nothing the router shows is left beneath the selected route
+        XCTAssertNil(NavigationRules.backTarget(shownKeys: ["updates"], popped: ["updates"], selected: "updates"))
     }
 
-    /// The exception to the completed-gesture rule: the app replaced the swiped screen in place while the
+    /// D2's exception: the app replaced the swiped screen in place while the
     /// finger was down (capture giving way to what it wrote). The gesture
     /// applies to the replacement, so it is not pushed back in.
     func testASourceReplacedInPlaceIsStillWhatTheSwipeDismissed() {
         XCTAssertTrue(NavigationRules.dispatchesBack(shownKey: "journal", rootKey: "day", sourceKey: nil, sourceReplaced: true, modalActive: false))
         // A cancelled swipe still dispatches nothing, replaced or not.
         XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "day", rootKey: "day", sourceKey: nil, sourceReplaced: true, modalActive: false))
-        // A newly selected route that did not replace the source keeps the completed-gesture rule.
+        // A newly selected route that did not replace the source keeps D2's rule.
         XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "journal", rootKey: "compose", sourceKey: nil, sourceReplaced: false, modalActive: false))
         XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "journal", rootKey: "day", sourceKey: nil, sourceReplaced: true, modalActive: true))
     }
 
-    /// The Back control is resolved by id among enabled, pressable, live
+    /// D1: the Back control is resolved by id among enabled, pressable, live
     /// controls, lowest view id first; a disabled one blocks nothing but
     /// resolves to nothing.
     func testTheBackControlIsResolvedAtUseByHTMLId() {
@@ -256,7 +256,7 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(resolveShared([S(id: 2, html: "back", press: true, disabled: true, active: false, routed: false)]), "a disabled shared control refuses")
     }
 
-    /// The authored control when it resolves; refused while a
+    /// LLP 1115 D5: the authored control when it resolves; refused while a
     /// declared one does not; else, given a visit beneath, the root's
     /// `navigate` with its location, or the runner's own back.
     func testBackIsAlwaysThereUnlessTheAuthorSaysOtherwise() {
@@ -272,10 +272,10 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(NavigationBack.way(control: nil, declared: false, hearsNavigate: true, beneath: { nil }), "a stack's root")
     }
 
-    /// A route's bar is its own. Its header when that is the bar's; the
-    /// system Back alone on any other pushed route; none on a stack's first
-    /// route with no such header, and none wherever the route says so,
-    /// which is the only way a pushed route has none.
+    /// LLP 1115.000 D5.2, D5.3: a route's bar is its own. Its header when
+    /// that is the bar's; the system Back alone on any other pushed route;
+    /// none on a stack's first route with no such header, and none wherever
+    /// the route says so, which is the only way a pushed route has none.
     func testARoutesBarIsItsHeaderElseTheSystemBackAloneUnlessItSaysNone() {
         typealias Bar = NavigationRules.Bar
         for pushed in [false, true] {
@@ -293,7 +293,7 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertEqual(NavigationRules.bar(asked: nil, header: true, pushed: true, backButton: false), Bar.header)
     }
 
-    /// An interactive pop needs a stack to pop, no transition, no sheet,
+    /// D1: an interactive pop needs a stack to pop, no transition, no sheet,
     /// a Back control, and no context preview.
     func testWhenAPopMayBegin() {
         XCTAssertTrue(NavigationRules.popMayBegin(depth: 2, changing: false, modalActive: false, hasBackControl: true, contextPreviewActive: false))
@@ -304,7 +304,7 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.popMayBegin(depth: 2, changing: false, modalActive: false, hasBackControl: true, contextPreviewActive: true))
     }
 
-    /// The arbitration: the edge is navigation's; past it a `swiperight`
+    /// D1's arbitration: the edge is navigation's; past it a `swiperight`
     /// node under the start wins; then horizontal beats vertical.
     func testAPanYieldsToASwipeRightNodePastTheEdge() {
         XCTAssertTrue(NavigationRules.panMayBegin(startX: 10, overSwipeRight: true, velocity: CGPoint(x: 300, y: 20)))
@@ -323,14 +323,14 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertEqual(NavigationRules.popDirection(velocity: CGPoint(x: 0, y: 300), travel: CGPoint(x: 12, y: 0)), CGPoint(x: 0, y: 300), "a velocity wins")
     }
 
-    /// `closedby="none"` refuses the sheet gesture; anything else permits it.
+    /// D1: `closedby="none"` refuses the sheet gesture; anything else permits it.
     func testClosedByNoneRefusesDismissal() {
         XCTAssertTrue(NavigationRules.modalRefusesDismissal(closedby: "none"))
         XCTAssertFalse(NavigationRules.modalRefusesDismissal(closedby: "closerequest"))
         XCTAssertFalse(NavigationRules.modalRefusesDismissal(closedby: nil))
     }
 
-    /// A focus that cannot be delivered has a named reason, in a fixed
+    /// D3: a focus that cannot be delivered has a named reason, in a fixed
     /// order, and a deliverable one has none.
     func testAFocusRefusalNamesItsReason() {
         XCTAssertNil(NavigationRules.focusRefusal(mounted: true, disabled: false, zeroSize: false, hiddenAncestor: false, inertAncestor: false))
@@ -431,6 +431,32 @@ final class MacShortcutTests: XCTestCase {
                          characters: key, charactersIgnoringModifiers: ignoring ?? key, isARepeat: repeating, keyCode: code)!
     }
 
+    /// Supply layout translations without changing the Mac's input source.
+    private final class LayoutEvent: NSEvent {
+        let wrapped: NSEvent, unshifted: String, command: String, commandShift: String
+        init(_ event: NSEvent, unshifted: String, command: String, commandShift: String) {
+            wrapped = event; self.unshifted = unshifted
+            self.command = command; self.commandShift = commandShift
+            super.init()
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+        override var type: NSEvent.EventType { wrapped.type }
+        override var window: NSWindow? { wrapped.window }
+        override var characters: String? { wrapped.characters }
+        override var charactersIgnoringModifiers: String? { wrapped.charactersIgnoringModifiers }
+        override var modifierFlags: NSEvent.ModifierFlags { wrapped.modifierFlags }
+        override var keyCode: UInt16 { wrapped.keyCode }
+        override var isARepeat: Bool { wrapped.isARepeat }
+        override func characters(byApplyingModifiers modifiers: NSEvent.ModifierFlags) -> String? {
+            switch modifiers {
+            case []: return unshifted
+            case .command: return command
+            case [.command, .shift]: return commandShift
+            default: return wrapped.characters(byApplyingModifiers: modifiers)
+            }
+        }
+    }
+
     func testNamedKeysPrintablePlusAndContextKeysReachTheirDeclaredAction() {
         let presenter = Presenter(), window = window(presenter)
         defer { window.close() }
@@ -473,7 +499,7 @@ final class MacShortcutTests: XCTestCase {
         }
     }
 
-    // Ids place items even when the displayed menu is localized.
+    // LLP 1021 §5.3: ids place items even when the displayed menu is localized.
     func testExplicitMenuPlacementWithoutChordsAndLocalizedTitles() {
         let presenter = Presenter(), window = window(presenter)
         let oldMain = NSApp.mainMenu, oldHelp = NSApp.helpMenu
@@ -585,7 +611,7 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertEqual(menu.items[0].keyEquivalent, "\u{f700}", "Dispatch must not restore a stale equivalent over a plan update")
     }
 
-    /// A key that types no Latin character (Korean 2-Set's ㅠ on
+    /// Issue #110: a key that types no Latin character (Korean 2-Set's ㅠ on
     /// B, key code 11) is its physical key's chord, as the web falls back to
     /// `code`; a Latin character is the key whatever the physical key is
     /// (AZERTY, Dvorak, German's ö), so one chord fires, never two.
@@ -625,6 +651,39 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertFalse(menu.performKeyEquivalent(with: event("ㅠ", window: window, modifiers: [.command, .control], code: 11)))
         XCTAssertFalse(menu.performKeyEquivalent(with: event("ㅂ", window: window, code: 15)), "R's key has no command")
         XCTAssertEqual(sent, ["Toggle Sidebar"])
+    }
+
+    func testCommandUsesTheCommandLayoutsCharacter() {
+        let presenter = Presenter(), window = window(presenter)
+        defer { window.close() }
+        _ = button(1, "Stop", "Meta+.", in: presenter)
+        _ = button(2, "Edit", "Meta+e Meta+Shift+e Meta+Control+e", in: presenter)
+        _ = button(3, "Paste", "Meta+Shift+v", in: presenter)
+        _ = button(4, "Greater", "Meta+Shift+>", in: presenter)
+        _ = button(5, "Shift Period", "Meta+Shift+.", in: presenter)
+        var presses: [UInt32] = []
+        presenter.onPress = { presses.append($0) }
+        let cases: [(String, String, String, String, String, UInt16, NSEvent.ModifierFlags, UInt32)] = [
+            // Dvorak - QWERTY Command changes the layout while Command is held.
+            (".", "v", "v", ".", ">", 47, .command, 1),
+            ("e", ".", ".", "e", "e", 14, .command, 2),
+            (".", "V", "v", ".", ">", 47, [.command, .shift], 4),
+            (">", "V", "v", ".", ">", 47, [.command, .shift], 4),
+            ("e", ">", ".", "e", "e", 14, [.command, .shift], 2),
+            // Ordinary Dvorak keeps its layout under Command.
+            ("v", "V", "v", "v", "v", 47, [.command, .shift], 3),
+            (".", ">", ".", ".", ".", 14, [.command, .shift], 4),
+            // US Shift and Control retain their logical keys.
+            (".", ">", ".", ".", ".", 47, [.command, .shift], 4),
+            ("\u{5}", "e", "e", "e", "e", 14, [.command, .control], 2),
+        ]
+        for (character, ignoring, unshifted, command, commandShift, code, modifiers, id) in cases {
+            presses.removeAll()
+            let key = LayoutEvent(event(character, window: window, modifiers: modifiers, code: code, ignoring: ignoring),
+                                  unshifted: unshifted, command: command, commandShift: commandShift)
+            XCTAssertTrue(presenter.shortcuts.perform(key), "\(character), ignoring modifiers: \(ignoring)")
+            XCTAssertEqual(presses, [id])
+        }
     }
 
     func testOptionMatchesProducedCharactersAndDoesNotMatchDeadKeys() {
@@ -772,7 +831,7 @@ final class MacShortcutTests: XCTestCase {
         let new = file.items.first { $0.keyEquivalent == "n" }!
         XCTAssertEqual(app.items[2].title, "Settings…")
         XCTAssertEqual(app.items[2].keyEquivalent, ",")
-        // The app's own ⌘[ Back stands in for the host's,
+        // The app's own ⌘[ Back stands in for the host's (LLP 1115.000 D5.1),
         // which keeps its place, hidden and without the chord.
         let shown = { go.items.filter { !$0.isHidden } }
         XCTAssertEqual(shown().map(\.title), ["Back", "Home"])
@@ -799,7 +858,7 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertTrue(file.items.first === open)
     }
 
-    /// A command's chord places it — Edit's own stand in
+    /// Studio diary R16: a command's chord places it — Edit's own stand in
     /// for the host's items, View's join View — and no chord is in the bar
     /// twice; a host item gets its chord back when the command goes.
     func testEditAndViewCommandsTakeTheirPlacesAndTheHostsStepAside() {
@@ -823,7 +882,7 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertEqual(menu("Edit").items.filter { $0.title == "Undo" }.map(\.isHidden), [true])
         XCTAssertEqual(shown("Edit").map(\.title), ["Undo Move", "Redo", "Cut", "Copy", "Paste", "Paste and Match Style", "Delete", "Select All", "Duplicate",
                                                 "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
-        // ⌘= stands in for the host's Zoom In, in its place.
+        // ⌘= stands in for the host's Zoom In, in its place (LLP 1021 §5.3.1).
         XCTAssertEqual(shown("View").prefix(3).map(\.title), ["Actual Size", "Zoom In", "Zoom Out"])
         XCTAssertTrue(shown("View")[1].target is ShortcutHost)
         XCTAssertEqual(shown("File").map(\.title).prefix(2), ["Close Board", "Export"])
@@ -843,7 +902,7 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertEqual(shown("Edit").first { $0.title == "Duplicate" }?.keyEquivalent, "d")
     }
 
-    /// As Apple's HIG and TextEdit, Safari and Chrome have Edit: a
+    /// #141, as Apple's HIG and TextEdit, Safari and Chrome have Edit: a
     /// paste variant (⇧⌘V, ⌥⇧⌘V) follows Paste, never File; Edit's other
     /// commands follow Select All, ahead of Speech ▸ Start Speaking / Stop
     /// Speaking, whose actions the responder chain answers.
@@ -863,7 +922,7 @@ final class MacShortcutTests: XCTestCase {
         for _ in 0..<3 { presenter.shortcuts.sync() }
         XCTAssertEqual(listed("Edit"), ["Undo", "Redo", "—", "Cut", "Copy", "Paste", "Paste as Text", "Paste and Match Style",
                                         "Delete", "Select All", "—", "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
-        // The app's ⌘F stands in for Find… in Edit ▸ Find.
+        // The app's ⌘F stands in for Find… in Edit ▸ Find (LLP 1115 D8).
         let findMenu = menu("Edit").items.first { $0.title == "Find" }!.submenu!
         XCTAssertEqual(findMenu.items.filter { !$0.isHidden }.map(\.title),
                        ["Find", "Find and Replace…", "Find Next", "Find Previous", "Use Selection for Find", "Jump to Selection"])
@@ -888,7 +947,7 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertEqual(findMenu.items.first { $0.title == "Find…" }?.keyEquivalent, "f")
     }
 
-    /// The bar ends with Help, which AppKit is told is Help
+    /// LLP 1115 D8: the bar ends with Help, which AppKit is told is Help
     /// (its search field), and Edit has the template's text submenus, each
     /// a responder-chain action with nothing targeted.
     func testHelpMenuIsLastAndEditHasTheTemplatesTextMenus() {
@@ -921,7 +980,7 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertTrue(field.responds(to: #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:))))
     }
 
-    /// A release build has no Develop menu, and so takes
+    /// LLP 1115.000 D7.8: a release build has no Develop menu, and so takes
     /// none of its chords (Reload ⌘R, Open Project… ⌘O, App Info… ⌘D, Save
     /// Trace ⌥⌘T); a development build's bar is as it was, with the
     /// frame-health commands, which take none.
@@ -1030,7 +1089,7 @@ final class MacToolbarTests: XCTestCase {
         return (p, w, bar, heading, action)
     }
 
-    /// The head's title is the window's own title: held
+    /// The head's title (LLP 1048.003 D1) is the window's own title: held
     /// until the app attaches its window, shown without a toolbar, under a
     /// projected toolbar heading, and the app's again when no head sets one.
     func testTheHeadTitleIsTheWindowsOwnTitle() {
@@ -1051,7 +1110,7 @@ final class MacToolbarTests: XCTestCase {
         XCTAssertEqual(w.title, "Another question")
         p.headTitle(nil)
         XCTAssertEqual(w.title, "Original")
-        // `head edited`: the window's edited mark.
+        // `head edited` (LLP 1069.010 D6): the window's edited mark.
         p.headEdited(true)
         XCTAssertTrue(w.isDocumentEdited)
         p.headEdited(false)

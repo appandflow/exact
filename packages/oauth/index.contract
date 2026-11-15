@@ -1,4 +1,4 @@
-// @exact/oauth's shapes: what its `session()` and its
+// @exact/oauth's shapes (LLP 1146 D5): what its `session()` and its
 // `signIn()` and `signOut()` answer, for `as shape` in an app's Contract.
 
 shape OAuthSession

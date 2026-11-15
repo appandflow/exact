@@ -1,10 +1,10 @@
 // App files as a request's body or a reply's: loaded only when a fetch asks for one.
 import { coversPath, FetchError, fetchWith, ownWithout, within } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-import { files, ownSignal } from './ts-fetch.js';
+import { answering, files, ownSignal } from './ts-fetch.js';
 
-// `exactBodyFrom`, with Hermes's checks and words
-// (js/src/prelude.js): the app file at that path is the body, read from the
+// `exactBodyFrom` (LLP 1108 D6 R2), with Hermes's checks and words
+// (js/src/binary.js `fileRefusal`): the app file at that path is the body, read from the
 // page's store as a Blob (a picked file is its own File; nothing becomes a
 // string), under `fs.read`, at most 64 MiB. A refusal is a FetchError before
 // anything is sent. `files.appId` is the module's, set by ts-data.js.
@@ -34,18 +34,26 @@ function bodyToRefusal(input, init) {
   if (independent !== undefined && (!Number.isInteger(n) || n < 1 || n > 1073741824)) return 'exactIndependentHttp.maxResponseBytes must be an integer from 1 to 1073741824';
   return null;
 }
-const storageFs = () => import(new URL('./storage-fs.js', import.meta.url).href);
+// A page rendered on the server has no storage: its refusal (ts-data.js `refuseInRender`) never answers.
+const storageFs = (api, owner) => globalThis.__exactRender ? answering.refuseStorage(api, owner) : import(new URL('./storage-fs.js', import.meta.url).href);
 const storageFailure = error => Object.assign(new FetchError(error?.code === 'agent' ? 'Unsupported' : 'Refused', error?.message ?? error), { code: error?.code });
-export function readBodyFile(path, grantSet) {
+export function readBodyFile(path, grantSet, owner) {
   // Refused before the storage adapters load, which an app without file grants does not ship.
   if (!coversPath(grantSet, 'fs.read', path)) return Promise.reject(Object.assign(new FetchError('Refused', `exactBodyFrom ${path}: denied: fs.read ${path}: no grant covers it; grant \`fs.read ${path}\``), { code: 'denied' }));
-  return storageFs().then(m => m.requestBody(files.appId, grantSet, path)).catch(error => { throw storageFailure(error); });
+  return storageFs(`exactBodyFrom ${path}`, owner).then(m => m.requestBody(files.appId, grantSet, path)).catch(error => { throw storageFailure(error); });
 }
-function openBodyTarget(path, grantSet) {
+function openBodyTarget(path, grantSet, owner) {
   if (!coversPath(grantSet, 'fs.write', path)) return Promise.reject(Object.assign(new FetchError('Refused', `exactBodyTo ${path}: denied: fs.write ${path}: no grant covers it; grant \`fs.write ${path}\``), { code: 'denied' }));
-  return storageFs().then(m => m.bodyTarget(files.appId, grantSet, path)).catch(error => { throw storageFailure(error); });
+  return storageFs(`exactBodyTo ${path}`, owner).then(m => m.bodyTarget(files.appId, grantSet, path)).catch(error => { throw storageFailure(error); });
 }
-export async function fromFile(input, init, redirect, started, origin = 'app', armed) {
+/** In a render: the device's checks of a file body, then the refusal, which never answers (ts-data.js `refuseInRender`). */
+export function refusedFile(input, init, owner) {
+  const from = init.exactBodyFrom !== undefined;
+  const refusal = (from ? bodyFromRefusal(input, init) : null) ?? (init.exactBodyTo !== undefined ? bodyToRefusal(input, init) : null);
+  if (refusal) return Promise.reject(new TypeError(refusal));
+  return from ? readBodyFile(init.exactBodyFrom, tsGrantSet, owner) : openBodyTarget(init.exactBodyTo, tsGrantSet, owner);
+}
+export async function fromFile(input, init, redirect, started, origin = 'app', armed, forced) {
   const from = init.exactBodyFrom !== undefined, to = init.exactBodyTo !== undefined;
   const refusal = (from ? bodyFromRefusal(input, init) : null) ?? (to ? bodyToRefusal(input, init) : null);
   if (refusal) throw new TypeError(refusal);
@@ -86,7 +94,7 @@ export async function fromFile(input, init, redirect, started, origin = 'app', a
     if (ms !== undefined && spent >= ms) throw new FetchError('Timeout', `the request timed out after ${ms} ms`);
     const left = ms === undefined ? undefined : Math.max(1, Math.ceil(ms - spent));
     const sent = { ...rest, signal, ...(from ? { body } : {}), ...(left === undefined ? {} : { exactTimeout: left }) }, expires = ms === undefined ? null : { at: started + ms, ms };
-    if (!to) return await fetchWith(tsGrantSet, input, sent, expires, redirect, undefined, origin, true);
+    if (!to) return await fetchWith(tsGrantSet, input, sent, expires, redirect, undefined, origin, true, forced);
     // A 2xx body goes to the file, counted as it arrives, within the deadline;
     // any other reply is read as usual, at most 1 MiB, and the file is untouched.
     const ceiling = init.exactIndependentHttp?.maxResponseBytes ?? 1073741824;
@@ -109,7 +117,7 @@ export async function fromFile(input, init, redirect, started, origin = 'app', a
         if (signal?.aborted && error === signal.reason) throw error;
         throw error?.kind === 'Refused' || error?.kind === 'Unavailable' ? new FetchError('Refused', error.message) : error;
       }
-    }, origin, true);
+    }, origin, true, forced);
     if (written === undefined) return response;
     // The body is the file's now: this response has none, and says what was written.
     const done = new Response(null, { status: response.status, statusText: response.statusText, headers: response.headers });

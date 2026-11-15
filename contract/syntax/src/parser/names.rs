@@ -1,4 +1,4 @@
-//! Which words a name may be.
+//! Which words a name may be (@ref LLP 1088 D5).
 //!
 //! Sixteen words are reserved, and only where a name is bound: a later
 //! expression reads or calls what a binder names, and each of these words
@@ -13,8 +13,8 @@
 
 use super::*;
 
-/// The keys a platform's own words sit under.
-const PLATFORM_KEYS: [&str; 5] = ["apple", "android", "windows", "linux", "web"];
+/// The keys a platform's own words sit under (LLP 1133 D2).
+pub(super) const PLATFORM_KEYS: [&str; 5] = ["apple", "android", "windows", "linux", "web"];
 
 /// The words no binder may be.
 pub(super) const RESERVED: [&str; 16] = [
@@ -136,10 +136,10 @@ impl Parser {
     /// A TypeScript-style `: T` before a state's or derive's `=`, or `as T` after its
     /// initializer (`form` "as none" when that initializer is `none`; authoring bench):
     /// its type is inferred. The refusal leads with the edit, `drop` and the type as
-    /// written.
+    /// written (LLP 1116.014 D1).
     pub(super) fn type_annotation(&self, w: &str, name: &str, form: &str) -> R<()> {
         let state = w == "state";
-        // A state's `: T` is its declared type; a derive's is its expression's.
+        // A state's `: T` is its declared type (LLP 1116.015 D2); a derive's is its expression's.
         if form == ":" && self.at_punct(":") {
             return self.err(
                 "syntax-expected",
@@ -187,7 +187,7 @@ impl Parser {
         text
     }
 
-    /// `persist` after a state's initializer: where it is
+    /// `persist` after a state's initializer (LLP 1116 D5): where it is
     /// written. A derive has nothing of its own to keep.
     pub(super) fn persist_word(&mut self, w: &str, name: &str) -> R<Option<Span>> {
         if !self.at_ident("persist") {
@@ -242,7 +242,7 @@ impl Parser {
     }
 
     /// A dotted argument, a platform's word on a module call,
-    /// `apple.desiredAccuracy=…`: `=` is never an
+    /// `apple.desiredAccuracy=…` (LLP 1133.002 D13): `=` is never an
     /// operator, so the words before it are no expression.
     pub(super) fn dotted_arg(&mut self, words: usize) -> R<Expr> {
         let span = self.peek().span;
@@ -259,8 +259,8 @@ impl Parser {
         Ok(Expr::NamedArg(name, Box::new(value), span))
     }
 
-    /// Whether a platform's word on an element is ahead, `apple.<word>=`:
-    /// a platform key and one word.
+    /// Whether a platform's word on an element is ahead, `apple.<word>=`
+    /// (LLP 1133 D2; LLP 1020.002 §9): a platform key and one word.
     pub(super) fn platform_attr_ahead(&self) -> bool {
         self.dotted_name_ahead() == Some(2)
             && matches!(&self.peek_kind(), TokenKind::Ident(k) if PLATFORM_KEYS.contains(&k.as_str()))
@@ -291,11 +291,11 @@ impl Parser {
     }
 }
 
-/// A `timer` (or `interval`) section, which Contract writes as a `task`,
-/// rewritten with the builder's own interval, gate and action
+/// A `timer` (or `interval`) section, which Contract writes as a `task`
+/// (LLP 1092), rewritten with the builder's own interval, gate and action
 /// where the line names them (`timer t interval=1000 running=on tick=step`,
 /// `timer t every 1000 when on then step`), so the repair keeps the timer
-/// (a repair that deletes it loses the timer).
+/// (LLP 1116.018: three repairs deleted it).
 pub(super) fn timer_hint(word: &str, line: &[Token]) -> String {
     let (mut ms, mut gate, mut action) = (None, None, None);
     let mut i = 0;

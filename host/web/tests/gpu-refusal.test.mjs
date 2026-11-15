@@ -1,5 +1,6 @@
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 import {test, expect} from 'bun:test';
-import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import {resolve} from 'node:path';
 import {fixture} from './surface.mjs';
 import {open} from '../../../scripts/agent.mjs';
@@ -65,11 +66,12 @@ test('browser agent settling retains render traps and quarantines all later modu
   const html = `<div id="host"><canvas data-surface></canvas></div><script type="module">
     globalThis.entries=0; globalThis.armed=false;
     Object.defineProperty(Navigator.prototype,'gpu',{get(){return {requestAdapter:async()=>({info:{}})};},configurable:true}); // the stub module's adapter
-    const host=document.getElementById('host');
-    globalThis.exact={views:new Map([[1,host]]),root:document.body,now:()=>0,devAssets:[],generation:0};
+    const element=document.getElementById('host');
+    globalThis.exact={views:new Map([[1,element]]),root:document.body,now:()=>0,devAssets:[],generation:0};
     await import('/gpu-glue.js'); exact.gpu.surface(1,'world',[]); await exact.gpu.settled();
     const stageLoaded=()=>true, viewBox=()=>{}, agentMode=true, gpuInPlay=()=>true, loadGpuIfNeeded=()=>{}, gpuLoading=null;
     const wasm={}, ask=()=>({lines:[],from:0,next:0}), tagged=x=>x;
+    const host = { wasm, viewBox, gpuLoading, agentClock: 0 };
     ${adapter}
     globalThis.askAgent=agent; globalThis.ready=true;
   </script>`;
@@ -78,7 +80,8 @@ test('browser agent settling retains render traps and quarantines all later modu
     if(path==='/favicon.ico')return new Response('',{status:404});
     if(path==='/')return new Response(html,{headers:{'content-type':'text/html'}});
     if(path==='/gpu.js')return new Response(moduleSource,{headers:{'content-type':'text/javascript'}});
-    return new Response(Bun.file(path==='/panic.wasm'?resolve(profile,'panic.wasm'):path==='/gpu-glue.js' && process.env.E2B_GPU_SOURCE ? process.env.E2B_GPU_SOURCE : resolve(web,path.slice(1))));
+    const file=Bun.file(path==='/panic.wasm'?resolve(profile,'panic.wasm'):path==='/gpu-glue.js' && process.env.E2B_GPU_SOURCE ? process.env.E2B_GPU_SOURCE : resolve(web,path.slice(1)));
+    return new Response(readFileSync(file.name),{headers:{'content-type':file.type}});
   }});
   const suite=await cdpBrowser(),{cdp}=suite, hostLines=[];
   let listener;
@@ -130,7 +133,7 @@ test('a Rust-edit candidate trap leaves the committed world driveable and skips 
   expect(f.order.includes('old destroy') || f.order.includes('old unload') || f.order.includes('replace')).toBe(false);
 });
 
-// In a real browser with no WebGPU, `install` is how the page's install data answers.
+// LLP 1139.003 D1 in a real browser with no WebGPU: `install` is how the page's install data answers.
 async function noWebGPU(install, run) {
   const {cdpBrowser} = await import('../../../scripts/agent-launch.mjs');
   const web = resolve(import.meta.dir,'..');
@@ -141,9 +144,9 @@ async function noWebGPU(install, run) {
     <div id="sky" style="width:300px;height:200px;position:relative"><canvas data-surface></canvas><div id="content" style="position:absolute;inset:0"><button id="change">Change station</button></div></div><script type="module">
     Object.defineProperty(Navigator.prototype,'gpu',{get(){return undefined;},configurable:true});
     document.documentElement.setAttribute('data-exact-worlds','world arena');
-    const host=document.getElementById('host');
+    const element=document.getElementById('host');
     globalThis.exact={views:new Map([[1,host],[2,document.getElementById('sky')]]),root:document.body,devAssets:[],generation:0,pageFacts:{agent:false,read:()=>({}),tell(){},changed(){}},
-      wasm:{exact_surface_record:()=>0},writeIn:x=>x,send(){}};
+      wasm:{exact_surface_record:()=>0},writeIn:x=>x,send(){},mutate:fn=>fn()};
     await import('/gpu-glue.js'); exact.gpu.surface(1,'world',[]);
     const started=performance.now(); await exact.gpu.settled(); globalThis.settleMs=performance.now()-started;
     exact.gpu.surface(2,'glass',[]); await exact.gpu.settled();
@@ -152,10 +155,23 @@ async function noWebGPU(install, run) {
   const server=Bun.serve({port:0,hostname:'127.0.0.1',fetch(req){
     const path=new URL(req.url).pathname;
     if(path==='/')return new Response(html,{headers:{'content-type':'text/html'}});
+    if(path==='/gpu.js' && new URL(req.url).searchParams.has('g')) return new Response(`
+      var wasm_bindgen = Object.assign(async () => {}, {
+        gpu_child_view() {}, gpu_load() {}, gpu_unload() {}, gpu_seekable() {}, gpu_tier() {},
+        gpu_shader_names: () => '[]', gpu_shaders_clear() {}, gpu_shader_check: async () => true,
+        gpu_create: () => ${new URL(req.url).searchParams.get('g') === '1' ? 0 : 1},
+        gpu_bind_at: () => true, gpu_lifecycle() {}, gpu_error: () => 'controlled create failure',
+        gpu_render: () => 0, gpu_flush: () => true, gpu_dirty: () => false,
+        gpu_wants_input: () => false, gpu_published() {}, gpu_messages() {},
+        gpu_assets: () => '{"requests":[],"retired":[]}', gpu_destroy() {},
+        gpu_agent: () => '{"world":{"tick":0}}',
+        gpu_recover: async () => '{"status":"no device","code":"no-adapter","error":"no adapter"}'
+      });`, {headers:{'content-type':'text/javascript'}});
     if(path==='/gpu.js'){globalThis.moduleFetched=true;return new Response('export default function(){}',{headers:{'content-type':'text/javascript'}});}
     if(path==='/.exact/install.json')return install();
     if(path==='/favicon.ico')return new Response('',{status:404});
-    return new Response(Bun.file(resolve(web,path.slice(1))));
+    const file=Bun.file(resolve(web,path.slice(1)));
+    return new Response(readFileSync(file.name),{headers:{'content-type':file.type}});
   }});
   const suite=await cdpBrowser(),{cdp}=suite, lines=[];
   let listener;
@@ -216,6 +232,22 @@ test('install data that never answers delays no agent reply past its bound', () 
     const tree=await evaluate(`exact.gpu.decorate({op:'tree'},{nodes:[{id:1}]})`);
     expect(tree.nodes[0].status).toContain('needs WebGPU');
     expect(tree.nodes[0].status).not.toContain('App Store');
+  }), 120000);
+
+test('a successful swap removes a refusal page and a later failure can show it again', () => noWebGPU(
+  () => Response.json({}),
+  async evaluate => {
+    const refused = () => evaluate(`[!!document.querySelector('#host > [role=status]'), document.getElementById('hud').inert]`);
+    expect(await refused()).toEqual([true, true]);
+    expect(await evaluate(`exact.gpu.swap(1).then(() => null, error => error.message)`)).toContain('controlled create failure');
+    expect(await refused()).toEqual([true, true]);
+    await evaluate('exact.gpu.swap(2)');
+    expect(await refused()).toEqual([false, false]);
+    const tree = await evaluate(`exact.gpu.decorate({op:'tree'}, {nodes:[{id:1}]})`);
+    expect(tree.nodes[0].status).toBeUndefined();
+    await evaluate('exact.gpu.deviceLost(); exact.gpu.settled()');
+    expect(await refused()).toEqual([true, true]);
+    expect(await evaluate(`document.querySelectorAll('#host > [role=status]').length`)).toBe(1);
   }), 120000);
 
 // The shell's root carries a game's world surfaces beside the manifest's language (host/web/build.mjs writes

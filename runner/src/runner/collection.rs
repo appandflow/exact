@@ -54,14 +54,14 @@ impl<D: DataSource> Runner<D> {
         }
     }
     /// Compact numeric metadata for existing JSON batch envelopes, without
-    /// serde: `[]` where the artifact doesn't link lists.
+    /// serde: `[]` where the artifact doesn't link lists (LLP 1047.000 §9).
     pub fn collections_json(&self) -> String {
         match (self.links.lists, &self.tree) {
             (Some(lists), Some(tree)) => (lists.collections_json)(tree),
             _ => "[]".to_string(),
         }
     }
-    /// Every outer list's kept inner positions, for `state`.
+    /// Every outer list's kept inner positions (LLP 1070 §4.2), for `state`.
     pub fn kept_positions_json(&self) -> String {
         match (self.links.lists, &self.tree) {
             (Some(lists), Some(tree)) => (lists.kept_json)(tree),
@@ -98,7 +98,12 @@ impl<D: DataSource> Runner<D> {
         if self.poisoned {
             return Err(RunnerError::Poisoned);
         }
-        if feedback.validate().is_err() || !fill.velocity.is_finite() {
+        if feedback.validate().is_err()
+            || !fill.velocity.is_finite()
+            || fill
+                .view_offset
+                .is_some_and(|n| !n.is_finite() || n.abs() > f32::MAX as f64)
+        {
             return Err(RunnerError::Instance(InstanceError::Collection(
                 "invalid collection feedback".into(),
             )));
@@ -157,9 +162,10 @@ impl<D: DataSource> Runner<D> {
             now_ms: self.now_ms,
             error: None,
             stopped_on_request: false,
+            needs_apply: false,
         };
         // A row that showed with animations waiting on it is a commit of its
-        // own when the report changed nothing else.
+        // own when the report changed nothing else (LLP 1055 D13).
         let revealed = self
             .shown
             .revealed
@@ -180,7 +186,7 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
-        // A list on a route its stack keeps covered (a deep
+        // @ref LLP 1010 — a list on a route its stack keeps covered (a deep
         // link's root, a feed under a thread) is hidden and inert: its edge
         // waits, armed, for the route to show, so nothing is asked for a
         // screen the reader has not seen (`release_held_edges`).
@@ -266,7 +272,7 @@ impl<D: DataSource> Runner<D> {
     }
     /// List `view`'s port is at `offset` (from its first row, as a report's):
     /// the rows mounted out of the port that now show stop holding what
-    /// waits for them, in a commit of their own. No report:
+    /// waits for them (LLP 1055 D13), in a commit of their own. No report:
     /// the window and its rows stay the last report's, for a host that
     /// waits for more travel before its next one.
     pub fn collection_shown(&mut self, view: ViewId, offset: f64) -> Result<Advanced, RunnerError> {
@@ -278,6 +284,7 @@ impl<D: DataSource> Runner<D> {
             now_ms: self.now_ms,
             error: None,
             stopped_on_request: false,
+            needs_apply: false,
         };
         if !offset.is_finite() {
             return Ok(result);
@@ -361,7 +368,7 @@ impl EdgeState {
     pub(super) fn capture<D: DataSource>(r: &Runner<D>, frames: &[Frame]) -> Self {
         Self {
             slots: r.slots.clone(),
-            resources: r.resources.clone(),
+            resources: r.resources.iter().map(|row| row.state.clone()).collect(),
             rows: frames
                 .iter()
                 .filter_map(|f| f.row.as_ref())
@@ -386,7 +393,7 @@ impl EdgeState {
             || self
                 .resources
                 .iter()
-                .zip(&r.resources)
+                .zip(r.resources.iter().map(|row| &row.state))
                 .any(|(a, b)| match (a, b) {
                     (None, None) => false,
                     (Some(a), Some(b)) => {
@@ -407,7 +414,7 @@ impl EdgeState {
 }
 
 impl<D: DataSource> Runner<D> {
-    /// After a batch applies: the views it renewed, taken.
+    /// After a batch applies (LLP 1055 D13): the views it renewed, taken.
     pub(super) fn settle_shown(
         &mut self,
         shown: crate::instance::collection::shown::RowsShown,
@@ -437,13 +444,13 @@ pub(super) fn scroll_padding(kernel: &exact_kernel::Kernel, view: ViewId) -> [f6
     let Some(node) = kernel.node(view) else {
         return [0.0; 4];
     };
-    let env = kernel.arena().env();
+    let env = &*kernel.arena().env_of(node.key.index);
     let r = &node.style.rare;
     let sides = [
-        r.scroll_padding_top,
-        r.scroll_padding_right,
-        r.scroll_padding_bottom,
-        r.scroll_padding_left,
+        r.scroll_padding_top.clone(),
+        r.scroll_padding_right.clone(),
+        r.scroll_padding_bottom.clone(),
+        r.scroll_padding_left.clone(),
     ];
     std::array::from_fn(|i| match sides[i].resolve(env) {
         exact_kernel::Dimension::Points(n) => f64::from(on_grid(env, n, CELLS[i])),
@@ -458,7 +465,7 @@ const CELLS: [f32; 4] = {
 };
 
 /// A scroll length as a terminal lays its spaces out: whole cells under its
-/// space rule, so a keyed jump stays on the rows.
+/// space rule (LLP 1121 stage 11 (c)), so a keyed jump stays on the rows.
 fn on_grid(env: &exact_kernel::Env, px: f32, cell: f32) -> f32 {
     match env.cell_spaces {
         true => exact_kernel::style::cells::space(px, cell),
@@ -479,12 +486,13 @@ pub(super) fn scroll_margin(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64
     let Some(node) = kernel.node(view) else {
         return [0.0; 4];
     };
-    let (env, r) = (kernel.arena().env(), &node.style.rare);
+    let env = kernel.arena().env_of(node.key.index);
+    let (env, r) = (&*env, &node.style.rare);
     let sides = [
-        r.scroll_margin_top,
-        r.scroll_margin_right,
-        r.scroll_margin_bottom,
-        r.scroll_margin_left,
+        r.scroll_margin_top.clone(),
+        r.scroll_margin_right.clone(),
+        r.scroll_margin_bottom.clone(),
+        r.scroll_margin_left.clone(),
     ];
     std::array::from_fn(|i| f64::from(on_grid(env, sides[i].at_basis(env, 0.0), CELLS[i])))
 }

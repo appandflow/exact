@@ -1,5 +1,5 @@
-// The native-module fixture's hatches on a painting host: Linux, and Windows
-// over the same presenter.
+// The native-module fixture's hatches on a painting host (LLP
+// 1075.003.000.001 §8 stage 4): Linux, and Windows over the same presenter.
 // What the web's page module does (`modules/web/index.js`), with what a
 // painter has in place of a platform object: every call counted where the
 // smoke reads it; the badge's line, snapshot and span; the `feed`, `presser`
@@ -10,7 +10,7 @@
 //
 // The app's Linux crate includes this file in a module of its own, beside
 // the generated `HatchKey` (the words `app.json` gives this platform).
-use exact_linux::hatches::{App, Context, Element, Hatches, Input, Phase, Span, Ticket, Window};
+use exact_painted::hatches::{App, Context, Element, Hatches, Input, Phase, Span, Ticket, Window};
 use std::collections::BTreeMap;
 
 #[derive(Default)]
@@ -90,7 +90,7 @@ impl Fixture {
 }
 
 impl Hatches for Fixture {
-    // The app and window scopes: each moment counted and published.
+    // The app and window scopes (§2.1): each moment counted and published.
     fn app(&mut self, app: &App, context: &mut Context<'_, Self>) {
         self.scheme = app.prefers_color_scheme.to_owned();
         context.diagnostics().publish(
@@ -136,7 +136,7 @@ impl Hatches for Fixture {
     fn element(&mut self, element: &Element, context: &mut Context<'_, Self>) {
         let moment = if element.is_new() { "built" } else { "changed" };
         let key = HatchKey::of(element.hatch());
-        // The smoke's stand-in for a crash in hatch code: the run
+        // The smoke's stand-in for a crash in hatch code (§4.4): the run
         // ends inside the badge's hatch, and the next launch says so.
         if key == Some(HatchKey::Badge)
             && std::env::var("EXACT_FIXTURE_DIE").as_deref() == Ok("badge")
@@ -150,7 +150,7 @@ impl Hatches for Fixture {
         let reworded = before.is_some_and(|before| before != words);
         let word = |name: &str| element.data(name).unwrap_or_default();
         match key {
-            // What a hatch asks of an authored node, each queued:
+            // What a hatch asks of an authored node (§2.5), each queued:
             // `feed` replaces its field's value, `presser` clicks its own
             // button once when armed and on every change while looping.
             Some(HatchKey::Feed) => {
@@ -169,7 +169,7 @@ impl Hatches for Fixture {
                     element.click();
                 }
             }
-            // The frame clock, as the web's and the Swift module's:
+            // The frame clock (§2.4), as the web's and the Swift module's:
             // a ticket while the node says to run. Each tick counts itself
             // and whether the node's `data-frames`, which a frame task
             // advances, is the tick's own number; the first chains
@@ -222,7 +222,7 @@ impl Hatches for Fixture {
                     element.click();
                 }
             }
-            // The badge says what it did: a line, a snapshot of its
+            // The badge says what it did (§3.2): a line, a snapshot of its
             // tone and a span from its mount to its end. Its change draws an
             // overlay a tenth of a second on and clears it a tenth after, on
             // the session clock alone: the Contract app is idle for both.

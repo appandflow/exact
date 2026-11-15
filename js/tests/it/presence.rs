@@ -1,4 +1,4 @@
-//! A presence secret through the Hermes executor: data
+//! A presence secret through the Hermes executor (LLP 1133.010 D5): data
 //! code reads a name's occupancy, never a locked value with `get`; a locked
 //! write is refused at once where no locked secret can be kept; and
 //! `unlock` leaves as a request of its own, whose reply alone carries the

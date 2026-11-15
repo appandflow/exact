@@ -1,8 +1,10 @@
-//! A rendered document as a page: the one place a
+//! A rendered document as a page (LLP 1048.000 D3, D6, D7): the one place a
 //! page is composed, for the build's `dist/` and the server alike.
+use crate::serve::deferred::{self, Checkpoints};
 use crate::Rendered;
+use exact_web::document::HeroImage;
 
-/// The capture script: host code, inline in
+/// The capture script (LLP 1048.000 D6, 1048.001 D5): host code, inline in
 /// every document's head, that records presses — a click, or Enter or Space
 /// on an element that hears `press` and isn't a native control — against
 /// their elements from first parse, until the boot glue takes them over and
@@ -18,15 +20,24 @@ pub fn capture() -> &'static str {
     include_str!("../../web/capture.js").trim_end()
 }
 
-/// The built shell with the renderer's `<head>` and the capture script in place of its title and
-/// viewport meta, the document in `#exact-root`, and its checkpoint, with the document's digest,
-/// before the glue. An idle page keeps the shell's wasm and `navigation.js` preloads, so its
-/// runtime downloads with the document, where a CDN would send them as a 103; an interaction page's
-/// are removed: it fetches nothing before a handler's intent. Refuses a shell that no longer has
-/// those places.
+/// The built shell with the renderer's `<head>` and the capture script in
+/// place of its title and viewport meta, the document in `#exact-root`, and
+/// its checkpoint, with the document's digest, before the glue. An idle
+/// page keeps the shell's wasm and `navigation.js` preloads, so its runtime
+/// downloads with the document, where a CDN would send them as a 103 (D3, as
+/// built); an interaction page's are removed: it fetches nothing before a
+/// handler's intent. Refuses a shell that no longer has those places.
 pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
-    if shell.contains(JS_ENTRY) {
-        return page_js(shell, rendered);
+    page_at(shell, rendered, None)
+}
+
+pub(crate) fn page_at(
+    shell: &str,
+    rendered: &Rendered,
+    checkpoints: Option<&Checkpoints>,
+) -> Result<String, String> {
+    if is_js(shell) {
+        return Ok(page_with(shell, &Js::of(shell)?, rendered, checkpoints));
     }
     let mut html = shell.to_string();
     // From `start` through the first `end` after it.
@@ -86,15 +97,26 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
     } else {
         glue
     };
+    let (src, body) = deferred::checkpoint(&rendered.checkpoint, rendered.activate, checkpoints);
     let checkpoint = format!(
-        "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\"{build}>{}</script>\n{entry}",
-        rendered.digest, rendered.activate.name(), rendered.checkpoint
+        "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\"{build}{src}>{body}</script>\n{entry}",
+        rendered.digest, rendered.activate.name()
     );
     cut(&mut html, glue, glue, &checkpoint)?;
-    let viewports = html.matches("<meta name=\"viewport\"").count();
+    // Counted outside script elements ([`blanked`]) and before the shell's
+    // sheet, the first after the render's head (which may hold a sheet of
+    // its own): after it, `host.web.head`'s entries are the app's.
+    let seen = blanked(&html);
+    let head_end = seen
+        .find(&rendered.head)
+        .map_or(0, |at| at + rendered.head.len());
+    let own = &seen[..seen[head_end..]
+        .find("<style>")
+        .map_or(seen.len(), |at| at + head_end)];
+    let viewports = own.matches("<meta name=\"viewport\"").count();
     let preloads = ["app.wasm", "navigation.js", "glue.js"]
         .iter()
-        .filter(|file| html.contains(&format!("preload\" href=\"./{file}")))
+        .filter(|file| own.contains(&format!("preload\" href=\"./{file}")))
         .count();
     let expected = if interaction { 0 } else { 2 };
     if viewports != 1 || preloads != expected || !html.contains(&rendered.head) {
@@ -106,7 +128,7 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
 /// The JavaScript runtime's entry in its shell (`host/web-js/build.mjs`).
 const JS_ENTRY: &str = "<script type=\"module\" src=\"./app.js\"></script>";
 
-/// The JavaScript runtime's capture script (as
+/// The JavaScript runtime's capture script (LLP 1048.001 D5, as
 /// `capture()`): presses and edits before activation, replayed after
 /// adoption. It also starts the runtime, by the page's policy
 /// ([`activate_js`]): an `eager` page's after its first paint, once the
@@ -117,8 +139,8 @@ pub fn capture_js() -> &'static str {
     include_str!("../../web-js/capture.js").trim_end()
 }
 
-/// `<html data-scrolldocument>` when an element is the page's scroller:
-/// the shell's rule reads the root, not a `:has()` over
+/// `<html data-scrolldocument>` when an element is the page's scroller
+/// (LLP 1048.003 D4): the shell's rule reads the root, not a `:has()` over
 /// the whole tree at every style recalculation.
 fn scroll_attr(on: bool) -> &'static str {
     if on {
@@ -135,7 +157,7 @@ pub fn scroll_document_js() -> &'static str {
     "document.documentElement.setAttribute(\"data-scrolldocument\",\"\")"
 }
 
-/// A route's activation on the JavaScript runtime: what it
+/// A route's activation on the JavaScript runtime (LLP 1071 D6): what it
 /// declared, with an undeclared one `eager`, the default (preloaded from
 /// the head, run after first paint).
 pub(crate) fn activate_js(activate: exact_plan::ActivatePolicy) -> &'static str {
@@ -149,7 +171,7 @@ pub(crate) fn activate_js(activate: exact_plan::ActivatePolicy) -> &'static str 
 /// server sends before its render: an `interaction` route fetches nothing
 /// before intent, and an undeclared one whose page may wait does not know
 /// yet, so it names them after its head once its render chose to run at
-/// once (`body_open_js`'s `late`).
+/// once (`body_open_js`'s `late`, LLP 1048.007 D1).
 pub(crate) fn preloads_early(plan: &exact_plan::Plan, location: &str) -> bool {
     match exact_web::document::route_at(plan, location).map(|route| route.activate) {
         Some(exact_plan::ActivatePolicy::Interaction) => false,
@@ -158,25 +180,24 @@ pub(crate) fn preloads_early(plan: &exact_plan::Plan, location: &str) -> bool {
     }
 }
 
-/// [`page`] over the JavaScript runtime's shell (exact2's JS web target):
-/// [`head_js`], then [`body_js`] — the page a server streams in
-/// those two parts is these bytes.
-fn page_js(shell: &str, rendered: &Rendered) -> Result<String, String> {
-    Ok(page_with(shell, &Js::of(shell)?, rendered))
-}
-
-/// [`page_js`] over a shell already read, with the build's analyzed sheet
+/// [`page`] over a shell already read, with the build's analyzed sheet
 /// when [`Js::with_rules`] gave it.
-pub(crate) fn page_with(shell: &str, js: &Js, rendered: &Rendered) -> String {
+pub(crate) fn page_with(
+    shell: &str,
+    js: &Js,
+    rendered: &Rendered,
+    checkpoints: Option<&Checkpoints>,
+) -> String {
     let preload = activate_js(rendered.activate) != "interaction";
     let document = &rendered.document;
     let scroll = document.scroll_document;
     head_js(shell, js, &document.lang, &document.dir, preload, scroll)
-        + &body_js(shell, js, rendered, false, scroll)
+        + &body_js(shell, js, rendered, false, scroll, checkpoints)
 }
 
 /// [`page`] with the build's analyzed sheet (`.gen/page-style.json`), so
-/// a JavaScript page carries only the rules its document can match.
+/// a JavaScript page carries only the rules its document can match (LLP
+/// 1048.007 D4).
 pub fn page_with_rules(shell: &str, rules: &str, rendered: &Rendered) -> Result<String, String> {
     if !is_js(shell) {
         return page(shell, rendered);
@@ -185,6 +206,7 @@ pub fn page_with_rules(shell: &str, rules: &str, rendered: &Rendered) -> Result<
         shell,
         &Js::of(shell)?.with_rules(rules),
         rendered,
+        None,
     ))
 }
 
@@ -234,7 +256,30 @@ impl Js {
 /// Whether `shell` is the JavaScript runtime's, whose pages a server can
 /// send in two parts ([`head_js`], [`body_js`]).
 pub(crate) fn is_js(shell: &str) -> bool {
-    shell.contains(JS_ENTRY)
+    js_entry(shell).is_some()
+}
+
+/// The JavaScript runtime's entry after the shell's root, outside script
+/// text ([`blanked`]): [`JS_ENTRY`], or the `<script type="module">` an
+/// `--inline` shell holds the bundle in (`host/web-js/build.mjs`). A page
+/// puts its checkpoint in that place, and its capture script loads
+/// `./app.js`.
+fn js_entry(shell: &str) -> Option<std::ops::Range<usize>> {
+    const INLINE: &str = "<script type=\"module\">";
+    let (_, root_end) = shell_root(shell)?;
+    let seen = &blanked(shell)[root_end..];
+    let (at, len) = match seen.find(JS_ENTRY) {
+        Some(at) => (at, JS_ENTRY.len()),
+        None => {
+            let at = seen.find(INLINE)?;
+            let text = seen[at + INLINE.len()..].find("</script>")?;
+            if !seen[at + INLINE.len()..][..text].trim().is_empty() {
+                return None;
+            }
+            (at, INLINE.len() + text + "</script>".len())
+        }
+    };
+    Some(root_end + at..root_end + at + len)
 }
 
 /// The shell's places, in its order: `<html…>`, `<title>` through the
@@ -246,7 +291,7 @@ struct Places {
     root: usize,
     root_open: usize,
     root_end: usize,
-    entry: usize,
+    entry: std::ops::Range<usize>,
 }
 
 fn places(shell: &str) -> Result<Places, String> {
@@ -261,8 +306,8 @@ fn places(shell: &str) -> Result<Places, String> {
     let stop = shell[meta..].find(">\n").ok_or_else(|| lacks("viewport"))? + meta + 2;
     let (root, root_end) =
         shell_root(shell).ok_or_else(|| lacks("<div id=\"exact-root\"></div>"))?;
-    let entry = shell.find(JS_ENTRY).ok_or_else(|| lacks(JS_ENTRY))?;
-    if !(end <= title && stop <= root.start && root_end <= entry) {
+    let entry = js_entry(shell).ok_or_else(|| lacks(JS_ENTRY))?;
+    if !(end <= title && stop <= root.start && root_end <= entry.start) {
         return Err("the JavaScript shell's places are out of order".into());
     }
     Ok(Places {
@@ -275,13 +320,18 @@ fn places(shell: &str) -> Result<Places, String> {
     })
 }
 
-/// The shell's `modulepreload` lines between the viewport meta and the root.
+/// The shell's `modulepreload` lines between the viewport meta and its
+/// sheet. After the sheet, `host.web.head`'s entries are the app's.
 fn preloads(shell: &str, places: &Places) -> Vec<(usize, usize)> {
+    let shell = &blanked(shell);
     let mut found = Vec::new();
     let mut from = places.title.1;
-    while let Some(at) = shell[from..places.root].find(MODULE_PRELOAD) {
+    let end = shell[from..places.root]
+        .find("<style>")
+        .map_or(places.root, |at| at + from);
+    while let Some(at) = shell[from..end].find(MODULE_PRELOAD) {
         let at = at + from;
-        let Some(stop) = shell[at..places.root].find(">\n") else {
+        let Some(stop) = shell[at..end].find(">\n") else {
             break;
         };
         found.push((at, at + stop + 2));
@@ -293,7 +343,7 @@ fn preloads(shell: &str, places: &Places) -> Vec<(usize, usize)> {
 /// A rendered page's `<html lang>` value, escaped: the language of the
 /// strings table the render resolved, or, for a plan with no table (`lang`
 /// is empty), the one the shell carries, which the build wrote from the
-/// manifest's `lang`.
+/// manifest's `lang` (LLP 1115.000 D4.6).
 fn lang_attr(shell: &str, lang: &str) -> String {
     if !lang.is_empty() {
         return lang
@@ -312,8 +362,8 @@ fn lang_attr(shell: &str, lang: &str) -> String {
 }
 
 /// One of the shell's `modulepreload` lines (`<link …>\n`), marked
-/// `fetchpriority="low"`: a rendered page paints without
-/// the runtime, which only adopts it, so the runtime must not
+/// `fetchpriority="low"` (LLP 1153.001 D8): a rendered page paints without
+/// the runtime, which only adopts it (LLP 1048.001), so the runtime must not
 /// compete with the page for the link. The shell a `client` route is sent
 /// keeps it at the default priority: that page cannot paint until it runs.
 fn push_low(out: &mut String, line: &str) {
@@ -326,8 +376,8 @@ fn push_low(out: &mut String, line: &str) {
 /// doctype and `<html lang dir>`, the charset and base, the capture script,
 /// the entry's `modulepreload`s at low priority when `preload` (an
 /// `interaction` page has none: it fetches nothing before intent) and the
-/// stylesheet. A server sends it as a request arrives (the early flush),
-/// while the page's data is still being asked; the head stays open,
+/// stylesheet. A server sends it as a request arrives (LLP 1071 D6's early
+/// flush), while the page's data is still being asked; the head stays open,
 /// so what the render decides — the title, the metas, a late preload — still
 /// lands in `<head>`.
 pub(crate) fn head_js(
@@ -386,114 +436,78 @@ pub(crate) fn body_js(
     rendered: &Rendered,
     late: bool,
     marked: bool,
+    checkpoints: Option<&Checkpoints>,
+) -> String {
+    body_after_boot_js(shell, js, rendered, late, marked, None, checkpoints)
+}
+
+pub(crate) fn body_after_boot_js(
+    shell: &str,
+    js: &Js,
+    rendered: &Rendered,
+    late: bool,
+    marked: bool,
+    boot: Option<&crate::direct::Boot>,
+    checkpoints: Option<&Checkpoints>,
 ) -> String {
     let document = &rendered.document;
+    let mut html = std::borrow::Cow::Borrowed(document.root.as_str());
+    if let Some(at) = document
+        .hero_image
+        .as_ref()
+        .and_then(|image| image.priority_at)
+    {
+        html.to_mut().insert_str(at, HeroImage::PRIORITY);
+    }
     let mut root = String::with_capacity(document.root.len());
     if rendered.runtime_form {
-        root.push_str(&document.root);
+        root.push_str(&html);
     } else {
-        for_runtime(&mut root, &document.root, &js.classes);
+        for_runtime(&mut root, &html, &js.classes);
     }
     // The tokens `render.mjs` reads: the document, then the shell from its root.
     let style = js.rules.as_ref().map(|rules| {
         let have = crate::page_style::tokens(&(root.clone() + &shell[js.at.root..]));
         crate::page_style::select(rules, &have)
     });
-    let hero = hero_image(&mut root);
-    let mut out = body_open_js(
-        shell,
-        js,
-        &rendered.head,
-        document.scroll_document,
-        late,
-        marked,
-        style.as_deref().map_or(Sheet::Whole, Sheet::Own),
+    let mut out = boot.map_or_else(
+        || {
+            body_open_js(
+                shell,
+                js,
+                &rendered.head,
+                document.scroll_document,
+                late,
+                marked,
+                style.as_deref().map_or(Sheet::Whole, Sheet::Own),
+            )
+        },
+        |boot| boot.open(shell, js, document, late),
     );
-    // Before the root's open tag, which `body_open_js` ends with.
-    if let Some(link) = hero {
-        out.insert_str(out.len() - (js.at.root_open - js.at.root), &link);
-    }
+    preload_image(&mut out, shell, document.hero_image.as_ref());
     out.reserve(root.len() + rendered.checkpoint.len() + shell.len() - js.at.root);
     out.push_str(&root);
-    out.push_str(&body_close_js(
+    let close = body_close_js(
         shell,
         js,
         &rendered.digest,
         rendered.activate,
         &rendered.wake,
         &rendered.checkpoint,
+        checkpoints,
+    );
+    out.push_str(&crate::direct::close_after_boot(
+        close,
+        boot.map(|boot| boot.to(&document.controls)),
     ));
     out
 }
 
-/// A page's first shown image, when it loads with the page (no `for`
-/// repeats it), is likely its largest paint: it is fetched
-/// at high priority and preloaded ahead of the document, as `render.mjs`
-/// `heroImage` does. A route the stack covers is `inert` and hidden, and
-/// what it holds is not the page's. Writes the priority into `root`;
-/// returns the preload.
-fn hero_image(root: &mut String) -> Option<String> {
-    const VOID: &[&str] = &[
-        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source",
-        "track", "wbr",
-    ];
-    let mut covered: Vec<bool> = Vec::new();
-    let mut from = 0;
-    while let Some(at) = root[from..].find('<').map(|i| from + i) {
-        let end = at + root[at..].find('>')?;
-        from = end;
-        let inner = &root[at + 1..end];
-        let (close, inner) = match inner.strip_prefix('/') {
-            Some(rest) => (true, rest),
-            None => (false, inner),
-        };
-        let name_len = inner
-            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
-            .unwrap_or(inner.len());
-        if name_len == 0 || !inner.starts_with(|c: char| c.is_ascii_alphabetic()) {
-            continue;
-        }
-        let name = inner[..name_len].to_ascii_lowercase();
-        let attrs = &inner[name_len..];
-        if close {
-            covered.pop();
-            continue;
-        }
-        if name == "img" {
-            let Some(src) = attrs
-                .split_once(" src=\"")
-                .and_then(|(_, rest)| rest.split_once('"'))
-                .map(|(src, _)| src)
-            else {
-                continue;
-            };
-            if covered.contains(&true) || src.starts_with("data:") {
-                continue;
-            }
-            if attrs.contains(" loading=\"lazy\"") {
-                return None;
-            }
-            let link = format!("<link rel=\"preload\" as=\"image\" href=\"{src}\">");
-            root.insert_str(at + 4, " fetchpriority=\"high\"");
-            return Some(link);
-        }
-        if VOID.contains(&name.as_str()) || attrs.ends_with('/') {
-            continue;
-        }
-        // A style's or a script's text is not markup.
-        if name == "style" || name == "script" {
-            if let Some(i) = root[from..].find(&format!("</{name}")) {
-                from += i;
-            }
-        }
-        let inert = attrs
-            .match_indices(" inert")
-            .any(|(i, m)| matches!(attrs[i + m.len()..].chars().next(), None | Some(' ' | '=')));
-        covered.push(
-            inert || attrs.contains("visibility:hidden") || attrs.contains("visibility: hidden"),
-        );
+/// Insert the hero's preload before the root's opening tag.
+pub(crate) fn preload_image(open: &mut String, shell: &str, hero: Option<&HeroImage>) {
+    if let Some(link) = hero.and_then(HeroImage::preload) {
+        open.insert_str(open.len() - root_open(shell).len(), &link);
     }
-    None
 }
 
 /// Which sheet a page's rest carries when the build analyzed the shell's
@@ -509,8 +523,8 @@ pub(crate) enum Sheet<'a> {
 }
 
 /// [`body_js`] through `<div id="exact-root">`: what goes before the
-/// document, which a streamed page sends before its root is written,
-/// with the page's sheet when the build analyzed it
+/// document, which a streamed page sends before its root is written
+/// (LLP 1048.004 Q3), with the page's sheet when the build analyzed it
 /// ([`Sheet`]).
 pub(crate) fn body_open_js(
     shell: &str,
@@ -561,11 +575,13 @@ pub(crate) fn body_close_js(
     activate: exact_plan::ActivatePolicy,
     wake: &str,
     checkpoint: &str,
+    checkpoints: Option<&Checkpoints>,
 ) -> String {
+    let (src, checkpoint) = deferred::checkpoint(checkpoint, activate, checkpoints);
     let at = &js.at;
     let mut out = String::with_capacity(shell.len() - at.root + checkpoint.len() + 256);
     out.push_str("</div>");
-    out.push_str(&shell[at.root_end..at.entry]);
+    out.push_str(&shell[at.root_end..at.entry.start]);
     let wake = if wake.is_empty() {
         String::new()
     } else {
@@ -580,14 +596,14 @@ pub(crate) fn body_close_js(
     let _ = std::fmt::Write::write_fmt(
         &mut out,
         format_args!(
-            "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\"{}>{}</script>",
+            "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\"{}{src}>{}</script>",
             digest,
             activate_js(activate),
             wake,
             checkpoint
         ),
     );
-    out.push_str(&shell[at.entry + JS_ENTRY.len()..]);
+    out.push_str(&shell[at.entry.end..]);
     out
 }
 
@@ -624,11 +640,93 @@ fn without_fonts(head: &str) -> String {
     out
 }
 
+/// `html` with each script element's text blanked, byte for byte, so the
+/// shell's places (its root, entry, preloads and viewport) are found only
+/// in its own markup: a script's text, an `--inline` bundle's or a
+/// `host.web.head` entry's, may spell any of them. A script element starts
+/// where HTML's tokenizer starts one (HTML, 13.2.5 "Tokenization"): a
+/// `<script` start tag in markup, not inside a comment, a quoted attribute
+/// value, or the text of an element HTML reads as raw text or RCDATA
+/// (`style`, `title`, `textarea`, …), which may hold that spelling. Its text
+/// runs from the start tag's `>` to the first `</script` followed by
+/// whitespace, `/` or `>` ("Script data state" and the end tag states after
+/// it): an entry's text holds no `<!--` (`scripts/web-head.mjs`), so the
+/// escaped states that could pass over that end tag are never entered. As
+/// `render.mjs` `blanked`.
+fn blanked(html: &str) -> String {
+    const RAW_TEXT: [&str; 8] = [
+        "style", "title", "textarea", "xmp", "iframe", "noembed", "noframes", "noscript",
+    ];
+    let lower = html.to_ascii_lowercase();
+    let b = lower.as_bytes();
+    let ends_name = |at: usize| {
+        matches!(
+            b.get(at),
+            Some(b'\t' | b'\n' | 0x0c | b'\r' | b' ' | b'/' | b'>')
+        )
+    };
+    let mut out = html.as_bytes().to_vec();
+    let mut at = 0;
+    while let Some(open) = lower[at..].find('<').map(|i| i + at) {
+        if lower[open..].starts_with("<!--") {
+            at = lower[open + 4..]
+                .find("-->")
+                .map_or(b.len(), |i| open + 4 + i + 3);
+            continue;
+        }
+        let name_end = (open + 1..b.len())
+            .find(|&i| ends_name(i))
+            .unwrap_or(b.len());
+        let name = &lower[open + 1..name_end];
+        if !name.as_bytes().first().is_some_and(u8::is_ascii_lowercase) {
+            at = open + 1;
+            continue;
+        }
+        // The start tag's `>`, past its quoted attribute values.
+        let mut end = name_end;
+        let mut quote = None;
+        while end < b.len() {
+            match (quote, b[end]) {
+                (None, b'>') => break,
+                (None, q @ (b'"' | b'\'')) => quote = Some(q),
+                (Some(q), c) if c == q => quote = None,
+                _ => {}
+            }
+            end += 1;
+        }
+        at = (end + 1).min(b.len());
+        if name != "script" && !RAW_TEXT.contains(&name) {
+            continue;
+        }
+        // Its text, to the first end tag of its name followed by
+        // whitespace, `/` or `>`.
+        let tag = format!("</{name}");
+        let mut from = at;
+        let close = loop {
+            match lower[from..].find(&tag).map(|i| i + from) {
+                Some(close) if ends_name(close + tag.len()) => break Some(close),
+                Some(close) => from = close + tag.len(),
+                None => break None,
+            }
+        };
+        let Some(close) = close else { break };
+        if name == "script" {
+            out[at..close].fill(b' ');
+        }
+        at = close;
+    }
+    // Whole characters were blanked: a script's text starts after an ASCII
+    // `>` and ends before an ASCII `<`.
+    String::from_utf8(out).expect("blanking keeps UTF-8")
+}
+
 /// The document's element in the shell, `<div id="exact-root"></div>`,
-/// with what the build writes on it (`data-audio-session`):
-/// its opening tag's range and where its `</div>` ends.
+/// with what the build writes on it (`data-audio-session`, LLP 1096 D7):
+/// its opening tag's range and where its `</div>` ends. The one outside
+/// every script element ([`blanked`]).
 fn shell_root(shell: &str) -> Option<(std::ops::Range<usize>, usize)> {
     const OPEN: &str = "<div id=\"exact-root\"";
+    let shell = &blanked(shell);
     let at = shell.find(OPEN)?;
     let rest = &shell[at + OPEN.len()..];
     let attrs = match rest.strip_prefix(" data-audio-session=\"") {
@@ -843,7 +941,7 @@ fn start_tag<'t>(
 /// class carrying most of it and only the live rows inline (a dynamic style
 /// row's element, as the runtime writes it after adoption), written to
 /// `out` as the attributes; `false`, writing nothing, when no class
-/// carries it. The kernel-free writer shares it.
+/// carries it. The kernel-free writer shares it (LLP 1048.004).
 pub(crate) fn runtime_style(classes: &Classes, css: &str, out: &mut String) -> bool {
     if let Some(class) = classes.exact.get(css) {
         out.push_str(" class=\"");
@@ -888,6 +986,86 @@ fn unescape(value: &str) -> std::borrow::Cow<'_, str> {
         .into()
 }
 
+/// One script element among `host.web.head`'s entries (LLP 1048.000 D3):
+/// its `src` and `type` attributes, read, and its text as the shell holds it.
+pub(crate) struct HeadScript {
+    pub src: Option<String>,
+    pub kind: Option<String>,
+    pub text: String,
+}
+
+/// The shell's `host.web.head` scripts: those between the end of its sheet,
+/// after which the entries are the app's, and its root. Each start tag is as
+/// `scripts/web-head.mjs` writes it: a bare attribute, or a value in double
+/// quotes with `"`, `<`, `>` and `&` escaped.
+pub(crate) fn head_scripts(shell: &str) -> Vec<HeadScript> {
+    let seen = blanked(shell);
+    let Some(from) = seen
+        .find("<style>")
+        .and_then(|at| seen[at..].find("</style>").map(|end| at + end))
+    else {
+        return Vec::new();
+    };
+    let to = seen[from..]
+        .find("<div id=\"exact-root\"")
+        .map_or(seen.len(), |at| at + from);
+    let mut scripts = Vec::new();
+    let mut at = from;
+    while let Some(open) = seen[at..to].find("<script").map(|found| found + at) {
+        let Some(close) = tag_end(&seen[open..to]).map(|found| found + open) else {
+            break;
+        };
+        let Some(end) = seen[close..to].find("</script").map(|found| found + close) else {
+            break;
+        };
+        let (mut src, mut kind) = (None, None);
+        let mut rest = &shell[open + "<script".len()..close];
+        while let Some(start) = rest.find(|c: char| !c.is_ascii_whitespace()) {
+            rest = &rest[start..];
+            let stop = rest
+                .find(|c: char| c == '=' || c.is_ascii_whitespace())
+                .unwrap_or(rest.len());
+            let name = rest[..stop].to_ascii_lowercase();
+            rest = &rest[stop..];
+            let value = rest.strip_prefix("=\"").and_then(|value| {
+                let q = value.find('"')?;
+                rest = &value[q + 1..];
+                Some(unescape(&value[..q]).into_owned())
+            });
+            match name.as_str() {
+                "src" => src = value,
+                "type" => kind = value,
+                _ => {}
+            }
+        }
+        scripts.push(HeadScript {
+            src,
+            kind,
+            text: shell[close + 1..end].to_string(),
+        });
+        at = end;
+    }
+    scripts
+}
+
+/// Where a start tag ends: its first `>` outside a quoted attribute value.
+fn tag_end(tag: &str) -> Option<usize> {
+    let mut quote = None;
+    tag.bytes().position(|b| match quote {
+        Some(q) => {
+            if b == q {
+                quote = None;
+            }
+            false
+        }
+        None if b == b'"' || b == b'\'' => {
+            quote = Some(b);
+            false
+        }
+        None => b == b'>',
+    })
+}
+
 /// A `modulepreload` in the JavaScript shell's head (`host/web-js/build.mjs`).
 const MODULE_PRELOAD: &str = "<link rel=\"modulepreload\" href=\"";
 
@@ -908,8 +1086,11 @@ mod tests {
                 viewport_fit: None,
                 interactive_widget: None,
                 head: Default::default(),
+                route_title: None,
                 keyframes: String::new(),
                 scroll_document: true,
+                hero_image: None,
+                controls: Vec::new(),
             },
             head: String::new(),
             checkpoint: "{}".into(),
@@ -919,19 +1100,131 @@ mod tests {
             activate: exact_plan::ActivatePolicy::Inferred,
             wake: String::new(),
             runtime_form: false,
+            drew: false,
         };
         let js = Js::of(shell).unwrap();
         let head = head_js(shell, &js, "en", "ltr", true, false);
         assert!(head.contains("<html lang=\"en\" dir=\"ltr\">"), "{head}");
         let mark = format!("<script>{}</script>", scroll_document_js());
-        let rest = body_js(shell, &js, &rendered, false, false);
+        let rest = body_js(shell, &js, &rendered, false, false, None);
         assert!(rest.find(&mark).unwrap() < rest.find("<div id=\"exact-root\">").unwrap());
-        assert!(!body_js(shell, &js, &rendered, false, true).contains(&mark));
+        assert!(!body_js(shell, &js, &rendered, false, true, None).contains(&mark));
         rendered.document.scroll_document = false;
-        assert!(!body_js(shell, &js, &rendered, false, false).contains(&mark));
+        assert!(!body_js(shell, &js, &rendered, false, false, None).contains(&mark));
     }
 
-    /// A rendered page keeps the manifest's `lang`, which
+    /// LLP 1048.000 D3: the app's `host.web.head`, which the build writes
+    /// after the shell's sheet, is in every page's head once, whether the
+    /// page carries the whole sheet or only its own rules, and whatever
+    /// its entries' text says: a script's text that spells the root, the
+    /// entry or a preload line is not taken for the shell's own.
+    #[test]
+    fn a_page_keeps_the_apps_head_entries_after_the_sheet() {
+        let entries = concat!(
+            "<script async src=\"https://a.example/t.js\"></script>\n<script>x('<style>p{}</style>')</script>\n",
+            "<script>const r = '<div id=\"exact-root\"></div>', p = `<link rel=\"modulepreload\" href=\"./x.js\">\n`;</script>\n",
+        );
+        let shell = format!("<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<style>p{{margin:0}}</style>\n{entries}<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n");
+        for rules in [None, Some("[]")] {
+            let js = Js::of(&shell).unwrap();
+            let js = match rules {
+                Some(rules) => js.with_rules(rules),
+                None => js,
+            };
+            for preload in [true, false] {
+                let head = head_js(&shell, &js, "en", "ltr", preload, false);
+                assert_eq!(head.matches(entries).count(), 1, "{head}");
+                assert_eq!(head.contains("p{margin:0}"), rules.is_none(), "{head}");
+            }
+        }
+    }
+
+    /// The shell's root, entry and preloads are the ones outside every
+    /// script element: a script before the root (a `host.web.head` entry),
+    /// one after it, an `--inline` shell's bundle in the entry's place, or
+    /// all of them may spell the root, whole or only its opening tag, and
+    /// the page's document and checkpoint still go in the shell's own.
+    #[test]
+    fn the_shells_places_are_outside_its_scripts() {
+        let head = "<script>const r = '<div id=\"exact-root\"></div>';</script>\n";
+        let after = "<script>const a = '<div id=\"exact-root\"';</script>\n";
+        let external = "<script type=\"module\" src=\"./app.js\"></script>\n";
+        let inline = "<script type=\"module\">const b = '<div id=\"exact-root\"></div>', c = '<div id=\"exact-root\"';</script>\n";
+        for (head, after, entry) in [
+            (head, "", external),
+            ("", after, external),
+            (head, after, external),
+            ("", "", inline),
+            (head, after, inline),
+        ] {
+            let shell = format!("<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<style>p{{margin:0}}</style>\n{head}<div id=\"exact-root\"></div>\n{after}{entry}");
+            assert!(is_js(&shell), "{shell}");
+            let js = Js::of(&shell).unwrap();
+            let rendered = Rendered {
+                document: exact_web::document::Document {
+                    lang: "en".into(),
+                    dir: "ltr".into(),
+                    root: "<p>PAGE</p>".into(),
+                    viewport_fit: None,
+                    interactive_widget: None,
+                    head: Default::default(),
+                    route_title: None,
+                    keyframes: String::new(),
+                    scroll_document: false,
+                    hero_image: None,
+                    controls: Vec::new(),
+                },
+                head: String::new(),
+                checkpoint: "{}".into(),
+                digest: "0".into(),
+                state: Default::default(),
+                settled: crate::Settled::Complete,
+                activate: exact_plan::ActivatePolicy::Inferred,
+                wake: String::new(),
+                runtime_form: false,
+                drew: false,
+            };
+            let page = head_js(&shell, &js, "en", "ltr", false, false)
+                + &body_js(&shell, &js, &rendered, false, false, None);
+            for script in [head, after].into_iter().filter(|s| !s.is_empty()) {
+                assert_eq!(page.matches(script).count(), 1, "{page}");
+            }
+            // The entry's place holds the checkpoint; the capture script
+            // loads `./app.js`.
+            assert!(!page.contains(entry), "{page}");
+            let root = page
+                .find("<div id=\"exact-root\"><p>PAGE</p></div>")
+                .expect(&page);
+            let checkpoint = "<script type=\"application/vnd.exact.checkpoint\"";
+            assert_eq!(page.matches(checkpoint).count(), 1, "{page}");
+            assert!(root < page.find(checkpoint).unwrap(), "{page}");
+            assert!(head.is_empty() || page.find(head).unwrap() < root, "{page}");
+        }
+    }
+
+    /// What only spells a script tag is not one: a title, a sheet, a
+    /// comment or an attribute value holding `<script` (an app named
+    /// "Learn <script> tags", a head entry's `meta`) leaves the shell's
+    /// root and entry where they are, and the shell a JavaScript one.
+    #[test]
+    fn a_script_tag_in_a_title_sheet_comment_or_attribute_is_not_one() {
+        for title in ["Learn <script> tags", "Learn &lt;script> tags"] {
+            let shell = format!("<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>{title}</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<!-- <script> -->\n<link rel=\"modulepreload\" href=\"./app.js\">\n<style>p::after{{content:\"<script>\"}}</style>\n<meta name=\"x\" content=\"<script>\" data-y='<script>'>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n");
+            assert!(is_js(&shell), "{shell}");
+            let js = Js::of(&shell).unwrap();
+            assert_eq!(
+                &shell[js.at.root..js.at.root_end],
+                "<div id=\"exact-root\"></div>"
+            );
+            assert_eq!(
+                &shell[js.at.entry.clone()],
+                "<script type=\"module\" src=\"./app.js\"></script>"
+            );
+            assert_eq!(preloads(&shell, &js.at).len(), 1, "{shell}");
+        }
+    }
+
+    /// LLP 1115.000 D4.6: a rendered page keeps the manifest's `lang`, which
     /// the build wrote on the shell, when its plan has no strings table to
     /// name a language (`lang` empty); a resolved table's language still wins.
     #[test]

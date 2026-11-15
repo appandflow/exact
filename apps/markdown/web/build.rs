@@ -16,7 +16,7 @@ fn main() {
     };
     // The bake asks every resource for its first frame. This source's only
     // source reaches a filesystem, and a bake has none: `open("")` is the
-    // welcome document, compiled in.
+    // welcome document, compiled in (LLP 1027 D4).
     let baked = contract::bake(plan, markdown_data::Markdown::new())
         .unwrap_or_else(|e| panic!("bake: {e:?}"));
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
@@ -34,6 +34,7 @@ fn main() {
         "exact_data_host::Storage<markdown_data::Markdown>",
         "exact_data_host::Storage::new(markdown_data::Markdown::new())",
         contract::web_rust_mode(&compat.inputs),
+        &compat.inputs,
     )
     .unwrap();
     std::fs::write(

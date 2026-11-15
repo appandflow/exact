@@ -1,11 +1,12 @@
 //! Native button faces and authored rows cross the measurement and presentation seams together.
+//! @ref LLP 1069.011.001 D1–D15.
 use exact_kernel::{ButtonFaceStyle, PressFace};
 
 /// `style` is the `buttonStyle` the author wrote. A written name crosses
 /// with its row's platform columns (`bordered`'s for a name not in the
 /// table). With none written the face says so, `"style":null`, and carries
 /// no column: what an unsaid button draws is each platform's own default,
-/// which the host holds (`ButtonFace`).
+/// which the host holds (`ButtonFace`, LLP 1115.000 D15).
 pub(crate) fn face_json(
     face: Option<&PressFace>,
     rows: Option<&ButtonFaceStyle>,
@@ -16,7 +17,7 @@ pub(crate) fn face_json(
 
 /// `face_json`, and the icon token's name as its author wrote it
 /// (`icon.reply`, `icon_path::icon_name`) as `symbolIcon` where the face's
-/// symbol is an svg-only icon's path: the agent's name for it.
+/// symbol is an SVG icon: the agent's name for it.
 pub(crate) fn face_json_named(
     face: Option<&PressFace>,
     rows: Option<&ButtonFaceStyle>,
@@ -35,17 +36,25 @@ pub(crate) fn face_json_named(
         None => json.push_str("null"),
     }
     json.push_str(",\"symbol\":");
-    // An SF Symbol's own name, or a role's Apple name;
+    // An SF Symbol's own name, or a role's Apple name (LLP 1035.004.000);
     // a role with none is "", as `symbolName` is: a symbol that draws no
     // image, not no symbol (grok's code review).
     match face.symbol.as_deref().map(exact_kernel::apple_symbol_name) {
         Some(apple) => quote(apple, &mut json),
         None => json.push_str("null"),
     }
-    // An svg-only icon's path beside its "" name (stage
-    // 9 A2): the face draws it as a template image its control tints.
+    // SVG icons carry a template path or catalog source beside their empty SF name.
     crate::icon_path::push_json(face.symbol.as_deref(), &mut json);
-    if let Some(name) = icon.filter(|_| json.contains("\"symbolPath\"")) {
+    if json.contains("\"symbolAsset\"")
+        && rows.is_some_and(|r| {
+            r.symbol.symbol_rendering == exact_kernel::generated::SymbolRendering::Multicolor
+        })
+    {
+        json.push_str(",\"symbolMulticolor\":true");
+    }
+    if let Some(name) =
+        icon.filter(|_| json.contains("\"symbolPath\"") || json.contains("\"symbolAsset\""))
+    {
         json.push_str(",\"symbolIcon\":");
         quote(name, &mut json);
     }
@@ -56,6 +65,11 @@ pub(crate) fn face_json_named(
     match &face.label {
         Some(l) => quote(l, &mut json),
         None => json.push_str("null"),
+    }
+    // A tab's badge (LLP 1075.003 §9.9), its tab bar item's `badgeValue`.
+    if let Some(badge) = &face.badge {
+        json.push_str(",\"badge\":");
+        quote(badge, &mut json);
     }
     json.push_str(",\"image\":");
     if let Some(image) = &face.image {
@@ -271,7 +285,7 @@ mod tests {
             }
         }
     }
-    /// A face row's size is the kernel's number, which
+    /// LLP 1115.000 D12.1: a face row's size is the kernel's number, which
     /// the host draws as it is. An `em` under the platform's control font
     /// carries that font's Dynamic Type scale; an absolute size, and an `em`
     /// of one, is the author's; `rem` follows the root. Nothing asks the host
@@ -345,8 +359,8 @@ mod tests {
             }
         }
     }
-    /// An svg-only icon's face carries its path beside its ""
-    /// name; an `sf` icon's and a role's carry none.
+    /// LLP 1121 D10, stage 9 A2: an svg-only icon's face carries its path
+    /// beside its "" name; an `sf` icon's and a role's carry none.
     #[test]
     fn an_svg_only_icons_face_carries_its_path() {
         let json = |symbol: &str| -> serde_json::Value {
@@ -362,7 +376,7 @@ mod tests {
         assert_eq!(svg["symbolPath"], "M 2 2 L 22 2 L 12 20 Z");
         assert_eq!(svg["symbolViewBox"], "0 0 24 24");
         assert!(svg.get("symbolFillRule").is_none(), "nonzero: {svg}");
-        // An even-odd icon's face says its rule.
+        // Stage 14 C2: an even-odd icon's face says its rule.
         let even = json("icon||0 0 24 24|evenodd:M2 2 L22 2 L12 20 Z|icons/tri.svg");
         assert_eq!(even["symbolPath"], "M 2 2 L 22 2 L 12 20 Z");
         assert_eq!(even["symbolFillRule"], "evenodd");
@@ -390,11 +404,41 @@ mod tests {
                 .is_none()
         );
     }
-    /// The face says whether its author wrote a `buttonStyle`. A written name
-    /// crosses with its row's columns; with none written the style is null and
-    /// no column crosses, since what an unsaid button draws is the platform's
-    /// default, which the host holds. A name outside the table still draws
-    /// `bordered` and says it is unknown.
+
+    #[test]
+    fn a_multicolour_file_face_keeps_its_rendering_mode() {
+        let mut face = PressFace {
+            symbol: Some("icon||10 20 40 20||two.svg".into()),
+            fits: true,
+            ..Default::default()
+        };
+        let plan = contract::compile("component App\n  view\n    button appearance=\"auto\" aria-label=\"Colours\"\n      image \"symbol:sf/heart\" -exact-symbol-rendering=\"multicolor\"\n").unwrap();
+        let (host, _) = crate::Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(exact_kernel::MonospaceMeasurer::default()),
+            400.0,
+            800.0,
+        )
+        .unwrap();
+        let kernel = host.runner().kernel();
+        let rows = kernel.button_face_style(kernel.roots()[0]).unwrap();
+        let read = |face: &PressFace| -> serde_json::Value {
+            serde_json::from_str(&face_json(Some(face), Some(&rows), None)).unwrap()
+        };
+        let asset = read(&face);
+        assert_eq!(asset["symbolAsset"], "two.svg");
+        assert_eq!(asset["symbolMulticolor"], true);
+        assert_eq!(asset["raster"], false);
+        face.symbol = Some("icon|heart|10 20 40 20||two.svg".into());
+        assert_eq!(read(&face)["symbol"], "heart");
+        assert!(read(&face).get("symbolAsset").is_none());
+    }
+    /// LLP 1115.000 D15: the face says whether its author wrote a
+    /// `buttonStyle`. A written name crosses with its row's columns; with
+    /// none written the style is null and no column crosses, since what an
+    /// unsaid button draws is the platform's default, which the host holds.
+    /// A name outside the table still draws `bordered` and says it is unknown.
     #[test]
     fn the_face_says_whether_its_author_wrote_a_style() {
         let face = PressFace {

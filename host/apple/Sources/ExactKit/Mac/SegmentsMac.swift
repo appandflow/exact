@@ -1,12 +1,12 @@
-// The same tab semantics use AppKit's segmented
+// @ref LLP 1035.001 D10 — the same tab semantics use AppKit's segmented
 // control on macOS; Contract remains the owner of selection and actions.
 // The control fills the tablist's content box and reports its native height
-// to layout as the tablist's automatic minimum, as on iOS.
-// A radio group of radios is the same control.
+// to layout as the tablist's automatic minimum, as on iOS (LLP 1059 D2a).
+// @ref LLP 1116.004 D5.2 — a radio group of radios is the same control.
 #if os(macOS)
 import AppKit
 
-private final class SegmentAccessibility: NSAccessibilityElement {
+private final class SegmentAccessibility: NSAccessibilityElement, AgentOwned {
     weak var control: ExactSegmentedControl?
     let index: Int
     init(_ control: ExactSegmentedControl, _ index: Int) {
@@ -15,6 +15,14 @@ private final class SegmentAccessibility: NSAccessibilityElement {
         super.init()
     }
     private var native: NSAccessibilityElement? { control?.nativeSegment(at: index) }
+    var agentViewId: UInt32? {
+        guard let control, control.memberIDs.indices.contains(index) else { return nil }
+        return control.memberIDs[index]
+    }
+    override func accessibilityIdentifier() -> String? {
+        guard let control, control.memberTestIDs.indices.contains(index) else { return nil }
+        return control.memberTestIDs[index]
+    }
     private var enabled: Bool {
         guard let control, index < control.segmentCount else { return false }
         return control.isEnabled(forSegment: index)
@@ -24,11 +32,13 @@ private final class SegmentAccessibility: NSAccessibilityElement {
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
         if attribute == .enabled { return enabled }
         if attribute == .parent { return control }
+        if attribute == .identifier { return accessibilityIdentifier() }
         return native?.accessibilityAttributeValue(attribute)
     }
     override func accessibilityActionNames() -> [NSAccessibility.Action] { native?.accessibilityActionNames() ?? [] }
     override func accessibilityPerformAction(_ action: NSAccessibility.Action) { native?.accessibilityPerformAction(action) }
     override func accessibilityRole() -> NSAccessibility.Role? { native?.accessibilityRole() }
+    override func isAccessibilityElement() -> Bool { native?.isAccessibilityElement() ?? false }
     override func accessibilitySubrole() -> NSAccessibility.Subrole? { native?.accessibilitySubrole() }
     override func accessibilityLabel() -> String? { native?.accessibilityLabel() }
     override func accessibilityHelp() -> String? { native?.accessibilityHelp() }
@@ -43,6 +53,8 @@ private final class SegmentAccessibility: NSAccessibilityElement {
 private final class ExactSegmentedControl: NSSegmentedControl {
     let ownerID: UInt32
     var accessibilityDisabledSegments: [Bool] = []
+    var memberIDs: [UInt32] = []
+    var memberTestIDs: [String?] = []
     private var segmentElements: [SegmentAccessibility] = []
     private var exposingNativeChildren = false
     init(ownerID: UInt32) {
@@ -51,7 +63,7 @@ private final class ExactSegmentedControl: NSSegmentedControl {
         trackingMode = .selectOne
     }
     required init?(coder: NSCoder) { nil }
-    // As the other native controls: a Control-click a `contextmenu`
+    // As the other native controls (X85): a Control-click a `contextmenu`
     // above answers never starts this control's tracking, so no segment is
     // chosen. AppKit's own right-click route does not fire in every window.
     override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
@@ -80,7 +92,7 @@ final class SegmentHost {
     unowned let presenter: Presenter
     private var controls: [UInt32: ExactSegmentedControl] = [:]
     /// The segmented control a tablist or radio group projects to, if any:
-    /// a hatched node's platform object.
+    /// a hatched node's platform object (LLP 1075.003.000 §3.2).
     func control(of id: UInt32) -> NSSegmentedControl? { controls[id] }
     private var hidden: [UInt32: Bool] = [:]
     private var members: [UInt32: [UInt32]] = [:]
@@ -91,7 +103,7 @@ final class SegmentHost {
     /// are; the latest per tablist reaches the runner.
     private struct Report { weak var view: NodeView?; let generation: Int; let size: CGSize? }
     private var reports: [Report] = []
-    /// The control standing in for a tablist; its hidden tabs.
+    /// LLP 1080.001 D3: the control standing in for a tablist; its hidden tabs.
     func inspectionOwns(_ view: NSView) -> Bool { controls.values.contains { $0 === view } }
     func hides(_ node: NodeView) -> Bool { members.values.contains { $0.contains(node.id) } }
     /// The last projection decision journaled per tablist, so each is said once.
@@ -129,7 +141,7 @@ final class SegmentHost {
 
     /// The control's own size, at any width of the box: its height does not
     /// follow that width. Its width is the narrowest it can be, the
-    /// tablist's automatic minimum width: AppKit's control
+    /// tablist's automatic minimum width (LLP 1116.004 D2): AppKit's control
     /// does not shrink its segments, so its natural width. It fills the
     /// content box, so a border-box minimum also holds the padding and
     /// border around it.
@@ -160,9 +172,9 @@ final class SegmentHost {
     }
 
     func sync() {
-        // Only explicit vertical tablists opt out; ignore invalid ARIA values.
-        // The root tablist the window's sidebar shows is no segmented control,
-        // nor a header's that the window's toolbar shows as its own group.
+        // @ref LLP 1039 D6 — only explicit vertical tablists opt out; ignore invalid ARIA values.
+        // The root tablist the window's sidebar shows is no segmented control (LLP 1115.002 D3),
+        // nor a header's that the window's toolbar shows as its own group (D2).
         let owners = (presenter.carrying("role:tablist") + presenter.carrying("role:radiogroup")).filter {
             $0.props["accessibilityOrientation"] != "vertical" && !presenter.sidebar.adopts($0) && !presenter.toolbar.adopts($0) &&
                 !($0.wrote("appearance") && $0.style["appearance"]?.string == "none")
@@ -172,9 +184,9 @@ final class SegmentHost {
         for id in Array(decisions.keys) where !live.contains(id) { decisions.removeValue(forKey: id) }
         for owner in owners {
             let tabs = tabs(in: owner)
-            // Authored tabs a segment cannot show stay as authored;
+            // Authored tabs a segment cannot show stay as authored (LLP 1035.001 D10);
             // AppKit gives a title segment no label of its own, so a title its
-            // `aria-label` disagrees with is one (iOS labels it).
+            // `aria-label` disagrees with is one (iOS labels it, LLP 1116 D6).
             let unshown = tabs.first { tab in
                 guard let face = tab.segmentFace else { return true }
                 if case .title(let title) = face { return title != tab.accessibleName }
@@ -209,6 +221,8 @@ final class SegmentHost {
             control.frame = owner.contentBox()
             control.setAccessibilityLabel(owner.props["accessibilityLabel"])
             control.segmentCount = tabs.count
+            control.memberIDs = tabs.map(\.id)
+            control.memberTestIDs = tabs.map { $0.props["testId"] }
             control.accessibilityDisabledSegments = tabs.map(\.ariaUnavailable)
             for (index, tab) in tabs.enumerated() {
                 if case .image(let icon)? = tab.segmentFace {
@@ -222,7 +236,7 @@ final class SegmentHost {
                     control.setLabel("", forSegment: index)
                     control.setToolTip(tab.accessibleName, forSegment: index)
                 } else if case .symbol(let name)? = tab.segmentFace {
-                    // A native tab's symbol, carrying its label.
+                    // A native tab's symbol, carrying its label (LLP 1069.011.000 D4).
                     let image = FaceSymbol.image(name, accessibilityDescription: tab.accessibleName)
                         ?? NSImage(size: NSSize(width: 1, height: 1))
                     image.accessibilityDescription = tab.accessibleName
@@ -249,7 +263,7 @@ final class SegmentHost {
 
     func activate(_ node: NodeView) -> Bool? {
         guard let entry = members.first(where: { $0.value.contains(node.id) }) else { return nil }
-        // Logical tabs are hidden by this projection;
+        // @ref LLP 1038 D6 — logical tabs are hidden by this projection;
         // their native control and route ancestors decide availability.
         guard let control = controls[entry.key], control.window != nil,
               !control.isHiddenOrHasHiddenAncestor, !node.disabled, !node.inert else { return false }

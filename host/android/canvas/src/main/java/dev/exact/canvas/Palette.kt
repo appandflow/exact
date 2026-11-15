@@ -7,24 +7,24 @@ import android.content.res.Resources
 import android.os.Build
 
 /**
- * The device's colours as the app is told them: Material 3's colour roles, resolved here for this
+ * The device's colours as the app is told them (LLP 1115.001 D4): Material 3's colour roles, resolved here for this
  * device from the platform's own resources, under the light scheme and under the dark one, and told whole in one call
  * ([Native.colors]) before the host boots and again whenever one of them is not what was last told (a new wallpaper
  * changes the dynamic palette). exact2 gives each of its own colour roles one of these
- * (`host/linux/src/presenter/palette.rs`, which has the table). Both schemes are told whatever the night mode is:
+ * (`host/painted/src/presenter/palette.rs`, which has D4's table). Both schemes are told whatever the night mode is:
  * exact2 chooses between them by the scheme it is told with the device's settings ([Device]).
  *
  * From Android 14 the platform has each role as a colour of its own (`android.R.color.system_primary_light` and the
  * rest), and nothing is derived. Android 12 and 13 have only the dynamic tonal palettes (`system_accent1_*`,
  * `system_accent2_*`, `system_neutral1_*`, `system_neutral2_*`, a swatch each for tones 100, 99, 95, 90 … 10, 0), so
  * there each role is the tone Material's scheme gives it ([derived]). Before Android 12 there is no dynamic colour, and
- * the roles are Material's baseline scheme ([Legacy.palette]). Nor is there on Android TV: its
+ * the roles are Material's baseline scheme ([Legacy.palette]). Nor is there on Android TV (LLP 1115.001.003): its
  * images have the resources' ids with no colours behind them, so there too the roles are the baseline's.
  */
 internal object Palette {
     /** How many roles are told for each scheme: every role of Material's `ColorScheme`, in exact2's order
-     * (`presenter::Material`): the twelve that exact2's own roles map to first, then the rest, which the Material look
-     * reads by its own names. */
+     * (`presenter::Material`): the twelve D4 maps exact2's own roles to first, then the rest, which the Material look
+     * reads by its own names (LLP 1115.001.001 D2.3). */
     const val ROLES = 36
 
     /** The roles light, then dark, ARGB. */

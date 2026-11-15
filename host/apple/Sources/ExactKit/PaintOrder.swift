@@ -1,4 +1,4 @@
-// Tree order stays in subviews; Core Animation gets only
+// LLP 1083.000 D4: tree order stays in subviews; Core Animation gets only
 // the dense sibling rank. Every layer standing for a node takes this value.
 #if os(macOS)
 import AppKit
@@ -54,7 +54,7 @@ extension NodeView {
     var paintRank: Int64 {
         if paintLifted { return 4_294_967_294 }
         // A ghost keeps its rank, but one at rank 0 paints at ½ (the encoded 1), as the web's absolute ghost does.
-        // So does a ghost's parent at rank 0 while the ghost lives, since the parent stacks.
+        // So does a ghost's parent at rank 0 while the ghost lives, since the parent stacks (LLP 1083.000 D4).
         return (paintGhost || paintGhosts > 0) && rank == 0 ? 1 : rank
     }
 
@@ -142,13 +142,21 @@ extension NodeView {
         // positioned route holders it stands for: among equals its subview
         // place — the routes' place in the tree (`placeOwner`) — orders it,
         // as CSS paints positioned siblings in tree order.
-        // A control bar over its scroller goes half a step above the scroller's place: over it and
+        // A control bar over its scroller (LLP 1131 D3) goes half a step above the scroller's place: over it and
         // its equals, under the next rank.
         #if os(macOS)
         let place = { (child: PaintView) in position(child.siblingPaintRank)! }
         #else
+        // A navigation root's children beside the routes go above the native container where its box extends
+        // past the routes' boxes (`NavigationHost.clearBesideRoutes`): those at or below its rank go into the step
+        // above it, in their own ranks' order, so their `z-index` still orders them among themselves
+        let plane = position(1)
+        let lowest = plane == nil ? nil : children.lazy.compactMap { ($0 as? NodeView)?.clearsNavigation == true ? position($0.siblingPaintRank) : nil }.min()
         let place = { (child: PaintView) -> CGFloat in
             let own = position(child.siblingPaintRank)!
+            if let node = child as? NodeView, node.clearsNavigation, let plane, let lowest, own <= plane {
+                return plane + 0.0001 + 0.0008 * (plane > lowest ? (own - lowest) / (plane - lowest) : 1)
+            }
             guard let over = (child as? NodeView)?.bandOver, let under = position(over) else { return own }
             return max(own, under + 0.0005)
         }
@@ -161,7 +169,7 @@ extension NodeView {
         }
         dense?.top = top
         #if os(iOS) || os(tvOS)
-        (parent as? ScrollView)?.keepPlatformViewsOver()
+        if parent is ScrollView || parent is PresentationMount { parent.keepPlatformViewsOver() }
         #endif
     }
 
@@ -210,7 +218,7 @@ extension NodeView {
 extension PaintView {
     fileprivate var paintForeground: Bool { paintPlane != nil }
     private var paintPlane: Int64? { objc_getAssociatedObject(self, &paintForegroundKey) as? Int64 }
-    /// A flight's clip ranks as the view it holds.
+    /// A flight's clip ranks as the view it holds (LLP 1013.000 D4.4).
     fileprivate var siblingPaintRank: Int64 { paintPlane ?? (self as? NodeView)?.paintRank ?? (self as? FlightClip)?.subviews.lazy.compactMap { ($0 as? NodeView)?.paintRank }.first ?? 0 }
 
     /// A native view among authored siblings. A top-layer popover or a
@@ -218,11 +226,11 @@ extension PaintView {
     /// navigation container takes rank ½ (positioned or stacking, `z-index`
     /// auto or 0), the rank of the positioned route holders it stands for:
     /// over in-flow siblings, under an authored overlay with a positive
-    /// `z-index` (a messaging app's call screen and menus hid under it), and
+    /// `z-index` (Signal Clone's call screen and menus hid under it), and
     /// among equals where its subview place puts it — the routes' place in
     /// the root's children — so a later positioned sibling, a root sheet
     /// with no `z-index`, paints and takes touches over it, as on the web
-    /// (the kernel's `paint_order::rank`).
+    /// (chat2 diary; LLP 1083.000 D4, the kernel's `paint_order::rank`).
     func setPaintForeground(_ on: Bool = true, aboveAuthored: Bool = true) {
         #if os(macOS)
         if on { wantsLayer = true }
@@ -278,17 +286,21 @@ extension NSView {
 #endif
 
 #if os(iOS) || os(tvOS)
-extension ScrollView {
-    /// UIKit hangs a scroller's edge effect (iOS 26) in a view after its
-    /// content, at depth 0, to draw over it. A child ranked above 0 (one
-    /// holding a native button, a `position: relative` card, a `z-index`)
-    /// would paint over the effect and run sharp under the bar, so each
-    /// view of UIKit's after the last ranked child goes to the top child's
-    /// depth, where its later place puts it over them. One with a depth of
-    /// its own (the indicators' 1000, a view sent behind) keeps it. After a
-    /// ranking, and after UIKit's layout, which adds and moves its views.
-    /// Skip the session viewport, whose children include native presentations.
-    /// A route viewport holds only its document and keeps UIKit's effects above it.
+extension UIView {
+    /// UIKit adds views of its own after the nodes they draw over, at
+    /// depth 0: a scroller's edge effect (iOS 26), and the highlight a
+    /// context menu grows a row from in its route's `PresentationMount`
+    /// (`LiftTarget.container`), while UIKit hides the row itself. A child
+    /// ranked above 0 (a positioned route, one holding a native button, a
+    /// `position: relative` card, a `z-index`) would paint over them: the
+    /// effect would run sharp under the bar and the row would show blank.
+    /// So each view of UIKit's after the last ranked child goes to the top
+    /// child's depth, where its later place puts it over them. One with a
+    /// depth of its own (the indicators' 1000, a view sent behind) keeps it.
+    /// After a ranking, after UIKit's layout, which adds and moves its views,
+    /// and as a mount gains one. Skip the session viewport, whose children
+    /// include native presentations. A route viewport holds only its document
+    /// and keeps UIKit's effects above it.
     func keepPlatformViewsOver() {
         if let viewport = self as? Viewport, viewport.documentNode == nil { return }
         guard let top = DensePaintRanks.existing(self)?.top, top > 0 else { return }

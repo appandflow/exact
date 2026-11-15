@@ -1,8 +1,8 @@
-//! The build CLI's human and structured diagnostics.
+//! The build CLI's human and structured diagnostics. @ref LLP 1035.005 D2.
 
 use std::{io::Write, path::Path, process::ExitCode};
 
-const USAGE: &str = "usage: contract build <file.contract> [-o <file.plan>] [--json] [--errors-only] [--map (requires -o)] [--entry <kind> (requires -o; no --map)]";
+pub(crate) const USAGE: &str = "usage: contract build <file.contract> [--stdin | --stdin-as <used.contract>] [-o <file.plan>] [--json] [--errors-only] [--map (requires -o)] [--entry <kind> (requires -o; no --map or --stdin)] [--surface terminal (no --entry)]";
 
 struct Options<'a> {
     input: &'a str,
@@ -10,20 +10,39 @@ struct Options<'a> {
     json: bool,
     errors_only: bool,
     map: bool,
-    /// A widget entry's kind: its plan instead of the app's,
+    /// The file's text is stdin's, read as if saved at `input` (an editor's
+    /// unsaved buffer): its `use` lines and diagnostics name that path.
+    stdin: bool,
+    /// `--stdin-as`: stdin's text is instead read as if saved at this file,
+    /// one the input uses (the unsaved buffer of a file built with its app).
+    stdin_as: Option<&'a str>,
+    /// A widget entry's kind (LLP 1126 D2): its plan instead of the app's,
     /// compiled as the bake compiles it from `app.json` beside the input.
     entry: Option<&'a str>,
+    /// `--surface terminal`: the terminal's lowering of a GUI source, for
+    /// measuring it on the terminal host (LLP 1121 stage 11 C), which runs
+    /// only a terminal plan (LLP 1101.003 D9).
+    profile: contract_lower::Profile,
 }
 
 fn options(args: &[String]) -> Option<Options<'_>> {
     let (mut input, mut output, mut json, mut map, mut entry) = (None, None, false, false, None);
-    let mut errors_only = false;
+    let (mut errors_only, mut stdin, mut profile) = (false, false, None);
+    let mut stdin_as = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--json" if !json => json = true,
             "--errors-only" if !errors_only => errors_only = true,
             "--map" if !map => map = true,
+            "--stdin" if !stdin => stdin = true,
+            "--stdin-as" if !stdin => {
+                stdin = true;
+                stdin_as = Some(args.next()?.as_str());
+                if stdin_as?.starts_with('-') {
+                    return None;
+                }
+            }
             "-o" if output.is_none() => {
                 output = Some(args.next()?.as_str());
                 if output?.starts_with('-') {
@@ -36,12 +55,21 @@ fn options(args: &[String]) -> Option<Options<'_>> {
                     return None;
                 }
             }
+            "--surface" if profile.is_none() => {
+                profile = Some(match args.next()?.as_str() {
+                    "gui" => contract_lower::Profile::Web,
+                    "terminal" => contract_lower::Profile::Terminal,
+                    _ => return None,
+                });
+            }
             name if !name.starts_with('-') && input.is_none() => input = Some(name),
             _ => return None,
         }
     }
     // An entry plan has no source map yet: `--map` with `--entry` is refused.
-    if (map || entry.is_some()) && output.is_none() || (map && entry.is_some()) {
+    if (map || entry.is_some()) && output.is_none()
+        || (map || stdin || profile.is_some()) && entry.is_some()
+    {
         return None;
     }
     Some(Options {
@@ -50,7 +78,10 @@ fn options(args: &[String]) -> Option<Options<'_>> {
         json,
         errors_only,
         map,
+        stdin,
+        stdin_as,
         entry,
+        profile: profile.unwrap_or_default(),
     })
 }
 
@@ -115,7 +146,7 @@ fn report(error: &contract::CompileError, json: bool, code: u8) -> ExitCode {
     report_all(std::slice::from_ref(error), &[], json, code)
 }
 
-/// Every diagnostic, the refusals and then the warnings: one
+/// Every diagnostic, the refusals and then the warnings (LLP 1116 D6): one
 /// JSON array, or each on its own lines.
 fn report_all(
     errors: &[contract::CompileError],
@@ -137,10 +168,33 @@ fn report_all(
 
 /// The warnings as text, in their rank's order (`contract::warning_rank`),
 /// with the SF Symbols only the web draws blank in one line
-/// (`contract::web_only_line`).
+/// (`contract::web_only_line`), and the literal colours that stay one in
+/// dark mode in one line past one (`warning_rank::one_scheme_line`).
 fn print_warnings(warnings: &[contract::CompileError]) {
+    use contract_lower::warning_rank::{one_scheme_close, one_scheme_line, one_scheme_site};
     let (web, rest): (Vec<_>, Vec<_>) = warnings.iter().partition(|w| contract::web_only(w));
+    let sites: Vec<String> = rest
+        .iter()
+        .filter(|w| one_scheme_site(&w.id, &w.message))
+        .map(|w| w.to_string())
+        .collect();
+    let close = rest.iter().find(|w| one_scheme_close(&w.id, &w.message));
+    let one = match close {
+        Some(close) if sites.len() > 1 => Some(one_scheme_line(&close.to_string(), &sites)),
+        _ => None,
+    };
+    let mut said = false;
     for warning in rest {
+        if let Some(line) = one.as_ref().filter(|_| {
+            one_scheme_site(&warning.id, &warning.message)
+                || one_scheme_close(&warning.id, &warning.message)
+        }) {
+            if !said {
+                eprintln!("{line}{}", contract::excerpt(warning));
+                said = true;
+            }
+            continue;
+        }
         eprintln!("{warning}{}", contract::excerpt(warning));
     }
     if let Some(first) = web.first() {
@@ -153,30 +207,53 @@ pub(super) fn run(args: &[String]) -> ExitCode {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
     }
-    let Some(Options {
-        input,
-        output,
-        json,
-        errors_only,
-        map,
-        entry,
-    }) = options(args)
-    else {
+    let Some(options) = options(args) else {
         return report(
             &error("contract-build-usage", USAGE.into(), None),
             args.iter().any(|arg| arg == "--json"),
             2,
         );
     };
-    if let (Some(kind), Some(output)) = (entry, output) {
-        return build_entry(input, kind, output, json);
+    if let (Some(kind), Some(output)) = (options.entry, options.output) {
+        return build_entry(options.input, kind, output, options.json);
     }
+    if !options.stdin {
+        return build(&options);
+    }
+    let mut text = String::new();
+    if let Err(cause) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text) {
+        let message = format!("stdin: {cause}");
+        return report(
+            &error("contract-build-stdin", message, Some(options.input)),
+            options.json,
+            1,
+        );
+    }
+    let held = options.stdin_as.unwrap_or(options.input);
+    contract::with_contract_texts(vec![(held.into(), text)], || build(&options))
+}
+
+fn build(options: &Options) -> ExitCode {
+    let &Options {
+        input,
+        output,
+        json,
+        errors_only,
+        map,
+        stdin,
+        profile,
+        ..
+    } = options;
     // The map is always built: it prices each component for the summary.
     let want_map = map;
     // A game's surface arguments are checked apart: against a declaration
     // older than the game's Rust they are warnings, never hiding the
-    // compile's own refusals.
-    let surfaces = contract::surface_findings(Path::new(input));
+    // compile's own refusals (the platformer's diary, R4).
+    let contract::Advised {
+        compiled: (compiled, mut warnings),
+        surfaces,
+        clocks,
+    } = contract::compile_path_advised(Path::new(input), true, profile);
     let mut refused = match &surfaces {
         Ok(s) if s.newer.is_none() => s.findings.clone(),
         Ok(_) => Vec::new(),
@@ -188,14 +265,12 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             .collect(),
     };
     refused.extend(crate::ambient::check(Path::new(input)));
-    let clocks = contract::resource_clock_warnings(Path::new(input)).unwrap_or_default();
     if !json && !errors_only {
         for finding in &clocks {
-            eprintln!("warning: {finding}");
+            eprintln!("{}", crate::warning(finding.clone()));
         }
     }
-    // Warnings never fail the build; they follow its refusals.
-    let (compiled, mut warnings) = contract::compile_path_all_warned(Path::new(input), true);
+    // Warnings never fail the build; they follow its refusals (LLP 1116 D6).
     if let Ok(s) = &surfaces {
         if s.newer.is_some() && !json && !errors_only {
             crate::surface_warnings(s);
@@ -234,11 +309,12 @@ pub(super) fn run(args: &[String]) -> ExitCode {
     };
     // Existing declarations are an author's data seam. Refresh them from this
     // successful compile, including imported source changes, without creating
-    // declarations for builds that never requested TypeScript.
+    // declarations for builds that never requested TypeScript. Text that is
+    // not saved (`--stdin`) writes none: they stay the saved sources'.
     let declaration = format!("{input}.d.ts");
-    if Path::new(&declaration).is_file() {
+    if !stdin && Path::new(&declaration).is_file() {
         let exports = contract::design_exports(Path::new(&input));
-        let types = match contract::typescript_exporting(&plan, exports.as_deref()) {
+        let types = match contract::typescript_exporting(&plan, exports.as_deref(), &[]) {
             Ok(types) => types,
             Err(message) => return report(&error("contract-types", message, Some(input)), json, 1),
         };
@@ -284,6 +360,21 @@ pub(super) fn run(args: &[String]) -> ExitCode {
         );
         // Every use is inlined: name what the plan's size is made of.
         if let Some(map) = &map {
+            let code = map.component_code_costs(&plan);
+            let top: Vec<_> = code
+                .iter()
+                .take(5)
+                .map(|(name, instances, bytes)| {
+                    format!(
+                        "{name}: {bytes} B ({instances} instance{})",
+                        if *instances == 1 { "" } else { "s" }
+                    )
+                })
+                .collect();
+            println!(
+                "  own plan code by component (shared bodies counted per use): {}",
+                top.join(", ")
+            );
             let costs = map.component_costs();
             if !costs.is_empty() {
                 let top: Vec<String> = costs

@@ -1,4 +1,4 @@
-//! The page's environment: an `env(safe-area-inset-*)` length
+//! The page's environment (LLP 1001 §2): an `env(safe-area-inset-*)` length
 //! resolves against the insets the host sets, and a change of the insets
 //! lays the tree out again — only the nodes that read them.
 
@@ -206,7 +206,7 @@ fn env_lengths_travel_the_wire() {
     );
 }
 
-/// A root with two panes sized by the segment variables — the
+/// LLP 1078 D3: a root with two panes sized by the segment variables — the
 /// detail pane positioned at the second segment's left — and the host's
 /// `set_segments`, `set_env`'s twin.
 fn segmented_tree() -> Kernel {
@@ -461,10 +461,10 @@ fn viewport_lengths_resolve_against_the_window_and_follow_resize() {
 }
 
 #[test]
-fn compact_inset_sums_clamp_only_at_the_finite_length_limits() {
+fn compact_inset_sums_clamp_only_at_the_largest_length() {
     for (inset, offset, expected) in [
-        (3e38, 1e38, f32::MAX),
-        (-3e38, -1e38, f32::MIN),
+        (3e38, 1e38, 33_554_432.0),
+        (-3e38, -1e38, -33_554_432.0),
         (3e38, -3e38, 0.0),
         (24.0, -32.0, -8.0),
         (24.0, 12.0, 36.0),
@@ -484,8 +484,8 @@ fn compact_inset_sums_clamp_only_at_the_finite_length_limits() {
 fn compact_segment_sums_clamp_and_undefined_segments_stay_auto() {
     exact_kernel::link_segments();
     for (width, offset, expected) in [
-        (3e38, 1e38, f32::MAX),
-        (-3e38, -1e38, f32::MIN),
+        (3e38, 1e38, 33_554_432.0),
+        (-3e38, -1e38, -33_554_432.0),
         (3e38, -3e38, 0.0),
         (24.0, -32.0, -8.0),
         (24.0, 12.0, 36.0),
@@ -548,7 +548,8 @@ fn a_compact_env_sum_keeps_positioned_layout_finite() {
     kernel
         .compute_layout(1, Offer::definite(400.0, 800.0))
         .unwrap();
-    assert_eq!(frame(&kernel, 2), (f32::MAX, f32::MIN, 10.0, 10.0));
+    // Censored to the largest length, Chrome's 2^25 px, and finite.
+    assert_eq!(frame(&kernel, 2), (33_554_432.0, -33_554_432.0, 10.0, 10.0));
 }
 
 #[test]
@@ -556,10 +557,12 @@ fn compact_segment_edges_preserve_cancellation_before_narrowing() {
     exact_kernel::link_segments();
     for var in ["right", "bottom"] {
         for (origin, size, offset, expected) in [
-            (3e38, 3e38, -3e38, 3e38),
-            (-3e38, -3e38, 3e38, -3e38),
-            (3e38, 3e38, 0.0, f32::MAX),
-            (-3e38, -3e38, 0.0, f32::MIN),
+            // Cancelled before it is narrowed, then censored to the largest
+            // length (2^25 px).
+            (3e38, 3e38, -3e38, 33_554_432.0),
+            (-3e38, -3e38, 3e38, -33_554_432.0),
+            (3e38, 3e38, 0.0, 33_554_432.0),
+            (-3e38, -3e38, 0.0, -33_554_432.0),
             (20.0, 40.0, -70.0, -10.0),
         ] {
             let env = Env::default().with_segments(
@@ -634,7 +637,7 @@ fn an_escaped_space_in_a_name_is_another_variable() {
     }
 }
 
-/// Under the terminal's space rule a padding that
+/// LLP 1121 stage 11 (c): under the terminal's space rule a padding that
 /// resolves to points (a `calc()` of an `env()` included) lays out in whole
 /// cells, rows down; turning the rule on or off after a layout lays every
 /// box out again, plain px included.
@@ -681,7 +684,7 @@ fn the_terminal_space_rule_rounds_resolved_spaces_and_relays_when_it_turns() {
     assert_eq!(kernel.resolved_padding(root).map(|p| p.3), Some(12.0));
 }
 
-/// A multi-column box's gap is a space across too,
+/// LLP 1121 stage 11 (c): a multi-column box's gap is a space across too,
 /// whole columns under the terminal's rule (12 px is one, 8).
 #[test]
 fn a_multicol_gap_is_whole_columns_under_the_terminal_space_rule() {

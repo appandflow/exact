@@ -1,4 +1,4 @@
-//! Canvas 2D text measurement on Apple: the recorder's
+//! Canvas 2D text measurement on Apple (LLP 1056 D8): the recorder's
 //! `measureText` and `fillText` measure with Core Text, through the app's
 //! callback, on the thread the draw runs on — never a hop to another
 //! thread. The callback's context is the session's text engine, the one the

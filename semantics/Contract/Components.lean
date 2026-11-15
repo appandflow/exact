@@ -11,7 +11,7 @@ is an expander mirroring `contract_syntax::inline`, and
 
 Expressions and statements are `Contract.Expr` and `Contract.Stmt`: the
 same language, read in a component's own scope. A handler names an action
-of its component or an `action` prop; a tail call is a
+of its component or an `action` prop; a tail call (LLP 1017 §11) is a
 `command` naming an `action` prop.
 -/
 import Contract.Syntax
@@ -81,7 +81,7 @@ structure CProgram where
   shapes : List Shape := []
   fns : List FnDecl := []
   /-- The declared shapes that are not also `fn`s: a call naming one builds
-  a record ahead of any name in scope. -/
+  a record ahead of any name in scope (LLP 1035.005.000 D3). -/
   records : List String := []
   root : CComponent
   /-- Every other component, in file order. -/
@@ -92,6 +92,9 @@ structure CProgram where
   `Program.locale`). -/
   strings : List (String × List (String × String)) := []
   locale : Option String := .none
+  /-- The format locale's slot, when a formatter reads a table's format data
+  (LLP 1054.000.003 D6; the tables carry the data under `Format.formatKey`). -/
+  format : Option String := .none
   deriving Repr, Inhabited
 
 /-- Root resources followed by every child's device facts in declaration
@@ -106,9 +109,13 @@ def CProgram.resources (p : CProgram) : List ResourceDecl :=
 /-- The resolved locale's slot, as `contract lean` writes it: a root state
 of the base locale (the first table's), after the router's. -/
 def CProgram.localeStates (p : CProgram) : List StateDecl :=
-  match p.locale with
-  | .some x => [{ name := x, ty := .string, init := .str ((p.strings.head?.map (·.1)).getD "") }]
-  | .none => []
+  let base := Expr.str ((p.strings.head?.map (·.1)).getD "")
+  (match p.locale with
+    | .some x => [{ name := x, ty := .string, init := base }]
+    | .none => []) ++
+  (match p.format with
+    | .some x => [{ name := x, ty := .string, init := base }]
+    | .none => [])
 
 def CProgram.component? (p : CProgram) (name : String) : Option CComponent :=
   p.components.find? (·.name == name)
@@ -119,7 +126,7 @@ def hostCommands : List String :=
   ["blur", "copyText", "deliveryActivate", "deliveryCheck", "focus", "format", "haptic", "openURL",
    "reload", "selectText", "setSelectionRange", "setScheme", "showPicker", "share", "saveFile",
    "showOpenFilePicker", "showDirectoryPicker", "showSaveFilePicker", "requestPermission", "scrollIntoView", "postMessage", "preventDefault", "stopPropagation",
-   "close", "playSound", "playSounds", "stopSounds", "requestMIDIAccess", "sendMIDI"]
+   "close", "playSound", "playSounds", "stopSounds", "setSounds", "requestMIDIAccess", "sendMIDI"]
 
 /-- `c`'s statements with every same-component call made a `call` (calls.rs
 `expand_file`, the bodies apart). -/

@@ -3,7 +3,7 @@ name = "theme-fixture-apple"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The theme fixture on Apple platforms"
+description = "The theme fixture on Apple platforms (LLP 1121 stage 2)"
 publish = false
 build = "build.rs"
 
@@ -14,6 +14,7 @@ test = false
 bench = false
 
 [dependencies]
+ibex2-sqlite = { path = "../../../vendor/ibex/crates/ibex2-sqlite" }
 exact-logic = { path = "../../../logic" }
 exact-apple = { path = "../../../host/apple" }
 theme-fixture-data = { path = "../data" }

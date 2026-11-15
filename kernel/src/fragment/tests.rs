@@ -1,5 +1,5 @@
 //! The cut's rules on hand-built flows: Multicol §3.4's arithmetic, Chrome's
-//! break appeal, and its balancer. Chrome's own
+//! break appeal, and its balancer (LLP 1093 D1, D4, D5). Chrome's own
 //! results, on real trees, are `kernel/tests/it/browser_columns.rs`.
 
 use super::build::{Atom, Flow, Para};
@@ -54,6 +54,7 @@ fn para(flow: &mut Flow, top: f32, lines: usize, orphans: u32, widows: u32) {
     flow.paras.push(Para {
         slot: 0,
         content_top: top,
+        line_offset: 0.0,
         width: 100.0,
         orphans,
         widows,
@@ -219,12 +220,12 @@ fn chapter(n: usize, rows: &[(crate::StyleId, crate::StyleValue)]) -> crate::Ker
     k
 }
 
-/// The cut of a 40-column chapter, that
+/// LLP 1093 §3, owed by stage 1: the cut of a 40-column chapter, that
 /// chapter's layout against the same chapter as one column, a balanced
 /// three-column container's walk count, and a one-word edit in the last
 /// column. Printed, never checked.
 #[test]
-#[ignore = "the multicol probe, ~2 s; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: LLP 1093 §3's multicol probe, ~2 s; bun scripts/async.mjs runs it"]
 fn multicol_probe() {
     use crate::{StyleId, StyleValue};
     use std::time::Instant;
@@ -294,6 +295,7 @@ fn a_paragraph_the_host_cannot_break_is_never_cut_shorter() {
     flow.paras.push(Para {
         slot: 0,
         content_top: 0.0,
+        line_offset: 0.0,
         width: 100.0,
         orphans: 2,
         widows: 2,

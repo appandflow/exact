@@ -222,6 +222,8 @@ pub struct World {
     pub(crate) followed: std::cell::Cell<bool>,
     // Whether this tick's emitters have stepped (emitter::step or the Sim's own).
     pub(crate) emitted: std::cell::Cell<bool>,
+    // Last emitter refusal per entity; diagnostics only, never saved or hashed.
+    pub(crate) emitter_errors: RefCell<BTreeMap<Entity, String>>,
     // Inside Game::present: only presentation components may change.
     pub(crate) presenting: std::cell::Cell<bool>,
     pub(crate) attachments: Option<Attachments>,
@@ -284,6 +286,7 @@ impl World {
             followed: std::cell::Cell::new(false),
             presenting: std::cell::Cell::new(false),
             emitted: std::cell::Cell::new(false),
+            emitter_errors: RefCell::default(),
             attachments: None,
             detach: None,
             state: State {
@@ -326,6 +329,17 @@ impl World {
     /// Device assets keyed by name/content digest survive it. Excluded from saves/hashes.
     pub fn presentation_generation(&self) -> u64 {
         self.presentation_generation
+    }
+    /// Declare a new picture after replacing app data in this world.
+    /// The canvas's `presented` waits for a complete frame whose shown models and
+    /// textures are delivered and prepared, as after restore; the world keeps
+    /// ticking meanwhile. Presentation histories reset; simulation,
+    /// saves and hashes do not change. This does not rerun `Game::first_frame`.
+    pub fn invalidate_presentation(&mut self) {
+        self.presentation_generation = self
+            .presentation_generation
+            .checked_add(1)
+            .expect("presentation generation exhausted");
     }
     /// Register a component before loading. Registration itself is not state.
     pub fn register<C: Component>(&mut self) -> &mut Self {
@@ -577,6 +591,7 @@ impl World {
         }
         self.register::<C>();
         // Retire leaked query shapes before `&mut` storage access.
+        // @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
         self.leases.restructure();
         self.components
             .entry(C::NAME)
@@ -1025,11 +1040,17 @@ impl World {
     pub fn journal(&self) -> Vec<Event> {
         self.journal.borrow().iter().cloned().collect()
     }
-    /// Publish to the app and journal only changes to this key.
+    /// Publish to the app and journal only changes to this key. `presented`
+    /// is the host's (whether the canvas's picture is on screen, LLP 1009)
+    /// and panics.
     pub fn publish<'a>(&self, key: &str, value: impl Into<crate::Published<'a>>) {
         self.publish_value(key, value.into().0);
     }
     pub(crate) fn publish_value(&self, key: &str, value: crate::values::Incoming<'_>) {
+        assert!(
+            key != "presented",
+            "`presented` is the host's field in the canvas's record (whether its picture is on screen); publish under another name"
+        );
         self.sim_writes(format_args!("published `{key}`"));
         let mut p = self.published.borrow_mut();
         let stored = p.get_mut(key);
@@ -1040,7 +1061,8 @@ impl World {
             return;
         }
         let value = value.into_stored();
-        let mut line = crate::json::to_string(&value).unwrap_or_else(|e| e.to_string());
+        let mut line = String::new();
+        value.append_json(&mut line, false);
         // A large value (a whole inventory) journals its head and its size:
         // 4,096 lines of a 16 MiB record would hold 64 GiB.
         if line.len() > PUBLISH_LINE_BYTES {

@@ -1,4 +1,4 @@
-// The native-module fixture: the seam and
+// The native-module fixture (LLP 1024 D8, LLP 1075.003 §3.9): the seam and
 // nothing else. Three module tags from the roster in app.json —
 // `exact-fixture` (a coloured box that takes the snapshot bit, fires every
 // event on request, and rejects a `reject` prop), `exact-plain` (a box the
@@ -21,7 +21,7 @@ routes nav
     note "/note"
   tab second "/second"
 
-// The hatched list's rows, from the fixture's data source,
+// The hatched list's rows (LLP 1075.003.000), from the fixture's data source,
 // asked for when the Rows route is pushed: a session without that source
 // (the UIKit tests' host) never asks.
 shape Row
@@ -30,7 +30,7 @@ shape Row
 shape Rows
   items: Row[]
 
-// The map providers installed, for the "Open in…" chooser: rows
+// The map providers installed, for the "Open in…" chooser (LLP 1021): rows
 // from data, because only the run time knows what is installed.
 shape Provider
   id: string
@@ -116,12 +116,13 @@ component NativeFixture
   state received = ""
   action bump
     count = count + 1
-  // What hatches ask of authored nodes: the `feed`
+  // What hatches ask of authored nodes (LLP 1075.003.000.001 §2.5): the `feed`
   // hatch replaces a field's value with `input`; the `presser` hatch clicks
   // its own button once when armed, and on every change while looping, which
   // never settles until it is stopped.
   // A hatched frame, shown on a press: the Apple module's `frame` hatch
-  // names the app in its user agent before the web view is made.
+  // names the app in its user agent before the web view is made (LLP
+  // 1020.002 §9).
   state framed = false
   action frame
     framed = not framed
@@ -131,8 +132,8 @@ component NativeFixture
   state looping = false
   state hatchPresses = 0
   // A post that opens with a card at its middle, and a box with no press
-  // with Like at its middle, on Detail (a tap that names a node presses
-  // that node, never a control inside it).
+  // with Like at its middle, on Detail (LLP 1012 §1: a tap that names a
+  // node presses that node, never a control inside it).
   state postOpens = 0
   state cardOpens = 0
   state likes = 0
@@ -144,7 +145,7 @@ component NativeFixture
     likes = likes + 1
   // A date and a time with a hatch, and a date and time without one: on
   // Android each opens its picker, and the `due` hatch's Kotlin sets what the
-  // picker offers (`modules/android`).
+  // picker offers (LLP 1115.001.000 D3; `modules/android`).
   state due = "2026-10-16"
   state dueAt = "09:30"
   state remind = ""
@@ -166,7 +167,7 @@ component NativeFixture
     looping = true
   action stopLoop
     looping = false
-  // The hatches' frame clock: while clocking, a frame task counts
+  // The hatches' frame clock (§2.4): while clocking, a frame task counts
   // frames, and the `clock` hatch's ticket reads the count at each tick. Its
   // third tick presses the node 65 times; the 65th press changes its words,
   // and its `changed` presses once more.
@@ -185,7 +186,7 @@ component NativeFixture
     every(frame, countFrame)
   action unbump
     count = 0
-  // A confirmation raised from an action: the context menu's
+  // A confirmation raised from an action (LLP 1115 D6): the context menu's
   // Clear asks first, as a hand-built app's long-press → alert does.
   action askClear
     showModal("clear-confirm")
@@ -241,7 +242,7 @@ component NativeFixture
     opened = id
   action refreshProviders
     send providers = providers()
-  // A context menu with a preview: its source's own
+  // A context menu with a preview (LLP 1021 §5.1): its source's own
   // `contextmenu` counts the openings; tapping the preview pushes Detail.
   state peeks = 0
   action peeked
@@ -254,7 +255,7 @@ component NativeFixture
     nav = push(nav, "/detail")
   action back
     nav = back(nav)
-  // Plain (pushed) and Note (a sheet) declare no Back control;
+  // LLP 1115 D5: Plain (pushed) and Note (a sheet) declare no Back control;
   // the platform's Back still goes, delivered here as the web's history
   // Back is: the location beneath.
   state focusPlain = false
@@ -294,6 +295,11 @@ component NativeFixture
   state query = ""
   action setQuery(text: string)
     query = text
+  state submittedQuery = ""
+  state querySubmissions = 0
+  action submitQuery
+    submittedQuery = query
+    querySubmissions = querySubmissions + 1
   state segment = "all"
   action chooseSegment(name: string)
     segment = name
@@ -303,7 +309,7 @@ component NativeFixture
     nav = select(nav, name)
   // A root overlay with a z-index after the tabs (docs/agent-pitfalls.md's
   // pattern for full-screen overlays): it paints and takes touches over the
-  // native tab container.
+  // native tab container (LLP 1083.000 D4).
   state overlayShown = false
   action showOverlay
     overlayShown = true
@@ -314,7 +320,7 @@ component NativeFixture
     toast = "Saved"
   action hush
     toast = ""
-  // A sheet at its rows' height, following them; with
+  // LLP 1075.003 §9.11: a sheet at its rows' height, following them; with
   // `menuLarge`, draggable to large from there.
   state menuItems = [0]
   state menuLarge = false
@@ -339,7 +345,7 @@ component NativeFixture
     send asked = providers()
   action askedMenu
     nav = push((top(nav).name == "sheet" ? nav : push(nav, "/sheet")), "/menu")
-  // A pressable title with an avatar and a subtitle, a
+  // LLP 1075.003 §9.10: a pressable title with an avatar and a subtitle, a
   // route pushed with the tablist hidden, and one that asks for no bar.
   state subtitle = "Online"
   state titlePresses = 0
@@ -351,12 +357,12 @@ component NativeFixture
     titlePresses = titlePresses + 1
   action toggleSubtitle
     subtitle = subtitle == "" ? "Online" : ""
-  // A subtitle as a line of symbols and texts.
+  // A subtitle as a line of symbols and texts (§9.10).
   state muted = false
   action toggleMuted
     muted = not muted
   // Chat's scroller with its tall box gone: a column that fills its height,
-  // laid out between the bar and the home indicator.
+  // laid out between the bar and the home indicator (LLP 1116.000 D1.2).
   state shortChat = false
   action toggleShortChat
     shortChat = not shortChat
@@ -370,11 +376,11 @@ component NativeFixture
   action openDetail
     nav = open(nav, "/detail")
   // The tablist hidden over the root, as Signal's chat-list multi-select
-  // hides its tab bar.
+  // hides its tab bar (LLP 1075.003 §3.7, amended 2026-10-05).
   state tabsAtTop = false
   action toggleTabsAtTop
     tabsAtTop = not tabsAtTop
-  // The tablist the author keeps (`appearance: none`).
+  // The tablist the author keeps (`appearance: none`, LLP 1075.003 §9.10).
   state tabsAuthored = false
   action toggleTabsAuthored
     tabsAuthored = not tabsAuthored
@@ -392,14 +398,14 @@ component NativeFixture
           column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
             for e in t.stack key=e.id
               // Home and Second leave the bar's scroller unnamed: the first vertical
-              // scroller below each header drives its large title. The other
-              // routes name theirs.
+              // scroller below each header drives its large title (LLP 1115.000
+              // D11.1). The other routes name theirs.
               column navigationKey=`${e.id}` navigationBar=(e.name == "photo" ? "none" : "auto") navigationPresentation=(e.name == "sheet" or e.name == "menu" or e.name == "note" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : (e.name == "menu" ? (menuLarge ? "fit-content large" : "fit-content") : "")) navigationScroll=(e.name == "second" or e.name == "home" ? "" : (e.name == "plain" ? "plain-form" : (e.name == "chat" ? "list-chat" : "list-detail"))) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
                 // Photo is a full-bleed viewer that draws its own Close: it
-                // says it has no bar (`navigationBar="none"`). Menu, a sheet's
-                // first route, has nothing to go back to.
+                // says it has no bar (`navigationBar="none"`, LLP 1115.000
+                // D5.2). Menu, a sheet's first route, has nothing to go back to.
                 if e.name != "photo" and e.name != "menu" and not tabsAtTop
-                  header testId=`header-${e.name}` display="flex" flex-direction="row" align-items="center" gap=8 padding=12 flex-shrink=0 border-bottom-width=1 border-bottom-style="solid" border-color="#e5e7eb"
+                  header testId=`header-${e.name}` display="flex" flex-direction="row" flex-wrap="wrap" align-items="center" gap=8 padding=12 flex-shrink=0 border-bottom-width=1 border-bottom-style="solid" border-color="#e5e7eb"
                     if e.name == "detail" or e.name == "rows" or e.name == "chat"
                       button id="back" press=back testId="back" aria-label="Back" padding=6 background-color="#e5e7eb"
                         image "symbol:back" width=20 height=20
@@ -407,7 +413,7 @@ component NativeFixture
                       button id="back" press=back testId="close-sheet" aria-label="Close" padding=6 background-color="#e5e7eb"
                         image "symbol:close" width=20 height=20
                     if e.name == "home"
-                      // A drawn face: a button whose one
+                      // A drawn face (LLP 1075.003 §9.6): a button whose one
                       // child is a filled box holding a text is an image item.
                       button press=compose aria-label="Profile" testId="badge-item" padding=0
                         column width=32 height=32 border-radius=16 background-color="#e3e3fe" align-items="center" justify-content="center"
@@ -416,7 +422,7 @@ component NativeFixture
                       button popovertarget="bar-menu" aria-label="More" testId="menu-item" padding=6 background-color="#e5e7eb"
                         image "symbol:sf/ellipsis.circle" width=20 height=20
                       // A search field in the header: the item's search controller.
-                      input type="search" value=query input=setQuery placeholder="Search the fixture" testId="header-search" width=80
+                      input type="search" value=query input=setQuery submit=submitQuery placeholder="Search the fixture" testId="header-search" width=80
                       // A text tablist in the header: the item's segmented title view.
                       row role="tablist" testId="header-segments"
                         // The projected segmented control owns the chrome; its
@@ -426,7 +432,7 @@ component NativeFixture
                         button appearance="none" role="tab" aria-selected=(segment == "missed") press=chooseSegment("missed") testId="segment-missed"
                           text "Missed"
                     // A pressable group around the heading, with an avatar and
-                    // a subtitle: the item's title, drawn, tapped.
+                    // a subtitle: the item's title, drawn, tapped (§9.10).
                     if e.name == "chat"
                       button press=pressTitle testId="title-group" display="flex" flex-direction="row" flex=1 align-items="center" gap=8
                         column width=32 height=32 border-radius="50%" background-color="#dcfce7" align-items="center" justify-content="center"
@@ -442,23 +448,27 @@ component NativeFixture
                               image "symbol:sf/timer" width=12 height=12 object-fit="contain"
                               text "1w" font-size=12 color="#6b7280"
                     if e.name != "chat"
-                      text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : e.name == "plain" ? "Plain" : e.name == "note" ? "Note" : "Second") role="heading" aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
+                      text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : e.name == "plain" ? "Plain" : e.name == "note" ? "Note" : "Second") role="heading" aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1
                     // The heading the header holds directly: the first text
                     // after it is the bar's subtitle; a second is not shown
-                    // on iOS, which the agent says.
+                    // on iOS, which the agent says (LLP 1116 D2).
                     if e.name == "plain"
                       text "No Back control" testId="subtitle-plain" font-size=12 color="#6b7280"
                       text "Draft" testId="aside-plain" font-size=12 color="#6b7280"
                     // A bar item opening a popover that is no menu: it opens
-                    // as itself, from the item, not as a pull-down.
+                    // as itself, from the item, not as a pull-down (LLP 1021 D3).
                     if e.name == "plain"
                       button popovertarget="plain-about" aria-label="About" testId="about-plain" padding=6 background-color="#e5e7eb"
                         image "symbol:info" width=20 height=20
+                    // A bar item that shows an alert by its command alone, pressing nothing (#387).
+                    if e.name == "plain"
+                      button commandfor="plain-clear" command="show-modal" aria-label="Clear" testId="clear-plain" padding=6 background-color="#e5e7eb"
+                        image "symbol:delete" width=20 height=20
                     button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
                       image "symbol:compose" width=20 height=20
                     // A readout after the buttons: an item nothing presses,
                     // its dot and monospaced count drawn as written, which
-                    // follows the count in place.
+                    // follows the count in place (LLP 1075.003 §9.15).
                     if e.name == "plain"
                       row role="status" testId="readout-plain" aria-label=`${composed} composed` display="flex" align-items="center" gap=6
                         column width=7 height=7 border-radius=3.5 background-color=(composed > 0 ? "#16a34a" : "#9ca3af")
@@ -466,6 +476,13 @@ component NativeFixture
                 if e.name == "plain"
                   column id="plain-about" popover="auto" testId="plain-about" padding=12 width=220
                     text "A route with no Back control of its own." font-size=13
+                if e.name == "plain"
+                  dialog id="plain-clear" role="alertdialog" aria-label="Clear the count?" padding=16
+                    text "The count goes back to zero."
+                    button press=unbump destructive=true commandfor="plain-clear" command="close" testId="plain-clear-clear"
+                      text "Clear"
+                    button commandfor="plain-clear" command="close" testId="plain-clear-cancel"
+                      text "Cancel"
                 if e.name == "home"
                   column id="bar-menu" popover="auto" position="absolute" role="menu" aria-label="Actions" width=200 padding=8 background-color="#ffffff"
                     button appearance="none" press=bump popovertarget="bar-menu" popovertargetaction="hide" role="menuitem" testId="bar-menu-bump" height=44 text-align="start"
@@ -538,7 +555,7 @@ component NativeFixture
                           text (framed ? "Unframe" : "Frame")
                         if framed
                           iframe hatch="frame" src="about:blank" testId="hatched-frame" width=40 height=24
-                      // An "Open in…" chooser: the invoker refreshes
+                      // An "Open in…" chooser (LLP 1021): the invoker refreshes
                       // what is installed as it opens; a menu on every host,
                       // titled by its aria-label, each row its provider's icon,
                       // the remembered one checked; the same rows as a sheet
@@ -584,7 +601,7 @@ component NativeFixture
                             text p.name
                         button popovertarget="open-in-sheet" popovertargetaction="hide" testId="open-in-sheet-cancel" height=44
                           text "Cancel"
-                      // A context menu: a long press on iOS lifts
+                      // A context menu (LLP 1021 §5.1): a long press on iOS lifts
                       // the row into UIKit's menu with the preview above it; the
                       // preview's press is the commit, popping into Detail.
                       button press=detail contextmenu=peeked contextPopover="peek" testId="peek" aria-label="Detail, long press to peek" display="flex" flex-direction="row" align-items="center" gap=8 padding=10 border-radius=12 background-color="#eef2ff"
@@ -600,7 +617,19 @@ component NativeFixture
                         hr margin-left=0 margin-right=0
                         button press=askClear destructive=true popovertarget="peek" popovertargetaction="hide" testId="peek-clear" height=44
                           text "Clear"
-                      // The platform's alert: a title (its
+                      // A link no authored menu answers gets the host's own on iOS (LLP 1021
+                      // §5.1, "A link's own menu"): the link lifted, Open Link, Copy Link
+                      // and Share. Inside a card with a menu, the card's menu answers.
+                      link href="https://example.com/fixture" testId="plain-link" padding=8 border-radius=8
+                        text "Example"
+                      text testId="link-text"
+                        text "Open "
+                        text "Detail" href="/detail" testId="run-link"
+                        text " from a run."
+                      column contextPopover="peek" testId="peek-card" padding=8
+                        link href="https://example.com/card" testId="card-link"
+                          text "A link in a card with a menu"
+                      // The platform's alert (LLP 1115 D6): a title (its
                       // aria-label), a message (its text), a destructive action
                       // and Cancel, centred on iOS; opened by its button or by
                       // `showModal` from an action (the context menu's Clear).
@@ -708,7 +737,7 @@ component NativeFixture
                       button press=openChat testId="detail-chat" padding=6 background-color="#e5e7eb"
                         text "Chat"
                       column testId="tall" height=1600 background-color="#f3f4f6"
-                // An "Open in…" at the foot of a card: its
+                // An "Open in…" at the foot of a card (LLP 1021 §5): its
                 // chooser above it, centred on it (`top span-all`), as a menu
                 // and as a sheet. Below the Detail screen's scroll, so it stays at
                 // the foot whatever the screen's height.
@@ -763,13 +792,13 @@ component NativeFixture
                 // A sheet over a sheet: the menu pushed over Sheet presents
                 // from Sheet's controller, and closing it returns to Sheet.
                 if e.name == "sheet"
-                  column testId="sheet-body" padding=16
+                  column testId="sheet-body" padding=16 min-height=0 overflow="auto"
                     // Two fields in a mounted sheet: focus bubbles out of it
-                    // to the document's ancestors
+                    // to the document's ancestors (LLP 1123 D2)
                     input id="sheet-a" testId="sheet-field-a" aria-label="Sheet A" height=32
                     input id="sheet-b" testId="sheet-field-b" aria-label="Sheet B" height=32
                     // A field low in a short scroller: revealed once the
-                    // sheet's keyboard has settled.
+                    // sheet's keyboard has settled (LLP 1123 C26)
                     scroll id="sheet-scroll" testId="sheet-scroll" height=60 flex-shrink=0
                       column height=200
                       input id="sheet-c" testId="sheet-field-c" aria-label="Sheet C" height=32
@@ -823,14 +852,14 @@ component NativeFixture
                   scroll id="list-second" testId="list-second-shorter" flex=1 min-height=0
                     column padding=12 gap=8
                       text "Shorter" testId="second-shorter-top"
-      // Hidden on Chat and Photo, so the tab bar hides for them;
+      // Hidden on Chat and Photo, so the tab bar hides for them (§9.10);
       // its accent tints the bar's selected item.
       for build in [tabsBuild] key=`tabs-${build}`
         row role="tablist" aria-label="Tabs" testId="tabs" accent-color="#3838f5" appearance=(tabsAuthored ? "none" : "auto") display=((choosing and top(nav).name == "home") or top(nav).name == "chat" or top(nav).name == "photo" ? "none" : "flex") flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb" align-items="stretch"
           button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=selectTab("home") testId="tab-home" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
             image (nav.tab == "home" ? "symbol:home-fill" : "symbol:home") width=22 height=22
             text "Home" font-size=11
-            // Not a badge: a count box made transparent.
+            // Not a badge (§9.9): a count box made transparent.
             column position="absolute" top=0 right=0 opacity=0 background-color="#ef4444" testId="faded-home"
               text "9" font-size=8
           button role="tab" aria-controls="panel-second" aria-selected=(nav.tab == "second") press=selectTab("second") testId="tab-second" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
@@ -841,7 +870,7 @@ component NativeFixture
             row position="absolute" top=0 left=0 background-color="#e5e7eb" testId="pill-second"
               text "pill" font-size=8
               box width=4 height=4 background-color="#ef4444"
-            // A filled box holding a text: the bar item's badge.
+            // A filled box holding a text: the bar item's badge (LLP 1075.003 §9.9).
             if count > 0
               column testId="badge-second" position="absolute" top=4 right=24 min-width=16 height=16 padding-left=4 padding-right=4 border-radius=8 background-color="#ef4444" align-items="center" justify-content="center"
                 text count.toString() font-size=10 color="#ffffff"
@@ -853,7 +882,7 @@ component NativeFixture
         button press=hush testId="root-toast" position="absolute" top=60 left=16 right=16 padding=12 background-color="#111827" border-radius=8
           text toast color="#ffffff"
       if overlayShown
-        column testId="root-overlay" role="dialog" aria-label="Overlay" position="absolute" top=0 right=0 bottom=0 left=0 z-index=10 background-color="#000000cc" align-items="center" justify-content="center"
+        column testId="root-overlay" position="absolute" top=0 right=0 bottom=0 left=0 z-index=10 background-color="#000000cc" align-items="center" justify-content="center"
           button press=hideOverlay testId="hide-overlay" padding=12 background-color="#ffffff"
             text "Close"
 
@@ -867,7 +896,7 @@ component HatchedRows
     column flex=1 min-height=0
       button press=toggleReuse testId="reuse" padding=6 margin=12 background-color="#e5e7eb"
         text (reuse ? "Rows reused" : "Rows not reused")
-      // Each row's context menu: a row that names one still
+      // Each row's context menu (LLP 1021 §5.1): a row that names one still
       // parks in the node pool and is lent to the next (NodePoolIOS).
       column id="row-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
         button popovertarget="row-menu" popovertargetaction="hide" testId="row-menu-close" height=44

@@ -1,4 +1,4 @@
-// The hostile sample host, macOS: a native AppKit app that is
+// The hostile sample host, macOS (LLP 1031 D10): a native AppKit app that is
 // not Exact's — a split view whose left pane is a native table — hosting
 // two sessions of the one plan the archive carries, side by side. It is the
 // fixture `scripts/smoke.mjs host` drives through the existing carrier (each
@@ -46,7 +46,7 @@ let tableScroll = NSScrollView(frame: .zero)
 tableScroll.documentView = table
 tableScroll.hasVerticalScroller = true
 
-/// Two sessions of the one plan, each in its own pane, each
+/// Two sessions of the one plan (LLP 1031 D1), each in its own pane, each
 /// with its own clock under the agent.
 let a = exact.makeSession(label: "a")
 let b = exact.makeSession(label: "b")
@@ -80,7 +80,7 @@ window.autorecalculatesKeyViewLoop = false
 window.center()
 
 /// A native "screen" pushed over a session's pane: the Exact view leaves
-/// its container (unmounted, its session alive and unmounted), a native
+/// its container (unmounted, its session alive and unmounted, D1), a native
 /// view takes its place; a pop reverses it.
 final class NativeScreen: NSView {
     let label: String
@@ -114,10 +114,10 @@ func pop(_ label: String) {
     log("host: popped the native screen over \(label); \(label) remounted")
 }
 
-/// The delegate the host owns: a command is an intention. Here
+/// The delegate the host owns: a command is an intention (LLP 1031 D5). Here
 /// `setScheme("dark")` from any session pushes a native screen over session
 /// a, and `setScheme("light")` pops it — the host decides what a command
-/// means, and it happens after the batch that carried it was applied.
+/// means, and it happens after the batch that carried it was applied (D2).
 final class HostDelegate: ExactSessionDelegate {
     func exactSession(_ session: ExactSession, command name: String, args: [Any]) {
         log("host: command \(name)\(args.isEmpty ? "" : " \(args)") from \(session.label)")
@@ -131,7 +131,7 @@ final class HostDelegate: ExactSessionDelegate {
         log("host: \(session.label) is \(state)")
     }
 }
-/// The embedder's decision on leaving the app: a
+/// The embedder's decision on leaving the app (LLP 1133.024 D22 item 7): a
 /// page or a hand-off by URL only to the host's own list.
 extension HostDelegate: ExactLeaveDelegate {
     static let leaveList = ["https://www.caltrain.com/"]
@@ -201,11 +201,11 @@ if ExactEnv.environment["EXACT_HOST_CONTROL"] != nil {
 
 final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
-        exact.installNotificationClicks { _ in
+        exact.installNotificationClicks(boot: nil, activate: { _ in
             guard launched else { return } // finishLaunching presents a cold click.
             app.windows.first?.makeKeyAndOrderFront(nil)
             app.activate(ignoringOtherApps: true)
-        }
+        })
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         readControls() // A launching notification can arrive after willFinish, before the views boot.
@@ -214,7 +214,8 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     /// A quit waits while a session's storage is still landing, a request
     /// with effects is in flight or its native module's quit work runs, five
-    /// seconds at most for all of it; a repeated quit joins that hold.
+    /// seconds at most for all of it (LLP 1097 D10, LLP 1146 D2, LLP 1069.010
+    /// Q4); a repeated quit joins that hold.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quitting?.holding == true { return .terminateLater }
         for (_, s) in sessions { s.willQuit() }
@@ -234,6 +235,7 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowDidChangeOcclusionState(_ notification: Notification) { for (_, s) in sessions { s.occlusionChanged() } }
 }
 let appDelegate = Delegate()
+exact.installHostEvents(applicationDelegate: Delegate.self, sceneDelegate: nil)
 app.delegate = appDelegate
 window.delegate = appDelegate
 
@@ -255,8 +257,13 @@ func finishLaunching() {
     }
     window.initialFirstResponder = viewA
     launched = true
+    if Agent.windowsBehind {
+        // Below the normal level, which alone would make it float across Spaces, out of ⌘`'s cycle.
+        window.level = .agentBehind
+        window.collectionBehavior.formUnion([.managed, .participatesInCycle])
+    }
     window.makeKeyAndOrderFront(nil)
-    if ExactEnv.agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
+    if Agent.windowsBehind {} else if ExactEnv.agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
     agentReady()
 }
 

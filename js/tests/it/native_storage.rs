@@ -1,4 +1,4 @@
-//! The storage a native module is handed: a SQLite file
+//! The storage a native module is handed (LLP 1154 D3): a SQLite file
 //! admitted under the app's grants and held by one SQLite at a time.
 #![cfg(exact_js_engine)]
 use super::storage::{call, Root, GRANTS};

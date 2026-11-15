@@ -1,4 +1,4 @@
-// The fixture identity provider for drives and tests,
+// The fixture identity provider for drives and tests (LLP 1133.014 §9),
 // outside the runner, as passkeys' `authenticator.mjs` is: given a
 // `credential` ticket's `args`, it signs an ID token with a fixture key it
 // keeps in a file the drive names, with the provider's real `iss`, the

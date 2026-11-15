@@ -1,5 +1,5 @@
 //! Inline mode as a person sees it: the host's frames written into a
-//! terminal emulator and read back from its screen.
+//! terminal emulator and read back from its screen (LLP 1101.002 §0 P1).
 //! Each test is a bug the harness found by hand.
 
 use exact_terminal::host::{Host, Key, Mode};
@@ -59,6 +59,270 @@ fn boot(cols: usize, rows: usize) -> (Host<()>, Vt) {
 }
 
 #[test]
+fn line_clamp_marks_the_last_visible_line() {
+    let plan = contract::compile_terminal(
+        r#"component App
+  view
+    column width="16ch"
+      text "one two three four five six seven eight nine ten" line-clamp=2
+      text "----------------"
+      text "one two three four five six seven eight nine ten" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+"#,
+    )
+    .unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    assert_eq!(
+        vt.text(false).trim_end(),
+        "one two three\nfour five six…\n----------------\none two three f…"
+    );
+}
+
+#[test]
+fn line_clamp_keeps_whole_clusters_and_marks_only_a_cut() {
+    for (width, value, style, expected) in [
+        (4, "abcd ef", "", "abc…"),
+        (4, "abcd", "", "abcd"),
+        (4, "abc", "", "abc"),
+        (4, "日本語", "", "日…"),
+        (4, "éééé next", "", "ééé…"),
+        (1, "a b", "", "…"),
+        (4, "ab\\ncd", "white-space=\"pre\"", "ab…"),
+        (4, "ab", "white-space=\"pre\"", "ab"),
+        (4, "ab\\ncd", "white-space=\"pre-wrap\"", "ab…"),
+        (4, "ab cd", "text-align=\"right\"", " ab…"),
+        (4, "abcd ef", "text-overflow=\"ellipsis\"", "abc…"),
+    ] {
+        let source = format!(
+            "component App\n  view\n    text \"{value}\" width=\"{width}ch\" line-clamp=1 {style}\n"
+        );
+        let plan = contract::compile_terminal(&source).unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+        let mut vt = Vt::new(&mut host);
+        vt.render(&mut host);
+        assert_eq!(vt.text(false).trim_end(), expected, "{source}");
+        assert_eq!(vt.text(false), host.frame().grid.text());
+    }
+}
+
+#[test]
+fn a_long_preserved_clamped_line_repaints_promptly() {
+    let source = format!(
+        "component App\n  view\n    text \"{}\\nb\" width=\"80ch\" white-space=\"pre\" line-clamp=1\n",
+        "a".repeat(100_000)
+    );
+    let plan = contract::compile_terminal(&source).unwrap();
+    let host = Host::boot(plan, (), Mode::Fullscreen, 80, 6).unwrap();
+    // Exclude compilation and layout; the bound catches quadratic ellipsis trimming.
+    let start = std::time::Instant::now();
+    let frame = host.render(0, 6);
+    let elapsed = start.elapsed();
+    assert_eq!(frame.grid.text().trim_end(), format!("{}…", "a".repeat(79)));
+    assert!(elapsed < std::time::Duration::from_secs(5), "{elapsed:?}");
+}
+
+#[test]
+fn native_buttons_mark_clamped_titles_on_whole_clusters() {
+    for (width, value, style, expected) in [
+        (8, "one two three four", "", "  one…"),
+        (8, "six", "", "  six"),
+        (6, "日本語", "", " 日…"),
+        (6, "éééé next", "", " ééé…"),
+        (3, "a b", "", " …"),
+        (8, "ab cd ef", "text-align=\"right\"", " ab cd…"),
+    ] {
+        let source = format!(
+            "component App\n  view\n    button \"{value}\" width=\"{width}ch\" line-clamp=1 {style}\n"
+        );
+        let plan = contract::compile_terminal(&source).unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+        let mut vt = Vt::new(&mut host);
+        vt.render(&mut host);
+        assert_eq!(vt.text(false).trim_end(), expected, "{source}");
+    }
+}
+
+#[test]
+fn native_buttons_preserve_newlines_before_clamping_the_title() {
+    use exact_kernel::style::cells::ROW;
+
+    for (clamp, expected, height) in [(1, " abcde…", ROW), (0, " abcdef\n   x", 2. * ROW)] {
+        let source = format!(
+            "component App\n  view\n    button \"abcdefgh\\nx\" width=\"8ch\" white-space=\"pre\" line-clamp={clamp} testId=\"button\"\n"
+        );
+        let plan = contract::compile_terminal(&source).unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+        let id = host.by_test_id("button").unwrap();
+        let mut vt = Vt::new(&mut host);
+        vt.render(&mut host);
+        assert_eq!(vt.text(false).trim_end(), expected, "{source}");
+        assert_eq!(host.kernel().node(id).unwrap().frame.height, height);
+        assert_eq!(
+            host.kernel().press_face(id).unwrap().title.as_deref(),
+            Some("abcdefgh\nx")
+        );
+    }
+}
+
+/// LLP 1075.003 §9.9 (expo/exact#391): a tab that names its panel holds its
+/// badge beside its native face; the terminal measures and paints it after
+/// the title, where it had painted the badge box as a child of a bare tab.
+#[test]
+fn a_native_tabs_badge_is_measured_and_painted_after_its_title() {
+    let source = "component App\n  state n = 3\n  view\n    column\n      row role=\"tablist\"\n        button role=\"tab\" aria-controls=\"panel\" aria-selected=true testId=\"tab\"\n          text \"Saved\"\n          if n > 0\n            row background-color=\"-exact-system-red\"\n              text `${n}`\n      column role=\"tabpanel\" id=\"panel\"\n        text \"Panel\"\n";
+    let plan = contract::compile_terminal(source).unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 30, 6).unwrap();
+    let id = host.by_test_id("tab").unwrap();
+    assert_eq!(
+        host.kernel().press_face(id).unwrap().badge.as_deref(),
+        Some("3")
+    );
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    let text = vt.text(false);
+    assert!(
+        text.lines().next().unwrap_or("").contains("Saved (3)"),
+        "{text}"
+    );
+    // One cell of chrome either side of the title and its badge.
+    assert_eq!(
+        host.kernel().node(id).unwrap().frame.width,
+        ("Saved (3)".len() + 2) as f32 * exact_kernel::style::cells::COLUMN
+    );
+}
+
+#[test]
+fn overflow_clip_leaves_the_other_axis_visible() {
+    for (overflow, placement, expected) in [
+        ("overflow-y=\"clip\"", "left=\"6ch\"", "      menu"),
+        ("overflow-x=\"clip\"", "top=\"1lh\"", "\nmenu"),
+        ("overflow-x=\"clip\"", "left=\"6ch\"", ""),
+        ("overflow-y=\"clip\"", "top=\"1lh\"", ""),
+        ("overflow-y=\"hidden\"", "left=\"6ch\"", ""),
+        ("overflow-x=\"hidden\"", "top=\"1lh\"", ""),
+        (
+            "overflow-x=\"clip\" margin-top=\"-1lh\"",
+            "top=\"1lh\"",
+            "menu",
+        ),
+    ] {
+        let source = format!(
+            "component App\n  view\n    column position=\"relative\" width=\"4ch\" height=\"1lh\" {overflow}\n      text \"menu\" position=\"absolute\" {placement}\n"
+        );
+        let plan = contract::compile_terminal(&source).unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+        let mut vt = Vt::new(&mut host);
+        vt.render(&mut host);
+        assert_eq!(vt.text(false).trim_end(), expected, "{source}");
+    }
+}
+
+#[test]
+fn scrolling_an_anchor_out_of_view_keeps_its_positioned_child_visible() {
+    let plan = contract::compile_terminal(
+        r#"component App
+  view
+    column
+      scroll height="4lh" scrollbar-width="none"
+        column position="relative" height="1lh"
+          text "anchor"
+          text "menu" position="absolute" top="1lh" left="10ch"
+        text "two"
+        text "three"
+        text "four"
+        text "five"
+        text "six"
+      text "after"
+"#,
+    )
+    .unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    assert_eq!(
+        vt.text(false).trim_end(),
+        "anchor\ntwo       menu\nthree\nfour\nafter"
+    );
+    host.wheel(2, 2, 1);
+    vt.render(&mut host);
+    assert_eq!(
+        vt.text(false).trim_end(),
+        "two       menu\nthree\nfour\nfive\nafter"
+    );
+    host.wheel(2, 2, -1);
+    vt.render(&mut host);
+    assert_eq!(vt.text(false).lines().nth(1), Some("two       menu"));
+}
+
+#[test]
+fn children_reach_the_clip_from_boxes_above_and_below_it() {
+    for (placement, children) in [
+        (
+            "margin-top=\"-1lh\"",
+            "        text \"anchor\"\n        text \"visible\"\n",
+        ),
+        (
+            "margin-top=\"-1lh\"",
+            "        column position=\"absolute\" top=\"1lh\"\n          text \"visible\"\n",
+        ),
+        (
+            "margin-top=\"3lh\"",
+            "        column position=\"absolute\" top=\"-3lh\"\n          text \"visible\"\n",
+        ),
+    ] {
+        for overflow in ["visible", "hidden"] {
+            let source = format!(
+                "component App\n  view\n    column height=\"3lh\" overflow=\"hidden\"\n      column position=\"relative\" height=\"1lh\" {placement} overflow=\"{overflow}\"\n{children}"
+            );
+            let plan = contract::compile_terminal(&source).unwrap();
+            let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+            let mut vt = Vt::new(&mut host);
+            vt.render(&mut host);
+            let expected = if overflow == "visible" { "visible" } else { "" };
+            assert_eq!(vt.text(false).trim_end(), expected, "{source}");
+        }
+    }
+}
+
+#[test]
+fn a_dialog_over_half_a_wide_cluster_keeps_the_screen_aligned() {
+    for (cols, line, expected) in [
+        (24, "日本語日本語日本語日本語", "日本語 │hello  │語日本語"),
+        (
+            28,
+            "abcdefghijklmnopq🚀 shipped",
+            "abcdefghi│hello  │  shipped",
+        ),
+    ] {
+        let source = format!(
+            r##"component App
+  view
+    column width="100%" height="100%"
+      text "{line}"
+      text "{line}"
+      text "{line}"
+      button commandfor="d" command="show-modal" testId="open"
+        text "open"
+      dialog id="d" closedby="any" border="thin solid" width="7ch" background-color="#202020"
+        text "hello"
+"##
+        );
+        let plan = contract::compile_terminal(&source).unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, cols, 6).unwrap();
+        let mut vt = Vt::new(&mut host);
+        vt.render(&mut host);
+        let initial = vt.text(false);
+        press(&mut host, &mut vt, "open");
+        let screen = vt.text(false);
+        assert_eq!(screen.lines().nth(2), Some(expected), "{screen}");
+        assert_eq!(screen, host.frame().grid.text());
+        read(&mut host, &mut vt, &[Key::Named("Escape")]);
+        assert_eq!(vt.text(false), initial);
+    }
+}
+
+#[test]
 fn an_image_can_appear_disappear_and_reappear_after_image_free_commits() {
     let path = std::env::temp_dir().join(format!("terminal-late-image-{}.png", std::process::id()));
     let file = std::fs::File::create(&path).unwrap();
@@ -82,6 +346,7 @@ fn an_image_can_appear_disappear_and_reappear_after_image_free_commits() {
     assert!(!vt.text(false).contains('▀'));
     for pass in 0..2 {
         host.act("show");
+        host.wait_images(std::time::Duration::from_secs(5));
         vt.render(&mut host);
         let id = host.by_test_id("picture").unwrap();
         assert_eq!(host.images.nodes.len(), 1);
@@ -97,6 +362,76 @@ fn an_image_can_appear_disappear_and_reappear_after_image_free_commits() {
         assert!(host.images.of(id).is_none());
         assert!(!vt.text(false).contains('▀'));
     }
+}
+
+/// Each source is read off the commit and heard as HTML's `<img>` hears it:
+/// a file, a `data:` URL and a source with no file the app names load; what
+/// the terminal does not read errs with the reason, and a FIFO or a device
+/// is refused rather than waited on or read without end.
+#[cfg(unix)]
+#[test]
+fn an_images_source_is_resolved_bounded_and_heard() {
+    let dir = std::env::temp_dir().join(format!("terminal-image-sources-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let png = dir.join("one.png");
+    let mut encoder = png::Encoder::new(std::fs::File::create(&png).unwrap(), 1, 1);
+    encoder.set_color(png::ColorType::Rgb);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().unwrap();
+    writer.write_image_data(&[20, 40, 60]).unwrap();
+    writer.finish().unwrap();
+    let fifo = dir.join("fifo.png");
+    let _ = std::fs::remove_file(&fifo);
+    let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    let data = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    let sources = [
+        ("file", format!("file://{}", png.display())),
+        ("data", data.to_string()),
+        ("remote", "https://example.com/a.png".into()),
+        ("app", "app:/data/a.png".into()),
+        ("relative", "a.png".into()),
+        ("fifo", fifo.display().to_string()),
+        ("device", "/dev/zero".into()),
+        ("text", dir.join("missing.png").display().to_string()),
+    ];
+    let mut source = String::from(
+        "component App\n  state said = \"\"\n  state n = 0\n  action bump\n    n = n + 1\n  action heard(name: string)\n    said = `${said}${name} loaded\\n`\n  action erred(name: string, message: string)\n    said = `${said}${name}: ${message}\\n`\n  view\n    column\n      text said white-space=\"pre-line\"\n",
+    );
+    for (name, src) in &sources {
+        source.push_str(&format!(
+            "      image \"{src}\" width=\"1ch\" height=\"1lh\" load=heard(\"{name}\") error=erred(\"{name}\")\n"
+        ));
+    }
+    let plan = contract::compile_terminal(&source).unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 80, 20).unwrap();
+    host.wait_images(std::time::Duration::from_secs(5));
+    let screen = host.frame().grid.text();
+    let mut said: Vec<&str> = screen
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| l.contains(' '))
+        .collect();
+    said.sort();
+    assert_eq!(
+        said,
+        [
+            "app: the terminal host has no app directories",
+            "data loaded",
+            "device: not a regular file",
+            "fifo: not a regular file",
+            "file loaded",
+            "relative: no app directory to resolve a relative source against",
+            "remote: the terminal host does not download images",
+            "text: No such file or directory (os error 2)",
+        ],
+        "{screen}"
+    );
+    // Heard once per source: a later commit sends nothing again.
+    host.act("bump");
+    host.wait_images(std::time::Duration::from_secs(5));
+    assert_eq!(host.frame().grid.text(), screen);
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -625,7 +960,7 @@ fn live_time_ticks_in_the_terminal_without_an_app_task() {
     assert!(vt.text(false).contains("3 min. ago"));
 }
 
-/// A grouped row's separator is no border. It is drawn on the
+/// LLP 1084 D7: a grouped row's separator is no border. It is drawn on the
 /// row's last line from its content edge, though no row has a bottom border
 /// width; not under the card's last row, which follows a row that comes and
 /// goes; and a colour the author gives the bottom edge alone recolours
@@ -676,7 +1011,7 @@ fn a_grouped_rows_separator_is_drawn_without_a_border_and_not_under_the_last_row
     assert_eq!(host.frame().grid.cell(x, y).text, "─");
 }
 
-/// A native button row as wide as its row stays in its card:
+/// LLP 1084 D7: a native button row as wide as its row stays in its card:
 /// its inset is its margin and its widest the card less its insets.
 #[test]
 fn a_full_width_native_button_row_stays_in_its_card() {
@@ -710,7 +1045,7 @@ fn a_full_width_native_button_row_stays_in_its_card() {
 /// A `press` on a box (a card, a pressable column) is on the screen and
 /// taps as a control does, and a click on its text reaches it; a button
 /// inside a pressable column is the click's target there, its own press
-/// alone.
+/// alone (QUEUE: "the terminal never taps a pressable box", iosfix's repro).
 const PRESSABLE: &str = r#"component App
   state solo = 0
   state card = 0
@@ -791,7 +1126,7 @@ fn a_pressable_box_taps_and_clicks_as_a_control_does() {
     );
 }
 
-/// What a pressable box must not lend its cells to: a
+/// What a pressable box must not lend its cells to (Astra's round 1): a
 /// link-like run in its text is the click's target, and a button scrolled
 /// out of a list it holds, or a hidden box inside it, is not on the screen.
 const COVERED: &str = r#"component App
@@ -848,8 +1183,8 @@ fn a_pressable_box_lends_no_cells_to_what_it_hides_or_holds_inline() {
 }
 
 /// A press on a box that can't hold the focus moves the focus away (the
-/// field blurs), as a click on a `div` does, and scrolls nothing into view:
-/// a card taller than its scroller stays where it is.
+/// field blurs), as a click on a `div` does, and scrolls nothing into view
+/// (Grok's round 1): a card taller than its scroller stays where it is.
 const BLURS: &str = r#"component App
   state blurs = 0
   state presses = 0
@@ -890,7 +1225,7 @@ fn a_press_on_a_box_blurs_the_field_and_scrolls_nothing() {
 /// press: neither its own `press` nor an enclosing card's runs, by a tap,
 /// a click, or a click on a styled run of its text; a plain styled label
 /// inside a button leaves the click the button's: its own press runs and
-/// its `commandfor` opens the dialog.
+/// its `commandfor` opens the dialog (Astra's round 2 and its re-check).
 const INELIGIBLE: &str = r#"component App
   state presses = 0
   state outer = 0
@@ -951,8 +1286,8 @@ fn a_disabled_or_inert_box_takes_no_press_and_a_buttons_label_is_its_own() {
 /// An `autofocus` control takes the focus once, as it arrives with nothing
 /// focused (HTML's candidates): a press on a box that can't hold the focus
 /// blurs it and the focus stays empty, so a key types nowhere; one that
-/// arrives later, with nothing focused, takes it: the
-/// terminal refills autofocus whenever the focus is empty.
+/// arrives later, with nothing focused, takes it (QUEUE: "the terminal
+/// refills autofocus whenever the focus is empty").
 const AUTOFOCUS: &str = r#"component App
   state draft = ""
   state other = ""
@@ -1057,4 +1392,71 @@ fn with_nothing_focused_the_root_hears_keys() {
         "{}",
         vt.text(false)
     );
+}
+
+/// An image's alternate text is app text under the painter's one policy
+/// (LLP 1101 D7): a control character in it is drawn as a replacement, never
+/// written to the terminal, so the screen matches the grid.
+#[test]
+fn an_images_alternate_text_draws_no_control_character() {
+    for label in ["a\\tb", "a\\nb", "a\\u{1b}b"] {
+        let source = format!(
+            "component App\n  state label = \"{label}\"\n  view\n    column\n      text \"first row\"\n      row width=\"20ch\"\n        image \"/nonexistent/none.png\" width=\"8ch\" height=\"1lh\" aria-label=label\n        text \"|after\"\n      text \"last row\"\n"
+        );
+        let plan = contract::compile_terminal(&source).unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 30, 6).unwrap();
+        let mut vt = Vt::new(&mut host);
+        vt.render(&mut host);
+        let screen = vt.text(false);
+        let row = screen
+            .lines()
+            .find(|l| l.contains("|after"))
+            .unwrap_or_default()
+            .to_string();
+        assert!(row.starts_with("[a"), "{label}: {screen:?}");
+        assert!(screen.contains("last row"), "{label}: {screen:?}");
+        assert!(
+            !row.contains('\t') && !row.contains('\u{1b}'),
+            "{label}: {row:?}"
+        );
+    }
+}
+
+/// Each side is drawn in its own line style (LLP 1101 §4): dashed `┄┆`,
+/// dotted `┈┊`, with the light corners, which have no such forms.
+#[test]
+fn dashed_and_dotted_borders_draw_their_own_lines() {
+    for (border, expected) in [
+        ("border=\"thin dashed\"", ["┌┄┄┄┄┐", "┆x   ┆", "└┄┄┄┄┘"]),
+        ("border=\"thin dotted\"", ["┌┈┈┈┈┐", "┊x   ┊", "└┈┈┈┈┘"]),
+        (
+            "border=\"thin solid\" border-top-style=\"dotted\" border-left-style=\"dashed\"",
+            ["┌┈┈┈┈┐", "┆x   │", "└────┘"],
+        ),
+    ] {
+        let plan = contract::compile_terminal(&format!(
+            "component App\n  view\n    column width=\"4ch\" {border}\n      text \"x\"\n"
+        ))
+        .unwrap();
+        let mut host = Host::boot(plan, (), Mode::Fullscreen, 10, 4).unwrap();
+        let screen = host.frame().grid.text();
+        assert_eq!(
+            screen.lines().take(3).collect::<Vec<_>>(),
+            expected,
+            "{border}"
+        );
+    }
+}
+
+/// A corner rounds by its own box's radius, which may read the safe area
+/// where the box is (LLP 1123 D9): here an inset its parent declares.
+#[test]
+fn a_corner_reads_its_boxs_own_inset() {
+    let source = "component App\n  view\n    column --exact-safe-area-inset-top=\"8px\"\n      column width=\"6ch\" height=\"3lh\" border=\"thin solid\" border-radius=\"var(--exact-safe-area-inset-top)\"\n";
+    let plan = contract::compile(source).unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    let screen = vt.text(false);
+    assert!(screen.starts_with('╭'), "{screen}");
 }

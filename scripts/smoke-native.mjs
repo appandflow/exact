@@ -1,4 +1,4 @@
-// The native-module seam, driven — `smoke.mjs` runs this for
+// The native-module seam, driven (LLP 1024 D8.3) — `smoke.mjs` runs this for
 // the fixture app: `bun scripts/smoke.mjs <web|macos|ios> --app native-fixture`.
 // Every assertion is through the eight operations: `tree` shows the status
 // object through loading → ready; props replace (several reactive keys,
@@ -8,7 +8,7 @@
 // shows the boxes and the tokened snapshot answers (Apple); and the failure
 // family — missing artifact, missing factory, wrong ABI, refused props —
 // each yields its named status, an empty box, a log line and a running app.
-// Then the hatches: data-* words, the authored header under the
+// Then the hatches (LLP 1075.003): data-* words, the authored header under the
 // agent, the hatches' journal on iOS, and a push and its Back.
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -26,7 +26,7 @@ const NOTE = 'quote " slash \\ tab\t<&>';
 export async function nativeSmoke({ host, open, check: record, webDist, shots, device = false }) {
   let checks = 0, failed = 0;
   const check = (ok, what) => { checks += 1; if (!ok) failed += 1; return record(ok, what); };
-  // A tap that names a node presses that node, on Detail: the post row beside the card at its middle,
+  // A tap that names a node presses that node (LLP 1012 §1), on Detail: the post row beside the card at its middle,
   // never the card; the box with no press refuses rather than press the Like at its middle; a point presses what is
   // there. `how` is the session's input: the agent's, or the touch runner's real touches.
   const namedTaps = async (s, how) => {
@@ -58,12 +58,14 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
     return last;
   };
   const received = (st) => { const r = st.slots.received; return r.startsWith('props:') ? JSON.parse(r.slice(6)) : null; };
-  const pixel = async (s, path, testId) => {
+  const pixel = async (s, path, testId, padding = false) => {
+    await s.reveal((await s.target(testId)).id); await s.clock('settle');
     const shot = await s.screenshot(path);
     const png = decodePng(readFileSync(path));
     const box = (await s.layout()).nodes.find((n) => n.testId === testId);
     if (!box) return null;
-    const scale = png.width / shot.w, x = Math.round((box.x + box.w / 2) * scale), y = Math.round((box.y + box.h / 2) * scale);
+    const scale = png.width / shot.w, x = Math.round((box.x + (padding ? 3 : box.w / 2)) * scale), y = Math.round((box.y + box.h / 2) * scale);
+    if (x < 0 || x >= png.width || y < 0 || y >= png.height) return null;
     const i = (y * png.width + x) * 4;
     return [png.data[i], png.data[i + 1], png.data[i + 2]];
   };
@@ -80,16 +82,17 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
     // Missing factory: in the roster, not in the artifact.
     check(module(t, 'absent')?.state === 'error' && /no factory for exact-absent/.test(module(t, 'absent')?.error ?? ''), `${host} native: exact-absent reports its missing factory: ${JSON.stringify(module(t, 'absent'))}`);
     check(/exact-absent #\d+: error: the module artifact has no factory/.test(lines), `${host} native: the missing factory is logged`);
-    // After first pixel, never before: the browser's paint entry, or, when
+    // The module loads after first pixel: the browser's paint entry, or, when
     // headless Chrome records none, the glue's first-frame stamp (a lower
-    // bound). On the JS target the adapter is the native.js chunk that holds
-    // native-glue.js, and where Chrome records no entry the runtime's gate is
+    // bound). The JS target may preload its adapter without evaluating it.
+    // Where Chrome records no entry the runtime's gate is
     // two frames and 250 ms after its first commit (`bootMs`, rt.js `painted`).
     if (host === 'web') {
       const order = await s.carrier.evaluate(jsTargetBuild(webDist)
         ? `(() => { const at = (re) => performance.getEntriesByType('resource').find((e) => re.test(e.name))?.startTime; const entry = performance.getEntriesByType('paint')[0]?.startTime; return { paint: entry ?? Number(document.getElementById('exact-root').dataset.bootMs) + 250, entry: entry != null, glue: at(/\\/native-[\\w-]+\\.js$/), table: at(/\\/modules\\/index\\.js$/) }; })()`
         : `(() => { const glueEnd = performance.getEntriesByType('resource').find((e) => e.name.endsWith('/glue.js'))?.responseEnd ?? 0; const paint = performance.getEntriesByType('paint')[0]?.startTime ?? (glueEnd + Number(document.getElementById('exact-root').dataset.frameCallbackMs ?? NaN)); const glue = performance.getEntriesByType('resource').find((e) => e.name.endsWith('/native-glue.js'))?.startTime; const table = performance.getEntriesByType('resource').find((e) => e.name.endsWith('/modules/index.js'))?.startTime; return { paint, glue, table }; })()`);
-      check(Number.isFinite(order.paint) && order.glue > order.paint && order.table > order.glue, `${host} native: the adapter and the module load after first paint: ${JSON.stringify(order)}`);
+      check(Number.isFinite(order.paint) && Number.isFinite(order.glue) && order.table > order.paint && order.table > order.glue
+        && (jsTargetBuild(webDist) || order.glue > order.paint), `${host} native: the module loads after first paint: ${JSON.stringify(order)}`);
     } else {
       const m = /native loading .*libexact_modules\.dylib (-?[\d.]+) ms after first pixel/.exec(lines);
       check(m && Number(m[1]) >= 0, `${host} native: the artifact loads after first pixel: ${m?.[0] ?? 'no load line'}`);
@@ -133,8 +136,8 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
     st = await s.state();
     // (A browser's real pointer also hovers and focuses the element first.)
     check(st.slots.events.startsWith(EXPECTED_EVENTS) && st.slots.events.endsWith('press;'), `${host} native: a tap on the box is the node's press: ${JSON.stringify(st.slots.events)}`);
-    // The hatches: the route's data-* words, the authored header
-    // under the agent (one presentation), the hatches' moments in
+    // The hatches (LLP 1075.003): the route's data-* words, the authored header
+    // under the agent (one presentation, LLP 1021 D4), the hatches' moments in
     // the journal (iOS; macOS projects no routes; the web's are checked
     // below), and a push and its Back.
     t = await s.tree();
@@ -153,9 +156,14 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
       // macOS projects no routes; the web's page module has its own (below).
       check(!/hatch (navigation|route)/.test(journal), `${host} native: no route hatch runs on macOS: ${logs.lines.filter((l) => /hatch/.test(l)).join(' | ')}`);
     }
+    if (host === 'macos') {
+      const layout = await s.layout(), compose = layout.nodes.find(n => n.testId === 'compose-home');
+      check(compose?.x >= 0 && compose.x + compose.w <= layout.viewport.w,
+        `${host} native: Compose fits the authored header without scrolling: ${JSON.stringify({ compose, viewport: layout.viewport })}`);
+    }
     await s.tap('compose-home'); await settle(s);
     check((await s.state()).slots.composed === 1, `${host} native: the authored Compose runs the handler a bar item presses`);
-    // The window toolbar's hatch (macOS): its display
+    // The window toolbar's hatch (macOS, LLP 1075.003.000 §3.7): its display
     // mode and an item of the app's after Exact's, whose own items still press.
     if (host === 'macos') {
       await s.clock('settle');
@@ -169,7 +177,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
     await s.tap('detail'); await settle(s);
     t = await until(s, 'the detail route is pushed', (t) => !!byTestId(t, 'route-detail'));
     await namedTaps(s, 'agent');
-    // Hatched nodes: the tree shows each word, the hatch
+    // Hatched nodes (LLP 1075.003.000): the tree shows each word, the hatch
     // hears a node's mount and its data-* change (`state` counts them; on the
     // web the fixture's page module does), and a development build journals a
     // write to what Exact owns of one (iOS).
@@ -185,7 +193,8 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
       // The host's own count of the calls (`state.hatches`), every host alike.
       const counted = (await s.state()).hatches?.words?.badge;
       check(counted?.calls?.built === 1 && counted.calls.changed === 1 && counted.live === 1, `${host} native: state.hatches counts the hatch's calls: ${JSON.stringify(counted)}`);
-      // What the hatch said of itself, and what Exact timed: its counters and snapshot in
+      // What the hatch said of itself, and what Exact timed (LLP
+      // 1075.003.000.001 §3.1–3.3, §8 stage 1): its counters and snapshot in
       // `state`, its line in `logs`, its calls in `perf hatches`. Reads are
       // cumulative: a second read is the same.
       {
@@ -202,27 +211,9 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
         // By value: a native host's JSON orders an object's keys as it likes.
         const canon = (v) => JSON.stringify(v, (_, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
         check(canon(again.calls) === canon(perf.calls) && canon(again.counters) === canon(perf.counters), `${host} native: a perf hatches read changes nothing: ${canon(perf.calls)} then ${canon(again.calls)}`);
-        // A node's calls are timed by its plan site, and `perf <target>`'s row for that site names them.
+        // A node's calls are timed by its plan site, and `perf <target>`'s row for that site names them (§3.1).
         const site = (await s.perf('hatched-badge')).sites?.find((r) => r.site === built?.site);
         check(Number.isInteger(built?.site) && site?.hatch?.calls === 2 && site.hatch.ms >= 0, `${host} native: a hatched node's calls are timed by its plan site, which perf <target> names: site ${built?.site}, ${JSON.stringify(site?.hatch)}`);
-      }
-      // What a hatch asks of an authored node: `input` replaces a field's value and Contract hears it, the
-      // journal holding its length and never its text; `clock settle` returns
-      // only once a queued click has committed; and a hatch whose acts keep
-      // causing acts is named by settle after 16 drains, without hanging.
-      {
-        await s.tap('feed'); await settle(s); await s.clock('settle');
-        const all = (await s.op({ op: 'logs', since: 0 })).lines.filter((l) => / hatch /.test(l));
-        check((await s.state()).slots.fed === 'Palo Alto', `${host} native: a hatch's input replaces the field's value in Contract: ${JSON.stringify((await s.state()).slots.fed)}`);
-        check(all.some((l) => /hatch element feed #\d+: input \(9 chars, delivery: hatch\)/.test(l)) && !all.some((l) => /Palo/.test(l)), `${host} native: the journal holds the input's length, never its text: ${all.filter((l) => /feed/.test(l)).join(' | ')}`);
-        await s.tap('arm'); await s.clock('settle');
-        check((await s.state()).slots.hatchPresses === 1, `${host} native: clock settle returns only after a hatch's queued click has committed: ${(await s.state()).slots.hatchPresses}`);
-        await s.tap('loop');
-        const stuck = await s.clock('settle');
-        check(stuck.settled === false && stuck.reason === 'hatches', `${host} native: a hatch whose acts keep causing acts is named by settle: ${JSON.stringify(stuck)}`);
-        await s.tap('stop-loop'); await settle(s);
-        const done = await s.clock('settle'), st = await s.state();
-        check(done.settled === true && st.slots.hatchPresses > 16 && st.hatches?.inFlight === 0, `${host} native: stopped, it settles: ${JSON.stringify(done)} after ${st.slots.hatchPresses} presses`);
       }
       // Words the manifest gives another platform remain visible, uncalled and listed.
       {
@@ -235,6 +226,28 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
           `${host} native: a word this platform does not handle is shown, never called, and listed: ${JSON.stringify(st?.unhandled)}`);
         if (host === 'ios') check(st.words?.['detail-list']?.calls?.built === 1, `${host} native: iOS handles detail-list`);
       }
+      // What a hatch asks of an authored node (LLP 1075.003.000.001 §2.5, §8
+      // stage 2): `input` replaces a field's value and Contract hears it, the
+      // journal holding its length and never its text; `clock settle` returns
+      // only once a queued click has committed. A finite chain either ends
+      // before settlement or is named as pending at the drain bound.
+      {
+        await s.tap('feed'); await settle(s); await s.clock('settle');
+        const all = (await s.op({ op: 'logs', since: 0 })).lines.filter((l) => / hatch /.test(l));
+        check((await s.state()).slots.fed === 'Palo Alto', `${host} native: a hatch's input replaces the field's value in Contract: ${JSON.stringify((await s.state()).slots.fed)}`);
+        check(all.some((l) => /hatch element feed #\d+: input \(9 chars, delivery: hatch\)/.test(l)) && !all.some((l) => /Palo/.test(l)), `${host} native: the journal holds the input's length, never its text: ${all.filter((l) => /feed/.test(l)).join(' | ')}`);
+        await s.tap('arm'); await s.clock('settle');
+        check((await s.state()).slots.hatchPresses === 1, `${host} native: clock settle returns only after a hatch's queued click has committed: ${(await s.state()).slots.hatchPresses}`);
+        await s.tap('loop');
+        const stuck = await s.clock('settle');
+        const chained = (await s.state()).slots.hatchPresses;
+        // The armed presser clicks once more when its loop word changes to "off" at 4,000.
+        check(stuck.settled === false && stuck.reason === 'hatches' || stuck.settled === true && chained === 4001,
+          `${host} native: settle completes the hatch chain or names its pending acts: ${JSON.stringify(stuck)} after ${chained} presses`);
+        await s.tap('stop-loop'); await settle(s);
+        const done = await s.clock('settle'), st = await s.state();
+        check(done.settled === true && st.slots.hatchPresses > 16 && st.hatches?.inFlight === 0, `${host} native: stopped, it settles: ${JSON.stringify(done)} after ${st.slots.hatchPresses} presses`);
+      }
       if (host === 'ios') {
         await s.tap('violate'); await settle(s);
         await s.tap('violate'); await settle(s);
@@ -242,7 +255,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
         check(/element detail-list #\d+: contentInset changed outside Exact, which owns it/.test(owned), `${host} native: the development check covers hatched nodes`);
       }
     }
-    // An authored scrollTop lands as the browser's.
+    // An authored scrollTop lands as the browser's (LLP 1075.003 §3.7).
     await s.tap('scroll-80'); await settle(s);
     const scrolled = (await s.layout()).nodes.find((n) => n.testId === 'list-detail');
     check(scrolled?.sy === 80, `${host} native: scrollTop 80 is an offset of 80: ${JSON.stringify(scrolled)}`);
@@ -255,7 +268,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
     }
     // A list whose rows each hold a hatched node: the journal names what the
     // word gives up and warns for it in a row; a retired row's hatch hears
-    // `ended`; on iOS no row holding one is reused.
+    // `ended`; on iOS no row holding one is reused (LLP 1075.003.000 §3.3).
     {
       const takes = (await s.state()).pool?.takes;
       await s.tap('rows'); await settle(s);
@@ -269,7 +282,8 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
       const said = (await s.logs()).lines.join('\n');
       const gave = host === 'ios' ? /hatch element dot: a view, not a flat leaf; its row is not reused/ : /hatch element dot: nothing beyond the call/;
       check(gave.test(said) && /hatch element dot is in a row of list hatched-list/.test(said), `${host} native: the journal says what a hatched node gives up: ${said.split('\n').filter((l) => /hatch element dot/.test(l)).slice(0, 3).join(' | ')}`);
-      // A hatch that undoes what it adds says so (`reusable`): its rows are reused again. The live rows read
+      // A hatch that undoes what it adds says so (`reusable`, LLP
+      // 1075.003.000.000 §8): its rows are reused again. The live rows read
       // the component's state the button flips, so their hatches hear it now.
       if (host === 'ios') {
         await s.tap('reuse'); await settle(s); await s.clock('settle');
@@ -284,7 +298,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
       await s.tap('back'); await settle(s);
       t = await until(s, 'Back pops the rows route', (t) => !byTestId(t, 'hatched-list'));
     }
-    // The page module's container hatches: the root,
+    // The page module's container hatches (LLP 1075.003.000 §3.7): the root,
     // its tablist, each route as it mounts and as it leaves.
     if (host === 'web') {
       await s.clock('settle');
@@ -292,23 +306,24 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
       check(c['navigation:built'] === 1 && c['tabs:built'] === 1 && c['route:built'] >= 3 && c['route:ended'] >= 2,
         `${host} native: the page module's container hatches run as routes mount and leave: ${JSON.stringify(c)}`);
     }
-    // A sheet over the tabs, and its Close.
+    // A sheet over the tabs, and its Close (LLP 1075.003 §3.7, from James's review).
     // (macOS projects no routes: there the sheet is its route, shown.)
     const sheetShown = async () => host === 'macos' ? !!byTestId(await s.tree(), 'route-sheet') : (await s.state()).navigation?.presentation === 'modal';
-    await s.tap('sheet'); await settle(s);
+    await s.tap('sheet'); await settle(s); await s.clock('settle');
     check(await sheetShown(), `${host} native: the sheet is presented over the tabs`);
     await s.tap('close-sheet'); await settle(s);
     check(!(await sheetShown()), `${host} native: Close dismisses the sheet`);
-    // UIKit's dismissal runs in platform time, its snapshot over the tabs until it ends.
+    // UIKit's dismissal runs in platform time, its snapshot over the tabs until it ends (LLP 1035.003 D5).
     await s.clock('settle');
     // A sheet over a sheet (the Bluesky clone's prompt over its muted words
     // sheet), tapped back to back as a drive sends its taps: an input replies
-    // once the sheet it opened or closed is up, so the next
+    // once the sheet it opened or closed is up (LLP 1035.003 D5), so the next
     // tap finds its target. Close returns to the sheet under it; Close both
     // closes the two.
     const onScreen = async (id) => {
       const error = await s.tap(id).then((r) => r?.error, (e) => String(e?.message ?? e));
       check(!error, `${host} native: sheet over sheet: ${id} taps${error ? `: ${error}` : ''}`);
+      if (host === 'web') await s.clock('settle');
     };
     // `sheet-ask` and `ask-sheets` push by their answer's `then`, which lands
     // at the input's end (`clock land`): the menu over Sheet, and from home
@@ -317,7 +332,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
       'ask-sheets', 'menu-more', 'menu-home']) await onScreen(id);
     await s.clock('settle');
     check(!(await sheetShown()), `${host} native: Close both dismisses the two sheets`);
-    // Retained tabs: a tab's scroll survives a switch away and back.
+    // Retained tabs (LLP 1075.003 §3.7): a tab's scroll survives a switch away and back.
     await s.tap('tab-second'); await settle(s); await s.clock('settle');
     await s.tap('list-second', { wheel: [0, 300] }); await settle(s); await s.clock('settle');
     const offset = async () => (await s.layout()).nodes.find((n) => n.testId === 'list-second')?.sy;
@@ -345,11 +360,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
     const box = await pixel(s, shot, 'box'), plain = await pixel(s, shot, 'plain'), absent = await pixel(s, shot, 'absent');
     check(near(box, '#2266ee'), `${host} native: the capture shows the fixture's colour: ${box}`);
     check(near(plain, '#11aa44'), `${host} native: the ordinary capture shows the plain box: ${plain}`);
-    const plainBounds = (await s.layout()).nodes.find(n => n.testId === 'plain');
-    const capture = decodePng(readFileSync(shot));
-    const scale = capture.width / (await s.screenshot(shot)).w;
-    const paddingPixel = (Math.round((plainBounds.y + plainBounds.h / 2) * scale) * capture.width + Math.round((plainBounds.x + 3) * scale)) * 4;
-    check(near(Array.from(capture.data.slice(paddingPixel, paddingPixel + 3)), '#ffffff'), `${host} native: module content leaves the authored padding visible`);
+    check(near(await pixel(s, shot, 'plain', true), '#ffffff'), `${host} native: module content leaves the authored padding visible`);
     check(near(absent, '#f3f4f6'), `${host} native: the missing factory leaves its empty box: ${absent}`);
     if (host !== 'web') {
       logs = await s.logs();
@@ -365,7 +376,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
     await settle(s);
     check((await s.state()).slots.loads === 3, `${host} native: the new instance loaded`);
     // Under the agent a closed popover paints nothing and covers nothing
-    // (as on the web and macOS): its opener's tap shows it in
+    // (LLP 1021 D4, as on the web and macOS): its opener's tap shows it in
     // place, a tap outside dismisses it and still presses, its hide-only
     // button closes it.
     if (host === 'ios') {
@@ -425,8 +436,9 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
         check(Boolean(refused.error) && await focus() !== input && (await s.state()).slots.inputValue === 'a', `macos native: ${reason} refuses focus and agent input`);
         await s.tap(button); await settle(s);
       }
+      // A modifier focuses the source without activating it; Mac clicks preserve the current responder.
       for (const [source, reset, slot] of [['disable-on-blur', 'block-input', 'blocked'], ['inert-on-blur', 'inert-input', 'inputInert']]) {
-        await s.tap(source); await settle(s);
+        await s.tap(source); await s.type(source, { key: 'Shift' }); await settle(s);
         const refused = await s.carrier.ask({ op: 'type', id: input, text: 'forbidden' });
         await settle(s);
         const state = await s.state();
@@ -450,6 +462,8 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
       const dialogCommand = byTestId(await s.tree(), 'dialog-command').id;
       const dialogClose = byTestId(await s.tree(), 'dialog-close').id;
       const dialogOpener = byTestId(await s.tree(), 'open-native-dialog').id;
+      await s.prefer({ 'keyboard-navigation': true });
+      await s.type('open-native-dialog', { key: 'Shift' });
       await s.tap('open-native-dialog'); await settle(s);
       let dialogState = await s.state();
       check(dialogState.dialog?.phase === 'open' && dialogState.focus.logical === dialogInput && dialogState.focus.responder === 'FixtureEditor', 'macos native: a dialog initially focuses the native editor without focus/key handlers');
@@ -509,7 +523,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
     // Each roster tag is defined once a page (web): by now instances have
     // come and gone (the remount above). On the wasm target a plan reload
     // swaps the plan into the page and reuses the definitions; on the JS
-    // target the plan is the page (an edit rebuilds and reloads it),
+    // target the plan is the page (an edit rebuilds and reloads it, LLP 1071),
     // so its reload is the page's, whose modules attach again.
     if (host === 'web') {
       const roster = await s.carrier.evaluate('exact.nativeArtifact.then((m) => Object.keys(m.roster).length)');
@@ -528,7 +542,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
   } catch (error) {
     check(false, `${host} native: the fixture drive stopped: ${error.stack ?? error.message}`);
   } finally { await s.close(); }
-  // A real touch that names a row presses the row: the runner's aim lands beside the
+  // A real touch that names a row presses the row (LLP 1012 §1, LLP 1080.000): the runner's aim lands beside the
   // card at its middle, and its dispatch log confirms where. A simulator only (the touch runner).
   if (host === 'ios' && !device) {
     const d = await open({ host, touch: 'platform' });
@@ -557,7 +571,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
   // with UIKit's bars, `--chrome platform`, and the touch runner): each is
   // one Back, and the router's stack and the native one agree after it.
   // The sheet is a modal route the root names, never popped by a bar; the
-  // route over it is. A simulator only: the
+  // route over it is (Astra's review of 84009baad). A simulator only: the
   // touch runner's drag is refused on a phone.
   if (host === 'ios' && !device) {
     const d = await open({ host, chrome: 'platform', touch: 'drag' });
@@ -599,7 +613,8 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
       check(false, `${host} native: the drive in Sheet's stack stopped: ${error.stack ?? error.message}`);
     } finally { await d.close(); }
   }
-  // Two drives of the same steps agree on what the hatches did: every call's count, every counter,
+  // Two drives of the same steps agree on what the hatches did (LLP
+  // 1075.003.000.001 §4.6, §8 stage 1): every call's count, every counter,
   // each span's count and time on the session clock, and the journal's
   // hatch lines. Measured milliseconds are the wall's and are left out.
   {
@@ -621,7 +636,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
     check(first === second && JSON.parse(first).calls.length > 0, `${host} native: two drives agree on every hatch call, counter, span and line: ${first === second ? first.slice(0, 200) : `${first}\n  then ${second}`}`);
   }
 
-  // The app and window scopes, in a
+  // The app and window scopes (LLP 1075.003.000.001 §2.1, §8 stage 2), in a
   // session of their own: both are built as the hatches connect; a fact that
   // changes is told to `app` once; a new size is told to `window`; the
   // embedder's grants decide what each is handed.
@@ -643,7 +658,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
       check(sc.app?.calls?.changed === 1, `${host} native: one change is one call: ${JSON.stringify(sc.app)}`);
       await d.prefer({ 'prefers-color-scheme': 'light' });
       await waited('the fact changing back is told too', (sc) => sc.module?.published?.scopes?.scheme === 'light');
-      // Regions and parts: the
+      // Regions and parts (LLP 1075.003.000.001 §3.4, §3.5, §8 stage 3): the
       // badge's hatch draws a seal and says so. `tree` shows the declaration
       // beside what the host observes, and the part under its node; when the
       // seal goes its region stays as a tombstone that every read sees alike.
@@ -655,7 +670,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
           `${host} native: tree shows a region's declaration and what the host observes of it: ${JSON.stringify(b?.owns)}`);
         check(b?.parts?.length === 1 && part.id === 'seal' && part.role === 'button' && part.label === 'Verified' && part.live === true && part.frame?.w === 12,
           `${host} native: tree lists a part under its node, by id, with its observed frame: ${JSON.stringify(b?.parts)}`);
-        // `tree --ax` joins the part by ownership and says whether the platform's tree exposes it.
+        // `tree --ax` joins the part by ownership and says whether the platform's tree exposes it (§3.5).
         const ax = await d.tree(undefined, { ax: true }).catch((error) => ({ error: error.message }));
         if (!ax.error && ax.ax && !ax.ax.unavailable) {
           const listed = ax.ax.coverage?.parts?.find((p) => p.id === 'seal' && p.node === b.id), joined = (ax.ax.elements ?? []).filter((e) => e.part === `${b.id}/seal`);
@@ -664,7 +679,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
         } else check(host !== 'web', `${host} native: tree --ax answers: ${JSON.stringify(ax.error ?? ax.ax)}`);
         const hs = (await d.state()).hatches;
         check(hs?.owns?.some((o) => o.by === 'element badge' && o.kind === 'view'), `${host} native: state.hatches lists the regions: ${JSON.stringify(hs?.owns)}`);
-        // `tap <node>/<part>` reaches the seal as a real pointer event at its place: it lands
+        // `tap <node>/<part>` reaches the seal as a real pointer event at its place (§3.5): it lands
         // on the part, and the hatch's own code counts the press. A part that is not there is refused
         // by name. The simulator's agent taps are not real touches, so there it is `unsupported`.
         const tapped = await d.tap('hatched-badge/seal').catch((error) => ({ error: error.message }));
@@ -677,7 +692,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
         const moved = own.observed.frame;
         // The badge's tone turns busy: its hatch takes the seal away.
         await d.tap('compose-home'); await settle(d); await d.clock('settle');
-        // The same press changes the root's `data-mood`: the root's words are the app hatch's.
+        // The same press changes the root's `data-mood`: the root's words are the app hatch's (§2.5).
         sc = await waited('a root data word reaches the app hatch, and its change is a changed moment', (sc) => sc.module?.published?.app?.mood === 'busy');
         check(told.app?.mood === 'calm', `${host} native: the app hatch reads the root's data words: ${JSON.stringify(told.app)}`);
         b = await badge();
@@ -696,7 +711,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
     } finally { await d.close(); }
   }
 
-  // The frame clock, a session a
+  // The frame clock (LLP 1075.003.000.001 §2.4, §8 stage 2), a session a
   // drive: a ticket ticks 60 times for `clock +1000`, tick k seeing the count
   // a frame task made at the same instant; an `after` chained in a tick fires
   // inside the seek and a stopped one never; 65 acts a tick asks, and the one
@@ -735,10 +750,11 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
     }
   }
 
-  // The crash breadcrumb and the switch its line names (Apple): a run that dies inside the badge's hatch is named by
+  // The crash breadcrumb and the switch its line names (LLP 1075.003.000.001
+  // §4.4, §2.6; Apple): a run that dies inside the badge's hatch is named by
   // the next launch, once; with `EXACT_HATCHES=off` the module's views and
   // calls work and no hatch is connected.
-  // With hatches off the web's page module still serves its views; no hatch is called.
+  // With hatches off (§2.6) the web's page module still serves its views; no hatch is called.
   if (host === 'web') {
     const off = await open({ host, env: { EXACT_HATCHES: 'off' } });
     try {
@@ -825,21 +841,21 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
     await failing('a wrong ABI', { url: skewed.url }, /module ABI 2, host ABI 1/, skewed.close);
   } else {
     await failing('a missing artifact', { env: { EXACT_MODULES: resolve(tmp, 'absent/libexact_modules.dylib') } }, /no module artifact/);
-    // An artifact built against another ABI: a views-only table of major 1,
-    // from before the module entries.
+    // An artifact built against another ABI: a views-only table of major 1
+    // (LLP 1024), from before the module entries (LLP 1067.000).
     const source = resolve(tmp, 'skew.c'), dylib = resolve(tmp, 'libexact_modules.dylib');
     writeFileSync(source, 'static const struct { unsigned major, size; const char *roster; void *f[7]; } t = { 1, 72, "{}", { 0 } };\nconst void *exact_native_abi(void) { return &t; }\n');
     const cc = spawnSync('xcrun', host === 'ios' ? ['--sdk', 'iphonesimulator', 'clang', '-target', 'arm64-apple-ios17.0-simulator', '-dynamiclib', '-o', dylib, source] : ['clang', '-dynamiclib', '-o', dylib, source], { encoding: 'utf8' });
     check(cc.status === 0, `${host} native: the skewed artifact compiles: ${cc.stderr}`);
-    await failing('a wrong ABI', { env: { EXACT_MODULES: dylib } }, /module ABI 1, host ABI 3/);
+    await failing('a wrong ABI', { env: { EXACT_MODULES: dylib } }, /module ABI 1, host ABI 4/);
   }
   rmSync(tmp, { recursive: true, force: true });
-  console.log(`${host} native: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  console.log(`${host} native: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s (the LLP 1024 D8 fixture)`);
 }
 
-// The fixture's hatches on a painting host:
+// The fixture's hatches on a painting host (LLP 1075.003.000.001 §8 stage 4):
 // `bun scripts/smoke.mjs linux --app native-fixture`. Linux loads no native
-// module, so the seam above is not driven here; the hatches are.
+// module (LLP 1024), so the seam above is not driven here; the hatches are.
 // A screenshot shows each row's dot under its overlay, and the detail list's
 // redrawn at a new size after a resize; an observed press says whether
 // Exact handled it; the module's counters, its line and `perf hatches` read
@@ -892,9 +908,9 @@ export async function paintingHatchSmoke({ host, open, check: record, shots }) {
     check(badge?.published?.observed?.phase === 'up' && badge.published.observed.handled === false && badge.published.observed.inside === true && badge.counters?.['observed.down'] === 1 && badge.counters?.['observed.up'] === 1,
       `${host} hatches: a press on the badge is observed, unhandled: ${JSON.stringify(badge?.published)} ${JSON.stringify(badge?.counters)}`);
 
-    // What a hatch says of itself, and what Exact timed.
+    // What a hatch says of itself, and what Exact timed (§3.1–§3.3).
     await s.tap('compose-home'); await s.clock('settle');
-    // The same press changes the root's `data-mood`: the root's words are the app hatch's.
+    // The same press changes the root's `data-mood`: the root's words are the app hatch's (§2.5).
     const mooded = await hatches(s);
     check(told.app?.mood === 'calm' && mooded.scopes?.module?.published?.app?.mood === 'busy' && mooded.scopes?.app?.calls?.changed === 1,
       `${host} hatches: the app hatch reads the root's data words, and a word's change is one changed moment: ${JSON.stringify(told.app)} → ${JSON.stringify(mooded.scopes?.module?.published?.app)} ${JSON.stringify(mooded.scopes?.app?.calls)}`);
@@ -913,7 +929,7 @@ export async function paintingHatchSmoke({ host, open, check: record, shots }) {
     check(site?.hatch?.calls >= 2 && site.hatch.ms >= 0, `${host} hatches: perf <target> names the hatched site's calls: ${JSON.stringify(site?.hatch)}`);
 
     // With the Contract app idle, a hatch's draw and then its clear each show
-    // in the next screenshot: the badge's change asked for both, on
+    // in the next screenshot (§2.2.1): the badge's change asked for both, on
     // the session clock alone.
     {
       const b = await boxOf(s, 'hatched-badge'), [x, y] = centre(b);
@@ -927,7 +943,7 @@ export async function paintingHatchSmoke({ host, open, check: record, shots }) {
         `${host} hatches: both were published with the Contract app idle (epoch ${before} → ${after.epoch}): ${JSON.stringify(after.hatches?.words?.badge?.overlay)}`);
     }
 
-    // The detail route: what a hatch asks of an authored node.
+    // The detail route: what a hatch asks of an authored node (§2.5).
     await s.tap('detail');
     await until(s, 'the detail route is pushed', (t) => !!byTestId(t, 'route-detail'));
     await s.clock('settle');
@@ -953,7 +969,8 @@ export async function paintingHatchSmoke({ host, open, check: record, shots }) {
     const heard = st.hatches?.words?.presser?.published?.observed;
     check(st.slots.hatchPresses === presses + 1 && heard?.phase === 'up' && heard.handled === true, `${host} hatches: a press on the button is observed, handled: ${JSON.stringify(heard)}; ${presses} → ${st.slots.hatchPresses} presses (the observer pressed nothing)`);
 
-    // The detail list's overlay, and again at a new size after a resize: the old recording is dropped, never stretched, and the
+    // The detail list's overlay, and again at a new size after a resize
+    // (§2.2.1): the old recording is dropped, never stretched, and the
     // hatch hears `changed` with the new frame.
     {
       const edge = async (name) => { const b = await boxOf(s, 'list-detail'); const at = await picture(s, name); return { b, right: at(b.x + b.w - 2, b.y + b.h / 2), inside: at(b.x + b.w - 12, b.y + b.h / 2), outside: at(b.x + b.w / 2, b.y - 3) }; };
@@ -1002,7 +1019,7 @@ export async function paintingHatchSmoke({ host, open, check: record, shots }) {
     check(false, `${host} hatches: the fixture drive stopped: ${error.stack ?? error.message}`);
   } finally { await s.close(); }
 
-  // Two drives of the same steps agree on what the hatches did.
+  // Two drives of the same steps agree on what the hatches did (§4.6).
   try {
     const drive = async () => {
       const d = await open({ host });
@@ -1023,7 +1040,7 @@ export async function paintingHatchSmoke({ host, open, check: record, shots }) {
     check(false, `${host} hatches: the two drives stopped: ${error.stack ?? error.message}`);
   }
 
-  // The frame clock, a session a drive: sixty ticks for `clock +1000`,
+  // The frame clock (§2.4), a session a drive: sixty ticks for `clock +1000`,
   // tick k seeing the count a frame task made at the same instant; a chained
   // `after` fires inside the seek and a stopped one never; 65 acts a tick
   // asks, and the one their `changed` asks, land at that tick's instant; and
@@ -1056,7 +1073,7 @@ export async function paintingHatchSmoke({ host, open, check: record, shots }) {
     check(false, `${host} hatches: the clock drive stopped: ${error.stack ?? error.message}`);
   }
 
-  // The crash breadcrumb and the switch its line names: a run
+  // The crash breadcrumb and the switch its line names (§4.4, §2.6): a run
   // that aborts inside the badge's hatch is named by the next launch, once;
   // with `EXACT_HATCHES=off` no hatch is connected and the app works.
   try {
@@ -1079,7 +1096,7 @@ export async function paintingHatchSmoke({ host, open, check: record, shots }) {
       const lines = await journal(off), h = await hatches(off);
       check(lines.some((l) => /hatches: off \(EXACT_HATCHES=off\)/.test(l)) && !lines.some((l) => /hatch (element|app|window)/.test(l)) && Object.keys(h.words ?? {}).length === 0 && Object.keys(h.scopes ?? {}).length === 0,
         `${host} hatches: EXACT_HATCHES=off connects no hatch and calls none: ${lines.filter((l) => / hatch/.test(l)).join(' | ')} ${JSON.stringify(h.words)}`);
-      // Every Contract state the hatched run reaches is reached by authored input.
+      // Every Contract state the hatched run reaches is reached by authored input (§2.6).
       await off.tap('bump'); await off.tap('detail');
       await until(off, 'the detail route is pushed with hatches off', (t) => !!byTestId(t, 'route-detail'));
       await off.type('fed', 'Palo Alto'); await off.tap('hatch-press'); await off.clock('settle');
@@ -1090,10 +1107,10 @@ export async function paintingHatchSmoke({ host, open, check: record, shots }) {
     check(false, `${host} hatches: the breadcrumb drive stopped: ${error.stack ?? error.message}`);
   }
   rmSync(tmp, { recursive: true, force: true });
-  console.log(`${host} hatches: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  console.log(`${host} hatches: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s (LLP 1075.003.000.001 stage 4)`);
 }
 
-// The same presentation-only minute on every running host.
+// The same presentation-only minute on every running host (LLP 1126 D6).
 async function liveTimeSmoke(s, check, host) {
   const read = async () => {
     const t = await s.tree();

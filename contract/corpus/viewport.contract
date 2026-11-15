@@ -1,4 +1,4 @@
-// The bake is narrow; the first host fact wins.
+// @ref LLP 1039 — the bake is narrow; the first host fact wins.
 shape Viewport
   height: number
   width: number

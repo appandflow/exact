@@ -1,6 +1,7 @@
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 import { test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -8,14 +9,15 @@ import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { executable: chrome, unavailable } = chromium();
 const check = need('chrome', unavailable);
 
 const page = `<button id="outside">Outside</button><div id="exact-root"></div>
 <script type="module">
-  import { commands } from './commands.js';
+  import * as commands from './commands.js';
   import { runFocusCommands, controlEvent, onSelection } from './navigation.js';
   import { onValue, OnHooks, onSelectionChange } from './rt.js';
   import * as rt from './rt.js';
@@ -29,10 +31,10 @@ const page = `<button id="outside">Outside</button><div id="exact-root"></div>
     : controlEvent(field, 'input', (name, f) => field.addEventListener(name, f), (kind, payload) => seen.push([field.value, kind === 48 ? 'insertReplacementText' : kind === 54 ? payload.split(',')[0] : '']));
   window.hatch = ht;
   window.logs = [];
-  window.replace = (target, args) => target === 'js' ? commands(s => logs.push(s)).setRangeText(...args)
+  window.replace = (target, args) => target === 'js' ? commands.setRangeText(s => logs.push(s))(...args)
     : runFocusCommands([{ name: 'setRangeText', args }], { root: document.getElementById('exact-root'), ready: true, inertAncestor: () => false, log: s => logs.push(s) });
   window.onSelection = onSelection;
-  window.selectionCommand = (target, name, args = []) => target === 'js' ? commands(s => logs.push(s))[name](...args)
+  window.selectionCommand = (target, name, args = []) => target === 'js' ? commands[name](s => logs.push(s))(...args)
     : runFocusCommands([{ name, args }], { root: document.getElementById('exact-root'), ready: true, inertAncestor: () => false, log: s => logs.push(s) });
   window.ready = true;
 </script>`;
@@ -223,6 +225,33 @@ check('replacement select tasks read the final value and reset directional range
     }
   }
 }), 60000);
+
+check('the agent picker accepts image and PDF types and delivers their MIME types', () => inChrome(async evaluate => {
+  const cases = [
+    ['logo.svg', 'image/svg+xml'], ['scan.BMP', 'image/bmp'], ['icon.ico', 'image/vnd.microsoft.icon'],
+    ['photo.png', 'image/png'], ['report.PDF', 'application/pdf'],
+  ].flatMap(([name, mime]) => (mime.startsWith('image/') ? ['image/*', mime] : [mime]).map(accept => ({ name, mime, accept })));
+  const results = await evaluate(`(async () => {
+    const { holds, answer } = await import('./files.js');
+    rt.clock.agent = true;
+    const root = document.getElementById('exact-root'), results = [];
+    for (const { name, accept } of ${JSON.stringify(cases)}) {
+      const field = document.createElement('input');
+      field.type = 'file'; field.id = 'one'; field.accept = accept; root.append(field);
+      let picked = [];
+      fileHook(field, 'change', files => { picked = files; });
+      rt.Hosts.showPicker('one');
+      const { ticket } = holds().find(h => h.device.capability === 'pick');
+      const refused = await answer({ op: 'type', ticket, text: '/a/notes.txt' });
+      const kept = holds().some(h => h.ticket === ticket);
+      const result = await answer({ op: 'type', ticket, text: '/a/' + name, files: [{ name, bytes: btoa('fixture') }] });
+      results.push({ refused: !!refused.error, kept, error: result.error ?? null, files: picked.map(f => [f[1], f[2]]) });
+      field.remove(); holds();
+    }
+    return results;
+  })()`);
+  expect(results).toEqual(cases.map(({ name, mime }) => ({ refused: true, kept: true, error: null, files: [[name, mime]] })));
+}));
 
 check('file picker change supplies the complete InputEvent record', () => inChrome(async evaluate => {
   expect(await evaluate(`(() => {

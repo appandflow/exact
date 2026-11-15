@@ -1,4 +1,4 @@
-// AppKit editing stays on TextKit 2 and native undo.
+// @ref LLP 1045 D5, D6 — AppKit editing stays on TextKit 2 and native undo.
 #if os(macOS)
 import AppKit
 import ExactKit

@@ -1,4 +1,4 @@
-// A gated `after`: idle while its gate is false, armed
+// A gated `after` (LLP 1092 D7, D8): idle while its gate is false, armed
 // from the commit that makes it true, dropped by one that makes it false,
 // and restarted by a new key. It fires at its deadline exactly.
 component App

@@ -31,7 +31,7 @@ final class Canvas2DGpuImageTests: XCTestCase {
             }
         }
         let retained = Canvas2DGpuPixels.shared.retainedBytes
-        print("perf production images=400 host_retained_bytes=\(retained)")
+        print("D3 production images=400 host_retained_bytes=\(retained)")
         XCTAssertLessThanOrEqual(retained, 32 << 20)
     }
     func testReplacementAndTrimKeepOnlyTheCallbackLeaseAlive() throws {

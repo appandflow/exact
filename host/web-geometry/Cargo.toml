@@ -1,4 +1,4 @@
-# The web's geometry reads: one synchronous import the page
+# The web's geometry reads (LLP 1051.000 D4): one synchronous import the page
 # answers. `exact-web` and the capabilities crate forbid `unsafe`, and calling
 # an import needs it, so the import lives here alone, as TypeScript's does in
 # `exact-js-web`. Linked only when an app's plan reads geometry.

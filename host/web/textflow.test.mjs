@@ -1,9 +1,44 @@
-// Pure glue tests, beside existing bun:test glue tests.
+import { hostFixtureFile, wasmSource, glueDeclarations } from './tests/glue-fixture.mjs';
+// @ref LLP 1043.000 §3 D7/D8 — browser flow and its optional walker.
 import { test, expect } from 'bun:test';
 import { baselineIn, fragmentBaseline, fragmentDiff, framePhases, fontStyle, forgetTextBoxEdges, measurementCache, textBoxCut } from './textflow-glue.js';
 import { render } from '../../scripts/agent.mjs';
 import { cdpBrowser, chromium } from '../../scripts/agent-launch.mjs';
 import { timerWake, createTimerScheduler } from './timer-glue.js';
+import { fileURLToPath } from 'node:url';
+import { buildFlow } from '../web-js/module.mjs';
+import { readFileSync } from 'node:fs';
+import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
+
+test('the optional textflow walker stays below 96 KiB and preserves fractional geometry', async () => {
+  const bytes = readFileSync(await buildFlow());
+  // Compress the leaf separately, as scripts/metrics.mjs measures shipped files.
+  const brotli = brotliCompressSync(bytes, { params: {
+    [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_SIZE_HINT]: bytes.length,
+  } }).length;
+  console.log(`textflow.wasm: ${bytes.length} raw, ${gzipSync(bytes, { level: 9 }).length} gzip-9, ${brotli} brotli-11 bytes (on demand)`);
+  expect(bytes.length).toBeLessThanOrEqual(96 * 1024);
+  const { instance: { exports: wasm } } = await WebAssembly.instantiate(bytes);
+  const request = (op, input) => {
+    const ptr = wasm.textflow_in(input.length);
+    new Uint8Array(wasm.memory.buffer, ptr, input.length).set(input);
+    const len = wasm.textflow_request(op, 1, input.length);
+    return JSON.parse(new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, wasm.textflow_out(), len)));
+  };
+  const source = new Uint8Array(13);
+  source.set(new TextEncoder().encode('a'), 12);
+  expect(request(0, source).utf16_len).toBe(1);
+  expect(request(1, new Uint8Array(new Float32Array([0, 0.1]).buffer))).toEqual({ prepared: true });
+  const geometry = new ArrayBuffer(24), view = new DataView(geometry);
+  view.setFloat32(0, 100, true);
+  view.setFloat32(4, 0.1, true);
+  view.setFloat32(8, 1, true);
+  const result = request(2, new Uint8Array(geometry));
+  expect(result.line_height).toBe(0.1);
+  expect(result.height).toBe(0.1);
+  expect(result.fragments[0]).toMatchObject({ start: 0, end: 1, width: 0.1, available: 100 });
+  expect(result.complete).toBe(true);
+}, 60000);
 
 const { unavailable: browserUnavailable } = chromium();
 const browserTest = need('chrome', browserUnavailable);
@@ -69,7 +104,7 @@ test('computed font recipe pins macOS system faces for both painting and canvas'
   expect(fontStyle({ ...style, fontFamily: 'system-ui, -apple-system, ui-sans-serif, sans-serif' }, true).family)
     .toBe('"Helvetica Neue", "Helvetica Neue", "Helvetica Neue", sans-serif');
   expect(fontStyle({ ...style, fontWeight: '700' }, true).key).not.toBe(font.key);
-  // Tabular figures change advances: they are part of the measurement key.
+  // Tabular figures change advances: they are part of the measurement key (LLP 1053 G4).
   expect(fontStyle({ ...style, fontVariantNumeric: 'tabular-nums' }, true).key).not.toBe(font.key);
   expect(font.extra.fontVariantNumeric).toBe('normal');
 });
@@ -393,7 +428,7 @@ test('a flowed paragraph with no line is not trimmed', async () => {
   } finally { f.close(); }
 });
 
-// The kernel admits auto height; the glue writes the flowed height.
+// @ref LLP 1043.000 §8 — the kernel admits auto height; the glue writes the flowed height.
 test('an admitted auto-height paragraph flows unbounded and takes the flowed height', async () => {
   const f = controllerFixture({ paragraph: { id: 2, definite: false, refusal: null } });
   try {
@@ -431,7 +466,7 @@ test('a refused auto paragraph keeps ordinary text and journals the kernel\'s re
     for (let i = 0; i < 3; i++) { f.controller.afterBatch({ ops: [{ op: 'style', id: 3 }], timers: false }); await f.settle(); }
     expect(f.p.childNodes[1]).toBe(f.link); expect(f.calls.filter(op => op === 2)).toEqual([]);
     expect(f.controller.facts(2).skipped).toBe('its wrapping context is flex');
-    expect(f.events.filter(e => e[0] === 'log')).toEqual([['log', 'wrap-flow: text #2 has auto height and is not flowed: its wrapping context is flex']]);
+    expect(f.events.filter(e => e[0] === 'log')).toEqual([['log', 'wrap-flow: text #2 has auto height and is not flowed: its wrapping context is flex (LLP 1043.000 §8)']]);
   } finally { f.close(); }
 });
 
@@ -486,7 +521,7 @@ test('oversize text is journaled while ordinary source stays visible', async () 
   } finally { f.close(); }
 });
 
-// The bounded experiment must not promote a partial
+// @ref LLP 1044.001 §7.4 — the bounded experiment must not promote a partial
 // or differently shaped paragraph when the exclusions executor refuses it.
 for (const bytes of [1024 * 1024, 4 * 1024 * 1024]) {
   test(`${bytes}-byte text keeps its authored DOM through width and font changes`, async () => {
@@ -549,7 +584,7 @@ test('one scheduler catches up once before paint, replaces wakes, and cancels on
   clock.update(501); clock.requestFrame(); expect(frames.size + timers.size).toBe(0);
 });
 
-// While the batch says frames, each animation frame is one
+// @ref LLP 1073 D5 — while the batch says frames, each animation frame is one
 // present at its timestamp (never a catch-up), and a slow timer keeps its timeout.
 test('a batch that wants frames presents every animation frame and keeps timer timeouts', () => {
   let now = 0, id = 0; const frames = new Map(), timers = new Map(), events = [];
@@ -576,14 +611,15 @@ async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js
   const served = new Set(['/navigation.js', ...modules, '/timer-waits-glue.js', '/timer-observations.js']);
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
     const path = new URL(req.url).pathname;
-    if (files[path]) return new Response(Bun.file(files[path]));
+    if (path === '/wasm-input.js') return new Response(glueDeclarations(wasmSource, ['attach']), { headers: { 'content-type': 'text/javascript' } });
+    if (files[path]) return new Response(hostFixtureFile(files[path]), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/timer-observations.js') return new Response(Bun.file(new URL('./timer-observations.js', import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
     if (runtime && path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
     if (runtime && path.endsWith('.js')) {
       const js = Bun.file(new URL('../web-js' + path, import.meta.url));
-      return js.exists().then(exists => new Response(exists ? js : Bun.file(new URL('.' + path, import.meta.url)), { headers: { 'content-type': 'text/javascript' } }));
+      return js.exists().then(exists => new Response(hostFixtureFile(exists ? js.name : new URL('.' + path, import.meta.url)), { headers: { 'content-type': 'text/javascript' } }));
     }
-    return served.has(path) ? new Response(Bun.file(new URL('.' + path, import.meta.url)))
+    return served.has(path) ? new Response(hostFixtureFile(new URL('.' + path, import.meta.url)), { headers: { 'content-type': 'text/javascript' } })
       : new Response('<!doctype html><body><main id="root"></main>', { headers: { 'content-type': 'text/html' } });
   }});
   const suite = await cdpBrowser(), { cdp } = suite;
@@ -601,13 +637,26 @@ async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js
 
 browserTest('flowed links keep press ownership and native Enter activation', async () => {
   const result = await inChrome(flowInputFixture, undefined, {}, false, async (cdp, sessionId, deliveries) => {
+    const focus = await cdp.send('Runtime.evaluate', { expression: `(() => {
+      const link = document.querySelector('[data-flow-fragment] a');
+      globalThis.enterActivation = { clicks: [], navigations: [], errors: [] };
+      addEventListener('click', e => enterActivation.clicks.push({ trusted: e.isTrusted, prevented: e.defaultPrevented }));
+      navigation.addEventListener('navigate', e => enterActivation.navigations.push(new URL(e.destination.url).hash));
+      addEventListener('error', e => enterActivation.errors.push(e.message));
+      return { focused: document.activeElement === link, connected: link.isConnected, href: link.getAttribute('href') };
+    })()`, returnByValue: true }, sessionId);
+    expect(focus.result.value).toEqual({ focused: true, connected: true, href: '#story' });
     for (const type of ['rawKeyDown', 'keyUp']) await cdp.send('Input.dispatchKeyEvent', {
       type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13,
     }, sessionId);
-    const hash = await cdp.send('Runtime.evaluate', { expression: 'location.hash', returnByValue: true }, sessionId);
-    return { deliveries, hash: hash.result.value };
+    const activation = await cdp.send('Runtime.evaluate', {
+      expression: '({ hash: location.hash, ...enterActivation })', returnByValue: true,
+    }, sessionId);
+    return { deliveries, activation: activation.result.value };
   });
-  expect(result.hash).toBe('#story');
+  expect(result.activation).toEqual({
+    hash: '#story', clicks: [{ trusted: true, prevented: false }], navigations: ['#story'], errors: [],
+  });
   expect(result.deliveries).toEqual([
     { press: 1, navigate: 0, prevented: true },
     { press: 1, navigate: 0, prevented: true },
@@ -622,7 +671,7 @@ browserTest('flowed links keep press ownership and native Enter activation', asy
 // for a Contract action; both hosts' actual listener functions run unchanged.
 browserTest('same-target capture precedes a key registered first in both web runtimes', async () => {
   expect(await inChrome(targetKeyFixture, ['/glue.js'], {
-    '/rt.js': new URL('../web-js/rt.js', import.meta.url).pathname,
+    '/events.js': fileURLToPath(new URL('../web-js/events.js', import.meta.url)),
   })).toEqual([
     [['capture', 'key'], ['capture']],
     [['capture', 'key'], ['capture']],
@@ -630,11 +679,11 @@ browserTest('same-target capture precedes a key registered first in both web run
 }, 60000);
 
 async function targetKeyFixture() {
-  const [glue, rt] = await Promise.all(['/glue.js', '/rt.js'].map(url => fetch(url).then(r => r.text())));
-  const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));
+  const [glue, rt] = await Promise.all(['/glue.js', '/events.js'].map(url => fetch(url).then(r => r.text())));
+  const attach = await fetch('/wasm-input.js').then(r => r.text());
   const on = rt.slice(rt.indexOf('export function on('), rt.indexOf('// Each event family')).replace('export ', '');
-  // onKey hears a key with nothing focused through atBody, the line before it (0c3cf4405f).
-  const onKey = [rt.split('\n').find(line => line.startsWith('let BodyHeard;')), rt.split('\n').find(line => line.startsWith('export const onKey =')).replace('export ', '')].join('\n');
+  // onKey hears a key with nothing focused through atBody, declared before it (0c3cf4405f).
+  const onKey = rt.slice(rt.indexOf('let BodyHeard;'), rt.indexOf('export function onMIDI')).replace('export ', '');
   const bindWasm = new Function('el', 'heard', `
     let keyEvent = null, bodyHeard; // glue.js declares both; attach reads them (0c3cf4405f)
     const views = new Map([[1, el]]), retiredViews = new WeakSet(), inputReady = true, page = null;
@@ -644,6 +693,7 @@ async function targetKeyFixture() {
       heard.push(kind === 44 ? 'capture' : 'key');
       if (kind === 44 && key === 'x') keyEvent.exactStopped = true;
     }};
+    const host = { inputReady, page, wasm, get keyEvent() { return keyEvent; }, set keyEvent(value) { keyEvent = value; } };
     ${attach}
     attach(el, 1, ['key', 'keycapture']);
   `);
@@ -669,7 +719,7 @@ ${onKey}
 
 browserTest('flowed keys reach ancestors once in both web runtimes', async () => {
   const results = await inChrome(flowKeyFixture, undefined, {
-    '/glue.js': new URL('./glue.js', import.meta.url).pathname,
+    '/glue.js': fileURLToPath(new URL('./glue.js', import.meta.url)),
   }, true);
   expect(results.length).toBe(4);
   for (const { runtime, nested, events, unflowed, flowed } of results) {
@@ -694,7 +744,7 @@ browserTest('flowed keys reach ancestors once in both web runtimes', async () =>
 
 for (const scenario of ['redispatch', 'retained copies', 'commits']) browserTest(`flowed keys preserve ${scenario}`, async () => {
   const results = await inChrome(flowKeyFixture, undefined, {
-    '/glue.js': new URL('./glue.js', import.meta.url).pathname,
+    '/glue.js': fileURLToPath(new URL('./glue.js', import.meta.url)),
   }, true);
   for (const { runtime, nested, redispatch } of results) {
     if (scenario === 'redispatch') for (const [first, second] of redispatch) {
@@ -718,7 +768,7 @@ for (const scenario of ['redispatch', 'retained copies', 'commits']) browserTest
 
 browserTest('flowed keys reach page capture consumers once', async () => {
   const results = await inChrome(flowKeyFixture, undefined, {
-    '/glue.js': new URL('./glue.js', import.meta.url).pathname,
+    '/glue.js': fileURLToPath(new URL('./glue.js', import.meta.url)),
   }, true);
   for (const { runtime, nested, pageCaptures } of results) {
     for (const { kind, connected, type, unflowed, first, repeat } of pageCaptures) {
@@ -736,7 +786,7 @@ browserTest('flowed Enter restores Back focus and Tab normalizes restored stops'
     ['link', 'pressable', 'radio', 'tab'].flatMap(kind => [false, true].map(flowed =>
       kind === 'link' || kind === 'pressable'
         ? { kind, flowed, pushes: 1, pushedFocus: 'detail-title', returnFocus: 'original', connected: true }
-        : { kind, flowed, stops: [0, -1], connected: true })),
+        : { kind, flowed, paintedStop: 0, stops: [0, -1], connected: true })),
   );
 }, 20000);
 
@@ -753,9 +803,14 @@ async function flowFocusFixture() {
     const paragraph = context.firstElementChild, ball = context.lastElementChild;
     paragraph.innerHTML = kind === 'link' ? '<a id="original" href="#detail" tabindex="0">flowed link</a>'
       : kind === 'pressable' ? '<span id="original" tabindex="0" data-exact-on="press">flowed link</span>'
-      : `<span role="${kind === 'radio' ? 'radiogroup' : 'tablist'}"><span id="original" role="${kind}" tabindex="0" aria-${kind === 'radio' ? 'checked' : 'selected'}="true">flowed</span><span id="next" role="${kind}" tabindex="-1" aria-${kind === 'radio' ? 'checked' : 'selected'}="false"> link</span></span>`;
+      : `<span role="${kind === 'radio' ? 'radiogroup' : 'tablist'}"><span id="original" role="${kind}" tabindex="0" aria-${kind === 'radio' ? 'checked' : 'selected'}="true">flowed</span><span id="next" role="${kind}" tabindex="0" aria-${kind === 'radio' ? 'checked' : 'selected'}="false"> link</span></span>`;
     const original = paragraph.querySelector('#original'), next = paragraph.querySelector('#next');
-    if (next) original.tabIndex = -1; // the source normalizes the clones' stops before capture restores the originals
+    if (next) {
+      const state = kind === 'radio' ? 'aria-checked' : 'aria-selected';
+      original.setAttribute(state, 'false'); next.setAttribute(state, 'true');
+      original.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      original.setAttribute(state, 'true'); next.setAttribute(state, 'false');
+    }
     original.exactFlowEvents = ['keydown'];
     original.exactHandlers = kind === 'pressable' ? ['press', 'key'] : ['key'];
     const views = new Map([[1, context], [2, paragraph], [3, ball]]);
@@ -769,6 +824,11 @@ async function flowFocusFixture() {
     }
     const target = flowed ? paragraph.querySelector(navigation ? '[data-flow-fragment] [tabindex]' : `[data-flow-fragment] [role="${kind}"]`) : original;
     if (!target || flowed && (target === original || original.isConnected)) throw Error('must start from a flowed clone');
+    let paintedStop;
+    if (!navigation) {
+      target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      paintedStop = target.tabIndex;
+    }
     let detail, pushes = 0;
     const push = () => {
       pushes++;
@@ -790,7 +850,7 @@ async function flowFocusFixture() {
       const pushedFocus = document.activeElement.id;
       detail?.remove(); nav.setAttribute('navigationKey', 'list'); input.arrive();
       results.push({ kind, flowed, pushes, pushedFocus, returnFocus: document.activeElement.id, connected: original.isConnected });
-    } else results.push({ kind, flowed, stops: [original.tabIndex, next.tabIndex], connected: original.isConnected });
+    } else results.push({ kind, flowed, paintedStop, stops: [original.tabIndex, next.tabIndex], connected: original.isConnected });
     flow.dispose();
   }
   return results;
@@ -805,13 +865,14 @@ async function flowKeyFixture() {
   const gpuListen = gpuSource.slice(gpuSource.indexOf('function listen('), gpuSource.indexOf('function agent('));
   const { on, onKey, Hosts, act, sig, W, Before, After } = await import('/rt.js');
   const glue = await fetch('/glue.js').then(r => r.text());
-  const attach = glue.slice(glue.indexOf('function attach('), glue.indexOf('function viewFor('));
+  const attach = await fetch('/wasm-input.js').then(r => r.text());
   const bindWasm = new Function(`
     let keyEvent = null, bodyHeard; // glue.js declares both; attach reads them (0c3cf4405f)
     const views = new Map(), callbacks = new Map(), retiredViews = new WeakSet(), inputReady = true, page = null;
     const send = () => {}, writeIn = s => s, now = () => 0, keyChord = e => e.key;
     const api = { stopPropagation() { keyEvent.exactStopped = true; }, preventDefault() { keyEvent.preventDefault(); } };
     const wasm = { exact_dispatch(id, kind, key) { callbacks.get(id)[{ 6: 'key', 44: 'keycapture', 43: 'keyup' }[kind]](key, api); } };
+    const host = { inputReady, page, wasm, get keyEvent() { return keyEvent; }, set keyEvent(value) { keyEvent = value; } };
     ${attach}
     return (el, handlers) => {
       const id = views.size + 1; views.set(id, el); callbacks.set(id, handlers);
@@ -1009,7 +1070,8 @@ async function flowInputFixture() {
   const { createInputHandlers } = await import('/input-glue.js');
   const root = document.getElementById('root'), views = new Map(), results = [];
   let presses = 0, navigates = 0;
-  globalThis.exact = { wasm: { exact_route_match: () => 1, exact_log() {} }, writeIn: s => s,
+  // Only /story is routed; this fixture document's #story link uses native navigation.
+  globalThis.exact = { wasm: { exact_route_match: path => Number(path === '/story'), exact_log() {} }, writeIn: s => s,
     navigate() { navigates++; return { ops: [{ op: 'router' }] }; } };
   createInputHandlers({ root, views, retiredViews: new WeakSet(), ready: () => true, inertAncestor: () => false, dispatch() {} });
   for (const [press, navigate, modified] of [[true, true, false], [true, false, false], [false, true, false], [true, true, true], [false, false, false]]) {
@@ -1120,9 +1182,169 @@ browserTest('a flowed paragraph is trimmed to its own font\'s cap height, whatev
     const cut = textBoxCut({ textBoxTrim: 'trim-both', textBoxEdge: 'cap alphabetic' }, { font: '20px Arabic' }, 30, context);
     return { cap: baseline - cut.top, fallbackInk: m.actualBoundingBoxAscent };
   };
-  const { cap, fallbackInk } = await inChrome(fixture, ['/textflow-glue.js', '/timer-glue.js'], { '/arabic.ttf': new URL('../linux/tests/fonts/NotoSansArabic.ttf', import.meta.url) });
+  const { cap, fallbackInk } = await inChrome(fixture, ['/textflow-glue.js', '/timer-glue.js'], { '/arabic.ttf': new URL('../painted/tests/fonts/NotoSansArabic.ttf', import.meta.url) });
   expect(Math.abs(cap - 20 * 0.416)).toBeLessThan(0.5);
   expect(Math.abs(fallbackInk - 20 * 0.416)).toBeGreaterThan(1); // the fallback's H is not the font's cap height
+}, 20000);
+
+// Paragraphs beside an exclusion, over a stand-in walker: compare CSS, measured and
+// painted widths, including clamped and hyphenated endings, or the refusal to flow.
+async function flowWidthFixture() {
+  const { createTextFlow } = await import('/textflow-glue.js');
+  const root = document.getElementById('root'), out = {};
+  // Roboto Flex's `wdth` axis answers every font-stretch from 25% to 151%.
+  document.fonts.add(await new FontFace('Flex', 'url(/flex.ttf)', { stretch: '25% 151%' }).load());
+  const cases = {
+    pre: ['a      b', 'white-space:pre'], preWrap: ['a      b', 'white-space:pre-wrap'], normal: ['a      b', ''],
+    condensed: ['Hamburgefonts', 'font-family:Flex;font-stretch:condensed'], expanded: ['Hamburgefonts', 'font-family:Flex;font-stretch:expanded'],
+    flex: ['Hamburgefonts', 'font-family:Flex'], between: ['Hamburgefonts', 'font-family:Flex;font-stretch:80%'],
+    condensedClamp: ['Hamburgefonts more', 'font-family:Flex;font-stretch:condensed;-webkit-line-clamp:1', 'clamp'],
+    condensedHyphen: ['Hambur\u00adgefonts', 'font-family:Flex;font-stretch:condensed', 'hyphen'],
+  };
+  for (const [name, [text, extra, ending]] of Object.entries(cases)) {
+    const style = `font:16px/24px serif;${extra}`, n = text.length;
+    const end = ending === 'hyphen' ? 7 : n, reference = ending === 'hyphen' ? 'Hambur-' : ending === 'clamp' ? 'Hambur…' : text;
+    const byteAt = i => new TextEncoder().encode(text.slice(0, i)).length;
+    root.innerHTML = `<span id="plain" style="${style}">${reference}</span><div id="context" style="position:relative;width:300px"><div id="paragraph" style="${style}">${text}</div><div id="ball" style="position:absolute;left:0;top:0;width:40px;height:40px"></div></div>`;
+    const views = new Map([[1, document.getElementById('context')], [2, document.getElementById('paragraph')], [3, document.getElementById('ball')]]);
+    let measured = null, skipped = null, hyphen = 0;
+    const css = document.getElementById('plain').getBoundingClientRect().width, available = ending === 'clamp' ? css + 0.1 : 260;
+    const request = (op, id, input) => {
+      if (op === 0) return { ranges: [[0, byteAt(end), 0, end]], graphemes: Array.from({ length: n }, (_, i) => [byteAt(i), byteAt(i + 1), i, i + 1]) };
+      if (op === 1) { const data = new DataView(input.buffer, input.byteOffset); hyphen = data.getFloat32(0, true); measured = data.getFloat32(4, true); return { prepared: true }; }
+      if (op !== 2) return {};
+      return { shapes: [], complete: ending !== 'clamp', clamped: ending === 'clamp', height: 24, line_height: 24,
+        fragments: [{ start: 0, end: byteAt(end), utf16_start: 0, utf16_end: end, paint_start: 0, paint_end: end, x: 40, y: 0,
+          width: measured + (ending === 'hyphen' ? hyphen : 0), available, line: 0, hyphenated: ending === 'hyphen' }] };
+    };
+    const flow = createTextFlow({ views, request, agentMode: true, advance() {}, log: line => { skipped = line; } });
+    flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: false, refusal: null }] }] }], timers: false });
+    await flow.settle();
+    const fragment = document.querySelector('[data-flow-fragment]'), piece = fragment?.firstElementChild;
+    out[name] = { css, measured: flow.facts(2)?.fragments?.[0]?.width ?? measured,
+      painted: fragment?.getBoundingClientRect().width ?? null, whiteSpace: piece?.style.whiteSpace ?? null, skipped: piece ? null : skipped,
+      endingStretch: !fragment ? null : ending === 'hyphen' ? getComputedStyle(fragment, '::after').fontStretch : ending === 'clamp' ? getComputedStyle(fragment.lastElementChild).fontStretch : null };
+    flow.dispose();
+  }
+  return out;
+}
+
+// `white-space: pre` keeps its runs of spaces beside an exclusion, as `pre-wrap` does and as CSS lays it out.
+// Condensed and expanded text is measured at its width: the canvas takes font-stretch's keywords, not the
+// percentage computed style gives, and a percentage with no keyword keeps ordinary layout.
+browserTest('a flowed paragraph is measured and painted at the width CSS gives it', async () => {
+  const { between, condensedClamp, condensedHyphen, ...got } = await inChrome(flowWidthFixture, ['/textflow-glue.js', '/timer-glue.js'],
+    { '/flex.ttf': new URL('../painted/tests/fonts/RobotoFlex-subset.ttf', import.meta.url) });
+  for (const [name, { css, measured, painted }] of Object.entries(got)) {
+    expect([name, Math.abs(measured - css) < 0.5, Math.abs(painted - css) < 0.5]).toEqual([name, true, true]);
+  }
+  expect([condensedClamp, condensedHyphen].map(({ css, measured, painted, endingStretch }) => ({
+    measured: Math.abs(measured - css) < 0.1, painted: Math.abs(painted - measured) < 0.1, stretch: endingStretch,
+  }))).toEqual([{ measured: true, painted: true, stretch: '75%' }, { measured: true, painted: true, stretch: '75%' }]);
+  expect(got.pre.css).toBeGreaterThan(got.normal.css + 10);
+  expect(got.condensed.css).toBeLessThan(got.flex.css - 3);
+  expect(got.expanded.css).toBeGreaterThan(got.flex.css + 3);
+  expect(between.skipped).toContain('font-stretch cannot be measured by canvas');
+  expect([got.pre.whiteSpace, got.preWrap.whiteSpace, got.normal.whiteSpace]).toEqual(['pre', 'pre', 'normal']);
+}, 20000);
+
+browserTest('a clamped pre line includes painted trailing spaces in its measured width', async () => {
+  const got = await inChrome(async () => {
+    const { createTextFlow } = await import('/textflow-glue.js');
+    const root = document.getElementById('root'), text = 'hello   world\nmore', n = text.length;
+    root.innerHTML = '<div id="context" style="position:relative;width:300px"><div id="paragraph" style="font:16px/24px monospace;white-space:pre;-webkit-line-clamp:1"></div><div id="ball" style="position:absolute;left:0;top:0;width:20px;height:20px"></div></div>';
+    const paragraph = document.getElementById('paragraph'); paragraph.textContent = text;
+    const canvas = document.createElement('canvas').getContext('2d'); canvas.font = '16px monospace';
+    const available = canvas.measureText('hello…').width + 0.1;
+    const views = new Map([[1, root.firstElementChild], [2, paragraph], [3, document.getElementById('ball')]]);
+    const request = op => {
+      if (op === 0) return { ranges: [[0, n, 0, n]], graphemes: Array.from({ length: n }, (_, i) => [i, i + 1, i, i + 1]) };
+      if (op === 1) return { prepared: true };
+      if (op !== 2) return {};
+      return { shapes: [], complete: false, clamped: true, height: 24, line_height: 24,
+        fragments: [{ start: 0, end: 14, utf16_start: 0, utf16_end: 14, paint_start: 0, paint_end: 13, x: 0, y: 0, width: 200, available, line: 0 }] };
+    };
+    const flow = createTextFlow({ views, request, agentMode: true, advance() {} });
+    flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: false }] }] }], timers: false });
+    await flow.settle();
+    const span = paragraph.querySelector('[data-flow-fragment]');
+    const result = { text: span.textContent, painted: span.getBoundingClientRect().width, measured: flow.facts(2).fragments[0].width, available };
+    flow.dispose(); return result;
+  }, ['/textflow-glue.js', '/timer-glue.js']);
+  expect(Math.abs(got.painted - got.measured)).toBeLessThan(0.1);
+  expect(got.text).toBe('hello…');
+  expect(got.painted).toBeLessThanOrEqual(got.available);
+}, 20000);
+
+// Tab advances depend on their column, which the walker's fixed segment widths
+// cannot express. Compare the retained DOM with ordinary CSS, including clamps.
+test('adding and removing a preserved tab restores and resumes flow', async () => {
+  const f = controllerFixture();
+  try {
+    f.p.computed.whiteSpace = 'pre';
+    await f.controller.settle();
+    expect(f.controller.facts(2).fragments.length).toBeGreaterThan(0);
+    const change = { ops: [{ op: 'props', id: 2 }], timers: false };
+    f.controller.beforeBatch(change); f.p.textContent = 'a\tb'; f.controller.afterBatch(change); await f.settle();
+    expect(f.controller.facts(2).skipped).toContain('preserved tabs');
+    expect(f.p.textContent).toBe('a\tb');
+    f.controller.beforeBatch(change); f.p.textContent = 'a b'; f.controller.afterBatch(change); await f.settle();
+    expect(f.controller.facts(2).fragments.length).toBeGreaterThan(0);
+    expect(f.controller.facts(2).skipped).toBeUndefined();
+  } finally { f.close(); }
+});
+
+async function preservedTabFixture() {
+  const { createTextFlow } = await import('/textflow-glue.js');
+  const root = document.getElementById('root'), results = [];
+  for (const whiteSpace of ['pre', 'pre-wrap']) for (const clamped of [false, true]) {
+    const text = clamped ? 'a\tbcdefghijklmnopqrstuvwxyz' : 'a\tb', n = text.length;
+    root.innerHTML = '<div id="context" style="position:relative;width:300px"><div id="paragraph"></div><div id="ball" style="position:absolute;left:0;top:0;width:20px;height:20px"></div></div><div id="plain"></div>';
+    const paragraph = document.getElementById('paragraph'), plain = document.getElementById('plain');
+    const canvas = document.createElement('canvas').getContext('2d'); canvas.font = '16px monospace';
+    const available = clamped ? canvas.measureText('a        …').width + 0.1 : 300;
+    const style = `font:16px/24px monospace;white-space:${whiteSpace};width:${available}px;` +
+      (clamped ? 'display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden;' : 'text-align:right;');
+    for (const el of [paragraph, plain]) { el.style.cssText = style; el.textContent = text; }
+    const source = paragraph.firstChild;
+    const views = new Map([[1, document.getElementById('context')], [2, paragraph], [3, document.getElementById('ball')]]);
+    let measured = null;
+    const request = (op, id, input) => {
+      if (op === 0) return { ranges: [[0, n, 0, n]], graphemes: Array.from({ length: n }, (_, i) => [i, i + 1, i, i + 1]) };
+      if (op === 1) { measured = new DataView(input.buffer, input.byteOffset).getFloat32(4, true); return { prepared: true }; }
+      if (op !== 2) return {};
+      return { shapes: [], complete: !clamped, clamped, height: 24, line_height: 24,
+        fragments: [{ start: 0, end: n, utf16_start: 0, utf16_end: n, paint_start: 0, paint_end: n, x: 0, y: 0, width: measured, available, line: 0 }] };
+    };
+    const flow = createTextFlow({ views, request, agentMode: true, advance() {} });
+    flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: false }] }] }], timers: false });
+    await flow.settle();
+    const rangeBox = el => { const range = document.createRange(); range.selectNodeContents(el); return range.getBoundingClientRect(); };
+    const fragment = paragraph.querySelector('[data-flow-fragment]'), painted = rangeBox(paragraph), css = rangeBox(plain);
+    results.push({ whiteSpace, clamped, measured: flow.facts(2)?.fragments?.[0]?.width ?? painted.width,
+      painted: fragment?.getBoundingClientRect().width ?? painted.width, css: css.width, available,
+      right: painted.right - paragraph.getBoundingClientRect().left, cssRight: css.right - plain.getBoundingClientRect().left,
+      retained: paragraph.firstChild === source, fragments: paragraph.querySelectorAll('[data-flow-fragment]').length,
+      skipped: flow.facts(2)?.skipped, text: paragraph.textContent, source: text });
+    flow.dispose();
+  }
+  return results;
+}
+
+for (const clamped of [false, true]) browserTest(clamped
+  ? 'clamped preserved tabs keep ordinary CSS layout instead of an overwide prefix'
+  : 'right-aligned preserved tabs keep the measured and painted CSS width', async () => {
+  const cases = (await inChrome(preservedTabFixture, ['/textflow-glue.js', '/timer-glue.js'])).filter(r => r.clamped === clamped);
+  expect(cases.map(r => [r.whiteSpace, Math.round((r.painted - r.measured) * 100) / 100,
+    r.fragments ? r.painted <= r.available : true])).toEqual([['pre', 0, true], ['pre-wrap', 0, true]]);
+  for (const r of cases) {
+    expect(r.retained).toBe(true);
+    expect(r.fragments).toBe(0);
+    expect(r.skipped).toContain('preserved tabs');
+    expect(r.text).toBe(r.source);
+    expect(Math.abs(r.painted - r.css)).toBeLessThan(0.1);
+    expect(Math.abs(r.right - r.cssRight)).toBeLessThan(0.1);
+  }
 }, 20000);
 
 // A line box shorter than the font grows when trimmed to its text edges, as

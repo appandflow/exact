@@ -5,8 +5,9 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const HERE = resolve(new URL('.', import.meta.url).pathname);
+const HERE = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1]]] : a), []));
 const { round, spec, sim } = args;
 if (!round || !spec || !sim) { console.error('usage: grade.mjs --round <dir> --spec <id> --sim <udid>'); process.exit(2); }

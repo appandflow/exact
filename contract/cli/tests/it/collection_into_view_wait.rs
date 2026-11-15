@@ -1,4 +1,4 @@
-//! A `scrollIntoView` that meets the reader's scroll on a
+//! LLP 1070.000 §2.6: a `scrollIntoView` that meets the reader's scroll on a
 //! host whose jump would not end it (a browser, AppKit) waits for the scroll
 //! to end. Meanwhile the reader's window follows the port, nothing is
 //! corrected or counted, and a gesture begun since cancels it; when the
@@ -364,7 +364,7 @@ fn a_satisfied_request_is_done_during_a_fling_toward_the_start() {
 }
 
 /// On a row list an anchor's shift still owed is one the web does not make
-/// while the reader moves the list: a request the port satisfies
+/// while the reader moves the list (LLP 1070 H4): a request the port satisfies
 /// both with and without that shift is done; one it satisfies with it only
 /// is left to move.
 #[test]
@@ -489,7 +489,7 @@ fn a_data_update_after_an_admission_anchors_where_the_host_moved_the_port() {
 }
 
 /// A list that follows its end does not follow it while a request is under
-/// way: the request overrides the kept position, so a row
+/// way: the request overrides the kept position (LLP 1070.000 §2.5), so a row
 /// appended while it waits makes no move.
 #[test]
 fn a_list_that_follows_its_end_does_not_while_a_request_waits() {
@@ -629,7 +629,7 @@ fn a_stopped_animation_leaves_the_port_unknown_until_a_report() {
 
 /// A request that has moved the port is not the one the port already
 /// satisfies: landing at its own destination, it completes on its second
-/// aligned report, not as satisfied at its first.
+/// aligned report (§2.4), not as satisfied at its first.
 #[test]
 fn a_request_that_moved_the_port_is_done_on_its_second_aligned_report() {
     let (mut r, feed) = boot();
@@ -643,7 +643,7 @@ fn a_request_that_moved_the_port_is_done_on_its_second_aligned_report() {
 
 /// A request made while the host animates is not judged at the animation's
 /// destination, which is all its reports give: the host stops the animation
-/// where the port is, and the next report says where that is.
+/// where the port is, and the next report says where that is (§2.5).
 #[test]
 fn a_request_made_during_the_hosts_animation_is_not_judged_at_its_destination() {
     let (mut r, feed) = boot();
@@ -657,9 +657,9 @@ fn a_request_made_during_the_hosts_animation_is_not_judged_at_its_destination() 
     assert_status(&r, "done");
 }
 
-/// While the host animates, its reports give where the animation is headed:
-/// a request made then waits for a report of where the port is, and
-/// no report made during the animation completes one.
+/// While the host animates, its reports give where the animation is headed
+/// (§11): a request made then waits for a report of where the port is, and
+/// no report made during the animation completes one (§2.6).
 #[test]
 fn reports_while_the_host_animates_complete_no_request() {
     let (mut r, feed) = boot();
@@ -733,7 +733,7 @@ fn a_request_whose_wait_ends_where_the_port_satisfies_it_is_done_there() {
 /// Once a request has moved the port, a report that says the reader's
 /// scroll is under way ends it, though the host reports no travel while the
 /// request's moves are its own: as for a request admitted in the frame
-/// before its host's report said a finger was down.
+/// before its host's report said a finger was down (§2.6).
 #[test]
 fn the_readers_scroll_reported_after_an_admission_ends_it_with_no_travel() {
     let (mut r, feed) = boot();
@@ -851,7 +851,7 @@ fn a_row_before_the_target_not_yet_measured_leaves_the_request_open() {
 }
 
 /// The move a request makes as its wait ends is its first, which is not one
-/// of its six corrections, as a request made at rest's is not.
+/// of its six corrections (§2.4), as a request made at rest's is not.
 #[test]
 fn a_request_landing_after_its_wait_still_has_six_corrections() {
     let (mut r, feed) = boot();

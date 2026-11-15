@@ -1,4 +1,4 @@
-// App-declared aria-keyshortcuts on iPadOS: a hardware
+// App-declared aria-keyshortcuts on iPadOS (gallery F18): a hardware
 // keyboard's chord presses the button that declares it, as on the web and
 // macOS (ShortcutsMac). The session's view offers one UIKeyCommand per
 // chord, and takes the focus when nothing else holds it so the commands are
@@ -62,11 +62,13 @@ extension Presenter {
         (view.props["accessibilityKeyShortcuts"] ?? "").split(whereSeparator: \.isWhitespace).compactMap(ChordIOS.init)
     }
     /// The shown buttons that declare a chord: a disabled one takes its key
-    /// and presses nothing (`pressShortcut`), as on the web.
+    /// and presses nothing (`pressShortcut`), as on the web. A header control
+    /// a shown navigation bar draws as its item is hidden in the page, and
+    /// shown all the same while nothing is presented over its route.
     private var shortcutButtons: [NodeView] {
         chrome.ids("accessibilityKeyShortcuts").sorted().compactMap { views[$0] }
             .filter { $0.isButton && ($0.handlers.contains("press") || $0.isSurfaceControl || $0.isNativeButton && invocation(of: $0) != nil)
-                && $0.accessibilityVisible }
+                && ($0.accessibilityVisible || $0.accessibilityExposed && !$0.authoredInert && navigation.tipItem($0) != nil) }
     }
     var needsKeyboardFocus: Bool {
         shortcutButtons.contains { !chords($0).isEmpty }
@@ -87,7 +89,7 @@ extension Presenter {
     /// One command per chord the buttons declare, those a text field's
     /// typing would take left out while one has the focus. Each carries its
     /// button's name as its title, so holding ⌘ on an iPad lists it, as a
-    /// hand-built app's commands are listed; a button
+    /// hand-built app's commands are listed (LLP 1115.000 D11.6); a button
     /// with no name has no title and is not listed.
     func shortcutCommands(_ action: Selector) -> [UIKeyCommand] {
         var seen = Set<String>(), commands: [UIKeyCommand] = []

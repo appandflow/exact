@@ -1,4 +1,5 @@
 //! Apple paragraph projection: inline kernel identities cross as values, never views.
+//! @ref LLP 1044.000 §6 S1
 use super::*;
 
 impl<D: DataSource> Host<D> {
@@ -19,10 +20,11 @@ impl<D: DataSource> Host<D> {
         order
     }
 
-    /// An `option` or a run in one: a select's menu item,
+    /// An `option` or a run in one (LLP 1069.001 D2): a select's menu item,
     /// which the presenter reads from the kernel (`exact_select_options`),
     /// never a view. A native button's title and image, or a run in its
-    /// title, likewise: its face, read through `exact_press_face`.
+    /// title, likewise: its face, read through `exact_press_face`
+    /// (LLP 1069.011 D5).
     pub(super) fn option_part(&self, id: ViewId) -> bool {
         let kernel = self.runner.kernel();
         let mut at = kernel.node(id);
@@ -45,7 +47,7 @@ impl<D: DataSource> Host<D> {
         false
     }
 
-    /// A drawn face's box (a title's avatar): a View
+    /// A drawn face's box (a title's avatar, LLP 1075.003 §9.10): a View
     /// with a fill and authored width and height in points. Its points go as
     /// `faceBoxSize` `"WxH"`, because a header the bar replaces is laid out
     /// as `display: none`, so no frame tells the host the size the author
@@ -60,10 +62,10 @@ impl<D: DataSource> Host<D> {
         if node.node_type != NodeType::View || kernel.arena().children(node.key.index).is_empty() {
             return None;
         }
-        let env = kernel.arena().env();
+        let env = kernel.env_of(id);
         let (exact_kernel::Dimension::Points(w), exact_kernel::Dimension::Points(h)) = (
-            node.style.width.resolve(env),
-            node.style.height.resolve(env),
+            node.style.width.resolve(&env),
+            node.style.height.resolve(&env),
         ) else {
             return None;
         };
@@ -75,7 +77,7 @@ impl<D: DataSource> Host<D> {
         (fill.resolve(false).a() != 0 || fill.resolve(true).a() != 0).then(|| format!("{w}x{h}"))
     }
 
-    /// The paragraph an image in its text belongs to: its
+    /// The paragraph an image in its text belongs to (LLP 1011.002): its
     /// box is one of that paragraph's runs, so a change to the image is a
     /// change to its runs.
     pub(super) fn image_paragraph(&self, id: ViewId) -> Option<ViewId> {
@@ -150,7 +152,20 @@ impl<D: DataSource> Host<D> {
         true
     }
 
+    /// What an inline run's own `opacity` shows now: the engine's sample
+    /// while it moves, else its row. Its paragraph paints it (CSS Color 3
+    /// §3.2: `opacity` applies to every element), as a view's layer would.
+    pub(super) fn run_opacity(&self, key: exact_kernel::NodeKey) -> f64 {
+        let Some(node) = self.runner.kernel().node_by_key(key) else {
+            return 1.0;
+        };
+        self.engine
+            .sampled_value(motion_node(key), Property::Opacity)
+            .map_or(f64::from(node.style.opacity), |v| v.x)
+    }
+
     pub(super) fn stage_native_paragraphs(
+        &self,
         nodes: &[crate::content_region::CandidateNativeNode],
         batch: &mut Batch,
     ) {
@@ -166,11 +181,11 @@ impl<D: DataSource> Host<D> {
                 .children
                 .iter()
                 .rev()
-                .map(|id| (*id, owner, active))
+                .map(|id| (*id, owner, active, 1.0))
                 .collect();
             let mut runs = String::from("[");
             let mut first = true;
-            while let Some((id, parent, active)) = stack.pop() {
+            while let Some((id, parent, active, above)) = stack.pop() {
                 let Some(node) = by_id.get(&id) else {
                     continue;
                 };
@@ -178,6 +193,7 @@ impl<D: DataSource> Host<D> {
                     continue;
                 }
                 let paints = active && node.mirror.props.contains_key("text");
+                let opacity = above * self.run_opacity(node.header.key);
                 if !first {
                     runs.push(',');
                 }
@@ -190,13 +206,14 @@ impl<D: DataSource> Host<D> {
                     &node.mirror.style,
                     &node.header.handlers,
                     paints,
+                    opacity,
                 );
                 stack.extend(
                     node.mirror
                         .children
                         .iter()
                         .rev()
-                        .map(|child| (*child, id, active && !paints)),
+                        .map(|child| (*child, id, active && !paints, opacity)),
                 );
             }
             runs.push(']');
@@ -214,20 +231,24 @@ impl<D: DataSource> Host<D> {
                 continue;
             }
             let active = node.props.str(PropId::Text).is_none();
+            // Each painted run's inline edges, in the order the kernel's runs
+            // are, which is the order this walk paints them in.
+            let edges: Vec<_> = node.text_runs().iter().map(|r| r.edges).collect();
+            let mut painted = 0;
             let mut stack: Vec<_> = node
                 .children()
                 .into_iter()
                 .rev()
-                .map(|id| (id, active))
+                .map(|id| (id, active, 1.0))
                 .collect();
             let mut runs = String::from("[");
             let mut first = true;
-            while let Some((id, active)) = stack.pop() {
+            while let Some((id, active, above)) = stack.pop() {
                 let Some(run) = kernel.node(id) else {
                     continue;
                 };
                 // Non-text controls are never absorbed into a paragraph; an
-                // image in its text is a run of its box.
+                // image in its text is a run of its box (LLP 1011.002).
                 let inline = run.inline_box();
                 if !run.is_inline_run() && inline.is_none() {
                     continue;
@@ -241,7 +262,7 @@ impl<D: DataSource> Host<D> {
                             exact_kernel::StyleId::Visibility,
                         ))
                         .visibility
-                        == exact_kernel::Visibility::Hidden
+                        != exact_kernel::Visibility::Visible
                     {
                         props.insert("inlineBoxHidden", "true".into());
                     }
@@ -256,16 +277,23 @@ impl<D: DataSource> Host<D> {
                         ),
                     );
                 }
-                // A run painting an inherited `color` that moves.
+                // How far its padding box stands out from its text: what its
+                // background covers beside its glyphs.
+                let reach = run.inline_background_reach();
+                if !reach.is_empty() {
+                    props.insert(
+                        "inlinePad",
+                        format!("{} {}", style::num(reach.start), style::num(reach.end)),
+                    );
+                }
+                // A run painting an inherited `color` that moves (LLP 1062 D5).
                 let mut shown = style::Shown::default();
                 shown.set(Property::Color, self.paint.runs.get(&id).copied());
                 // An image's box is in its paragraph's font, as the kernel measures it.
                 let styled = inline.and(run.parent).and_then(|p| kernel.node(p));
-                let (style, _) = style::style_json_inherited(
-                    styled.as_ref().unwrap_or(&run),
-                    &kernel.env(),
-                    &shown,
-                );
+                let styled = styled.as_ref().unwrap_or(&run);
+                let env = kernel.env_of(styled.id);
+                let (style, _) = style::style_json_inherited(styled, &env, &shown);
                 let handlers: Vec<_> = self
                     .inline_runs
                     .get(&id)
@@ -274,6 +302,23 @@ impl<D: DataSource> Host<D> {
                     .filter_map(handler_name)
                     .collect();
                 let paints = active && (inline.is_some() || run.props.str(PropId::Text).is_some());
+                if paints {
+                    let e = edges.get(painted).copied().unwrap_or_default();
+                    painted += 1;
+                    if !e.is_empty() {
+                        props.insert(
+                            "inlineEdges",
+                            format!("{} {}", style::num(e.start), style::num(e.end)),
+                        );
+                    }
+                }
+                let own = self.run_opacity(run.key);
+                if own == 1.0 {
+                    self.paint.opacities.remove(&id);
+                } else {
+                    self.paint.opacities.insert(id, own);
+                }
+                let opacity = above * own;
                 if !first {
                     runs.push(',');
                 }
@@ -286,12 +331,13 @@ impl<D: DataSource> Host<D> {
                     &style,
                     &handlers,
                     paints,
+                    opacity,
                 );
                 stack.extend(
                     run.children()
                         .into_iter()
                         .rev()
-                        .map(|child| (child, active && !paints)),
+                        .map(|child| (child, active && !paints, opacity)),
                 );
             }
             runs.push(']');
@@ -299,8 +345,8 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// A hatched node this host draws without a view of its own: its hatch
-    /// reaches nothing here, journaled once a word.
+    /// @ref LLP 1075.003.000 §3.3 — a hatched node this host draws without a
+    /// view of its own: its hatch reaches nothing here, journaled once a word.
     fn viewless_hatch(&mut self, id: ViewId, why: &str) {
         let word = self
             .runner
@@ -315,12 +361,12 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn create(&mut self, id: ViewId, events: &[EventKind], batch: &mut Batch) {
-        // An SVG element is in its `svg`'s scene, not a view.
+        // @ref LLP 1055 D4 — an SVG element is in its `svg`'s scene, not a view.
         if self.svg.element(self.runner.kernel(), id).is_some() {
             let key = self.runner.kernel().node(id).expect("live").key;
             self.keys.insert(key, id);
             self.viewless_hatch(id, "an SVG element is its scene's, not a view");
-            // The presenter hits it by `pointer-events`.
+            // @ref LLP 1055.000 D17 — the presenter hits it by `pointer-events`.
             self.svg.handlers(id, events.contains(&EventKind::Press));
             return;
         }
@@ -351,7 +397,7 @@ impl<D: DataSource> Host<D> {
         }
         let node = self.runner.kernel().node(id).expect("live");
         let key = node.key;
-        // A 2D canvas is a plain view: its bitmap is a
+        // @ref LLP 1056 D10 — a 2D canvas is a plain view: its bitmap is a
         // layer's contents under ordinary children, with no Metal or overlay.
         let kind = if self.runner.is_canvas_2d(id) {
             "canvas2d"
@@ -362,7 +408,7 @@ impl<D: DataSource> Host<D> {
         if let Some(size) = self.face_box_size(id) {
             props.insert("faceBoxSize", size);
         }
-        let env = self.runner.kernel().env();
+        let env = self.runner.kernel().env_of(id);
         let (style, _skipped) = style::style_json_for(&node, &env);
         let handlers: Vec<&str> = events.iter().copied().filter_map(handler_name).collect();
         if handlers.contains(&"heightrelease") {
@@ -422,7 +468,7 @@ impl<D: DataSource> Host<D> {
         if let Some(size) = self.face_box_size(id) {
             props.insert("faceBoxSize", size);
         }
-        let env = self.runner.kernel().env();
+        let env = self.runner.kernel().env_of(id);
         let (style, _skipped) = style::style_json_for(&node, &env);
         if self.mirror.get(&id).and_then(|m| m.props.get("spellcheck")) != props.get("spellcheck") {
             self.queue_layout_subtree(id);
@@ -460,13 +506,13 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn emit_children(&mut self, id: ViewId, batch: &mut Batch) {
-        // An `svg`'s and a `g`'s children are its scene's.
+        // An `svg`'s and a `g`'s children are its scene's (LLP 1055 D4).
         let node_type = self.runner.kernel().node(id).expect("live").node_type;
         if node_type == NodeType::Svg || node_type.is_svg_element() {
             self.svg.element(self.runner.kernel(), id);
             return;
         }
-        // A select's options are its menu's, not views. A
+        // A select's options are its menu's, not views (LLP 1069.001 D2). A
         // control this batch creates is configured for its create op; saying
         // so for it too made every list row with a checkbox a batch that
         // configures every control and syncs the navigation chrome.
@@ -507,7 +553,7 @@ impl<D: DataSource> Host<D> {
         if self.native_protected_id(id) {
             return;
         }
-        // A paragraph's views are its images': its runs are its text.
+        // A paragraph's views are its images' (LLP 1011.002): its runs are its text.
         if let Some(owner) = self.paragraph_owner(id) {
             let kernel = self.runner.kernel();
             children.retain(|c| kernel.node(*c).is_some_and(|n| n.is_inline_image()));
@@ -528,11 +574,11 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// A box whose paint is moving: its style
+    /// A box whose paint is moving (LLP 1055.000 D6, LLP 1062): its style
     /// with the presented values over its rows, and the style of every
     /// descendant that inherits its `color` — an inline run's through its
-    /// paragraph, which paints it. A leaving view is no
-    /// mirror's, and still paints its exit's colours. When the
+    /// paragraph, which paints it (LLP 1062 D5). A leaving view is no
+    /// mirror's, and still paints its exit's colours (LLP 1063). When the
     /// motion ends the rows show again, re-sent the same way.
     pub(super) fn present_colors(&mut self, view: ViewId, batch: &mut Batch, inherits: bool) {
         let kernel = self.runner.kernel();
@@ -542,7 +588,7 @@ impl<D: DataSource> Host<D> {
         let key = motion_node(node.key);
         let shown = self.shown_paint(key);
         let color = shown.get(Property::Color);
-        let env = kernel.env();
+        let env = kernel.env_of(view);
         let mut restyled = vec![(view, style::style_json_presented(&node, &env, &shown).0)];
         let mut runs = Vec::new();
         if inherits {
@@ -599,8 +645,8 @@ const HATCH_PLATFORM: &str = if cfg!(target_os = "macos") {
 };
 
 /// The hatch words a host keeps: those journaled as having no view here (an
-/// inline run's), and those the plan does not give this platform,
-/// whose nodes reach Swift unhatched.
+/// inline run's), and those the plan does not give this platform (LLP
+/// 1075.003.000.001 §4.3), whose nodes reach Swift unhatched.
 #[derive(Default)]
 pub(crate) struct HatchWords {
     pub(crate) viewless: std::collections::BTreeSet<String>,
@@ -633,6 +679,11 @@ impl<D: DataSource> Host<D> {
         node: &NodeRef<'_>,
     ) -> exact_kernel::SortedMap<&'static str, String> {
         let mut props = props_for(node);
+        if self.native_mode() && self.runner.kernel().is_top_layer(node.id) {
+            if let Some(parent) = node.parent.filter(|p| self.native_protected_id(*p)) {
+                props.insert("popoverParent", parent.to_string());
+            }
+        }
         if let Some(line) = super::layout::separator::json(self.runner.kernel(), node.id) {
             props.insert(super::layout::separator::PROP, line);
         }
@@ -684,12 +735,12 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<&'static 
         };
         out.insert(id.name(), text);
     }
-    // Swift paints the measured paragraph with text-transform applied.
+    // Swift paints the measured paragraph with text-transform applied (LLP 1064 D5).
     if let Some(std::borrow::Cow::Owned(shown)) = node.shown_text() {
         out.insert(PropId::Text.name(), shown);
     }
-    style::glass_auto_props(node, &mut out);
-    // An image in the text is read in its paragraph's words.
+    style::glass_auto_props(node, &mut out); // LLP 1053.000.000.000 D2
+                                             // An image in the text is read in its paragraph's words (LLP 1011.002 D4).
     if node.is_inline_image() {
         out.insert(PropId::AccessibilityElementsHidden.name(), "true".into());
     }
@@ -707,6 +758,17 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<&'static 
             out.insert("spellcheck", value.to_string());
         }
     }
+    // @ref LLP 1035.006.000 D1 — a tip's symbol by its SF Symbols name.
+    if let Some(role) = node
+        .props
+        .str(PropId::TipImage)
+        .and_then(|s| s.strip_prefix("symbol:"))
+    {
+        out.insert(
+            "tipSymbolName",
+            exact_kernel::apple_symbol_name(role).into(),
+        );
+    }
     if node.node_type == NodeType::Image {
         if let Some(role) = node
             .props
@@ -714,16 +776,19 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<&'static 
             .and_then(|s| s.strip_prefix("symbol:"))
         {
             out.insert("symbolName", exact_kernel::apple_symbol_name(role).into());
-            // An svg-only icon's path, which Apple draws.
+            // @ref LLP 1121 D10 — an svg-only icon's path, which Apple draws (stage 9 A).
             if let Some((d, view_box, even_odd)) = crate::icon_path::commands(role) {
                 out.insert("symbolPath", d);
                 out.insert("symbolViewBox", view_box.into());
-                // An even-odd icon says so; a nonzero one sends what it did.
+                // Stage 14 C2: an even-odd icon says so; a nonzero one sends what it did.
                 if even_odd {
                     out.insert("symbolFillRule", "evenodd".into());
                 }
             }
-            // Untinted, it draws in its `color`.
+            if let Some(svg) = crate::icon_path::asset(role) {
+                out.insert("symbolAsset", svg.into());
+            }
+            // Untinted, it draws in its `color` (LLP 1121 stage 9 B).
             if node.symbol_color_said() {
                 out.insert("symbolColorWritten", "1".into());
             }
@@ -734,7 +799,7 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> exact_kernel::SortedMap<&'static 
 
 /// The style texts the mirrors hold, one allocation per distinct text: a
 /// grid's cells and a list's rows repeat one style hundreds of times
-/// (one app's first screen: 212 texts of 877 bytes, one of them). A text no
+/// (euxy's first screen: 212 texts of 877 bytes, one of them). A text no
 /// mirror holds any more leaves at the next sweep, which runs when the
 /// table has doubled since the last.
 #[derive(Debug, Default)]

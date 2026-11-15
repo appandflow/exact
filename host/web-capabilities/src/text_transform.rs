@@ -1,4 +1,4 @@
-//! `text-transform` on the web: the kernel's Unicode case
+//! `text-transform` on the web (LLP 1064 D5): the kernel's Unicode case
 //! mapping, linked when a plan binds the row, so an app that transforms no
 //! text carries none of the case tables.
 

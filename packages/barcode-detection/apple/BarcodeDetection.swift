@@ -1,16 +1,16 @@
-// @exact/barcode-detection on Apple: Vision's
-// `VNDetectBarcodesRequest`, on a still or on the frames of a camera
-// track a viewfinder shows (Scan.swift).
+// @exact/barcode-detection on Apple (LLP 1133.027): Vision's
+// `VNDetectBarcodesRequest`, on a still (D4) or on the frames of a camera
+// track a viewfinder shows (D5, Scan.swift).
 //
 // - A still is a file the runner admitted against `fs.read`, decoded upright:
 //   the request handler is given the file's EXIF orientation, and Vision's
 //   normalised, bottom-left boxes are converted to the upright image's pixels
 //   from the top left.
-// - Vision has no UPC-A: it reads one as an EAN-13 with a leading 0, and the
-//   UPC rule answers it as the formats asked name it.
-// - Vision runs for real under the agent, on the drive's fixture images;
+// - Vision has no UPC-A: it reads one as an EAN-13 with a leading 0, and D11's
+//   rule answers it as the formats asked name it.
+// - Vision runs for real under the agent (§9), on the drive's fixture images;
 //   no hatch is called there.
-// - Tier 3: `requestHatch` before each request is performed, after the
+// - Tier 3 (D13): `requestHatch` before each request is performed, after the
 //   module's symbologies; `videoOutputHatch` once a scan's output is added.
 import AVFoundation
 import ExactPackage
@@ -46,6 +46,8 @@ public final class BarcodeDetectionModule: ExactPackage {
     let work = DispatchQueue(label: "exact.barcode-detection", qos: .userInitiated)
     #if !os(tvOS)
     private var scans: [String: Scan] = [:]
+    /// The runner's argument groups reading each scan: the scan ends when the last is released.
+    private var groups: [String: Set<String>] = [:]
     #endif
 
     public init(context: ExactPackageContext) { self.context = context }
@@ -65,7 +67,7 @@ public final class BarcodeDetectionModule: ExactPackage {
         name == "getSupportedFormats" || name == "getSupportedFormatsSync" ? Self.supported() : ["error": "NotSupportedError"]
     }
 
-    // MARK: formats
+    // MARK: formats (D1, D11)
 
     static let formats = ["aztec", "code_128", "code_39", "code_93", "codabar", "data_matrix", "ean_13", "ean_8", "itf", "pdf417", "qr_code", "upc_a", "upc_e"]
 
@@ -91,7 +93,7 @@ public final class BarcodeDetectionModule: ExactPackage {
     /// Vision's symbologies on this OS: the default request's.
     static let symbologies: [VNBarcodeSymbology] = (try? VNDetectBarcodesRequest().supportedSymbologies()) ?? []
 
-    /// The formats read here, `upc_a` beside `ean_13` by the rule.
+    /// The formats read here, `upc_a` beside `ean_13` by D11's rule.
     static let here: [String] = {
         let own = Set(symbologies.compactMap(format))
         return formats.filter { own.contains($0) || ($0 == "upc_a" && own.contains("ean_13")) }
@@ -99,24 +101,24 @@ public final class BarcodeDetectionModule: ExactPackage {
 
     static func supported() -> [String: Any] {
         #if os(tvOS)
-        let tracks = false // a live scan waits for the camera's tvOS cell
+        let tracks = false // a live scan waits for the camera's tvOS cell (D18)
         #else
         let tracks = !here.isEmpty
         #endif
         return ["formats": here, "tracks": tracks, "apple": ["symbologies": symbologies.map(\.rawValue)]]
     }
 
-    /// The formats asked: nil for all; `{error}` for the `TypeError` or `NotSupportedError`.
+    /// The formats asked: nil for all; `{error}` for D2's `TypeError` or `NotSupportedError`.
     static func asked(_ value: Any?) -> (Set<String>?, [String: Any]?) {
         guard let value, !(value is NSNull) else { return (nil, nil) }
         guard let list = value as? [String], !list.isEmpty, list.allSatisfy(formats.contains) else {
-            return (nil, ["error": "TypeError", "message": "formats name the supported barcode formats"])
+            return (nil, ["error": "TypeError", "message": "formats name D1's barcode formats"])
         }
         if let missing = list.first(where: { !here.contains($0) }) { return (nil, ["error": "NotSupportedError", "message": "Vision here reads no \(missing)"]) }
         return (Set(list), nil)
     }
 
-    /// The symbologies a request asks for `keep`: an EAN-13 whenever either UPC shape is asked.
+    /// The symbologies a request asks for `keep`: an EAN-13 whenever either UPC shape is asked (D11).
     static func symbologies(for keep: Set<String>?) -> [VNBarcodeSymbology] {
         guard let keep else { return symbologies }
         var want = keep
@@ -126,7 +128,7 @@ public final class BarcodeDetectionModule: ExactPackage {
 
     // MARK: detection
 
-    /// The barcodes Vision finds in `handler`'s image, `width` by `height` upright pixels, after the rule.
+    /// The barcodes Vision finds in `handler`'s image, `width` by `height` upright pixels, after D11's rule.
     func detect(_ handler: VNImageRequestHandler, width: Double, height: Double, keep: Set<String>, all: Bool) throws -> [[String: Any]] {
         let request = VNDetectBarcodesRequest()
         #if targetEnvironment(simulator)
@@ -182,7 +184,7 @@ public final class BarcodeDetectionModule: ExactPackage {
         ]
     }
 
-    /// One UPC-A answered as the formats asked name it, and only formats asked kept.
+    /// D11: one UPC-A answered as the formats asked name it, and only formats asked kept.
     static func normalised(_ results: [[String: Any]], keep: Set<String>?) -> [[String: Any]] {
         results.compactMap { r in
             var r = r
@@ -198,7 +200,7 @@ public final class BarcodeDetectionModule: ExactPackage {
         }
     }
 
-    // MARK: stills
+    // MARK: stills (D4)
 
     private func still(_ args: [String: Any], _ reply: @escaping ([String: Any]) -> Void) {
         let (keep, refused) = Self.asked(args["formats"])
@@ -223,7 +225,7 @@ public final class BarcodeDetectionModule: ExactPackage {
         }
     }
 
-    // MARK: live scans
+    // MARK: live scans (D5)
 
     private func scan(_ args: [String: Any], _ reply: @escaping ([String: Any]) -> Void) {
         #if os(tvOS)
@@ -247,6 +249,7 @@ public final class BarcodeDetectionModule: ExactPackage {
             scans[key] = s
             say("scan \(key): observing \(track)")
         }
+        groups[key, default: []].insert(Self.argumentGroup(args))
         scans[key]?.analyse(reply)
         #endif
     }
@@ -255,7 +258,16 @@ public final class BarcodeDetectionModule: ExactPackage {
     public func release(_ name: String, args: [String: Any]) {
         guard name == "detectedBarcodes", let track = args["track"] as? String else { return }
         let (keep, _) = Self.asked(args["formats"])
-        end(Scan.key(track, keep), "released")
+        let key = Scan.key(track, keep)
+        groups[key]?.remove(Self.argumentGroup(args))
+        if groups[key]?.isEmpty ?? true { end(key, "released") }
+    }
+
+    /// A runner argument group, as Android names it: object key order is
+    /// immaterial; an array's order and the interval are not.
+    static func argumentGroup(_ args: [String: Any]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: args, options: [.sortedKeys]) else { return "\(args)" }
+        return String(decoding: data, as: UTF8.self)
     }
 
     public func release(_ name: String) {
@@ -263,6 +275,7 @@ public final class BarcodeDetectionModule: ExactPackage {
     }
 
     private func end(_ key: String, _ why: String) {
+        groups[key] = nil
         guard let s = scans.removeValue(forKey: key) else { return }
         s.stop()
         say("scan \(key): \(why)")
@@ -284,7 +297,7 @@ struct Still {
 
     enum Loaded { case loaded(Still), refused([String: Any]) }
 
-    /// The file at `url`, or the error.
+    /// The file at `url`, or D2's error.
     static func load(_ url: URL) -> Loaded {
         guard FileManager.default.fileExists(atPath: url.path) else { return .refused(["error": "NotFoundError"]) }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {

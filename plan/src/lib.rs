@@ -1,5 +1,8 @@
 //! The plan format.
 //!
+//! @ref LLP 1004 D2 (one table authority) / D3 (the refusal tuple)
+//! @ref LLP 0485 (the flat plan; research)
+//!
 //! A plan is the compiled form of a Contract program: relational tables
 //! (slots, derives, resources, actions, timers, nodes, bindings, handlers,
 //! regions) plus three pools (strings, bytecode, data). Nothing walks it; the
@@ -8,7 +11,7 @@
 //!
 //! - the row structs and the [`Plan`] container ([`generated`]);
 //! - the canonical encoder and the validating decoder — **loading is a
-//!   validation pass, never trusted indexing**: every index, range,
+//!   validation pass, never trusted indexing** (0485 §3.4): every index, range,
 //!   and code reference is checked before a decoded plan is returned;
 //! - the expression VM's [`Opcode`] set and the [`Stdlib`] roster;
 //! - [`FORMAT_DIGEST`], which every encoded plan carries and every reader
@@ -26,8 +29,9 @@ pub mod builder;
 pub mod bytes;
 mod entry;
 pub mod pool;
+mod unsettled;
 pub use entry::entry_identifier;
-/// ActivityKit's ordered placement identities.
+/// ActivityKit's ordered placement identities (LLP 1126.001 WP8).
 pub const ACTIVITY_PLACEMENTS: [&str; 8] = [
     "lockScreen",
     "compactLeading",
@@ -38,7 +42,7 @@ pub const ACTIVITY_PLACEMENTS: [&str; 8] = [
     "expanded.center",
     "expanded.bottom",
 ];
-/// `haptic(kind)`'s kinds, a sequence step's too: the
+/// `haptic(kind)`'s kinds, a sequence step's too (LLP 1077 D14): the
 /// presses `-exact-press-haptic` takes (`PressHaptic` in the kernel's schema),
 /// `impact` (`impact-medium`'s), and the outcomes, which an action plays and a
 /// press does not, since at touch-down nothing has succeeded yet.
@@ -57,6 +61,7 @@ pub const HAPTIC_KINDS: [&str; 10] = [
 
 pub mod shared;
 pub mod strings;
+pub mod surface_arguments;
 pub mod value;
 
 /// Generated from `tables/format.json`.
@@ -73,15 +78,15 @@ pub use value::Value;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct StrId(pub u32);
 
-/// An `icons` row's `path`: an interned
+/// An `icons` row's `path` (LLP 1121 stage 14 C2, round 2): an interned
 /// string on the wire, as any `str` field (format.json and its digest are
 /// unchanged), but no [`StrId`], so `plan.str()` and the string pool don't
 /// take it. An even-odd icon's path starts `evenodd:`, which only
 /// `exact_kernel::Icon` strips; its one method (below) is the one way
 /// out, called by `exact_runner::icon_of` alone (a guard test holds that).
 ///
-/// Every way a row's path could be read as a string fails to compile. A sibling
-/// field reads as written:
+/// Every way a row's path could be read as a string fails to compile (C2
+/// round 2's bypasses). A sibling field reads as written:
 ///
 /// ```
 /// fn read(plan: &exact_plan::Plan) {
@@ -149,7 +154,7 @@ pub struct StrId(pub u32);
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct IconPathId(pub(crate) u32);
 
-/// Its index stays inside: a debug print shows none.
+/// Its index stays inside: a debug print shows none (C2 round 3).
 impl std::fmt::Debug for IconPathId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("IconPathId(..)")
@@ -192,8 +197,19 @@ pub enum PlanError {
         available: usize,
     },
     BadMagic,
+    /// An executable derive references itself or a later executable row.
+    DeriveOrder {
+        row: u32,
+        dependency: u32,
+    },
     /// A running host received a snapshot, or the snapshot reader received another entry.
     WrongEntry,
+    /// A plan compiled for another surface than the host's (LLP 1101.003
+    /// D9): a terminal plan on a GUI host, or a GUI plan on the terminal.
+    WrongSurface {
+        plan: String,
+        host: &'static str,
+    },
     UnsupportedVersion(u32),
     FormatDigestMismatch {
         expected: u64,
@@ -231,7 +247,7 @@ pub enum PlanError {
     ArmOwner {
         arm: u32,
     },
-    /// A timer carries invalid wait or tolerance options.
+    /// A timer carries invalid wait or tolerance options (LLP 1147).
     TimerWait {
         /// The invalid timer row.
         timer: u32,
@@ -240,7 +256,7 @@ pub enum PlanError {
     ZeroInterval {
         timer: u32,
     },
-    /// A frame timer carries no interval and repeats.
+    /// A frame timer (LLP 1073) carries no interval and repeats.
     FrameTimer {
         timer: u32,
     },
@@ -349,10 +365,22 @@ impl CodeError {
 }
 
 impl Plan {
+    /// This plan's bytes through the decoder of its own surface's hosts
+    /// (LLP 1101.003 D9): how a tool that reads a plan of either surface, a
+    /// type generator, checks one a caller built.
+    pub fn redecode(&self) -> Result<Plan, PlanError> {
+        let bytes = self.encode();
+        match self.surface.as_str() {
+            "terminal" => Plan::decode_terminal(&bytes),
+            _ => Plan::decode(&bytes),
+        }
+    }
+
     /// The rules the row codecs cannot express: region topology and timer
     /// progress. Called by the generated `validate`, so every loaded or built
     /// plan has passed it.
     pub fn validate_semantics(&self) -> Result<(), PlanError> {
+        self.validate_unsettled()?;
         let activity = !self.activity_slots.is_empty();
         if self.snapshot_entry.is_empty() {
             if self.snapshot_refresh.is_some() || activity {
@@ -389,7 +417,7 @@ impl Plan {
                 return Err(PlanError::WrongEntry);
             }
         }
-        // Declaration order and the one root router slot.
+        // @ref LLP 1038 D2 — declaration order and the one root router slot.
         let mut notfound = false;
         for (i, route) in self.routes.iter().enumerate() {
             let bad = |field| PlanError::BadReference {
@@ -404,7 +432,7 @@ impl Plan {
                 return Err(bad("notfound"));
             }
             notfound |= route.notfound;
-            // A pages source's arguments are a list.
+            // @ref LLP 1048.000 D2 — a pages source's arguments are a list.
             let listed = matches!(
                 Value::from_bytes(self.bytes(route.pages_args)),
                 Ok(Value::List(_))
@@ -426,7 +454,8 @@ impl Plan {
             }
         }
         // A late slot is a root slot: an owned one is its instance's. A
-        // persisted one is an authored root slot of a small setting.
+        // persisted one is an authored root slot of a small setting (LLP
+        // 1116 D5).
         for (i, slot) in self.slots.iter().enumerate() {
             let here = Some(SlotsId(i as u32));
             if slot.late && (slot.owner.is_some() || self.locale == here) {
@@ -450,7 +479,7 @@ impl Plan {
                 });
             }
         }
-        // A placeholder row is another row of the
+        // @ref LLP 1048.003 D6 — a placeholder row is another row of the
         // same type with no placeholder of its own.
         for (i, resource) in self.resources.iter().enumerate() {
             let Some(p) = resource.placeholder else {
@@ -465,9 +494,9 @@ impl Plan {
                 });
             }
         }
-        // Compiled data and its argument list form one cache entry.
+        // @ref LLP 1038 D5 — compiled data and its argument list form one cache entry.
         for (i, resource) in self.resources.iter().enumerate() {
-            // The identity is the remaining prefix.
+            // @ref LLP 1027.005 D6 — the identity is the remaining prefix.
             if u32::from(resource.context) > resource.args.len {
                 return Err(PlanError::BadReference {
                     table: "resources",
@@ -487,7 +516,7 @@ impl Plan {
                     field: "initial_args",
                 });
             }
-            //c — over a list: its list and key, a list
+            // @ref LLP 1017.000 P4c — over a list: its list and key, a list
             // type, and nothing compiled, placed or kept for it.
             let list = self.types.get(resource.ty.0 as usize);
             if resource.each.len != 0
@@ -559,6 +588,17 @@ impl Plan {
             }
         }
         for (i, t) in self.timers.iter().enumerate() {
+            if t.change
+                && (!t.keyed
+                    || !t.once
+                    || t.frame
+                    || t.interval_ms != 0
+                    || t.wait != 0
+                    || t.max_ms != 0
+                    || t.tolerance_ms != 0)
+            {
+                return Err(PlanError::TimerWait { timer: i as u32 });
+            }
             if (t.tolerance_ms != 0 && (t.wait != 0 || t.frame))
                 || t.wait > 4
                 || (t.wait != 0 && t.frame)
@@ -569,7 +609,7 @@ impl Plan {
             if t.frame && (t.interval_ms != 0 || t.once) {
                 return Err(PlanError::FrameTimer { timer: i as u32 });
             }
-            if !t.frame && t.interval_ms == 0 {
+            if !t.frame && !t.change && t.interval_ms == 0 {
                 return Err(PlanError::ZeroInterval { timer: i as u32 });
             }
         }
@@ -654,7 +694,7 @@ impl Plan {
         {
             return Err(PlanError::GenericStacks);
         }
-        // Looks by node, then state, one a state a node
+        // @ref LLP 1121 D8 — looks by node, then state, one a state a node
         // (hosts binary-search by node).
         if let Some(i) = self
             .looks
@@ -668,7 +708,7 @@ impl Plan {
             });
         }
         // A look is `:hover` (1) or `:focus-visible` (2): `:active` (0) lowers
-        // to the press paint.
+        // to the press paint (LLP 1121 D8 as amended 2026-10-18).
         if let Some(i) = self.looks.iter().position(|l| !(1..=2).contains(&l.state)) {
             return Err(PlanError::BadReference {
                 table: "looks",
@@ -777,7 +817,7 @@ impl Plan {
         Ok(())
     }
 
-    /// Whether a slot of type `ty` may be persisted: a number,
+    /// Whether a slot of type `ty` may be persisted (LLP 1116 D5): a number,
     /// string or bool, or an option or list of one.
     pub fn persistable(&self, ty: TypesId) -> bool {
         let scalar = |t: TypesId| {
@@ -963,6 +1003,7 @@ pub const RUNNER_OWNED_SOURCES: &[&str] = &[
     "exactViewport",
     "exactPage",
     "exactSurface",
+    "exactCanvasPerformance",
     "exactTime",
     "exactTransport",
     "exactMIDI",
@@ -978,8 +1019,8 @@ pub fn runner_owned_source(name: &str) -> bool {
 }
 
 impl Plan {
-    /// The bit a platform holds in a `hatches` row's mask, in the order the
-    /// manifest's names are listed.
+    /// The bit a platform holds in a `hatches` row's mask (LLP
+    /// 1075.003.000.001 §4.3), in the order the manifest's names are listed.
     pub fn hatch_platform_bit(platform: &str) -> u16 {
         ["ios", "tvos", "macos", "web", "linux", "windows", "android"]
             .iter()
@@ -994,27 +1035,48 @@ impl Plan {
         self.hatches.push(HatchesRow { word, platforms });
     }
 
+    /// Each used extension's interface identity, including event-only packages.
+    pub fn package_extensions(&self) -> std::collections::BTreeMap<&str, &str> {
+        self.modules
+            .iter()
+            .map(|m| (m.extension, m.package))
+            .chain(self.views.iter().map(|v| (v.extension, v.package)))
+            .chain(self.module_events.iter().map(|e| (e.extension, e.package)))
+            .map(|(extension, package)| (self.str(extension), self.str(package)))
+            .collect()
+    }
+
     /// Declare a package's view, after lowering: the row comes from the
-    /// package's `exact.json`, not from Contract.
-    pub fn add_view(&mut self, tag: &str, extension: &str, displayed: bool, binds: &[&str]) {
+    /// package's `exact.json`, not from Contract (LLP 1133.001 D1).
+    pub fn add_view(
+        &mut self,
+        tag: &str,
+        interface: (&str, &str),
+        displayed: bool,
+        binds: &[&str],
+        agent: &str,
+    ) {
         let row = ViewsRow {
             tag: self.intern(tag),
-            extension: self.intern(extension),
+            extension: self.intern(interface.0),
+            package: self.intern(interface.1),
             displayed,
             binds: self.intern(&binds.join(" ")),
+            agent: self.intern(agent),
         };
         self.views.push(row);
     }
 
     /// Replace module row `i`'s declared substitute, after lowering: the
-    /// bake adds what `app.json` says the platform would show.
+    /// bake adds what `app.json` says the platform would show (LLP 1133.023
+    /// §10).
     pub fn set_module_substitute(&mut self, i: usize, json: &str) {
         let id = self.intern(json);
         self.modules[i].substitute = id;
     }
 
     /// Set tool row `i`'s face, the manifest's `intents` face for it as a
-    /// JSON object, after lowering.
+    /// JSON object (LLP 1133.023 D8), after lowering.
     pub fn set_tool_face(&mut self, i: usize, json: &str) {
         let id = self.intern(json);
         self.tools[i].face = id;
@@ -1037,14 +1099,31 @@ impl Plan {
         }
     }
 
-    /// A resource over a list's list and key codes; `None` for a resource of one request.
+    /// A resource over a list's list and key codes (LLP 1017.000 P4c,
+    /// amended 2026-11-04); `None` for a resource of one request.
     pub fn resource_each(&self, r: &ResourcesRow) -> Option<(Code, Code)> {
         let mut each = r.each.iter().map(|a| self.arg(a).expr);
         Some((each.next()?, each.next()?))
     }
 
+    /// The declared row of source `name`, when the runner answers it with
+    /// one HTTP request (LLP 1162.001).
+    pub fn fetch_named(&self, name: &str) -> Option<&FetchesRow> {
+        self.fetches
+            .iter()
+            .find(|f| self.str(self.sources[f.source.0 as usize].name) == name)
+    }
+
+    /// A declared source's parts in `range`, each as `(name, value)`.
+    pub fn fetch_parts(&self, range: FetchPartsRange) -> impl Iterator<Item = (&str, &str)> {
+        let start = range.start as usize;
+        self.fetch_parts[start..start + range.len as usize]
+            .iter()
+            .map(|p| (self.str(p.name), self.str(p.value)))
+    }
+
     /// The native module row of source `name`, when a module answers it
-    /// rather than the app's data.
+    /// rather than the app's data (LLP 1133.002 D13).
     pub fn module_named(&self, name: &str) -> Option<&ModulesRow> {
         self.modules
             .iter()

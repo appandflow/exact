@@ -68,7 +68,7 @@ fn contain_floors_never_upscales_and_keeps_a_pixel() {
     assert_eq!(contain(9000, 2, 2048), (2048, 1));
 }
 
-/// A declared deviation: a side is never 0, so a one-pixel limit or a
+/// A1.2's declared deviation: a side is never 0, so a one-pixel limit or a
 /// sliver of a source still makes trials (Bluesky's would ask for 0).
 #[test]
 fn the_smallest_sizes_keep_a_pixel_per_side() {
@@ -102,7 +102,7 @@ fn an_encoder_error_ends_the_search_with_it() {
     assert_eq!((calls, err.as_str()), (1, "compressImage: timeout: late"));
 }
 
-/// A PNG is tried at the fitted size, then at each 0.8 shrink, at most
+/// A1.11: a PNG is tried at the fitted size, then at each 0.8 shrink, at most
 /// four of them; nothing fitting is `None`.
 #[test]
 fn a_png_shrinks_until_it_fits() {
@@ -297,7 +297,7 @@ mod apple_codec {
         assert!(r > 245 && g > 245 && b > 245, "{r},{g},{b}");
     }
 
-    /// A PNG keeps the source's alpha, where a JPEG fills it white.
+    /// A1.11: a PNG keeps the source's alpha, where a JPEG fills it white.
     #[test]
     fn a_png_keeps_transparency() {
         // Clear on the left half, opaque red on the right.

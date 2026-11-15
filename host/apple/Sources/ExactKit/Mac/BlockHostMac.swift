@@ -1,13 +1,14 @@
-// A subtree of the session's page in a view of its
+// @ref LLP 1115.002 D8.2 — a subtree of the session's page in a view of its
 // own: a split's pane, a sheet's window. The host moves the subtree's node
 // view into the container's view, as a dialog's is moved to the top layer,
 // and gives the kernel the box it is laid out in (a containing block: a
 // pane's size, or a sheet's maximum). The kernel lays the subtree out in
 // that box and nothing else again, sends its frames in the box's own space
 // and the box's used size, which a sheet gives its window. Where the
-// container is and how it clips are AppKit's. `HostBlockMacTests` drives
-// it; its callers are a `dialog`'s sheet (SheetsMac.swift), the split and
-// the modal route's sheet.
+// container is and how it clips are AppKit's. Stage 6a's proof drives it
+// (`HostBlockMacTests`); a `dialog`'s sheet is its first caller in an app
+// (stage 5, SheetsMac.swift), and the split (6b) and the modal route's
+// sheet (6c) are the next.
 #if os(macOS)
 import AppKit
 import CExact
@@ -68,6 +69,10 @@ final class BlockHost {
         var used: ((CGSize) -> Void)?
         /// It is a split's own placeholder, shown while its container has it.
         var placeholder = false
+        /// Its container is a content owner (a split's pane, a sheet), whose
+        /// safe area its subtree reads (LLP 1123 D9); a popover is no owner.
+        var owner = true
+        var insets: [CGFloat]?
     }
     private struct Sibling { weak var node: NodeView? }
     private var entries: [UInt32: Entry] = [:]
@@ -116,11 +121,13 @@ final class BlockHost {
     /// Put `node`'s subtree in `container` and lay it out in `block`; `used`
     /// hears its used size, now and whenever layout gives it another.
     /// `placeholder`: `node` is a split's own placeholder, `display: none`
-    /// but where its container shows it.
-    func show(_ node: NodeView, in container: NSView, block: HostBlock, placement: BlockPlacement? = nil, used: ((CGSize) -> Void)? = nil, placeholder: Bool = false) {
+    /// but where its container shows it (LLP 1116.006 D2). `owner`: its
+    /// container is a content owner, not a popover (LLP 1123 D2).
+    func show(_ node: NodeView, in container: NSView, block: HostBlock, placement: BlockPlacement? = nil, owner: Bool = true,
+              used: ((CGSize) -> Void)? = nil, placeholder: Bool = false) {
         guard let presenter, presenter.views[node.id] === node else { return }
         // Outside the root (a sheet, a popover, a split's pane), still this
-        // presenter's theme.
+        // presenter's theme (LLP 1121 stage 5).
         ThemeRoles.adopt(container, from: presenter.root)
         // A node of another runner may have had this id (a restart): its entry is not this node's.
         if entries[node.id]?.node !== node {
@@ -130,13 +137,31 @@ final class BlockHost {
             let nodes = home.map { authored($0.subviews.compactMap { $0 as? NodeView }, in: $0) } ?? []
             let before = nodes.prefix { $0 !== node }.map { Sibling(node: $0) }
             turns += 1
-            entries[node.id] = Entry(node: node, home: home, next: next, before: before, turn: turns, block: block, placement: placement, used: used, placeholder: placeholder)
+            entries[node.id] = Entry(node: node, home: home, next: next, before: before, turn: turns, block: block, placement: placement, used: used,
+                                     placeholder: placeholder, owner: owner)
         } else { entries[node.id]?.block = block; entries[node.id]?.placement = placement; entries[node.id]?.used = used; entries[node.id]?.placeholder = placeholder }
         if node.superview !== container {
             container.addSubview(node)
             presenter.topLayerChanged()
         }
+        tellInsets(node, in: container)
         tell([(node.id, block)], placements: [(node.id, placement)], shows: placeholder ? [(node.id, true)] : [])
+    }
+
+    /// @ref LLP 1123 D3, D9 — an owner's local insets: its container's safe
+    /// area (the title bar and toolbar over a full-size content view, none in
+    /// a sheet's window), told when they change, and cleared as the owner's
+    /// cover, which the kernel adds to its authored padding. A container not
+    /// yet in its window has none, which a pane's first resize there corrects.
+    private func tellInsets(_ node: NodeView, in container: NSView) {
+        guard entries[node.id]?.owner == true else { return }
+        let safe = container.safeAreaInsets
+        let insets = [safe.top, safe.right, safe.bottom, safe.left]
+        guard entries[node.id]?.insets != insets else { return }
+        entries[node.id]?.insets = insets
+        presenter?.session?.localInsets([(node.id, insets)])
+        let edges = HostCover.Edges(top: safe.top, right: safe.right, bottom: safe.bottom, left: safe.left)
+        presenter?.covers.report("owner \(node.id)", insets.allSatisfy { $0 == 0 } ? [:] : [node.id: .edges(edges)])
     }
 
     /// A split's placeholder this shows was restyled by a commit: its shown
@@ -153,6 +178,7 @@ final class BlockHost {
         guard owns(node), entries[node.id]?.block != block || entries[node.id]?.placement != placement else { return }
         entries[node.id]?.block = block
         entries[node.id]?.placement = placement
+        if let container = node.superview { tellInsets(node, in: container) }
         tell([(node.id, block)], placements: [(node.id, placement)])
     }
 
@@ -163,6 +189,10 @@ final class BlockHost {
         let following = siblings.drop { $0 !== node }.dropFirst().first { $0.superview === entry.home }
         entries[node.id] = nil
         used[node.id] = nil
+        if entry.insets != nil, presenter?.views[node.id] === node {
+            presenter?.session?.localInsets([(node.id, nil)])
+            presenter?.covers.report("owner \(node.id)", [:])
+        }
         if presenter?.views[node.id] === node, let home = entry.home {
             // Before the sibling that followed it, when that is still there;
             // the authored parent's next `children` op settles any other order.
@@ -200,6 +230,7 @@ final class BlockHost {
     /// The node is gone, and its block with it.
     func destroyed(_ id: UInt32) {
         if let node = entries[id]?.node { onDestroyed?(node) }
+        if entries[id]?.insets != nil { presenter?.covers.report("owner \(id)", [:]) }
         entries[id] = nil; used[id] = nil; rects[id] = nil; margined[id] = nil
     }
 

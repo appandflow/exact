@@ -1,4 +1,4 @@
-// The zoom transition on a push: a route pushed with a
+// @ref LLP 1035.001, the zoom transition on a push: a route pushed with a
 // `navigationSource` arrives by UIKit's zoom from the source element in the
 // route beneath, as a full-screen presentation does (ModalIOS `present`),
 // and lands on its own element with the source's id (an image, as drawn).
@@ -7,22 +7,6 @@
 // zoom's own, which `transitionEnded` dispatches as any interactive pop.
 #if os(iOS)
 import UIKit
-import UIKit.UIGestureRecognizerSubclass
-
-/// Hears each touch on a stack before the view under it, and takes none.
-final class ZoomTailTouch: UIGestureRecognizer {
-    private let began: () -> Void
-    init(began: @escaping () -> Void) {
-        self.began = began
-        super.init(target: nil, action: nil)
-        cancelsTouchesInView = false
-        delaysTouchesEnded = false
-    }
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        began()
-        state = .failed
-    }
-}
 
 extension NavigationHost {
     /// Give `top`, the route about to be pushed over `beneath`, its zoom
@@ -59,38 +43,6 @@ extension NavigationHost {
                 $0.props["id"] == name && $0.window != nil && ($0 === preceding || $0.isDescendant(of: preceding))
             }.min(by: { $0.id < $1.id })
         })
-    }
-
-    /// A zoom's pop is decided well before UIKit ends it: at the finger's lift for a swipe, at
-    /// once for the Back button. Its tail runs for most of a second with the route beneath already
-    /// taking touches, as no other pop's does. A tap there reached an app still on the popped route,
-    /// and its push kept that route under the new one: Back then showed the product just left.
-    /// So a touch in the tail brings the app to where UIKit is first (`followDecidedPop`). Without
-    /// one the app waits for `completeTransition`, as for any pop: its nodes are what the zoom draws.
-    func noteZoomPop(_ transition: UIViewControllerTransitionCoordinator, on nav: UINavigationController) {
-        guard #available(iOS 18.0, *), let source = transition.viewController(forKey: .from) as? RouteController,
-              source.preferredTransition != nil, !nav.viewControllers.contains(source) else { return }
-        if !(nav.view.gestureRecognizers ?? []).contains(where: { $0 is ZoomTailTouch }) {
-            nav.view.addGestureRecognizer(ZoomTailTouch { [weak self] in self?.followDecidedPop() })
-        }
-        if transition.initiallyInteractive {
-            transition.notifyWhenInteractionChanges { [weak self, weak source] context in
-                if !context.isCancelled { self?.decidedPop = source }
-            }
-        } else {
-            decidedPop = source
-        }
-    }
-
-    /// iOS 27 keeps a large title in the route's scroller, placed from that scroller's geometry.
-    /// A swiped zoom scales the route beneath, and UIKit places the title against that scale and
-    /// not again as the route grows back: it comes to rest 17 points left and 27 up, stretched by
-    /// the same scale. A layout of the scroller holding it puts it back, each frame of the zoom's
-    /// tail (`revealTick`) so it never shows there, and once at rest.
-    func settleLargeTitle(_ nav: UINavigationController) {
-        guard let route = nav.topViewController as? RouteController, let scroll = contentScrollView(of: route) else { return }
-        scroll.setNeedsLayout()
-        scroll.layoutIfNeeded()
     }
 }
 #endif

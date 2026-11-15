@@ -1,9 +1,9 @@
-//! Why a resource failed, as `failure(x)` answers it: a code
+//! Why a resource failed, as `failure(x)` answers it (LLP 1109 D3): a code
 //! from a closed vocabulary an app can branch on, the same on every host,
 //! the message the agent's `state.failed` shows, which says more and
 //! differs by host, and the `reason` the source's error named, empty when it
 //! named none: a Snapback refusal's code (`SLOT_FULL`, `E_RULE`), which the
-//! Snapback driver sets.
+//! snapback4 driver sets (the author's ruling of 2026-10-12).
 //!
 //! A code names what reached the runner. A request's failure (`offline`,
 //! `timeout`, `refused`) or a storage call's (`storage`) is the source's
@@ -67,7 +67,7 @@ impl FailureCode {
     }
 
     /// What a TypeScript module let through, by the class its seam names
-    /// (`failure` in js/src/prelude.js `fail`) and the `reason` its error
+    /// (`failure` in js/src/reply.js `fail`) and the `reason` its error
     /// carried: `Failed`, or `Unavailable` for its own error that names no
     /// reason.
     pub fn seam_error(failure: Option<&str>, message: String, reason: Option<&str>) -> DataError {
@@ -125,7 +125,7 @@ impl Failure {
                 DataError::UnknownSource(s)
                 | DataError::BadArguments(s)
                 | DataError::Unavailable(s)
-                | DataError::DeferredAtBake(s)
+                | DataError::DeferredAtBake { message: s, .. }
                 | DataError::Interface(s)
                 | DataError::Overrun(s) => (FailureCode::Error, s.clone(), String::new()),
             },
@@ -155,11 +155,12 @@ impl Failure {
 
 /// Resource `i`'s failure, or `None` while it has not failed: what
 /// `failure(x)` reads, so a reader is current only while this is unchanged.
-pub(crate) fn state(
-    failed: &[Option<Vec<exact_plan::Value>>],
-    why: &[Option<Failure>],
+pub(crate) fn state<'a>(
+    failed: impl Into<crate::vm::Column<'a, Option<Vec<exact_plan::Value>>>>,
+    why: impl Into<crate::vm::Column<'a, Option<Failure>>>,
     i: usize,
 ) -> Option<Failure> {
+    let (failed, why) = (failed.into(), why.into());
     failed.get(i)?.as_ref()?;
     Some(
         why.get(i)
@@ -170,9 +171,10 @@ pub(crate) fn state(
 }
 
 /// Every resource's [`state`].
-pub(crate) fn states(
-    failed: &[Option<Vec<exact_plan::Value>>],
-    why: &[Option<Failure>],
+pub(crate) fn states<'a>(
+    failed: impl Into<crate::vm::Column<'a, Option<Vec<exact_plan::Value>>>>,
+    why: impl Into<crate::vm::Column<'a, Option<Failure>>>,
 ) -> Vec<Option<Failure>> {
+    let (failed, why) = (failed.into(), why.into());
     (0..failed.len()).map(|i| state(failed, why, i)).collect()
 }

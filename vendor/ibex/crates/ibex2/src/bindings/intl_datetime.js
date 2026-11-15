@@ -5,7 +5,7 @@
 // This file is compiled to bytecode and evaluated as a completion-value
 // factory during trusted initialization. It creates no temporary globals.
 //
-// JavaScript owns observable object shape and value plumbing.
+// @ref LLP 0057#31-what-goes-in-rust-and-what-does-not — JavaScript owns observable object shape and value plumbing
 (function (create, format, parts, partType, partValue, resolved, supported, canonicalTimeZone) {
   "use strict";
 
@@ -276,8 +276,7 @@
     // Date brand checking precedes all locale/options observation.
     var millis = apply(dateGetTime, this, []);
     if (millis !== millis) return "Invalid Date";
-    // ECMA-402's Date.prototype.toLocaleString performs ToDateTimeOptions
-    // before constructing DateTimeFormat.
+    // §16.4 performs ToDateTimeOptions before constructing DateTimeFormat.
     // Construction then performs its own any/date pass; both are observable.
     var prepared = toDateTimeOptions(options, required, defaults);
     var vector = normalized(locales, prepared, "any", "date");

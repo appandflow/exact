@@ -1,4 +1,4 @@
-//! The order siblings paint in, against literal Chrome.
+//! The order siblings paint in (LLP 1083.000), against literal Chrome.
 //!
 //! Each case is plain HTML/CSS laid out as `browser_cases.rs` lays its cases
 //! out, every box an opaque colour of its own. The fixture records, at each
@@ -7,7 +7,7 @@
 //! - **bare**: the markup as written, plain CSS;
 //! - **exact**: the same markup with `isolation: isolate` written on exactly
 //!   the boxes the kernel isolates or stacks by policy, which is what every
-//!   web path writes.
+//!   web path writes (D1).
 //!
 //! The test holds the kernel to both:
 //!
@@ -15,7 +15,7 @@
 //!   in turn, children by the kernel's rank then tree order, which is how
 //!   every native host paints. So the web and the native hosts agree.
 //! - where **bare** differs from **exact**, the case's name must declare a
-//!   deviation (`(declared deviation)`); where it does not, it must not.
+//!   deviation (`§3.n`); where it does not, it must not.
 //!
 //! The isolation the fixture was measured with is recorded too, so a change
 //! to the rule fails here until the fixture is measured again:
@@ -43,7 +43,7 @@ fn rows(css: &str) -> Rows {
         match name {
             "scale" => out.push((Scale, number())),
             "opacity" => out.push((Opacity, number())),
-            "z-index" => out.push((ZIndex, number())),
+            "z-index" => out.push((ZIndex, if value == "auto" { text() } else { number() })),
             "isolation" => out.push((Isolation, text())),
             "transition" => out.push((Transition, text())),
             "background" => {}
@@ -181,9 +181,9 @@ fn the_web_with_the_kernels_isolation_paints_what_the_native_hosts_paint() {
             }
         }
         let differs = case.bare != case.exact;
-        if differs != case.name.contains("(declared deviation)") {
+        if differs != case.name.contains('§') {
             wrong.push(format!(
-                "{}: bare CSS {:?}, Exact {:?}; a difference must be declared and only then",
+                "{}: bare CSS {:?}, Exact {:?}; a difference must be declared (§3.n) and only then",
                 case.name, case.bare, case.exact
             ));
         }

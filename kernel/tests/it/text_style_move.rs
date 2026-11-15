@@ -1,4 +1,4 @@
-//! A bare `font-size` style fills a weight only where
+//! LLP 1115.000 D12.2: a bare `font-size` style fills a weight only where
 //! nothing above says one. A container moved under a parent that says the
 //! weight its own bare style filled computes the same weight, but a bare
 //! style below it no longer fills: that paragraph's weight and its metric

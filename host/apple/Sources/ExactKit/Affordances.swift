@@ -1,7 +1,7 @@
-// What Apple's platforms draw and feel that CSS has no name
-// for, declared as rows: an SF Symbol's rendering mode, palette,
-// variable value and effects, and the feedback a press makes and
-// `haptic()` plays. The iOS-only ones (scroll edge, pointer hover,
+// LLP 1077 §5: what Apple's platforms draw and feel that CSS has no name
+// for, declared as rows (LLP 1001): an SF Symbol's rendering mode, palette,
+// variable value and effects (D10–D12), and the feedback a press makes and
+// `haptic()` plays (D14). The iOS-only ones (scroll edge, pointer hover,
 // Smart Invert, numerals that roll) are `IOS/AffordancesIOS.swift`.
 import ObjectiveC
 #if os(iOS) || os(tvOS)
@@ -15,7 +15,7 @@ typealias SymbolConfig = NSImage.SymbolConfiguration
 #endif
 
 extension NodeView {
-    /// A page symbol takes its presented computed color.
+    /// A page symbol takes its presented computed color (LLP 1081 stage 2).
     var symbolInk: PlatformColor? {
         #if os(macOS)
         return channels("text_color").map(TextEngine.color) ?? .textColor
@@ -43,16 +43,26 @@ extension NodeView {
     }
 
     #if os(iOS) || os(tvOS)
-    /// Inks the symbol view. Where its ink is the tint, or its palette names the tint (which UIKit
-    /// resolves by the view's tint), the view has no tint of its own: it inherits the node's, and
-    /// UIKit dims it. Else its tint is its ink, which UIKit leaves as it is (`.normal`); a share of
-    /// the tint is resolved again as the tint changes (`tintColorDidChange`), since UIKit follows no
-    /// view's own tint made from the one above it.
-    func inkSymbolView() {
+    /// Explicit ink belongs to the image, leaving the view's tint and adjustment inherited.
+    /// SF Symbol ink stays dynamic; a path's bitmap is painted again when its tint changes.
+    func inkSymbolView(_ image: UIImage?) {
         guard let view = symbolView else { return }
+        if faceSymbol.map(FaceSymbol.isOriginal) == true { view.image = image; return }
         let follows = inkTintShare == 1 || style["symbol_rendering"]?.string == "palette" && style["symbol_palette"]?.namesTint == true
-        view.tintColor = follows ? nil : drawnSymbolInk
-        view.tintAdjustmentMode = follows ? .automatic : .normal
+        var ink = follows ? nil : inkTintShare.map(SystemColor.tint) ?? drawnSymbolInk
+        let path = props["symbolPath"] != nil
+        if path, ink != nil {
+            if let share = inkTintShare { ink = tintColor.withAlphaComponent(share) }
+            ink = ink?.resolvedColor(with: traitCollection)
+        }
+        let state = SymbolEffectState.of(view)
+        if state.inkSource !== image || state.inkColor != ink {
+            state.inkSource = image; state.inkColor = ink
+            state.inkImage = ink.flatMap { color in
+                image.flatMap { path ? inkedPathImage($0, color: color) : $0.withTintColor(color, renderingMode: .alwaysOriginal) }
+            } ?? image
+        }
+        if view.image !== state.inkImage { view.image = state.inkImage }
     }
 
     /// The share of the tint the symbol's ink is, nil where it is a colour of its own: a list cell's
@@ -70,7 +80,7 @@ extension NodeView {
         false
         #endif
     }
-    /// Only shape changes replace a symbol; paint is a view configuration.
+    /// The template's shape, independent of ink.
     var symbolLookKey: String {
         [style["symbol_rendering"]?.string ?? "", "\(number("symbol_value", -1))", "\(drawsListSymbol)"].joined(separator: "|")
     }
@@ -100,7 +110,7 @@ extension NodeView {
     }
 
     /// The symbol's configuration: its size and weight, then its rendering
-    /// mode — hierarchical in the tint, a palette, or multicolor.
+    /// mode (D10) — hierarchical in the tint, a palette, or multicolor.
     /// `face`: as a native control's face draws it, without the page's ink.
     func symbolConfiguration(_ base: SymbolConfig, face: Bool = false) -> SymbolConfig {
         #if os(iOS) || os(tvOS)
@@ -136,7 +146,7 @@ extension NodeView {
         return points > 0 ? symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight), face: true)) : nil
     }
 
-    /// A symbol by name in that configuration, at its variable value
+    /// A symbol by name in that configuration, at its variable value (D11)
     /// when it has one.
     func symbolImage(_ name: String, _ config: SymbolConfig) -> SymbolImage? {
         let value = number("symbol_value", -1)
@@ -152,7 +162,7 @@ extension NodeView {
     }
 
     /// A new symbol on its view: with `-exact-symbol-effect: replace`, the
-    /// platform's replace transition; else at once.
+    /// platform's replace transition (D12); else at once.
     func showSymbol(_ image: SymbolImage?, on leaf: SymbolLeaf) {
         if style["symbol_effect"]?.string == "replace", let image, leaf.image != nil {
             leaf.setSymbolImage(image, contentTransition: .replace)
@@ -162,7 +172,7 @@ extension NodeView {
     }
 
     /// A continuing effect plays while set; a discrete one plays each time
-    /// `symbolEffectValue` changes.
+    /// `symbolEffectValue` changes (D12).
     func applySymbolEffect(_ leaf: SymbolLeaf) {
         let effect = style["symbol_effect"]?.string ?? "none"
         let state = SymbolEffectState.of(leaf)
@@ -188,7 +198,7 @@ extension NodeView {
         }
     }
 
-    /// `-exact-press-haptic`: host-owned, at the press, as `-exact-press-scale`.
+    /// `-exact-press-haptic` (D14): host-owned, at the press, as `-exact-press-scale`.
     func pressHaptic() {
         guard let kind = style["press_haptic"]?.string, kind != "none" else { return }
         Haptics.play(kind)
@@ -206,6 +216,9 @@ typealias SymbolLeaf = NSImageView
 final class SymbolEffectState {
     var effect = "none"
     var value: String?
+    var pathTemplate: SymbolImage?
+    var inkSource: SymbolImage?, inkImage: SymbolImage?
+    var inkColor: PlatformColor?
     private static var key = 0
     static func of(_ leaf: SymbolLeaf) -> SymbolEffectState {
         if let s = objc_getAssociatedObject(leaf, &key) as? SymbolEffectState { return s }
@@ -215,7 +228,7 @@ final class SymbolEffectState {
     }
 }
 
-/// The platform's haptics: `-exact-press-haptic`'s kinds and
+/// The platform's haptics (LLP 1077 D14): `-exact-press-haptic`'s kinds and
 /// `haptic()`'s, which adds success, warning and error. macOS plays on a
 /// Force Touch trackpad.
 enum Haptics {

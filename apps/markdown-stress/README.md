@@ -1,8 +1,8 @@
 # Markdown stress
 
-A stress fixture for the Markdown readers: generated Markdown goes through the
-existing `markdown-parse` crate, its shared value conversion and the shipped
-reader's Contract `Blocks`/`Runs` components. No browser-only renderer or private layout
+A third LLP 1041 consumer: generated Markdown goes through the existing
+`markdown-parse` crate, its shared value conversion and the shipped reader's
+Contract `Blocks`/`Runs` components. No browser-only renderer or private layout
 engine. The source and results are identical on web, macOS and Linux.
 
 ## Workloads
@@ -12,22 +12,28 @@ Choose a source budget of 16 KiB, 256 KiB, 1 MiB or 4 MiB, then:
 - **Mixed:** long prose with inline styles, fenced code, tables, quotes and lists.
 - **One long paragraph:** one heading and one unsplit paragraph, including UTF-8.
 - **One code block:** one heading and one unsplit fenced block with long lines.
-- **Giant table:** four columns and as many complete rows as fit.
+- **Giant table:** four columns, long unbreakable headers and as many complete rows as fit.
 - **Many blocks:** thousands of individually keyed headings and short paragraphs.
 
 Generation is deterministic. Complete syntax is emitted up to the selected byte
-budget; the app reports actual source bytes, parsed blocks, supplied blocks, table
-rows and the largest block's text bytes. These are not process-memory figures.
+budget; the app reports actual source bytes, grouped blocks, supplied blocks, table
+rows (including headers) and the largest block's text bytes. Each table is one
+block. Grids of at most 8,192 rows repeat the same invisible column-sizing text,
+which refers to the table's own cells, to share intrinsic widths across groups.
+Wide tables scroll horizontally. These are not process-memory figures.
 The 4 MiB ceiling matches the existing reader's file admission limit.
 
 The default is a **manual page of 40 blocks**. It still generates and parses the
 entire document and retains that parsed document; it is not virtualization.
-One 4 MiB paragraph remains one 4 MiB paragraph even in page mode. **Render ALL
+One 4 MiB paragraph or table remains one block even in page mode. **Render ALL
 blocks** explicitly mounts the complete document and can stall the current UI.
 **Window full document** supplies the same complete parsed block list to the
 shared viewport collection. It mounts nearby blocks while keeping their real
-styled text and table cells. All parsed data remains resident; a giant paragraph
-or code block stays giant. The mode does not split, truncate or page its text.
+styled text and table cells. All parsed data remains resident; giant paragraphs,
+code blocks and tables stay giant. Bounded table grids remain inside one virtual
+block; they do not add paging or viewport boundaries.
+
+The dated measurements below precede table grouping and count table rows as blocks.
 
 The 640/1200 px column controls reflow the same document without reparsing.
 Also drag the real window edge, scroll partway through the document and type in
@@ -72,6 +78,9 @@ source. Bold, Italic, Code, List, Quote and H2 operate on the editor's current
 selection. Link opens a URL field while preserving that selection; Apply Link
 returns focus to the editor. The line beneath the toolbar reports the shared
 selection state. Return continues a list and an empty item exits it.
+The resource supplies the complete generated source and no parsed blocks in this
+mode, so the supplied-block count is zero. The parsed document remains cached
+for returning to the block modes.
 
 On macOS and the web, use the usual bold/italic and undo/redo shortcuts.
 Normal copy preserves Markdown; ⌘⇧C on macOS or Mod-Shift-C on the web copies
@@ -116,7 +125,7 @@ that comparison. UI giant shape/index counters remain zero. This instrumented
 CPU/VKMS run is functional evidence, not physical-display or latency evidence.
 
 The earlier d6 4MiB candidate aborts before publication at the 2.5GiB address-space
-cap. With shared width layouts
+cap; that failure remains recorded in LLP1041 §8.27. With shared width layouts
 on captured ef12f06 sources, both 1MiB and 4MiB trials now complete under the same
 cap. Two distinct measurement requests reuse one worker layout and ink index.
 The complete 4,194,149-byte paragraph publishes without another input, accepts
@@ -127,7 +136,7 @@ The 4MiB run samples VmPeak at 2,303,612KiB and RSS/HWM at 1,384,404KiB.
 These are observations from this fixture, not a general memory bound or an
 isolated allocation-site measurement. The source, fonts and cap were not reduced.
 Continuous resize, repeated latency measurements and physical120Hz remain
-outstanding.
+outstanding. LLP1041 §8.29 records the native sharing replay and its limits.
 
 A later retained-document reflow trial also passes at both 1MiB and 4MiB:
 the authored content column changes from 600 to 984px inside a fixed 1024×768
@@ -138,8 +147,10 @@ crops and both 40px scroll-overlap strips match fresh independent references.
 At 4MiB, sampled VmPeak is 2,411,644KiB and RSS/HWM is 1,774,156KiB, leaving
 209,796KiB below the unchanged address-space cap in this one fixture. Earlier
 novel-width crashes remain recorded. This proves the bounded content-reflow
-case, not a general memory bound, continuous window resize or 120Hz.
+case, not a general memory bound, continuous window resize or 120Hz; §8.41
+records the exact composite, full-source checks and preserved failures.
 
+Earlier failed scroll-metadata and prelaunch port cells remain unchanged in §8.22.
 The scroll repair keeps limits tied to the successfully painted document; the old
 zero metadata did not prove immobile pixels. The display loop watches completion
 readiness; the stdio agent only pumps on commands. Neither worker queue bounds nor
@@ -173,6 +184,7 @@ and accepted, width changes, and plain-wheel offset matching the published raste
 State polls can pump the agent boundary, and screenshots use the native view
 cache. WindowServer capture was refused; synthetic phased-wheel/real-trackpad,
 autonomous progress, continuous-resize latency and physical 120Hz remain unproved.
+Exact revision-qualified evidence is recorded in LLP1041 §8.23.
 
 The worker now reuses a live CoreText layout when another request has the same
 captured source object, source ID, generation and definite width. Each answer
@@ -180,7 +192,7 @@ still has a fresh request identity. Lookup uses the existing 64-entry live table
 retired widths are not kept as a history. Scoped production-worker tests reduce
 three constructions to one and retain pixel, hit, selection and retirement
 checks: 16 methods/20,885 assertions pass under strict Swift 6. This repair has
-not yet been measured in the full-host giant-paragraph workload.
+not yet been measured in the full-host giant-paragraph workload; see §8.31.
 
 ## Reproduce
 
@@ -242,7 +254,7 @@ no framework edit is required to run.
 The view components are copied from `apps/markdown/app.contract` because Contract
 does not currently import view components across app files. Parsing, block shapes
 and value conversion are shared, and the root `theme` block says the readers'
-palette; there is no second Markdown parser.
+palette (LLP 1095 D4); there is no second Markdown parser.
 The opt-in variable-height block window uses the shared runner collection and
 host measurement/anchor path. `data/tests/windowed.rs` exercises the actual
 1 MiB / 26,885-block document through scrolling, width changes, typing, reparse
@@ -264,22 +276,235 @@ inside measured first/last row wrappers so the shared logical extent includes it
 
 The same final 1 MiB windowed smoke passes on actual Ubuntu 24.04 ARM64 in Lima,
 using CPU raster and the newly provisioned Noto CJK/emoji fonts: 21 mounted blocks
-and 215–219 nodes, with endpoint/reflow/input assertions. This is a functional
-headless Linux result, not a compositor measurement.
+and 215–219 nodes, with endpoint/reflow/input assertions. Evidence is in
+`/tmp/exact2-linux-endfollow-final-6840b5e9/artifacts/markdown-runner-reset/`;
+executable SHA-256 is
+`c0e9c6a142a0366cf6dd6d767f7e640d6fb15d9c96a51ed2bfb108b01cb9ffa5`.
+This is a functional headless Linux result, not a compositor measurement or a
+controlled timing comparison against the older DejaVu-only environment below.
 
-## Known limits
+## Initial parse evidence, 2026-09-16
 
-The paragraph parser no longer revalidates the remaining source as UTF-8 at
-each bare-URL check, so one 4 MiB paragraph parses in tens of milliseconds
-rather than tens of seconds. That is still several 120 Hz frames: the synthetic
-synchronous source and giant text layout need their own scheduling.
+Apple M4, 16 GiB, macOS 26.2 (25C56), Rust 1.97.0. Three repetitions per case,
+native optimized diagnostic (`opt-level=3`, no LTO), source `024ace7` plus this
+working branch. Other goal work was active on the machine: these are exploratory
+wall-clock samples, not an isolated benchmark or physical frame measurements.
+Raw CSVs are in the ignored `target/parse-*.csv` when run locally.
 
-**One markup node** lays the whole document out as one `text markup="markdown"`
-node, styled by `exact-markdown::pieces` for both measure and paint. It is not
-windowed.
+| Fixture | Source budget | Blocks | Parse median | All-block values median |
+| --- | --- | ---: | ---: | ---: |
+| One paragraph | 16 KiB | 2 | 0.47 ms | 0.001 ms |
+| One paragraph | 256 KiB | 2 | 85.76 ms | 0.008 ms |
+| One paragraph | 1 MiB | 2 | 1,467.38 ms | 0.025 ms |
+| One paragraph | 4 MiB | 2 | 22,114.30 ms | 0.117 ms |
+| One code block | 4 MiB | 2 | 1.15 ms | 0.087 ms |
+| Many blocks | 1 MiB | 26,885 | 17.80 ms | 9.898 ms |
+| Mixed | 1 MiB | 6,310 | 9.31 ms | 2.066 ms |
+| Giant table | 1 MiB | 11,523 | 8.60 ms | 7.984 ms |
 
-Native command history is incomplete: a source replacement and a format inside
-the same automatic event group can undo together. For example, replacing the
-buffer with `- item`, then applying list Return, can undo past `- item` to the
-earlier buffer. One-command-one-undo and intrinsic editor-height parity are not
-complete.
+A 120 Hz interval is 8.33 ms for **everything**, not a private parser budget.
+The paragraph's 256 KiB / 1 MiB / 4 MiB parse medians alone span roughly
+10 / 176 / 2,654 such intervals. The 4 MiB paragraph's three samples ranged
+21.27–24.23 seconds. Generation was under 3 ms in these cases and is reported
+separately. The values column converts every block, as eager mode does; a manual
+page converts only its selected blocks. None of these numbers includes rendering.
+
+The near-quadratic paragraph growth is consistent with a source-level candidate:
+`apps/markdown/parse/src/inline.rs` checks bare URLs at `h` and `rest()` validates
+the entire remaining byte suffix as UTF-8 on each attempt. This observation is
+not an attribution profile or a parser fix. Worker placement would protect UI
+execution from synchronous parsing, but throughput, cancellation/coalescing and
+the eventual giant text layout still need attention. The production reader's
+native file parsing already uses its continuation worker, so its opening delay
+and this app's synchronous input stall must be measured as different behaviors.
+
+## Initial host evidence, 2026-09-16
+
+Optimized web and AppKit builds passed. Both hosts passed all five 16 KiB
+profiles and the 1 MiB many-block case (1,048,504 source bytes, 26,885 parsed
+blocks, 40 mounted), including exact input echo, scroll, reparse, width controls,
+paging, eager mode, finite producer checks and reset. Screenshots were inspected.
+All four app crates passed Clippy and formatting after fixing the Linux bake's
+borrowed-grants lifetime. The same smoke cases also passed on actual Ubuntu
+24.04 ARM64 in Lima/VZ (Linux 6.8.0-134, 4 vCPUs, 4 GiB RAM, CPU raster).
+
+The initial Linux capture exposed incorrectly positioned nested inline text,
+overlapping later blocks. That framework defect is now fixed: the painter draws
+the kernel's canonical runs once at the measured paragraph width, preserving
+inherited light/dark colors and font metrics across CPU/GPU painting. GPU batches
+retain synthesized italics and run/source identity; normal code now resolves to
+an installed monospace family instead of accidentally selecting an italic face.
+The app fixture was unchanged. Inspected follow-up screenshots show paragraphs
+wrapping across the reading column, separate code/table blocks and visible text
+after scrolling.
+
+Painter validation: 59 Mac host tests, strict Clippy,
+formatting and diff checks passed, including a real Apple M4/Metal pixel test.
+Six applicable CPU/batch/font regressions passed on Ubuntu; its GPU pixel test
+explicitly skipped because the VM has no adapter. A broader Linux library run
+had one unrelated HTTP test fail with a connection reset, then pass in isolation;
+both logs are retained, so this is not a clean full-Linux-gate claim. Final-binary
+app validation passed all five 16 KiB profiles, the 1 MiB Blocks smoke, 36 native
+input samples and 72 interleaved resize/type/scroll cohorts, with invalid-size,
+viewport, echo, scroll and recovery assertions.
+
+Final frozen Linux executable SHA-256:
+`a2f9a246e6ebff0ce8971a47428665e2a0b1e4a43540da1443656afc11372fc1`.
+Evidence is at the repository root in
+`target/native-resize/linux-richtext-final/NOTES.md`, with raw samples in
+`markdown-native-sample/report.json` and `markdown-resize/report.json` under that
+directory. Screenshots are in `markdown-smoke/`, `markdown-smoke-1m/`,
+`markdown-geometry/` and `markdown-resize/`; test logs are in `checks/`, alongside
+source observations and executable/source hashes at the evidence root. The guest
+copy is `/tmp/exact2-linux-richtext-final/bin/markdown-stress-linux`.
+
+The final eager 256 KiB profile still mounts 1,576 blocks / 8,801 kernel nodes:
+input-ACK p95 spans **165.25–178.49 ms** across three twelve-sample repetitions
+(resize ACK p95 **109.54–119.41 ms**). It remains well above the 8.33 ms target.
+The minimal DejaVu-only guest still lacks emoji/CJK coverage and shows missing
+glyphs; full font parity is not claimed. These timings include IPC and preceding
+queued work, not display presentation. Linux used headless CPU raster; the Mac's
+JetKVM display is 60 Hz. Parser, scheduler and collection work changed alongside
+this fix, so these captures are not a controlled performance A/B comparison.
+
+AppKit samples on the M4 above, optimized binary SHA-256
+`3abfe2fa3932c4a1222c795bfd8433089f75b43756aaaf38dfa01e14679f7e96`:
+
+| Native workload | Samples | Input ack median / p95 / max |
+| --- | ---: | ---: |
+| Idle, 40 mounted blocks | 12 | 1.63 / 21.98 / 21.98 ms |
+| 1 MiB reparse queued before input, 40 mounted | 12 | 25.54 / 58.35 / 58.35 ms |
+| Real window resize queued before input, 419 mounted | 12 | 93.26 / 209.06 / 209.06 ms |
+
+All 36 echoes matched. The resize receipts reported `NSWindow.setContentSize`
+and the requested 640/980×820 viewport; presentation remained unobserved.
+These include IPC and preceding synchronous work. At 12 samples, nearest-rank
+p95 is the maximum; startup/warmup outliers are retained. Raw observations are
+in `target/native-samples.json` from the initial exploratory drive; the committed
+`native-sample.mjs` reproduces the same operations with configurable sample count.
+
+On that Linux VM, the corresponding twelve-input runs measured input-ack
+median / p95 of **1.26 / 1.44 ms** idle, **19.02 / 20.26 ms** behind the 1 MiB
+reparse, and **15.50 / 17.73 ms** behind resizing 419 mounted blocks. All echoes
+matched. Raw reports are under `target/native-resize/linux-stage/` at the
+repository root; the frozen executable SHA-256 is
+`90caa0268c511f40f450a46a6a216e60663ebf4a10ce62543c7d6dfc43a3851b`.
+It was built from this branch with the in-progress scheduler change present;
+these are exploratory workload measurements, not an isolated before/after test
+or evidence that scheduler review is complete. No Linux compositor or physical
+display participated.
+
+HeadlessChrome 153.0.8010.12, 1200×850, 1× CPU, ten seconds each, using the shared
+`scripts/metrics.mjs --stress-url http://127.0.0.1:4321` sampler:
+
+| Web workload | Inputs | Input-event to echo DOM median / p95 / max |
+| --- | ---: | ---: |
+| Many blocks, 16 KiB, manual page, paused | 40 | 1.2 / 1.7 / 2.0 ms |
+| Many blocks, 1 MiB, manual page, requested 1 Hz reparse | 39 | 1.1 / 1.6 / 1.8 ms |
+
+The loaded run reached revision 10. Both had zero unmatched inputs and page
+errors. Headless rAF gaps were 33–133 ms in ordinary samples, with a loaded
+maximum of 150.1 ms: this environment does not establish 120 Hz presentation.
+The DOM timing begins when the input event arrives in the page and excludes time
+waiting for the event to be dispatched, so the small DOM numbers do not prove
+that synchronous parsing left input responsive. Native queued-command samples
+above expose a different part of that delay. Reproduce the web cases with
+`--tap profile-blocks`, adding `--tap size-1048576 --tap start` for the loaded run.
+
+## Parser suffix fix: paired evidence, 2026-09-16
+
+The suspected UTF-8 cost was confirmed by changing only the inline parser's
+suffix access. It now retains the original `&str` alongside its byte view and
+uses a checked `&text[at..]` slice. The cursor advances by whole scalars or past
+ASCII delimiters, so slicing checks a boundary without validating the entire
+remaining paragraph. No unsafe conversion, input truncation, chunking, fixture
+change, worker or rendering change was introduced. Other parser algorithms are
+unchanged; this is not a claim that every Markdown input now parses linearly.
+
+Same M4/macOS/Rust environment as above. Two frozen executables of the existing
+`parse-cost` diagnostic, built with the same isolated manifest/lock and native
+release settings (`opt-level=3`, no LTO), ran three before/after pairs per case.
+Each invocation measured one parse of the unchanged generated input; neither
+binary was rebuilt during the measurements. No cargo/rustc/Swift compiler
+processes were observed in the 96 process snapshots immediately before/after
+the 48 samples. This is not proof that the VM or other background work was idle.
+
+| Fixture | Source budget | Before median | After median |
+| --- | --- | ---: | ---: |
+| One paragraph | 16 KiB | 0.503 ms | 0.129 ms |
+| One paragraph | 256 KiB | 82.019 ms | 1.790 ms |
+| One paragraph | 1 MiB | 1,339.868 ms | 7.351 ms |
+| One paragraph | 4 MiB | 20,991.428 ms | 30.458 ms |
+| One code block | 4 MiB | 1.257 ms | 1.248 ms |
+| Many blocks | 1 MiB | 17.367 ms | 17.190 ms |
+| Mixed | 1 MiB | 9.041 ms | 7.844 ms |
+| Giant table | 1 MiB | 9.168 ms | 9.188 ms |
+
+The 4 MiB paragraph contains exactly 4,194,181 source bytes and still parses to
+two blocks. Before samples were 20,969.215 / 20,991.428 / 21,646.716 ms; after
+samples were 30.165 / 33.057 / 30.458 ms. Median speedup is approximately 689×.
+Near-equal control results should be treated as noise, not wins or regressions
+established by three samples. Raw observations, executable/source SHA-256s and
+the local comparison driver are in
+`apps/markdown/parse/target/utf8-baseline/comparison.json` and `compare.py`.
+
+Output preservation was checked separately by compiling the pre-change parser
+from its Git source snapshot beside the modified parser. All five profiles at
+all four sizes (20 documents) produced exactly equal titles and shared block
+values, including every text/run/cell and link/style field. The largest
+many-block document still has 107,545 blocks. This equivalence drive is recorded
+in `apps/markdown/parse/target/utf8-baseline/equivalence.log`; it ran after timing
+finished. Sixteen parser tests pass, including four new exact Unicode/URL-output
+regressions. The opt-in 4 MiB paragraph/code integrity test, parser Clippy and
+formatting also pass.
+
+The remaining budget matters: 30.458 ms is about 3.7 entire 120 Hz intervals,
+and the 1 MiB paragraph's 7.351 ms leaves little time for anything else if run on
+the UI thread. These are parse-only numbers, not a new host responsiveness or
+120 FPS result. Existing web/native baseline artifacts were not rebuilt for this
+parser comparison. The production reader's native continuation already moves
+parsing off the UI thread; the synthetic synchronous source and eventual text
+layout still need their own scheduling and frame-budget work.
+
+## One markup node — 2026-09-21
+
+A fourth render mode, **One markup node** (`toggle-single`), supplies the
+whole source as one `text markup="markdown"` node (LLP 1045 D3/D4): the host
+styles it from `exact-markdown::pieces`, the same function for measure and
+paint. Against **Render ALL blocks** on the same generated document, three
+rounds, medians of agent acknowledgement times on an M4 Pro at 60 Hz:
+
+| host | budget | mode | tree nodes | mode switch → settle | 4,000 pt wheel → settle |
+|---|---:|---|---:|---:|---:|
+| iOS simulator | 256 KiB | all blocks | 8,805 | 692 ms | 48 ms |
+| iOS simulator | 256 KiB | one node | 61 | 133 ms | 27 ms |
+| iOS simulator | 1 MiB | all blocks | 35,105 | 3,015 ms | 151 ms |
+| iOS simulator | 1 MiB | one node | 61 | 1,020 ms | 34 ms |
+| web (Chrome) | 256 KiB | all blocks | 8,805 | 238 ms | 64 ms |
+| web (Chrome) | 256 KiB | one node | 61 | 133 ms | 40 ms |
+| web (Chrome) | 1 MiB | all blocks | 35,105 | 830 ms | 145 ms |
+| web (Chrome) | 1 MiB | one node | 61 | 735 ms | 41 ms |
+
+These are command acknowledgements, not frames. A single node lays the whole
+document out; it is not windowed, which is what segments are for. macOS taps
+in this app were ignored on the measuring machine at the unmodified base, so
+there is no macOS row. The driver is a scratch script over
+`scripts/agent.mjs` (`open`, `tap`, `clock('settle')`, `tree`).
+
+## Native editing baseline — 2026-09-22
+
+The one-node mode now includes a fixed-height source editor and formatting
+toolbar on iOS and macOS. Markdown syntax remains visible at full advance and
+is dimmed around styled text. UIKit retains its native per-editor undo manager;
+simulator probes verify source undo/redo across natural run-loop turns,
+composition, replacement, paste/cut, and independent editor histories. The
+packaged iOS app also passes list Return, empty-item exit, link-field focus,
+and subsequent native input checks. These are simulator proofs, not physical
+phone gesture or accessibility evaluation.
+
+Native command history is still incomplete: a source replacement and a format
+inside the same automatic event group can undo together. For example, replacing
+the buffer with `- item`, then applying list Return, can undo past `- item` to
+the earlier buffer. A manual-group repair was reverted after a scheduled native
+run-loop close crashed; no such repair is retained. Do not treat the native
+one-command-one-undo requirement or intrinsic editor-height parity as complete.

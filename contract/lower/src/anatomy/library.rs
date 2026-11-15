@@ -1,5 +1,5 @@
-//! The library rules on what a library component writes: its spacing,
-//! corners and colours are its knobs, never
+//! The library rules on what a library component writes (LLP 1139 D1, D6;
+//! stage 12 C3): its spacing, corners and colours are its knobs, never
 //! literals (`lower-library-literal`); a control's role is drawn by the
 //! native control, which says what its platform needs
 //! (`lower-library-control`); and nothing in a library package reads the
@@ -9,7 +9,7 @@ use crate::LowerError;
 use contract_syntax::{Attr, Component, Expr, File, Node, Span};
 use exact_kernel::StyleId;
 
-/// Whether a row is a knob's: spacing, a corner or a colour.
+/// Whether a row is a knob's (D1): spacing, a corner or a colour.
 fn knob(id: StyleId) -> bool {
     use StyleId::*;
     matches!(
@@ -39,7 +39,7 @@ fn knob(id: StyleId) -> bool {
     )
 }
 
-/// The keywords a library may write: no length or colour.
+/// The keywords D1 lets a library write (r6.2): no length or colour.
 const KEYWORDS: [&str; 7] = [
     "transparent",
     "currentcolor",
@@ -79,7 +79,7 @@ const MIX_WORDS: [&str; 21] = [
     "decreasing",
 ];
 
-/// Whether `text` names a knob: a token (a param's among them, which
+/// Whether `text` names a knob (D1): a token (a param's among them, which
 /// the rows name by its token), a role, a base name, the kernel's named
 /// length (`-exact-hairline`); a `color-mix`, `light-dark` or `calc`-family
 /// function whose every length and colour is one; or is the zero length or
@@ -207,17 +207,17 @@ pub(crate) fn literal(c: &Component, file: &File) -> Vec<LowerError> {
     let refuse = |what: String, span: Span| {
         LowerError {
         id: "lower-library-literal",
-        message: format!("{what} in library component `{comp}` is a literal: a library's spacing, corners and colours are its knobs, a param, a token, a role or a base name (`0` and `0px` excepted)"),
+        message: format!("{what} in library component `{comp}` is a literal: a library's spacing, corners and colours are its knobs, a param, a token, a role or a base name (`0` and `0px` excepted; LLP 1139 D1)"),
         span,
     }
     };
-    // Every kind's default names a token: a motion or shadow token is
+    // Every kind's default names a token (D1): a motion or shadow token is
     // the design's, which the theme table doesn't bind.
     let designed: Vec<String> = file
         .design
         .iter()
         .chain(&file.package_designs)
-        .filter_map(|d| exact_tamber::parse(&d.text).ok())
+        .filter_map(|d| exact_forma::parse(&d.text).ok())
         .flat_map(|d| d.tokens.into_iter().chain(d.icons).map(|t| t.name.value))
         .collect();
     for p in &c.params.list {
@@ -305,17 +305,11 @@ fn elements<'n>(nodes: &'n [Node], f: &mut dyn FnMut(&'n [Attr])) {
                 elements(children, f);
             }
             Node::Use { children, .. } | Node::Each { body: children, .. } => elements(children, f),
-            Node::When {
-                then, otherwise, ..
-            } => {
-                elements(then, f);
-                elements(otherwise, f);
+            node => {
+                for list in node.child_lists() {
+                    elements(list, f);
+                }
             }
-            Node::Match { some, none, .. } => {
-                elements(&some.1, f);
-                elements(none, f);
-            }
-            Node::Children { .. } => {}
         }
     }
 }
@@ -539,7 +533,7 @@ fn unquoted(text: &str, open: Option<char>) -> (String, Option<char>) {
     (out, open)
 }
 
-/// The roles a control is drawn for.
+/// The roles a control is drawn for (D6).
 const ROLES: [&str; 8] = [
     "switch",
     "checkbox",
@@ -595,7 +589,7 @@ pub(crate) struct Controls {
     pub buttons: Vec<LowerError>,
 }
 
-/// The controls of library component `c` (`lower-library-control`).
+/// The controls of library component `c` (`lower-library-control`, D6).
 pub(crate) fn control(c: &Component) -> Controls {
     let mut out = Controls::default();
     walk_controls(&c.view, &c.name, &mut out);
@@ -625,7 +619,7 @@ pub(crate) fn control(c: &Component) -> Controls {
 }
 
 /// The bool props a pressable's look may show as a state a person needs
-/// said: a button whose look reads one must say
+/// said (theme2 2026-10-22 04:40): a button whose look reads one must say
 /// it aloud (`walk_buttons`). Others (a size, an ink) are presentation.
 pub(crate) const STATES: [&str; 7] = [
     "selected", "current", "pressed", "checked", "on", "active", "expanded",
@@ -648,46 +642,25 @@ type Labels<'a> = std::collections::HashMap<&'a str, Option<(&'a Expr, Vec<Strin
 /// arms, which of them names a button the view doesn't settle).
 fn texts_by_id<'a>(nodes: &'a [Node], bound: &mut Vec<String>, out: &mut Labels<'a>) {
     for n in nodes {
-        match n {
-            Node::Element {
-                tag,
-                attrs,
-                positional,
-                children,
-                ..
-            } => {
-                if let (true, Some(id), Some(words)) =
-                    (tag == "text", text(attrs, "id"), positional.first())
-                {
-                    let seen = out.contains_key(id);
-                    out.insert(id, (!seen).then(|| (words, bound.clone())));
-                }
-                texts_by_id(children, bound, out);
+        if let Node::Element {
+            tag,
+            attrs,
+            positional,
+            ..
+        } = n
+        {
+            if let (true, Some(id), Some(words)) =
+                (tag == "text", text(attrs, "id"), positional.first())
+            {
+                let seen = out.contains_key(id);
+                out.insert(id, (!seen).then(|| (words, bound.clone())));
             }
-            Node::Use { children, .. } => texts_by_id(children, bound, out),
-            Node::Each {
-                var, index, body, ..
-            } => {
-                let mark = bound.len();
-                bound.push(var.clone());
-                bound.extend(index.clone());
-                texts_by_id(body, bound, out);
-                bound.truncate(mark);
-            }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                texts_by_id(then, bound, out);
-                texts_by_id(otherwise, bound, out);
-            }
-            Node::Match { some, none, .. } => {
-                let mark = bound.len();
-                bound.push(some.0.clone());
-                texts_by_id(&some.1, bound, out);
-                bound.truncate(mark);
-                texts_by_id(none, bound, out);
-            }
-            Node::Children { .. } => {}
+        }
+        for (list, binds) in n.scoped_child_lists() {
+            let mark = bound.len();
+            bound.extend(binds.iter().map(String::from));
+            texts_by_id(list, bound, out);
+            bound.truncate(mark);
         }
     }
 }
@@ -768,8 +741,8 @@ impl Buttons<'_> {
 /// a text of its own in every arm), and saying each state of `states` its
 /// look reads (a `?:` or `match` in a row, a class, or a used component's
 /// argument, itself or through a derive) through one of [`SAID`], a label
-/// or a text of its own that reads it. `bound`: the names a `for` or
-/// `match` around binds,
+/// or a text of its own that reads it (theme2 2026-10-22 04:40, LLP 1139
+/// D9's condition (b)). `bound`: the names a `for` or `match` around binds,
 /// which hide a prop of the same name.
 fn walk_buttons(nodes: &[Node], cx: &Buttons, bound: &mut Vec<String>, out: &mut Vec<LowerError>) {
     for n in nodes {
@@ -788,30 +761,14 @@ fn walk_buttons(nodes: &[Node], cx: &Buttons, bound: &mut Vec<String>, out: &mut
                 }
                 walk_buttons(children, cx, bound, out);
             }
-            Node::Use { children, .. } => walk_buttons(children, cx, bound, out),
-            Node::Each {
-                var, index, body, ..
-            } => {
-                let mark = bound.len();
-                bound.push(var.clone());
-                bound.extend(index.clone());
-                walk_buttons(body, cx, bound, out);
-                bound.truncate(mark);
+            node => {
+                for (list, binds) in node.scoped_child_lists() {
+                    let mark = bound.len();
+                    bound.extend(binds.iter().map(String::from));
+                    walk_buttons(list, cx, bound, out);
+                    bound.truncate(mark);
+                }
             }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                walk_buttons(then, cx, bound, out);
-                walk_buttons(otherwise, cx, bound, out);
-            }
-            Node::Match { some, none, .. } => {
-                let mark = bound.len();
-                bound.push(some.0.clone());
-                walk_buttons(&some.1, cx, bound, out);
-                bound.truncate(mark);
-                walk_buttons(none, cx, bound, out);
-            }
-            Node::Children { .. } => {}
         }
     }
 }
@@ -828,7 +785,7 @@ fn check_button(
     let comp = cx.comp;
     let error = |message: String| LowerError {
         id: "lower-library-control",
-        message: format!("{message} in library component `{comp}`"),
+        message: format!("{message} in library component `{comp}` (LLP 1139 D9)"),
         span,
     };
     let what = if tag == "button" {
@@ -1001,29 +958,14 @@ fn looks(
                 attrs, children, ..
             } => looks(attrs, children, cx, bound, out),
             Node::Use { args, children, .. } => looks(args, children, cx, bound, out),
-            Node::Each {
-                var, index, body, ..
-            } => {
-                let mark = bound.len();
-                bound.push(var.clone());
-                bound.extend(index.clone());
-                looks(&[], body, cx, bound, out);
-                bound.truncate(mark);
+            node => {
+                for (list, binds) in node.scoped_child_lists() {
+                    let mark = bound.len();
+                    bound.extend(binds.iter().map(String::from));
+                    looks(&[], list, cx, bound, out);
+                    bound.truncate(mark);
+                }
             }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                looks(&[], then, cx, bound, out);
-                looks(&[], otherwise, cx, bound, out);
-            }
-            Node::Match { some, none, .. } => {
-                let mark = bound.len();
-                bound.push(some.0.clone());
-                looks(&[], &some.1, cx, bound, out);
-                bound.truncate(mark);
-                looks(&[], none, cx, bound, out);
-            }
-            Node::Children { .. } => {}
         }
     }
 }
@@ -1044,17 +986,11 @@ fn walk_controls(nodes: &[Node], comp: &str, out: &mut Controls) {
             Node::Use { children, .. } | Node::Each { body: children, .. } => {
                 walk_controls(children, comp, out)
             }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                walk_controls(then, comp, out);
-                walk_controls(otherwise, comp, out);
+            node => {
+                for list in node.child_lists() {
+                    walk_controls(list, comp, out);
+                }
             }
-            Node::Match { some, none, .. } => {
-                walk_controls(&some.1, comp, out);
-                walk_controls(none, comp, out);
-            }
-            Node::Children { .. } => {}
         }
     }
 }
@@ -1069,7 +1005,7 @@ fn check_control(
 ) {
     let error = |message: String| LowerError {
         id: "lower-library-control",
-        message: format!("{message} in library component `{comp}`"),
+        message: format!("{message} in library component `{comp}` (LLP 1139 D6)"),
         span,
     };
     let native = match tag {
@@ -1111,7 +1047,7 @@ fn check_control(
         "input" => {
             for kind in leaf_texts(attrs, "type").unwrap_or_else(|| vec!["text".into()]) {
                 match kind.to_ascii_lowercase().as_str() {
-                    // The platform's picker: nothing the control table asks of it.
+                    // The platform's picker: nothing D6's table asks of it.
                     "file" => {}
                     "checkbox" | "radio" => {
                         need("`checked`", has(attrs, "checked"));

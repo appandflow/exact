@@ -1,11 +1,12 @@
-// @exact/photos's conformance suite on Apple: the fixture app built for an
-// iOS simulator or macOS and driven by the agent with the implementation
-// bound (`--bind photos`), so PhotoKit answers and not the agent's library.
-// It never reads this Mac's own library:
+// @exact/photos's conformance suite on Apple (LLP 1133.001 D7, LLP 1133.019
+// stage 2): the fixture app built for an iOS simulator or macOS and driven
+// by the agent with the implementation bound (`--bind photos`), so PhotoKit
+// answers and not the agent's library. It never reads this Mac's own
+// library:
 //
 // - iOS: the simulator's library, which `--fill` fills with the package's
 //   six fixture photos (`xcrun simctl addmedia`), and its permissions set
-//   by `xcrun simctl privacy`, the host's own means. The suite reads,
+//   by `xcrun simctl privacy`, the host's own means (§11). The suite reads,
 //   draws, copies and adds there, and watches the change observer.
 // - macOS: only what holds with no library grant, since only a person can
 //   grant one here and the library would be this Mac's: the status, its
@@ -28,7 +29,7 @@ import { checker, makeFixture, pkg, root, run, texts, until } from './fixture.mj
 const argv = process.argv.slice(2), sim = argv.includes('--sim') ? argv[argv.indexOf('--sim') + 1] : process.env.EXACT_SIM;
 const hosts = argv.filter((a, i) => ['macos', 'ios'].includes(a) && argv[i - 1] !== '--sim');
 const { app, id, dir } = makeFixture(), name = app.split('/').pop();
-Object.assign(process.env, { EXACT_APP_DIR: app, EXACT2: root, HERMES_LEAN_SYS_OFFLINE: '1', EXACT_IDENTITY: process.env.EXACT_IDENTITY ?? '-' });
+Object.assign(process.env, { EXACT_APP_DIR: app, EXACT: root, HERMES_LEAN_SYS_OFFLINE: '1', EXACT_IDENTITY: process.env.EXACT_IDENTITY ?? '-' });
 if (sim) process.env.EXACT_SIM = sim;
 const { open } = await import(resolve(root, 'scripts/agent.mjs'));
 const { check, failed } = checker();

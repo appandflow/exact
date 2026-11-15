@@ -1,4 +1,4 @@
-//! The recognition thresholds exact2 defines itself, once.
+//! The recognition thresholds exact2 defines itself, once (LLP 1057.001 §3).
 //! Linux reads them here; Apple through `exact_gesture_constant`, the web
 //! through its motion `gesture` operation. Where the platform has its own
 //! (UIKit's pan hysteresis, AppKit's double-click interval), the platform's wins.
@@ -10,8 +10,8 @@ pub const SWIPE_KNEE: f64 = 64.0;
 pub const SWIPE_RESISTANCE: f64 = 0.2;
 /// An authored swipe yields this much of the leading edge to the system's
 /// back gesture (precedence rule 1). Android says how wide its own edges
-/// are, and its host yields those in place of this
-/// (`host/linux/src/presenter/window.rs`).
+/// are, and its host yields those in place of this (LLP 1115.001 D7.5;
+/// `host/painted/src/presenter/window.rs`).
 pub const SWIPE_EDGE: f64 = 20.0;
 
 /// A contact moves more than this, in points or CSS px on either axis,

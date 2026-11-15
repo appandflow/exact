@@ -1,6 +1,6 @@
-//! The style names an author writes, each with its kind:
+//! The style names an author writes, each with its kind (LLP 1081 D8):
 //! the one table `tags::attr` reads for a style attribute, and the table
-//! `tests::every_name_is_its_kind` checks against the spelling rule.
+//! `tests::every_name_is_its_kind` checks against LLP 1081 D1's spelling rule.
 //!
 //! Provenance is `css <document>` (a CSS Working Group document, or the
 //! Compat Standard), `browser <engine> <revision>` (a browser's own prefixed
@@ -14,8 +14,8 @@ use exact_kernel::StyleId;
 /// `(name, provenance, what it lowers to)`.
 #[rustfmt::skip]
 pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
-    ("-exact-control-size", "exact", AttrTarget::Styles(&[StyleId::ControlSize])),
-    ("-exact-corner-style", "exact", AttrTarget::Styles(&[StyleId::ControlCornerStyle])),
+    ("-exact-control-size", "exact LLP 1069.011.001 D8", AttrTarget::Styles(&[StyleId::ControlSize])),
+    ("-exact-corner-style", "exact LLP 1069.011.001 D9", AttrTarget::Styles(&[StyleId::ControlCornerStyle])),
     ("filter", "css CSS Filter Effects 1", AttrTarget::Styles(&[StyleId::Filter])),
     ("mix-blend-mode", "css CSS Compositing 1", AttrTarget::Styles(&[StyleId::MixBlendMode])),
     ("isolation", "css CSS Compositing 1", AttrTarget::Styles(&[StyleId::Isolation])),
@@ -36,7 +36,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("stop-color", "css SVG 2", AttrTarget::Styles(&[StyleId::StopColor])),
     ("stop-opacity", "css SVG 2", AttrTarget::Styles(&[StyleId::StopOpacity])),
     ("paint-order", "css SVG 2", AttrTarget::Styles(&[StyleId::PaintOrder])),
-    // SVG 2 presentation and geometry properties: CSS rows.
+    // SVG 2 presentation and geometry properties: CSS rows (LLP 1055 D2).
     ("fill", "css SVG 2", AttrTarget::Styles(&[StyleId::Fill])),
     ("stroke", "css SVG 2", AttrTarget::Styles(&[StyleId::Stroke])),
     ("stroke-width", "css SVG 2", AttrTarget::Styles(&[StyleId::StrokeWidth])),
@@ -52,7 +52,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("y", "css SVG 2", AttrTarget::Styles(&[StyleId::Y])),
     ("rx", "css SVG 2", AttrTarget::Styles(&[StyleId::Rx])),
     ("ry", "css SVG 2", AttrTarget::Styles(&[StyleId::Ry])),
-    // Transforms on SVG elements.
+    // @ref LLP 1055.000 D5 — transforms on SVG elements.
     ("transform", "css CSS Transforms 1", AttrTarget::Styles(&[StyleId::Transform])),
     ("transform-origin", "css CSS Transforms 1", AttrTarget::Styles(&[StyleId::TransformOrigin])),
     ("transform-box", "css CSS Transforms 1", AttrTarget::Styles(&[StyleId::TransformBox])),
@@ -65,7 +65,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("white-space", "css CSS Text 3", AttrTarget::Styles(&[StyleId::WhiteSpace])),
     ("text-wrap-style", "css CSS Text 4", AttrTarget::Styles(&[StyleId::TextWrapStyle])),
     ("text-wrap", "css CSS Text 4", AttrTarget::Styles(&[StyleId::TextWrapStyle])),
-    // `::placeholder`'s `color`, the part block's
+    // @ref LLP 1104 D3 — `::placeholder`'s `color`, the part block's
     // declaration (contract_syntax::PLACEHOLDER_COLOR); never written as one name.
     ("::placeholder color", "css CSS Pseudo-Elements 4", AttrTarget::Styles(&[StyleId::PlaceholderColor])),
     ("overflow-wrap", "css CSS Text 3", AttrTarget::Styles(&[StyleId::OverflowWrap])),
@@ -74,15 +74,18 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("scrollbar-width", "css CSS Scrollbars 1", AttrTarget::Styles(&[StyleId::ScrollbarWidth])),
     ("touch-action", "css Compat Standard", AttrTarget::Styles(&[StyleId::TouchAction])),
     ("clip-path", "css CSS Masking 1", AttrTarget::Styles(&[StyleId::ClipPath])),
+    // @ref LLP 1043.000 §3 D1
     ("wrap-flow", "css CSS Exclusions 1", AttrTarget::Styles(&[StyleId::WrapFlow])),
     ("shape-outside", "css CSS Shapes 1", AttrTarget::Styles(&[StyleId::ShapeOutside])),
     ("shape-margin", "css CSS Shapes 1", AttrTarget::Styles(&[StyleId::ShapeMargin])),
     ("scroll-snap-align", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollSnapAlign])),
+    ("scroll-snap-stop", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollSnapStop])),
     ("line-clamp", "css CSS Overflow 4", AttrTarget::Styles(&[StyleId::LineClamp])),
     ("text-overflow", "css CSS Overflow 3", AttrTarget::Styles(&[StyleId::TextOverflow])),
-    // `normal` and `tabular-nums`; others refused by name.
+    // @ref LLP 1053 §0 G4 — `normal` and `tabular-nums`; others refused by name.
     ("font-variant-numeric", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontVariantNumeric])),
     ("font-variant-ligatures", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontVariantLigatures])),
+    ("font-feature-settings", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontFeatureSettings])),
     ("column-width", "css CSS Multi-column Layout 1", AttrTarget::Styles(&[StyleId::ColumnWidth])),
     ("column-fill", "css CSS Multi-column Layout 1", AttrTarget::Styles(&[StyleId::ColumnFill])),
     ("column-rule-style", "css CSS Multi-column Layout 1", AttrTarget::Styles(&[StyleId::ColumnRuleStyle])),
@@ -94,53 +97,59 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("break-inside", "css CSS Fragmentation 3", AttrTarget::Styles(&[StyleId::BreakInside])),
     ("resize", "css CSS UI 4", AttrTarget::Styles(&[StyleId::Resize])),
     ("user-select", "css CSS UI 4", AttrTarget::Styles(&[StyleId::UserSelect])),
-    // On a popover, its implicit anchor the invoker.
+    // @ref LLP 1021 §5 — on a popover, its implicit anchor the invoker.
     ("position-try-fallbacks", "css CSS Anchor Positioning 1", AttrTarget::Styles(&[StyleId::PositionTryFallbacks])),
     ("position-area", "css CSS Anchor Positioning 1", AttrTarget::Styles(&[StyleId::PositionArea])),
     ("text-decoration-line", "css CSS Text Decoration 3", AttrTarget::Styles(&[StyleId::TextDecorationLine])),
+    // @ref LLP 1064 D5
     ("text-transform", "css CSS Text 3", AttrTarget::Styles(&[StyleId::TextTransform])),
     ("font-size", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontSize])),
     ("font-weight", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontWeight])),
     ("font-style", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontStyle])),
+    // @ref LLP 1019 D8
     ("font-stretch", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontStretch])),
+    // @ref LLP 1019 D9
     ("font-variation-settings", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontVariationSettings])),
+    // @ref LLP 1019 §13
     ("font-optical-sizing", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontOpticalSizing])),
     ("zoom", "css CSS Viewport 1", AttrTarget::Styles(&[StyleId::Zoom])),
     ("font-family", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontFamily])),
     ("color", "css CSS Color 4", AttrTarget::Styles(&[StyleId::TextColor])),
     ("background-color", "css CSS Backgrounds 3", AttrTarget::Styles(&[StyleId::BackgroundColor])),
-    // `none` or one linear/radial gradient.
+    // @ref LLP 1066 — `none` or one linear/radial gradient.
     ("background-image", "css CSS Backgrounds 3", AttrTarget::Styles(&[StyleId::BackgroundImage])),
-    // `fixed`: the gradient box is the viewport.
+    // @ref LLP 1066 D7 — `fixed`: the gradient box is the viewport.
     ("background-attachment", "css CSS Backgrounds 3", AttrTarget::Styles(&[StyleId::BackgroundAttachment])),
+    // @ref LLP 1077 D1–D3
     ("mask-image", "css CSS Masking 1", AttrTarget::Styles(&[StyleId::MaskImage])),
     ("text-shadow", "css CSS Text Decoration 3", AttrTarget::Styles(&[StyleId::TextShadow])),
     ("corner-shape", "css CSS Borders 4", AttrTarget::Styles(&[StyleId::CornerShape])),
     ("background-clip", "css CSS Backgrounds 3", AttrTarget::Styles(&[StyleId::BackgroundClip])),
-    // The Compat Standard's names; the shorthand
+    // @ref LLP 1077 D7 — the Compat Standard's names; the shorthand
     // binds both rows, each taking its part.
     ("-webkit-text-stroke", "browser webkit bb06bdc9", AttrTarget::Styles(&[StyleId::TextStrokeWidth, StyleId::TextStrokeColor])),
     ("-webkit-text-stroke-width", "browser webkit bb06bdc9", AttrTarget::Styles(&[StyleId::TextStrokeWidth])),
     ("-webkit-text-stroke-color", "browser webkit bb06bdc9", AttrTarget::Styles(&[StyleId::TextStrokeColor])),
+    // @ref LLP 1019 D12
     ("-webkit-font-smoothing", "browser webkit bb06bdc9", AttrTarget::Styles(&[StyleId::FontSmoothing])),
     ("caret-color", "css CSS UI 4", AttrTarget::Styles(&[StyleId::CaretColor])),
-    // A form control's tint and whether the
+    // @ref LLP 1069.001 D6 — a form control's tint and whether the
     // platform draws it.
     ("accent-color", "css CSS UI 4", AttrTarget::Styles(&[StyleId::AccentColor])),
     ("appearance", "css CSS UI 4", AttrTarget::Styles(&[StyleId::Appearance])),
-    // the focus ring off, on any element that takes
+    // @ref LLP 1104 D6 — the focus ring off, on any element that takes
     // the focus: `outline: none`, the one value either name takes.
     ("outline-style", "css CSS UI 4", AttrTarget::Styles(&[StyleId::OutlineStyle])),
     ("outline", "css CSS UI 4", AttrTarget::Styles(&[StyleId::OutlineStyle])),
-    ("-exact-tint-color", "exact", AttrTarget::Styles(&[StyleId::TintColor])),
+    ("-exact-tint-color", "exact LLP 1011", AttrTarget::Styles(&[StyleId::TintColor])),
     ("opacity", "css CSS Color 4", AttrTarget::Styles(&[StyleId::Opacity])),
-    // One value, each row takes its part of the parse.
+    // @ref LLP 1064 D1 — one value, each row takes its part of the parse.
     ("box-shadow", "css CSS Backgrounds 3", AttrTarget::Styles(&[StyleId::BoxShadow])),
-    // `none` or one `blur(<length>)`; the rest of
+    // @ref LLP 1053.000 D1 — `none` or one `blur(<length>)`; the rest of
     // CSS's filter functions are refused by name.
     ("backdrop-filter", "css CSS Filter Effects 2", AttrTarget::Styles(&[StyleId::BackdropFilter])),
     ("letter-spacing", "css CSS Text 3", AttrTarget::Styles(&[StyleId::LetterSpacing])),
-    // Book typography's first-line indent and CSS's
+    // The reader diary: book typography's first-line indent and CSS's
     // hyphenation (`manual` honours soft hyphens; `auto` adds the
     // language's own points where the host has a dictionary).
     ("text-indent", "css CSS Text 3", AttrTarget::Styles(&[StyleId::TextIndent])),
@@ -190,24 +199,30 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("max-height", "css CSS Sizing 3", AttrTarget::Styles(&[StyleId::MaxHeight])),
     ("cursor", "css CSS UI 4", AttrTarget::Styles(&[StyleId::Cursor])),
     ("flex", "css CSS Flexbox 1", AttrTarget::Flex),
-    // The longhand: `flex-basis` stays `auto`, unlike `flex`.
+    // @ref LLP 1053 G3 — the longhand: `flex-basis` stays `auto`, unlike `flex`.
     ("flex-grow", "css CSS Flexbox 1", AttrTarget::Styles(&[StyleId::FlexGrow])),
     ("flex-shrink", "css CSS Flexbox 1", AttrTarget::Styles(&[StyleId::FlexShrink])),
     ("flex-basis", "css CSS Flexbox 1", AttrTarget::Styles(&[StyleId::FlexBasis])),
     ("flex-wrap", "css CSS Flexbox 1", AttrTarget::Styles(&[StyleId::FlexWrap])),
     ("flex-direction", "css CSS Flexbox 1", AttrTarget::Styles(&[StyleId::FlexDirection])),
-    // CSS `direction` (inherited), not a flex direction.
+    // @ref LLP 1053 — CSS `direction` (inherited), not a flex direction.
     ("direction", "css CSS Writing Modes 4", AttrTarget::Styles(&[StyleId::Direction])),
-    // `auto || <ratio>`.
+    // @ref LLP 1053 G1 — `auto || <ratio>`.
     ("aspect-ratio", "css CSS Sizing 4", AttrTarget::Styles(&[StyleId::AspectRatio])),
-    // Drag timelines, CSS scroll-driven animations' shape.
-    ("-exact-drag-timeline", "exact", AttrTarget::Styles(&[StyleId::DragTimeline])),
+    // @ref LLP 1057.003 D1 — drag timelines, CSS scroll-driven animations' shape.
+    ("-exact-drag-timeline", "exact LLP 1057.003", AttrTarget::Styles(&[StyleId::DragTimeline])),
     ("animation-timeline", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::AnimationTimeline])),
     ("animation-range", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::AnimationRange])),
-    // When a list row's animations start.
-    ("-exact-animation-trigger", "exact", AttrTarget::Styles(&[StyleId::AnimationTrigger])),
-    // CSS `timeline-scope`.
+    // @ref LLP 1055 D13 — when a list row's animations start.
+    ("-exact-animation-trigger", "exact LLP 1055", AttrTarget::Styles(&[StyleId::AnimationTrigger])),
+    // @ref LLP 1057.003 D4 — CSS `timeline-scope`.
     ("timeline-scope", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::TimelineScope])),
+    // @ref LLP 1057.003 D5 — scroll and view progress timelines.
+    ("scroll-timeline-name", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::ScrollTimelineName])),
+    ("scroll-timeline-axis", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::ScrollTimelineAxis])),
+    ("view-timeline-name", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::ViewTimelineName])),
+    ("view-timeline-axis", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::ViewTimelineAxis])),
+    ("view-timeline-inset", "css CSS Scroll Animations 1", AttrTarget::Styles(&[StyleId::ViewTimelineInset])),
     ("display", "css CSS Display 3", AttrTarget::Styles(&[StyleId::Display])),
     ("grid-auto-flow", "css CSS Grid 2", AttrTarget::Styles(&[StyleId::GridAutoFlow])),
     ("grid-template-columns", "css CSS Grid 2", AttrTarget::Styles(&[StyleId::GridTemplateColumns])),
@@ -218,6 +233,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("align-content", "css CSS Box Alignment 3", AttrTarget::Styles(&[StyleId::AlignContent])),
     ("align-self", "css CSS Box Alignment 3", AttrTarget::Styles(&[StyleId::AlignSelf])),
     ("box-sizing", "css CSS Sizing 3", AttrTarget::Styles(&[StyleId::BoxSizing])),
+    ("image-rendering", "css CSS Images 3", AttrTarget::Styles(&[StyleId::ImageRendering])),
     ("object-fit", "css CSS Images 3", AttrTarget::Styles(&[StyleId::ObjectFit])),
     ("justify-content", "css CSS Box Alignment 3", AttrTarget::Styles(&[StyleId::JustifyContent])),
     ("justify-items", "css CSS Box Alignment 3", AttrTarget::Styles(&[StyleId::JustifyItems])),
@@ -234,7 +250,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("overscroll-behavior-x", "css CSS Overscroll Behavior 1", AttrTarget::Styles(&[StyleId::OverscrollBehaviorX])),
     ("overscroll-behavior-y", "css CSS Overscroll Behavior 1", AttrTarget::Styles(&[StyleId::OverscrollBehaviorY])),
     ("scroll-behavior", "css CSS Overflow 3", AttrTarget::Styles(&[StyleId::ScrollBehavior])),
-    // A virtualized list's `scrollIntoView` aligns within it.
+    // @ref LLP 1010 §6.9 — a virtualized list's `scrollIntoView` aligns within it.
     ("scroll-padding", "css CSS Scroll Snap 1", AttrTarget::Styles(&[ StyleId::ScrollPaddingTop, StyleId::ScrollPaddingRight, StyleId::ScrollPaddingBottom, StyleId::ScrollPaddingLeft, ])),
     ("scroll-padding-top", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingTop])),
     ("scroll-padding-right", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingRight])),
@@ -245,17 +261,31 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("scroll-margin-right", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginRight])),
     ("scroll-margin-bottom", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginBottom])),
     ("scroll-margin-left", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginLeft])),
+    // Host-owned pointer reach past the border box, beside LLP 1061's press
+    // feel (Charlie, 2026-11-10; issues/20261021-scroll-drag-events-and-hit-slop.md).
+    ("-exact-hit-slop", "exact LLP 1061", AttrTarget::Styles(&[ StyleId::HitSlopTop, StyleId::HitSlopRight, StyleId::HitSlopBottom, StyleId::HitSlopLeft, ])),
+    ("-exact-hit-slop-top", "exact LLP 1061", AttrTarget::Styles(&[StyleId::HitSlopTop])),
+    ("-exact-hit-slop-right", "exact LLP 1061", AttrTarget::Styles(&[StyleId::HitSlopRight])),
+    ("-exact-hit-slop-bottom", "exact LLP 1061", AttrTarget::Styles(&[StyleId::HitSlopBottom])),
+    ("-exact-hit-slop-left", "exact LLP 1061", AttrTarget::Styles(&[StyleId::HitSlopLeft])),
+    // A content owner's clearance of its chrome, per edge (LLP 1123 D4), and
+    // the safe area where a box is, as an author sets it (D9).
+    ("-exact-safe-area", "exact LLP 1123 D4", AttrTarget::Styles(&[StyleId::SafeArea])),
+    ("--exact-safe-area-inset-top", "exact LLP 1123 D9", AttrTarget::Styles(&[StyleId::LocalInsetTop])),
+    ("--exact-safe-area-inset-right", "exact LLP 1123 D9", AttrTarget::Styles(&[StyleId::LocalInsetRight])),
+    ("--exact-safe-area-inset-bottom", "exact LLP 1123 D9", AttrTarget::Styles(&[StyleId::LocalInsetBottom])),
+    ("--exact-safe-area-inset-left", "exact LLP 1123 D9", AttrTarget::Styles(&[StyleId::LocalInsetLeft])),
     ("z-index", "css CSS 2", AttrTarget::Styles(&[StyleId::ZIndex])),
     ("order", "css CSS Display 3", AttrTarget::Styles(&[StyleId::Order])),
     ("transition", "css CSS Transitions 1", AttrTarget::Styles(&[StyleId::Transition])),
-    // Played as the node leaves; its names resolve against
-    // the plan's keyframes as `animation`'s do.
-    ("-exact-exit-animation", "exact", AttrTarget::Styles(&[StyleId::ExitAnimation])),
-    // How the laid-out box moves when layout moves it.
-    ("-exact-layout-transition", "exact", AttrTarget::Styles(&[StyleId::LayoutTransition])),
+    // @ref LLP 1063 — played as the node leaves; its names resolve against
+    // the plan's keyframes as `animation`'s do (LLP 1055 D5).
+    ("-exact-exit-animation", "exact LLP 1063", AttrTarget::Styles(&[StyleId::ExitAnimation])),
+    // @ref LLP 1063 — how the laid-out box moves when layout moves it.
+    ("-exact-layout-transition", "exact LLP 1063", AttrTarget::Styles(&[StyleId::LayoutTransition])),
     ("interpolate-size", "css CSS Values 5", AttrTarget::Styles(&[StyleId::InterpolateSize])),
-    // One value to two rows: x and y (their lengths,
-    // and their percentages of the box), and z; the
+    // @ref LLP 1077 D8 — one value to two rows: x and y (their lengths,
+    // and their percentages of the box, chess diary #4), and z; the
     // angle, and its axis.
     ("translate", "css CSS Transforms 2", AttrTarget::Styles(&[ StyleId::Translate, StyleId::TranslatePercent, StyleId::TranslateZ, ])),
     ("scale", "css CSS Transforms 2", AttrTarget::Styles(&[StyleId::Scale])),
@@ -263,32 +293,36 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("perspective", "css CSS Transforms 2", AttrTarget::Styles(&[StyleId::Perspective])),
     ("perspective-origin", "css CSS Transforms 2", AttrTarget::Styles(&[StyleId::PerspectiveOrigin])),
     ("backface-visibility", "css CSS Transforms 2", AttrTarget::Styles(&[StyleId::BackfaceVisibility])),
-    // Declared rows CSS has no name for.
-    ("-exact-symbol-rendering", "exact", AttrTarget::Styles(&[StyleId::SymbolRendering])),
-    ("-exact-tint-adjustment", "exact", AttrTarget::Styles(&[StyleId::TintAdjustment])),
-    // a subtree's app modes, pinned.
-    ("-exact-mode", "exact", AttrTarget::Styles(&[StyleId::Mode])),
-    ("-exact-symbol-palette", "exact", AttrTarget::Styles(&[StyleId::SymbolPalette])),
-    ("-exact-symbol-value", "exact", AttrTarget::Styles(&[StyleId::SymbolValue])),
-    ("-exact-symbol-effect", "exact", AttrTarget::Styles(&[StyleId::SymbolEffect])),
-    ("-exact-press-haptic", "exact", AttrTarget::Styles(&[StyleId::PressHaptic])),
-    ("-exact-content-transition", "exact", AttrTarget::Styles(&[StyleId::ContentTransition])),
-    ("-exact-scroll-edge-effect", "exact", AttrTarget::Styles(&[StyleId::ScrollEdgeEffect])),
-    ("-exact-hover-effect", "exact", AttrTarget::Styles(&[StyleId::HoverEffect])),
-    ("-exact-smart-invert", "exact", AttrTarget::Styles(&[StyleId::SmartInvert])),
-    // A text shrinks to fit its line, down to half.
-    ("-exact-fit", "exact", AttrTarget::Styles(&[StyleId::Fit])),
+    // @ref LLP 1077 §5 — declared rows CSS has no name for.
+    ("-exact-symbol-rendering", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SymbolRendering])),
+    ("-exact-tint-adjustment", "exact LLP 1077", AttrTarget::Styles(&[StyleId::TintAdjustment])),
+    // @ref LLP 1121 D5 — a subtree's app modes, pinned.
+    ("-exact-mode", "exact LLP 1121", AttrTarget::Styles(&[StyleId::Mode])),
+    ("-exact-symbol-palette", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SymbolPalette])),
+    ("-exact-symbol-value", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SymbolValue])),
+    ("-exact-symbol-effect", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SymbolEffect])),
+    ("-exact-press-haptic", "exact LLP 1077", AttrTarget::Styles(&[StyleId::PressHaptic])),
+    ("-exact-content-transition", "exact LLP 1077", AttrTarget::Styles(&[StyleId::ContentTransition])),
+    ("-exact-scroll-edge-effect", "exact LLP 1077", AttrTarget::Styles(&[StyleId::ScrollEdgeEffect])),
+    ("-exact-hover-effect", "exact LLP 1077", AttrTarget::Styles(&[StyleId::HoverEffect])),
+    // @ref LLP 1053.000 — the tint of a box's glass material (`UIGlassEffect.tintColor`).
+    ("-exact-glass-tint", "exact LLP 1053.000", AttrTarget::Styles(&[StyleId::GlassTint])),
+    ("-exact-smart-invert", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SmartInvert])),
+    // @ref LLP 1116.001 D1.4 — a text shrinks to fit its line, down to half.
+    ("-exact-fit", "exact LLP 1116.001 D1.4", AttrTarget::Styles(&[StyleId::Fit])),
     ("dynamic-range-limit", "css CSS Color HDR 1", AttrTarget::Styles(&[StyleId::DynamicRangeLimit])),
-    // A subtree's colour scheme.
+    // @ref LLP 1034 §8 — a subtree's colour scheme.
     ("color-scheme", "css CSS Color Adjustment 1", AttrTarget::Styles(&[StyleId::ColorScheme])),
-    // Host-owned press feedback; not a motion target.
-    ("-exact-press-scale", "exact", AttrTarget::Styles(&[StyleId::PressScale])),
-    // The author's pressed paint, host-owned as the scale is.
-    ("-exact-press-opacity", "exact", AttrTarget::Styles(&[StyleId::PressOpacity])),
-    // lowering's row for `:active`'s `opacity`, never an
+    // Issue #152: authored release velocity enters LLP 1002’s spring input.
+    ("-exact-translate-velocity", "exact LLP 1002", AttrTarget::Styles(&[StyleId::TranslateVelocity])),
+    // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
+    ("-exact-press-scale", "exact LLP 1061", AttrTarget::Styles(&[StyleId::PressScale])),
+    // @ref LLP 1061 D7 — the author's pressed paint, host-owned as the scale is.
+    ("-exact-press-opacity", "exact LLP 1061 D7", AttrTarget::Styles(&[StyleId::PressOpacity])),
+    // @ref LLP 1121 D8 — lowering's row for `:active`'s `opacity`, never an
     // author's (`nodes.rs` refuses it written).
-    ("-exact-press-opacity-to", "exact", AttrTarget::Styles(&[StyleId::PressOpacityTo])),
-    // CSS Animations: the shorthand is the row; the
+    ("-exact-press-opacity-to", "exact LLP 1121 D8", AttrTarget::Styles(&[StyleId::PressOpacityTo])),
+    // CSS Animations (LLP 1055 D5): the shorthand is the row; the
     // longhands compose into it before lowering (`svg::compose_animation`).
     ("animation", "css CSS Animations 1", AttrTarget::Styles(&[StyleId::Animation])),
     ("animation-name", "css CSS Animations 1", AttrTarget::Styles(&[StyleId::Animation])),
@@ -299,8 +333,8 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("animation-direction", "css CSS Animations 1", AttrTarget::Styles(&[StyleId::Animation])),
     ("animation-fill-mode", "css CSS Animations 1", AttrTarget::Styles(&[StyleId::Animation])),
     ("animation-play-state", "css CSS Animations 1", AttrTarget::Styles(&[StyleId::Animation])),
-    // Shorthands projected through `shorthands` (for the columns, the
-    // longhands with keywords a row does not hold project there too).
+    // Shorthands projected through `shorthands` (LLP 1093 for the columns:
+    // the longhands with keywords a row does not hold project there too).
     ("text-decoration", "css CSS Text Decoration 3", AttrTarget::Shorthand),
     ("border", "css CSS Backgrounds 3", AttrTarget::Shorthand),
     ("border-top", "css CSS Backgrounds 3", AttrTarget::Shorthand),
@@ -311,29 +345,31 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("column-count", "css CSS Multi-column Layout 1", AttrTarget::Shorthand),
     ("column-rule", "css CSS Multi-column Layout 1", AttrTarget::Shorthand),
     ("column-rule-width", "css CSS Multi-column Layout 1", AttrTarget::Shorthand),
-    // A platform text style, as WebKit's
+    // @ref LLP 1115 D3 — a platform text style, as WebKit's
     // `font: -apple-system-headline`; no other `font` value.
     ("font", "css CSS Fonts 4", AttrTarget::Shorthand),
     // CSS Inline Layout 3 §4: the trim's row, and the edge's two words
     // projected through `shorthands`.
     ("text-box-trim", "css CSS Inline Layout 3", AttrTarget::Styles(&[StyleId::TextBoxTrim])),
     ("text-box-edge", "css CSS Inline Layout 3", AttrTarget::Shorthand),
-    // A keyword, or a length (`baseline-shift`).
+    // @ref LLP 1011.002 D3 — a keyword, or a length (`baseline-shift`).
     ("vertical-align", "css CSS Inline Layout 3", AttrTarget::Shorthand),
     ("text-box", "css CSS Inline Layout 3", AttrTarget::Shorthand),
+    ("scroll-timeline", "css CSS Scroll Animations 1", AttrTarget::Shorthand),
+    ("view-timeline", "css CSS Scroll Animations 1", AttrTarget::Shorthand),
 ];
 
 /// Why a literal `n` written as `name` is no value of the press family's
 /// numeric rows, if it is not.
 pub(crate) fn press_refusal(rows: &[StyleId], n: f64, name: &str) -> Option<String> {
-    // A press that makes a node vanish or flip is a
+    // @ref LLP 1061 D1 — a press that makes a node vanish or flip is a
     // typo, not a feel.
     if rows.contains(&StyleId::PressScale) && n <= 0.0 {
         return Some(format!(
             "`{name}` takes a positive scale (0.97 is a button's, 1 is none)"
         ));
     }
-    // A share of the node's own opacity.
+    // @ref LLP 1061 D7 — a share of the node's own opacity.
     (rows.contains(&StyleId::PressOpacity) && !(0.0..=1.0).contains(&n)).then(|| {
         format!("`{name}` takes a share of the node's own opacity, from 0 to 1 (0.65 is iOS's dim, 1 is none)")
     })
@@ -348,7 +384,7 @@ pub fn lookup(name: &str) -> Option<AttrTarget> {
 }
 
 /// The old spellings an author may still write inside a value, each with
-/// what it became: a property named in a `transition` or
+/// what it became (LLP 1081 D2): a property named in a `transition` or
 /// keyframe list, the spring, two keywords, the platform colour function and
 /// CSS's two-keyword decoration. Literal values are checked
 /// against this before the kernel's parser, whose errors are generic, so the
@@ -380,7 +416,7 @@ pub const RENAMED_TOKENS: &[(&str, &str)] = &[
 /// the property names and the spring in a transition list, the corner
 /// keyword in `corner-shape`, the decoration in `text-decoration-line`, and
 /// the colour names in any row but those that hold an author's own names
-/// (grid lines, font families, keyframes and timeline names).
+/// (grid lines, font families, keyframes and timeline names: D5).
 fn applies(i: usize, rows: &[StyleId]) -> bool {
     let any = |ids: &[StyleId]| rows.iter().any(|r| ids.contains(r));
     match RENAMED_TOKENS[i].0 {
@@ -397,15 +433,17 @@ fn applies(i: usize, rows: &[StyleId]) -> bool {
             StyleId::AnimationTimeline,
             StyleId::TimelineScope,
             StyleId::DragTimeline,
+            StyleId::ScrollTimelineName,
+            StyleId::ViewTimelineName,
         ]),
         _ => any(&[StyleId::Transition, StyleId::LayoutTransition]),
     }
 }
 
 /// The first old spelling in `value` where `rows` would read one, as a
-/// whole token (ignoring case), and what it became.
+/// whole token (ignoring case), and what it became (LLP 1081 D2).
 pub fn renamed_token(value: &str, rows: &[StyleId]) -> Option<(&'static str, &'static str)> {
-    // A `url(…)` holds a reference, an author's own name; its contents
+    // A `url(…)` holds a reference, an author's own name (D5); its contents
     // are not read, nor a `#name` anywhere.
     let mut lower = value.to_ascii_lowercase();
     while let Some(at) = lower.find("url(") {

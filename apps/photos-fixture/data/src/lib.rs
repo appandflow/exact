@@ -1,10 +1,10 @@
-//! @exact/photos's fixture: a data source that
+//! @exact/photos's fixture (LLP 1133.019 stage 3): a data source that
 //! declares both photo lines and the temporary directory a copy is written
-//! to and added back from, and runs the image codec for the drives:
+//! to and added back from, and runs the image codec (D16) for the drives:
 //! `editImage(path, call, options)` is `fs.transformImage` or
 //! `fs.compressImage` of `path` into `app:/tmp/edits/<n>`, answering the
 //! call's record, or its failure, as JSON text. A `path` of
-//! `fixture:<name>` is one of the conformance's sources, written to
+//! `fixture:<name>` is one of the conformance's sources (§11), written to
 //! `app:/tmp/edits/source-<name>` first.
 
 #![deny(missing_docs)]
@@ -18,7 +18,7 @@ use std::collections::VecDeque;
 /// Where the image calls write, and a fixture's source is put.
 const EDITS: &str = "app:/tmp/edits";
 
-/// The image conformance's sources, by name.
+/// The image conformance's sources (LLP 1133.019 §11), by name.
 const SOURCES: [(&str, &[u8]); 3] = [
     (
         "oriented-gps.jpg",
@@ -57,11 +57,19 @@ impl Fixture {
             "compress" => "fs.compressImage",
             _ => return Err(DataError::Unavailable(format!("no image call {call}"))),
         };
-        let mut record: Json = if options.is_empty() {
-            json!({})
-        } else {
-            serde_json::from_str(&options)
-                .map_err(|e| DataError::Unavailable(format!("options: {e}")))?
+        // Options are an object; empty text and `null` are none.
+        let mut record: Json = match options.as_str() {
+            "" => json!({}),
+            text => match serde_json::from_str(text) {
+                Ok(Json::Null) => json!({}),
+                Ok(object @ Json::Object(_)) => object,
+                Ok(_) => {
+                    return Err(DataError::Unavailable(
+                        "options: a JSON object of the call's options".into(),
+                    ))
+                }
+                Err(e) => return Err(DataError::Unavailable(format!("options: {e}"))),
+            },
         };
         self.edits += 1;
         let extension = match record["type"].as_str() {

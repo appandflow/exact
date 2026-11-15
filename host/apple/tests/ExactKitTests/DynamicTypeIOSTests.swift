@@ -3,14 +3,15 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// Dynamic Type on the iOS host, up to accessibility text sizes. A text role
-/// (`-exact-headline`) is the platform's size for the reader's category, read
-/// from the schema's ramp at the root font size the host tells the kernel; the
-/// host then measures and draws the font the kernel names, so a row grows with
-/// its text as UIKit's do. What does not follow is what the author wrote in px
+/// Dynamic Type on the iOS host (LLP 1115 D3; LLP 1116.011 D2.4, round 13's
+/// weather at accessibility text sizes). A text role (`-exact-headline`) is
+/// the platform's size for the reader's category, read from the schema's
+/// ramp at the root font size the host tells the kernel; the host then
+/// measures and draws the font the kernel names, so a row grows with its
+/// text as UIKit's do. What does not follow is what the author wrote in px
 /// (`width=48`): the weather's day label overlapped its icon because its box
-/// stayed 48 points while its text became 33 (the author's). UIKit, so a
-/// simulator runs it: bun host/apple/build.mjs --test --ios
+/// stayed 48 points while its text became 33 (the author's, LLP 1115 D1).
+/// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
 final class DynamicTypeIOSTests: XCTestCase {
     /// Every category the user can pick, by name: xSmall to AX5.
     private static let categories: [UIContentSizeCategory] = [

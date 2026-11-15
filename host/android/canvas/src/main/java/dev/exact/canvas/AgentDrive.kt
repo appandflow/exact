@@ -7,7 +7,7 @@ import java.io.IOException
 import java.util.concurrent.CountDownLatch
 
 /**
- * The agent API's carrier in the reader (`--reader`): `scripts/agent.mjs android --reader`
+ * The agent API's carrier in the reader (LLP 1012; LLP 1107 D1's `--reader`): `scripts/agent.mjs android --reader`
  * drives the app this activity shows by the Linux host's own protocol, one JSON line a request and one its answer.
  * The lines cross a socket in the abstract namespace, [name], which adb forwards (`adb forward tcp:<port>
  * localabstract:<name>`); each request is answered on exact2's thread ([Exact.agent], [Native.agent]).
@@ -16,18 +16,19 @@ import java.util.concurrent.CountDownLatch
  * shell's `agent=<name>` extra). Only adb's own user (shell, or root) is served: any app on the phone can reach an
  * abstract socket, and a driver holds the whole app.
  *
- * The first line out is the handler's `ready`, written once the app's first content has been drawn. A `screenshot`
- * is not answered here: the picture is the device's, and the carrier takes it (`screencap`).
+ * The first line out is the handler's `ready`, written after the first frame following successful startup, even
+ * with an empty page or only bars. A `screenshot` is not answered here: the picture is the device's, and the carrier
+ * takes it (`screencap`).
  */
 class AgentDrive(name: String) : Drive {
     private val server = LocalServerSocket(name)
-    private val drawn = CountDownLatch(1)
+    private val presented = CountDownLatch(1)
 
     init {
         Thread({ serve() }, "exact-agent").apply { isDaemon = true }.start()
     }
 
-    override fun contentReady() = drawn.countDown()
+    override fun contentReady() = presented.countDown()
 
     private fun serve() {
         while (true) {
@@ -42,7 +43,7 @@ class AgentDrive(name: String) : Drive {
         val lines = socket.inputStream.bufferedReader(Charsets.UTF_8)
         val out = socket.outputStream
         fun say(line: String) { out.write((line + "\n").toByteArray(Charsets.UTF_8)); out.flush() }
-        drawn.await()
+        presented.await()
         say(Exact.agent("{\"op\":\"ready\"}"))
         while (true) {
             val line = lines.readLine() ?: return
@@ -51,7 +52,7 @@ class AgentDrive(name: String) : Drive {
     }
 
     /**
-     * `tree --ax`: the accessibility tree Android has for the app, which exact2's
+     * `tree --ax` (LLP 1080.002; LLP 1115.001 D13): the accessibility tree Android has for the app, which exact2's
      * own handler cannot answer (it has no window). The reader answers a driver as it answers a service: exact2 is
      * asked for the tree, and each node's own `AccessibilityNodeInfo` is read back on the main thread
      * ([ExactActivity.ax]), stamped with the runner's epoch, incarnation and clock as every reply is.

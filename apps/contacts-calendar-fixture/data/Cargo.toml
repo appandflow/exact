@@ -1,4 +1,4 @@
-# @exact/contacts' and @exact/calendar's fixture: the
+# @exact/contacts' and @exact/calendar's fixture (LLP 1133.018 stage 3): the
 # app's data source, which holds its grants; the stores are read from the
 # Contract.
 [package]

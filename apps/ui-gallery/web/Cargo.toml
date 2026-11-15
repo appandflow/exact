@@ -1,4 +1,4 @@
-# The UI gallery on web.
+# The UI gallery on web (LLP 1100 §10).
 [package]
 name = "ui-gallery-web"
 version.workspace = true

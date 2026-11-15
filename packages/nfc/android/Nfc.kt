@@ -1,19 +1,19 @@
-// @exact/nfc on Android: reader mode on the reader activity, answered in the interface's
+// @exact/nfc on Android (LLP 1133.035 stage 3): reader mode on the reader activity, answered in the interface's
 // shapes. Under the agent the runner's declared substitute answers and nothing here runs, unless the drive binds it.
 //
-// - One registry per process: a scan or a write is a claim of the session's instance. Reader mode is on while a
-//   claim lives and the activity is resumed, `enableReaderMode` in `resumed()` and `disableReaderMode` in `paused()`,
-//   so a translucent activity over the app suspends a scan without ending it.
-// - Claims share one reader's settings: `android.technologies`, `skipNdefCheck`, `platformSounds` and
-//   `presenceCheckDelay`, each word left out being the default. Another claim's settings fail `InvalidStateError`
+// - One registry per process (D6): a scan or a write is a claim of the session's instance. Reader mode is on while a
+//   claim lives and the activity is resumed, `enableReaderMode` in `resumed()` and `disableReaderMode` in `paused()`
+//   (D16 item 5), so a translucent activity over the app suspends a scan without ending it.
+// - Claims share one reader's settings (D6): `android.technologies`, `skipNdefCheck`, `platformSounds` and
+//   `presenceCheckDelay`, each word left out being D5's default. Another claim's settings fail `InvalidStateError`
 //   `busy`; a write never shares a reader with `skipNdefCheck`.
 // - A tag is handled on the reader callback's thread, which blocking I/O needs (`Ndef.writeNdefMessage` "must not be
 //   called from the main application thread"), and answered on the main thread.
 // - One write at a time: a newer write or lock replaces the waiting one, which fails `AbortError`. A tag that arrives
-//   while a write waits is written and not read.
+//   while a write waits is written and not read (D4).
 // - `radio` follows `ACTION_ADAPTER_STATE_CHANGED`, and is read again on `resumed()`. A scan started while it is off
 //   fails `NotReadableError` `radio-off`; one running when it goes off is suspended until it comes back.
-// - Tier 3: `NfcModule.hatch` is given the adapter once, and each tag before the module reads it, on the reader
+// - Tier 3 (D14): `NfcModule.hatch` is given the adapter once, and each tag before the module reads it, on the reader
 //   callback's thread.
 package exact.nfc
 
@@ -47,7 +47,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 
-/** The tier 3 hatch. */
+/** The tier 3 hatch (D14). */
 interface NfcHatch {
     /** The adapter, once, when the module is made. */
     fun adapter(adapter: NfcAdapter) {}
@@ -76,9 +76,9 @@ class NfcModule(context: ExtensionContext) : ExactExtension(context) {
 
     private val main = Handler(Looper.getMainLooper())
     internal val adapter: NfcAdapter? = NfcAdapter.getDefaultAdapter(context.application)?.also { hatch?.adapter(it) }
-    /** The last 16 readings' records with their bytes, by reading id. */
+    /** The last 16 readings' records with their bytes, by reading id (D2). */
     private val readings = ArrayDeque<Pair<String, JSONArray>>()
-    /** The tags of this session's live scans, by their `NFCTag` id. */
+    /** The tags of this session's live scans, by their `NFCTag` id (D11). */
     internal val leases = HashMap<String, Tag>()
     private var last = 0
     /** The main thread's count of emitted events, which keeps two alike from coalescing. */
@@ -156,14 +156,14 @@ class NfcModule(context: ExtensionContext) : ExactExtension(context) {
         return id
     }
 
-    /** A tag with no NDEF: `readingerror` with its `NFCTag`. */
+    /** A tag with no NDEF (D8): `readingerror` with its `NFCTag`. */
     internal fun unread(tag: Tag) {
         val id = "t${++last}"
         leases[id] = tag
         emit("readingerror", identity(tag).put("id", id))
     }
 
-    /** An event on the root, with the device's origin, through the module's one channel. */
+    /** An event on the root, with the device's origin (LLP 1133.004 D6), through the module's one channel. */
     private fun emit(event: String, arg: JSONObject) = main.post {
         context.changed("exact-event:" + JSONObject().put("extension", "nfc").put("event", event).put("args", JSONArray().put(arg)).put("seq", ++emitted))
     }
@@ -181,7 +181,7 @@ class NfcModule(context: ExtensionContext) : ExactExtension(context) {
             when (t) { is IsoDep -> t.maxTransceiveLength; is NfcA -> t.maxTransceiveLength; is NfcB -> t.maxTransceiveLength; is NfcF -> t.maxTransceiveLength; is NfcV -> t.maxTransceiveLength; else -> 0 }
         } ?: 0
 
-    /** A claim's reader settings: its words, a word left out being the default. */
+    /** A claim's reader settings (D6): its words, a word left out being the default. */
     private fun settings(name: String, args: JSONObject): JSONObject {
         val a = args.optJSONObject("android") ?: JSONObject()
         val techs = a.optJSONArray("technologies")?.let { j -> (0 until j.length()).map { j.getString(it) }.sorted() } ?: listOf("nfcA", "nfcB", "nfcF", "nfcV")
@@ -199,7 +199,7 @@ internal fun error(name: String, message: String? = null): JSONObject = JSONObje
 internal fun ended(reason: String, reading: String? = null, message: String? = null): JSONObject =
     JSONObject().put("reason", reason).put("reading", reading ?: JSONObject.NULL).put("message", message ?: JSONObject.NULL)
 
-/** The process's one reader. */
+/** The process's one reader (D6). */
 internal object Registry : NfcAdapter.ReaderCallback {
     private val main = Handler(Looper.getMainLooper())
     private val claims = ArrayList<Claim>()
@@ -251,7 +251,7 @@ internal object Registry : NfcAdapter.ReaderCallback {
         apply()
     }
 
-    /** Leaving the foreground fails a waiting write; a scan is suspended with reader mode. */
+    /** Leaving the foreground fails a waiting write (D6's table); a scan is suspended with reader mode. */
     fun background(owner: NfcModule) = end(owner, setOf("write", "makeReadOnly"), error("AbortError", "background"))
 
     fun resumed() { resumed = true; apply() }
@@ -288,7 +288,8 @@ internal object Registry : NfcAdapter.ReaderCallback {
         val write = onMain { claims.lastOrNull { it.kind != "scan" } }
         if (write != null) {
             val answer = written(write, tag)
-            return main.post { if (claims.remove(write)) { write.settle(answer); apply() } }
+            main.post { if (claims.remove(write)) { write.settle(answer); apply() } }
+            return
         }
         val ndef = Ndef.get(tag)
         val message = try { ndef?.use { it.connect(); it.ndefMessage } } catch (e: IOException) { null } catch (e: FormatException) { null }
@@ -307,7 +308,7 @@ internal object Registry : NfcAdapter.ReaderCallback {
         }
     }
 
-    /** The steps on [tag] for [c], off the main thread. */
+    /** D7's steps on [tag] for [c], off the main thread. */
     private fun written(c: Claim, tag: Tag): JSONObject {
         val serial = JSONObject().put("serialNumber", Records.hex(tag.id ?: ByteArray(0), ":"))
         val lock = c.kind == "makeReadOnly"
@@ -344,7 +345,7 @@ internal object Registry : NfcAdapter.ReaderCallback {
         }
     }
 
-    /** `transceive` to a tag a live scan of [owner] holds. */
+    /** `transceive` (D12) to a tag a live scan of [owner] holds. */
     fun transceive(owner: NfcModule, args: JSONObject, reply: (JSONObject) -> Unit) {
         val tag = owner.leases[args.optString("tag")] ?: return reply(error("InvalidStateError", "the scan that read it has ended"))
         val data = Records.bytes(args.opt("data")) ?: return reply(error("TypeError", "data"))

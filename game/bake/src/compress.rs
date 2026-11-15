@@ -8,6 +8,7 @@
 //! usual ISPC binding, has an unimplemented ASTC entry point and prebuilt
 //! objects Apple's linker warns about.) Encoded bytes are deterministic per
 //! machine; SIMD variants may differ bit-wise, so tests pin quality, not bytes.
+//! @ref llp/1046.003-game-engine-as-built.explainer.md#compressed-textures-2026-09-23
 use exact_game::asset::{TextureData, TextureFamily, TextureFormat, RGBA8_TEXTURE_LIMIT};
 
 /// What a texture's channels mean, from every material slot that samples it.
@@ -117,6 +118,7 @@ pub fn encode(
         if let Channels::Mask(cut) = channels {
             // Coverage-preserving mips leave alpha beside the cut; move each
             // texel a margin away on its own side, so block error cannot flip it.
+            // @ref llp/1046.003-game-engine-as-built.explainer.md#compressed-textures-2026-09-23
             for texel in padded.chunks_exact_mut(4) {
                 texel[3] = if texel[3] >= cut {
                     texel[3].max(cut.saturating_add(MASK_MARGIN))

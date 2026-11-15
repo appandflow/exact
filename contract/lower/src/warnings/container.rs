@@ -3,8 +3,8 @@
 //! and CSS gives `align-items`, `justify-content`, `flex-direction`, `gap`
 //! and the rest no meaning there (CSS Flexbox 1 §5, §8; CSS Grid 2 §7; CSS
 //! Box Alignment 3 §5), so the box lays its children out as blocks and
-//! nothing says why: `view … align-items="center"` on a grid's cells leaves
-//! every child at the cell's left edge. A
+//! nothing says why. The euxy port wrote `view … align-items="center"` for
+//! each step's cell, and every light sat at the cell's left edge. A
 //! `button` or `link` is a block too, as Chrome's `<button>` lays out its
 //! content, so `button appearance="none" flex-direction="row"` stacks its
 //! children (the euxy port's ~50 painted buttons). A button that may be
@@ -40,7 +40,7 @@ const BOTH: &[&str] = &[
 ];
 
 /// A button that says `appearance="none"`: a bare box, laid out as written.
-/// Any other may be the platform's own (`buttons.rs`),
+/// Any other may be the platform's own (`buttons.rs`, LLP 1104 D1, D2),
 /// whose lowering gives it `display: flex` and reads these rows for its
 /// face, so only the bare one is certain.
 fn bare(rows: &[&Attr]) -> bool {
@@ -106,19 +106,11 @@ fn walk(
                 }
                 walk(children, styles, seen, out);
             }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                walk(then, styles, seen, out);
-                walk(otherwise, styles, seen, out);
+            node => {
+                for list in node.child_lists() {
+                    walk(list, styles, seen, out);
+                }
             }
-            Node::Each { body, .. } => walk(body, styles, seen, out),
-            Node::Match { some, none, .. } => {
-                walk(&some.1, styles, seen, out);
-                walk(none, styles, seen, out);
-            }
-            Node::Use { children, .. } => walk(children, styles, seen, out),
-            Node::Children { .. } => {}
         }
     }
 }

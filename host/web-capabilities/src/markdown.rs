@@ -1,6 +1,6 @@
 //! Markdown on the web: a `markup="markdown"` text node's source as pieces.
 //!
-//! The page builds the pieces into spans, never HTML.
+//! @ref LLP 1045 D3, D4 (the page builds the pieces into spans, never HTML)
 
 use exact_web::Linked;
 
@@ -14,7 +14,7 @@ pub const fn link(mut linked: Linked) -> Linked {
 /// `[text, scale, weight, flags, href, indent]`, flags being italic 1,
 /// mono 2, strike 4, link 8, quiet (marker or quote) 16, a list marker that
 /// hangs in the indent 32, an inline atom 64; the indent in CSS px, left out
-/// when 0 unless an atom follows it. An atom adds
+/// when 0 unless an atom follows it. An atom (LLP 1045.000 D6) adds
 /// `[kind, role, icon, title, href, source, start, end, color,
 /// backgroundColor]`, its text being its label, its range UTF-16 in the
 /// source and its colours its face's; `atoms` and `faces` are the node's

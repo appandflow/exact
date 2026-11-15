@@ -1,4 +1,4 @@
-// Driver fetch faults on the web: the session's table, consulted
+// Driver fetch faults on the web (LLP 1103): the session's table, consulted
 // where each web target would send a request — the wasm host's `request`
 // (http-body.js) and the JS target's `fetchWith` (admission.js) count a
 // match and fail it as a refused connection; `fetchEarly` (module-glue.js)

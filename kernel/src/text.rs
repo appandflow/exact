@@ -118,7 +118,10 @@ pub struct TextStyle {
     /// CSS `font-variant-ligatures` as [`crate::FontVariantLigatures`]'
     /// bits: which OpenType ligature features are turned on or off.
     pub font_variant_ligatures: u8,
-    /// Bold Text weights this run's font: its weight is
+    /// CSS `font-feature-settings`, applied after `font_variant_numeric` and
+    /// `font_variant_ligatures` and winning for the same feature.
+    pub font_features: crate::style::FontFeatures,
+    /// Bold Text weights this run's font (LLP 1115.000 D12.3): its weight is
     /// stepped already, and a weight a host gives a piece of it itself (a
     /// Markdown piece's bold) takes the same step ([`crate::bolder`]).
     pub bold_text: bool,
@@ -126,7 +129,7 @@ pub struct TextStyle {
 
 impl TextStyle {
     /// The rows [`TextStyle::from_style`] reads.
-    pub const ROWS: [StyleId; 11] = [
+    pub const ROWS: [StyleId; 12] = [
         StyleId::FontSize,
         StyleId::FontWeight,
         StyleId::FontStyle,
@@ -138,6 +141,7 @@ impl TextStyle {
         StyleId::LetterSpacing,
         StyleId::FontVariantNumeric,
         StyleId::FontVariantLigatures,
+        StyleId::FontFeatureSettings,
     ];
 
     /// [`TextStyle::from_style`] of a computed style read row by row: the
@@ -157,7 +161,7 @@ impl TextStyle {
     }
 
     /// This style drawn at `scale` of its size: its font size, a resolved
-    /// line height and its letter spacing (a fitted text).
+    /// line height and its letter spacing (LLP 1116.001 D1.4, a fitted text).
     pub fn scaled(mut self, scale: f32) -> Self {
         self.font_size *= scale;
         self.line_height = self.line_height.map(|h| h * scale);
@@ -179,13 +183,14 @@ impl TextStyle {
             letter_spacing: s.letter_spacing,
             font_variant_numeric: s.font_variant_numeric,
             font_variant_ligatures: s.font_variant_ligatures,
+            font_features: s.font_feature_settings,
             bold_text: false,
         }
     }
 }
 
 /// What the node's string is: plain text, or a markup the host styles.
-/// The kernel carries the prop and the source as one
+/// @ref LLP 1045 D3 — the kernel carries the prop and the source as one
 /// run; a host that links `exact-markdown` expands it for measure and paint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Markup {
@@ -331,14 +336,47 @@ impl crate::Hyphens {
 /// One styled run of text.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextRun<'a> {
-    /// The text as measured and painted: `text-transform` already applied,
-    /// borrowed from the node when it changes nothing.
+    /// The text as measured and painted: `text-transform` already applied
+    /// (LLP 1064 D5), borrowed from the node when it changes nothing.
     pub text: Cow<'a, str>,
     /// Its style.
     pub style: TextStyle,
-    /// An image in the paragraph: the box a measurer reserves
+    /// An image in the paragraph (LLP 1011.002): the box a measurer reserves
     /// in place of this run's text, which is [`inline_box::INLINE_BOX_TEXT`].
     pub inline: Option<inline_box::InlineBox>,
+    /// The room its inline boxes' padding, border and margin take along the
+    /// line before and after its text ([`InlineEdges`]).
+    pub edges: InlineEdges,
+}
+
+/// What a run's inline boxes (the `text` nodes it is in, within its
+/// paragraph) take along the line beside its text, in points: their
+/// inline-axis padding, border and margin (CSS 2 §8.3, §10.3.1), a box's
+/// start side before its first run and its end side after its last, as a
+/// box broken across lines takes them (`box-decoration-break: slice`).
+/// `start` and `end` follow the paragraph's direction. A measurer adds
+/// `start` before the run's first glyph and `end` after its last.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct InlineEdges {
+    /// Before the run's first glyph.
+    pub start: f32,
+    /// After its last.
+    pub end: f32,
+}
+
+impl InlineEdges {
+    /// Whether it takes no room.
+    pub fn is_empty(self) -> bool {
+        self.start == 0.0 && self.end == 0.0
+    }
+
+    /// At `scale` of its size: a fitted paragraph's (LLP 1116.001 D1.4).
+    pub fn scaled(self, scale: f32) -> Self {
+        Self {
+            start: self.start * scale,
+            end: self.end * scale,
+        }
+    }
 }
 
 impl<'a> TextRun<'a> {
@@ -347,6 +385,7 @@ impl<'a> TextRun<'a> {
         TextRun {
             text: text.into(),
             style,
+            edges: Default::default(),
             inline: None,
         }
     }
@@ -370,15 +409,15 @@ pub struct TextMeasureRequest<'a> {
     /// Vertical offer.
     pub height: AxisOffer,
     /// Resolved exclusions in content coordinates; empty during box layout.
-    /// Hosts answer from their flowed layout.
+    /// @ref LLP 1043.000 §3 D5 — hosts answer from their flowed layout.
     pub exclusions: &'a [exact_textflow::FlowShape],
-    /// A Markdown paragraph's inline atoms: its `atoms`
+    /// A Markdown paragraph's inline atoms (LLP 1045.000 D2): its `atoms`
     /// and `atomFaces`, which a label's width depends on; empty otherwise.
     pub atoms: MarkupAtoms<'a>,
 }
 
-/// A Markdown node's `atoms` and `atomFaces` JSON, as the kernel holds them:
-/// a host that draws atoms expands the source with them,
+/// A Markdown node's `atoms` and `atomFaces` JSON, as the kernel holds them
+/// (LLP 1045.000 D3): a host that draws atoms expands the source with them,
 /// for measure and paint alike. Empty strings are none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct MarkupAtoms<'a> {
@@ -397,6 +436,9 @@ pub struct TextMetrics {
     pub height: f32,
     /// Distance from the top to the first line's alphabetic baseline, if known.
     pub first_baseline: Option<f32>,
+    /// Geometry is estimated until the host accepts a measurement (LLP 1051.000 D5).
+    /// Pending metrics must not enter a scalar measurement cache.
+    pub pending: bool,
 }
 
 impl TextMetrics {
@@ -540,7 +582,7 @@ pub struct SymbolRequest<'a> {
 
 /// A host's text engine, injected per kernel.
 pub trait TextMeasurer {
-    /// The platform formats an instant on the runner clock.
+    /// The platform formats an instant on the runner clock (LLP 1126 D6).
     fn format_time(&mut self, request: &crate::time::TimeRequest<'_>) -> Option<String> {
         crate::time::english(request)
     }
@@ -552,14 +594,14 @@ pub trait TextMeasurer {
         0
     }
 
-    /// Native field chrome. Existing/painted measurers answer
+    /// Native field chrome (LLP 1104 D5). Existing/painted measurers answer
     /// no chrome until they implement their own control look.
     fn field_chrome(&mut self, _request: &crate::FieldChromeRequest) -> crate::FieldChrome {
         crate::FieldChrome::default()
     }
 
     /// A text control's own text, where the host's control sets it with a
-    /// text engine of its own (Android's `EditText`): its
+    /// text engine of its own (LLP 1115.001 D8: Android's `EditText`): its
     /// width, height and first baseline at the offer, asked during layout.
     /// `None`, the default, measures it as any paragraph.
     fn field_text(
@@ -571,7 +613,7 @@ pub trait TextMeasurer {
     }
 
     /// Native button border-box size, including its platform chrome and
-    /// authored content insets. None preserves the
+    /// authored content insets (LLP 1069.011.001 D11). None preserves the
     /// default size / set_intrinsic_size path for existing hosts.
     fn button_measure(
         &mut self,
@@ -594,7 +636,9 @@ pub trait TextMeasurer {
     /// Size a paragraph under an offer.
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics;
 
-    /// Size presentation-only width candidates without retaining a paragraph artifact.
+    /// Size text the kernel lays out but never paints as a paragraph (width
+    /// candidates, a host-drawn alert title) without retaining a paragraph
+    /// artifact.
     fn measure_reservation(&mut self, request: &TextMeasureRequest<'_>) -> Option<TextMetrics> {
         Some(self.measure(request))
     }
@@ -631,7 +675,7 @@ pub trait TextMeasurer {
         None
     }
 
-    /// Each line box's bottom, in content coordinates, of
+    /// @ref LLP 1093 D6 — each line box's bottom, in content coordinates, of
     /// the paragraph the last measure of `request` built: where a column may
     /// end inside it. The kernel asks only for a paragraph that would cross a
     /// column's end. A measurer that answers nothing keeps every paragraph
@@ -644,7 +688,7 @@ pub trait TextMeasurer {
     ) {
     }
 
-    /// Where the paragraph the last measure of
+    /// @ref LLP 1011.002 D2 — where the paragraph the last measure of
     /// `request` built put each inline box (a run whose `inline` is set):
     /// its margin box's top left in content coordinates, one pair per box in
     /// run order, non-finite for a box on no line (one `line-clamp` cut).
@@ -704,6 +748,7 @@ enum Token {
 
 impl crate::WhiteSpace {
     /// The walker's and hosts' model of this row: collapse × wrap mode.
+    /// @ref LLP 1053 §0 G5
     pub fn model(self) -> exact_textflow::WhiteSpace {
         match self {
             crate::WhiteSpace::Normal => exact_textflow::WhiteSpace::Normal,
@@ -716,7 +761,7 @@ impl crate::WhiteSpace {
 }
 
 impl MonospaceMeasurer {
-    /// Flow around exclusions through the shared
+    /// @ref LLP 1043.000 §3 D5–D6 — flow around exclusions through the shared
     /// walker over this measurer's advances, as the hosts do over theirs.
     fn flow(&self, request: &TextMeasureRequest<'_>, width: f32) -> TextMetrics {
         let strut = &request.paragraph.strut;
@@ -724,8 +769,13 @@ impl MonospaceMeasurer {
         let mut text = String::new();
         let mut ends = Vec::with_capacity(request.runs.len());
         for run in request.runs {
+            let start = text.len();
             text.push_str(&run.text);
-            ends.push((text.len(), self.advance(&run.style)));
+            let last = text[start..]
+                .char_indices()
+                .last()
+                .map_or(start, |(i, _)| start + i);
+            ends.push((start, last, text.len(), self.advance(&run.style), run.edges));
             line_height = line_height.max(self.line_height(&run.style));
         }
         let mut measure = |range: std::ops::Range<usize>| {
@@ -733,7 +783,14 @@ impl MonospaceMeasurer {
                 .char_indices()
                 .map(|(i, _)| {
                     let at = range.start + i;
-                    ends.iter().find(|(end, _)| at < *end).map_or(0.0, |r| r.1)
+                    ends.iter().find(|r| at < r.2).map_or(
+                        0.0,
+                        |&(first, last, _, advance, edges)| {
+                            advance
+                                + if at == first { edges.start } else { 0.0 }
+                                + if at == last { edges.end } else { 0.0 }
+                        },
+                    )
                 })
                 .sum::<f32>()
         };
@@ -770,6 +827,7 @@ impl MonospaceMeasurer {
             width: fragments.iter().map(|f| f.x + f.width).fold(0.0, f32::max),
             height: result.height,
             // No line, no first baseline
+            pending: false,
             first_baseline: (!fragments.is_empty()).then_some(line_height * self.baseline_frac),
         }
     }
@@ -892,11 +950,12 @@ impl MonospaceMeasurer {
         TextMetrics {
             width: laid.lines.iter().map(|l| l.width).fold(0f32, f32::max),
             height: laid.bottoms.last().copied().unwrap_or(0.0),
+            pending: false,
             first_baseline: laid.lines.first().map(|l| l.above),
         }
     }
 
-    /// The reference face's edges at `style`: its ascent and
+    /// The reference face's edges at `style` (LLP 1011.002): its ascent and
     /// descent split its line height at the baseline, its x-height half an em.
     fn edges(&self, style: &TextStyle) -> inline_box::FontEdges {
         let line = self.line_height(style);
@@ -909,7 +968,7 @@ impl MonospaceMeasurer {
 
     fn lay_out(&mut self, request: &TextMeasureRequest<'_>) -> Option<MonoLayout> {
         let white_space = request.paragraph.white_space.model();
-        // CSS collapsing first, as every native engine now does.
+        // CSS collapsing first, as every native engine now does (LLP 1053 G5).
         let collapsed = exact_textflow::collapse(request.runs, white_space);
         // Tokenize across runs. A word may span runs; its width accumulates.
         let mut tokens: Vec<Token> = Vec::new();
@@ -936,12 +995,16 @@ impl MonospaceMeasurer {
                 continue;
             }
             line_height = line_height.max(self.line_height(&run.style));
-            let advance = self.advance(&run.style);
             let text = collapsed
                 .as_ref()
                 .map_or(&*run.text, |c| c.runs[index].as_str());
-            for ch in text.chars() {
+            let count = text.chars().count();
+            for (i, ch) in text.chars().enumerate() {
                 any_text = true;
+                // Its boxes' edges ride on its first and last glyphs, as a kern does.
+                let advance = self.advance(&run.style)
+                    + if i == 0 { run.edges.start } else { 0.0 }
+                    + if i + 1 == count { run.edges.end } else { 0.0 };
                 if ch == '\n' {
                     if !pending_word.is_empty() {
                         tokens.push(Token::Word {
@@ -1126,6 +1189,7 @@ struct TextRows {
     letter_spacing: f32,
     font_variant_numeric: u8,
     font_variant_ligatures: u8,
+    font_features: crate::style::FontFeatures,
 }
 
 impl TextRows {
@@ -1142,6 +1206,7 @@ impl TextRows {
             letter_spacing: s.letter_spacing,
             font_variant_numeric: s.font_variant_numeric,
             font_variant_ligatures: s.font_variant_ligatures,
+            font_features: s.font_feature_settings,
         }
     }
     fn take(&mut self, s: &StyleProps, mask: StyleMask) {
@@ -1178,6 +1243,9 @@ impl TextRows {
         if mask.has(StyleId::FontVariantLigatures) {
             self.font_variant_ligatures = s.font_variant_ligatures;
         }
+        if mask.has(StyleId::FontFeatureSettings) {
+            self.font_features = s.font_feature_settings;
+        }
     }
     fn style(&self) -> TextStyle {
         TextStyle {
@@ -1192,6 +1260,7 @@ impl TextRows {
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
             font_variant_ligatures: self.font_variant_ligatures,
+            font_features: self.font_features,
             bold_text: false,
         }
     }
@@ -1246,8 +1315,8 @@ impl RunRows {
         self.mask
     }
 
-    /// `from`'s rows in `mask` taken, as a text style gives them, and marked
-    /// set for the runs inside.
+    /// `from`'s rows in `mask` taken, as a text style gives them (LLP
+    /// 1115.000 D12.2), and marked set for the runs inside.
     pub fn fill(mut self, from: &StyleProps, mask: StyleMask) -> Self {
         self.take(from, mask);
         self.mask = self.mask.union(mask);

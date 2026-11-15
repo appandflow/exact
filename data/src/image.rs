@@ -1,17 +1,17 @@
-//! `storage.fs.compressImage`: decode an image,
+//! `storage.fs.compressImage` (LLP 1069.002 Amendment A1): decode an image,
 //! scale it to a pixel budget and encode it as a JPEG, or a PNG that keeps
-//! its alpha, within a byte budget; and `storage.fs.transformImage`,
-//! the same codec's edit: turned, flipped, cropped and
-//! sized, keeping the source's colour, HDR and metadata. Both take
+//! its alpha (A1.11), within a byte budget; and `storage.fs.transformImage`
+//! (LLP 1133.019 D14), the same codec's edit: turned, flipped, cropped and
+//! sized, keeping the source's colour, HDR and metadata (D15). Both take
 //! [`edit`]'s `rotate`, `flip` and `crop`.
 //!
-//! The JPEG search is Bluesky's (`social-app` `compress.ts`), restated
-//! and kept as a pure function over an encoder ([`search`]) so every
+//! The JPEG search is Bluesky's (`social-app` `compress.ts`), restated in
+//! A1.2 and kept as a pure function over an encoder ([`search`]) so every
 //! host's trials can be checked against one recorded sequence; a PNG has no
 //! quality, so it only shrinks ([`search_lossless`]). The codec is the
 //! platform's: ImageIO on Apple ([`compress`]), else one a host installs
-//! ([`platform`]: Android's); with neither the call is
-//! refused (`unsupported`).
+//! ([`platform`]: Android's, LLP 1133.019 D16); with neither the call is
+//! refused (`unsupported`, A1.3).
 use std::time::Instant;
 
 #[cfg(target_vendor = "apple")]
@@ -25,18 +25,18 @@ pub fn available() -> bool {
     cfg!(target_vendor = "apple") || platform::installed().is_some()
 }
 
-/// The largest `maxDimension`.
+/// The largest `maxDimension` (A1.1).
 pub const MAX_DIMENSION: u32 = 8192;
-/// The largest `maxBytes`, and the largest source file:
+/// The largest `maxBytes` (A1.1), and the largest source file (A1.5):
 /// `exact_raster::MAX_ENCODED_BYTES`.
 pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
-/// The most source pixels the header may declare:
+/// The most source pixels the header may declare (A1.5):
 /// `exact_raster::MAX_SOURCE_PIXELS`.
 pub const MAX_SOURCE_PIXELS: u64 = 64 * 1024 * 1024;
 /// The most dimensions the search shrinks through (`attempts >= 4`).
 pub const MAX_SHRINKS: u32 = 4;
 
-/// What `compressImage` writes (`type`): a JPEG unless the app asks
+/// What `compressImage` writes (`type`, A1.11): a JPEG unless the app asks
 /// for a PNG.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Format {
@@ -71,13 +71,13 @@ pub struct Compressed {
     pub height: u32,
 }
 
-/// A failure, as `compressImage: <code>: <detail>`: the prelude reads
+/// A failure, as `compressImage: <code>: <detail>` (A1.4): the prelude reads
 /// the code from the message natively.
 pub fn failure(code: &str, detail: impl std::fmt::Display) -> String {
     format!("compressImage: {code}: {detail}")
 }
 
-/// Check the two limits against their bounds.
+/// Check the two limits as A1.1 bounds them.
 pub fn check_limits(max_dimension: f64, max_bytes: f64) -> Result<(u32, u64), String> {
     let integer = |n: f64, max: f64| n.fract() == 0.0 && (1.0..=max).contains(&n);
     if !integer(max_dimension, MAX_DIMENSION as f64) {
@@ -110,7 +110,7 @@ pub fn contain(width: u32, height: u32, max: u32) -> (u32, u32) {
     (side(width), side(height))
 }
 
-/// Bluesky's search over an oriented `width × height` source.
+/// Bluesky's search over an oriented `width × height` source (A1.2).
 /// `encode(w, h, quality)` returns the JPEG at `quality` percent; an `Err`
 /// ends the search with it. Returns the best fit, or `None`: nothing fits.
 pub fn search<E>(
@@ -156,7 +156,7 @@ where
     Ok(best)
 }
 
-/// A PNG's search: the fitted size, then each 0.8 shrink, at most
+/// A PNG's search (A1.11): the fitted size, then each 0.8 shrink, at most
 /// [`MAX_SHRINKS`] of them, until `encode(w, h)` fits `max_bytes`. `None`:
 /// nothing fits.
 pub fn search_lossless<E>(
@@ -260,7 +260,7 @@ pub fn compress_controlled(
     )
 }
 
-/// [`compress_controlled`] of `edit`'s picture: turned,
+/// [`compress_controlled`] of `edit`'s picture (LLP 1133.019 D15): turned,
 /// flipped and cropped before the search, which runs on the crop's size.
 pub fn compress_edited(
     source: &[u8],
@@ -314,8 +314,8 @@ fn platform(
     )
 }
 
-/// What `transformImage` wrote, and what of the source it kept: the
-/// `TransformedImage` record less its path and size, which the writer knows.
+/// What `transformImage` wrote, and what of the source it kept: D14's
+/// `TransformedImage` less its path and size, which the writer knows.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Transformed {
     pub bytes: Vec<u8>,
@@ -340,8 +340,8 @@ impl Transformed {
     }
 }
 
-/// `transformImage`: one decode, the edit, one encode,
-/// keeping what `options` says, in at most `max_bytes`.
+/// `transformImage` (LLP 1133.019 D14): one decode, the edit, one encode,
+/// keeping what `options` says (D15), in at most `max_bytes`.
 pub fn transform(
     source: &[u8],
     options: &Transform,
@@ -442,7 +442,7 @@ pub fn encode_request(
     })
 }
 
-/// The refusal where there is no codec.
+/// The refusal where there is no codec (A1.3).
 pub fn unsupported() -> String {
     failure("unsupported", "no image encoder on this host")
 }

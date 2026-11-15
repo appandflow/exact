@@ -15,7 +15,7 @@ import dev.exact.canvas.ExactTicket
 import java.time.DayOfWeek
 
 /**
- * The native-module fixture's Kotlin hatches on Android, beside its Rust ones
+ * The native-module fixture's Kotlin hatches on Android (LLP 1115.001.000 D3, D4), beside its Rust ones
  * (`modules/linux`), which hear the same moments. Each moment is logged under `ExactHatch`, with the view a node
  * gives (the `feed` field's `EditText`); the `due` hatch sets what its date and time pickers offer: its own titles,
  * no weekend day while the node says `data-weekends="off"`, and a 24-hour clock. The `spin` hatch hosts a view of

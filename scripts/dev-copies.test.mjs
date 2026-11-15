@@ -1,4 +1,4 @@
-// Several live copies of one dev page, on both web
+// Several live copies of one dev page (LLP 1122 T7, *1.14*), on both web
 // dev loops: each copy is an iframe of the dev loop's page that the page
 // framing it names (`name`, which never enters the app's URL). Each copy
 // keeps its own build id across reloads, though same-origin frames share
@@ -16,8 +16,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chromium } from './agent-launch.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 afterEach(() => stopAll());
 
 const APP = `routes nav
@@ -68,7 +69,7 @@ async function copies(wasm) {
   // router's tests hold.)
   const app = wasm ? resolve(ROOT, 'apps/theme-fixture') : mkdtempSync(join(tmpdir(), 'exact-dev-copies-'));
   if (!wasm) {
-    for (const f of ['app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
+    for (const f of ['app.forma', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
     writeFileSync(join(app, 'app.contract'), APP);
   }
   const dist = mkdtempSync(join(tmpdir(), 'exact-dev-copies-dist-'));
@@ -77,7 +78,7 @@ async function copies(wasm) {
   // loop's frame-ancestors names, EXACT_TOOL_PORT): another origin, three named frames; each
   // build's word kept with the frame it came from, by its source alone.
   const names = ['exact-copy-1', 'exact-copy-2', 'exact-copy-3'];
-  // (And at /hosts, six copies each at a loopback name of its own, as the design tool frames them.)
+  // (And at /hosts, six copies each at a loopback name of its own, as the design tool frames them: theme2's F1 ruling.)
   const hosts = Array.from({ length: 6 }, (_, i) => `exact-copy-${i + 1}`);
   const parent = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/html' });
@@ -92,12 +93,12 @@ async function copies(wasm) {
   for (const end = Date.now() + 600_000; !said.includes(`127.0.0.1:${port}/`);) { if (Date.now() > end || dev.exitCode !== null) throw new Error(`the dev loop never served: ${said}`); await Bun.sleep(100); }
   const browser = await (await import('playwright-core')).chromium.launch({ executablePath: chromium().executable, headless: true });
   try {
-    const token = (await fetch(`${base}/__tamber/token`).then(r => r.json())).token;
-    const call = body => fetch(`${base}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(body) }).then(async r => ({ status: r.status, ...(await r.json()) }));
-    const events = () => fetch(`${base}/__tamber/events`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify({ after: 0, wait: false, client: 'copies' }) }).then(r => r.json()).then(r => r.events ?? []);
+    const token = (await fetch(`${base}/__forma/token`).then(r => r.json())).token;
+    const call = body => fetch(`${base}/__forma`, { method: 'POST', headers: { 'x-exact-forma-token': token }, body: JSON.stringify(body) }).then(async r => ({ status: r.status, ...(await r.json()) }));
+    const events = () => fetch(`${base}/__forma/events`, { method: 'POST', headers: { 'x-exact-forma-token': token }, body: JSON.stringify({ after: 0, wait: false, client: 'copies' }) }).then(r => r.json()).then(r => r.events ?? []);
     // Present throughout: a subscription held open (a poll's presence lapses in 35 s).
     const presence = new AbortController();
-    fetch(`${base}/__tamber/subscribe`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify({ client: 'copies' }), signal: presence.signal }).then(r => r.body?.pipeTo(new WritableStream())).catch(() => {});
+    fetch(`${base}/__forma/subscribe`, { method: 'POST', headers: { 'x-exact-forma-token': token }, body: JSON.stringify({ client: 'copies' }), signal: presence.signal }).then(r => r.body?.pipeTo(new WritableStream())).catch(() => {});
     await events();
     let logs = [];
     const until = async (read, pass, what, ms = 120_000) => { for (const end = Date.now() + ms; ;) { const v = await read(); if (pass(v)) return v; if (Date.now() > end) throw new Error(`${what}: ${JSON.stringify(v)?.slice(0, 2000)}\nthe pages said: ${logs.slice(-20).join('\n')}\nevents: ${JSON.stringify((await events()).filter(e => e.event === 'unsupported'))}`); await Bun.sleep(250); } };
@@ -172,7 +173,7 @@ async function copies(wasm) {
     const six = await until(async () => byName(await words()), ws => Object.keys(ws).length === 6, 'six copies at their own names say their builds');
     expect((await words()).every(w => w.origin === `http://${w.name}.localhost:${port}`)).toBe(true);
     await until(listed, bs => Object.values(six).every(id => bs.find(b => b.id === id)?.status?.location === '/'), 'six copies report');
-    // A pinned copy holds its pin over the app's own setMode, says what the app asked, and takes the app's choice when handed back.
+    // A pinned copy holds its pin over the app's own setMode (theme2's F2 ruling), says what the app asked, and takes the app's choice when handed back.
     const c1 = six['exact-copy-1'], status1 = async () => (await listed()).find(b => b.id === c1)?.status;
     // (The JS fixture also sets its scheme and root size; the theme fixture its mode alone.)
     const pinned = wasm ? { scheme: 'dark', mode: { 'dark-style': 'black' } } : { scheme: 'light', mode: { 'dark-style': 'black' }, rootFontSize: 18 };

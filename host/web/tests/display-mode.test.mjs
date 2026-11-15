@@ -1,4 +1,4 @@
-// A compiled app reads the browser's display-mode, including
+// LLP 1039 D7: a compiled app reads the browser's display-mode, including
 // transitions, through the same media reporter as the wasm target.
 import { test, expect } from 'bun:test';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
@@ -6,8 +6,9 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 test('viewport media changes update resources, rendered text and packed facts', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-display-mode-'));
   let server, browser;
@@ -21,6 +22,7 @@ test('viewport media changes update resources, rendered text and packed facts', 
       '  devicePosture: string',
       '  horizontalViewportSegments: number',
       '  verticalViewportSegments: number',
+      '  update: string',
       'component App',
       '  resource viewport = exactViewport() as shape Viewport',
       '  view',
@@ -37,7 +39,7 @@ test('viewport media changes update resources, rendered text and packed facts', 
     expect(build.status, build.stderr + build.stdout).toBe(0);
     server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
       const path = new URL(req.url).pathname;
-      if (path === '/navigation.js') return new Response(Bun.file(resolve(ROOT, 'host/web/navigation.js')));
+      if (['/navigation.js', '/grant-admission.js'].includes(path)) return new Response(Bun.file(resolve(dist, '.gen', path.slice(1))));
       return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
     } });
     browser = await suiteBrowser();
@@ -46,6 +48,12 @@ test('viewport media changes update resources, rendered text and packed facts', 
       const real = matchMedia.bind(window), lists = [];
       window.matchMedia = query => {
         const list = real(query), mode = /^\(display-mode: (.+)\)$/.exec(query)?.[1];
+        const update = /^\(update: (.+)\)$/.exec(query)?.[1];
+        if (update) {
+          Object.defineProperty(list, 'matches', { get: () => window.testUpdate === update });
+          lists.push(list);
+          return list;
+        }
         if (mode || query.startsWith("(color-gamut:") || query === "(dynamic-range: high)") {
           const live = real(query);
           Object.defineProperty(list, 'matches', { get: () => {
@@ -57,6 +65,10 @@ test('viewport media changes update resources, rendered text and packed facts', 
           lists.push(list);
         }
         return list;
+      };
+      window.changeUpdate = update => {
+        window.testUpdate = update;
+        for (const list of lists) list.dispatchEvent(new Event('change'));
       };
       window.changeDisplayMode = mode => {
         window.testDisplayMode = mode;
@@ -122,6 +134,14 @@ test('viewport media changes update resources, rendered text and packed facts', 
         changeDisplayMode(mode);
       }, { i, mode });
       await agrees(mode);
+    }
+    // LLP 1101.003 D6: `update` follows its media query, `fast` when neither `slow` nor `none` matches.
+    for (const update of ['none', 'slow', 'fast']) {
+      await page.evaluate(update => changeUpdate(update), update);
+      await page.waitForFunction(async expected => {
+        const state = await exact.agentSettled({ op: 'state' });
+        return state.resources.viewport.update === expected;
+      }, update);
     }
 
     // Keep the browser's CSS fold signals while removing both JavaScript interfaces

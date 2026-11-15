@@ -1,7 +1,7 @@
-//! The symbol tables symbols.js draws a bound source from:
-//! each entry `name: [path, filled]`, and an icon's
+//! The symbol tables symbols.js draws a bound source from (LLP 1011; LLP
+//! 1121 D10): each entry `name: [path, filled]`, and an icon's
 //! `[path, filled, viewBox, file]` (a path drawn, or a file the page shows),
-//! with a fifth `1` for an icon filled even-odd.
+//! with a fifth `1` for an icon filled even-odd (stage 14 C2).
 
 use exact_plan::Plan;
 
@@ -50,7 +50,7 @@ pub(crate) fn table(plan: &Plan, bound: bool) -> String {
     let mut out: Vec<String> = Vec::new();
     for i in &plan.icons {
         // The row through its one reader, which strips an even-odd icon's
-        // marker into its rule; a row it can't read is no entry.
+        // marker into its rule (stage 14 C2); a row it can't read is no entry.
         let Some(icon) = exact_runner::icon_of(plan, i) else {
             continue;
         };
@@ -97,11 +97,20 @@ pub(crate) fn every() -> String {
     format!("export default {{{}}};", roles.join(","))
 }
 
+pub(crate) fn path_in_source(attrs: &mut Vec<(String, String)>) {
+    if attrs
+        .iter()
+        .any(|(k, v)| k == "data-symbol-source" && v.starts_with("symbol:icon|"))
+    {
+        attrs.retain(|(k, _)| k != "data-symbol-path");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::table;
 
-    /// An even-odd icon's row is read through
+    /// Stage 14 C2: an even-odd icon's row is read through
     /// `exact_kernel::Icon`: its entry's path without the marker and a fifth
     /// `1`; a nonzero icon's entry is as before; a row with a rule no reader
     /// knows is no entry.

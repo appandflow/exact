@@ -1,4 +1,5 @@
 //! Presentation-only clock work: no settlement, handlers or app data calls.
+//! @ref LLP 1126 D6
 use super::*;
 use crate::instance::DocTree;
 use exact_kernel::time::{duration_shape, instant, relative_delay, reservation, TimeRequest};

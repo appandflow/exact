@@ -1,4 +1,4 @@
-// @exact/browser-automation on the web: a page reaches
+// @exact/browser-automation on the web (LLP 1020.002 D9, §11): a page reaches
 // into a frame only of its own origin, and only in the frame's page world, so
 // `evaluate` and `callFunction` run there for a same-origin frame. A `sandbox`
 // (an isolated world), input (a page dispatches only untrusted events, and the
@@ -34,7 +34,7 @@ async function settle(run, { sandbox, awaitPromise = true }) {
   }
 }
 
-const unsupported = what => async () => ({ error: 'NotSupportedError', message: `${what} is not offered on the web` });
+const unsupported = what => async () => ({ error: 'NotSupportedError', message: `${what} is not offered on the web (LLP 1020.002 §11)` });
 
 export function implementation() {
   return {

@@ -24,6 +24,7 @@ mod stickers;
 struct Root(PathBuf);
 impl Root {
     fn new() -> Self {
+        ibex2_sqlite::link();
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -334,6 +335,7 @@ fn changing_day_during_initial_load_replaces_the_retired_read() {
             target: Target::Mutation(0),
             source: "loadCalendar",
             args: &args,
+            fetch: request.fetch,
             continuation: request.continuation,
         }],
     );

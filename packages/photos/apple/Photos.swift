@@ -1,17 +1,17 @@
-// @exact/photos on Apple: the photo library read and added
+// @exact/photos on Apple (LLP 1133.019): the photo library read and added
 // to. Outside the agent PhotoKit answers (Library.swift); under the agent
 // it asks PhotoKit for nothing and answers from the agent's library
-// (AgentLibrary.swift), the runner holding the permission tickets and
+// (AgentLibrary.swift, §10), the runner holding the permission tickets and
 // laying the status it keeps over each answer.
 //
 // - A photo reaches the app as an id, a picture (`photos:<id>`, which an
-//   `img` draws through the host's raster loader) or a copy in
+//   `img` draws through the host's raster loader, D2) or a copy in
 //   `app:/tmp/photos/` (emptied when the module is first made in a launch).
 // - A photo that leaves what the app may read (the selection changed, the
 //   access narrowed) has its pictures revoked: every `img` showing it is
-//   emptied and fires `error`.
+//   emptied and fires `error` (D2).
 // - `managePhotoSelection` is iOS's alone; macOS has no limited picker.
-// - Tier 3: the three hatches below, each called on the main thread
+// - Tier 3 (D9): the three hatches below, each called on the main thread
 //   for every request, after the module's own settings.
 import ExactPackage
 import Foundation
@@ -120,7 +120,7 @@ public final class PhotosModule: ExactPackage {
         say("picture \(id) at \(width)x\(height) \(fit)")
     }
 
-    // MARK: the agent's answers
+    // MARK: the agent's answers (§10)
 
     private func status() -> [String: Any] {
         ["available": true, "state": "prompt", "access": library.access, "addState": "prompt", "apple": NSNull(), "android": NSNull()]
@@ -158,7 +158,7 @@ public final class PhotosModule: ExactPackage {
               let asset = library.add(data, directory: directory, now: context.now()) else { return reply(["error": "DataError"]) }
         say("added \(asset.id) from \(path) sha256 \(AgentLibrary.sha256(data)) \(asset.width)x\(asset.height) \(asset.type)")
         context.changed("photos.photoAssets")
-        // The new photo's id where the app may read it: not under add-only access.
+        // The new photo's id where the app may read it (D6): not under add-only access.
         reply(["asset": library.visible.contains(asset.id) ? asset.id : NSNull()])
     }
 }

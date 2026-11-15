@@ -1,18 +1,22 @@
-//! The packages' path icons as icon tokens. ComposeFrame's gallery, camera and
-//! GIF, AtCard's Attie mark and VerifiedBadge's paths are SVG icons drawn from
-//! paths written for `fill-rule="evenodd"`. Each one's holes wind against its
-//! outline, so it fills the same nonzero (checked with two reference fills),
-//! and its SVG is written nonzero with the `d` it replaced byte for byte (the
-//! strings below): no icon is even-odd, so no app using the packages gets a new
-//! compat id. The verified badge's ground, a `<circle cx=12 cy=12 r=11.5>`
-//! inline, is two arcs in its SVG, checked here to describe the same circle and
-//! judged in pixels by an edge rule. Each badge is two one-colour templates
-//! stacked, its ground in `ink` and its check in `mark`. Nothing draws an icon
-//! both ways; BarItem's and HeaderButton's icons stay their caller's `d`.
+//! The packages' last path icons as icon tokens (LLP 1121 stage 14 C, after
+//! C2's field; theme2's path-icons terms 2 and 3, the C2 plan's Q4 and Q5,
+//! and theme2's stage 14 C ruling). ComposeFrame's gallery, camera and GIF,
+//! AtCard's Attie mark and VerifiedBadge's paths were inline `svg` with
+//! `fill-rule="evenodd"`; each one's holes wind against its outline, so it
+//! fills the same nonzero (the gate checks each with two reference fills), and
+//! its SVG is written nonzero with the `d` it replaced byte for byte (the
+//! strings below are main's sources before the move, at e30590f56f): no
+//! icon is even-odd, so no app using the packages gets a new compat id. The
+//! verified badge's ground was a `<circle cx=12 cy=12 r=11.5>`: its SVG is
+//! two arcs, new geometry, checked here to describe the same circle and
+//! judged in pixels by the gate's edge rule. Each badge is two one-colour
+//! templates stacked, its ground in `ink` and its check in `mark`. The moved
+//! functions and `ToolGlyph` are gone, so nothing draws both ways; BarItem's
+//! and HeaderButton's icons stay their caller's `d` (Q4).
 
 use std::path::{Path, PathBuf};
 
-/// (package, icon, the inline path it replaced).
+/// (package, icon, the path it replaced on main).
 const MOVED: [(&str, &str, &str); 7] = [
     // `iconGallery`, ToolGlyph in ComposeFrame's toolbar.
     ("actions", "gallery", "M19 15.355c-1.112.696-2.385 1.1-4 1.1-2.81 0-4.796-1.756-6.312-3.39a1 1 0 0 0-1.273-.16L5 14.71V17a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.646ZM16 9a1 1 0 1 0-2 0 1 1 0 0 0 2 0Zm3-2a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v5.213l1.246-.932.044-.031a3 3 0 0 1 3.862.455c1.468 1.581 2.942 2.75 4.848 2.75 1.704 0 2.854-.558 4-1.621V7Zm-1 2a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v10Z"),
@@ -30,7 +34,7 @@ const MOVED: [(&str, &str, &str); 7] = [
     ("cards", "verifier-check", "M17.861 8.26a1.44 1.44 0 0 1 0 2.033l-6.571 6.571a1.437 1.437 0 0 1-2.033 0L5.97 13.58a1.438 1.438 0 0 1 2.033-2.033l2.27 2.269 5.554-5.555a1.437 1.437 0 0 1 2.033 0Z"),
 ];
 
-/// The verified ground: the inline circle, and the SVG's path for it.
+/// The verified ground: main's circle, and the SVG's path for it.
 const CIRCLE: (f64, f64, f64) = (12.0, 12.0, 11.5);
 const VERIFIED_GROUND: &str = "M12 .5a11.5 11.5 0 1 1 0 23 11.5 11.5 0 1 1 0-23Z";
 
@@ -56,12 +60,12 @@ fn svg(package: &str, name: &str) -> String {
 /// draws the path, not an SF Symbol).
 fn assert_declared(package: &str, name: &str) {
     let design =
-        std::fs::read_to_string(repo().join(format!("packages/{package}/{package}.tamber")))
+        std::fs::read_to_string(repo().join(format!("packages/{package}/{package}.forma")))
             .unwrap();
     let line = format!("  {package}.{name} = icon(svg \"{name}.svg\")\n");
     assert!(
         design.contains(&line),
-        "{package}.tamber has no `{}`",
+        "{package}.forma has no `{}`",
         line.trim()
     );
 }
@@ -85,7 +89,7 @@ fn the_verified_ground_is_mains_circle_drawn_as_two_arcs() {
     assert_eq!(svg("cards", "verified"), want);
     assert_declared("cards", "verified");
     // M x y, then two relative arcs `a rx ry rotation large sweep dx dy`,
-    // then Z: the same radius as the inline circle, starting at its top, the
+    // then Z: the same radius as main's circle, starting at its top, the
     // first ending at its bottom (a diameter, so the arc is that circle's
     // half whatever its flags) and the second back at the top.
     let numbers: Vec<f64> = VERIFIED_GROUND

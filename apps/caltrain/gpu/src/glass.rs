@@ -1,4 +1,4 @@
-//! Glass: the whole app inside the aurora. The canvas is the
+//! Glass: the whole app inside the aurora (LLP 1014). The canvas is the
 //! page; its children are the interface, captured by the host; the surface
 //! renders the sky at a quarter of the resolution and composes the children
 //! over it at full resolution in one of three materials — `glass`, `ink`,
@@ -39,7 +39,7 @@ pub struct GlassSurface {
 
 struct Gpu {
     format: wgpu::TextureFormat,
-    /// The shader generation the pipelines were built at.
+    /// The shader generation the pipelines were built at (LLP 1030 D8).
     generation: u32,
     sky_pipeline: wgpu::RenderPipeline,
     compose_pipeline: wgpu::RenderPipeline,
@@ -161,7 +161,8 @@ impl Surface for GlassSurface {
         // upload, a new texture (a resize: its previous is blank), and a
         // change hard on the heels of the last show at once. A change
         // during a fade restarts it from the latest picture — a small jump
-        // the CONTINUOUS_MS rule already hides for bursts (declared).
+        // the CONTINUOUS_MS rule already hides for bursts (declared, LLP
+        // 1014.000 §5).
         if frame.children_generation != self.generation {
             let quiet = frame.now_ms - self.last_change >= CONTINUOUS_MS;
             self.fade_start = if self.generation == 0 || !quiet || self.fresh {

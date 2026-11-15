@@ -1,5 +1,5 @@
 //! A bound `appearance` says `none` as element.rs marks a written one
-//! (`data-exact-said~="appearance"`): the bar's rules
+//! (`data-exact-said~="appearance"`, LLP 1075.003 §9.10): the bar's rules
 //! (neutral.css, index.html) and navigation.js, which projects after every
 //! commit, read it, so a header bound to `none` is no bar while it is.
 

@@ -1,8 +1,8 @@
-//! `filter` on an SVG element: references to `filter`
+//! `filter` on an SVG element (LLP 1055.000 D14): references to `filter`
 //! elements and CSS filter functions, resolved into one chain in the
 //! element's user space.
 //!
-//! Filter Effects 1 §9 (regions, units, inputs),
+//! @ref LLP 1055.000 D14; Filter Effects 1 §9 (regions, units, inputs),
 //! §12 (the functions' equivalent primitives, run in sRGB)
 //!
 //! Each entry's `SourceGraphic` is the previous entry's result, so `url(#a)
@@ -10,7 +10,9 @@
 //! `filter` makes the element not render, as Chrome does.
 
 use super::{cascade, Resolver, Viewport};
-use crate::generated::{ColorInterpolationFilters, NodeType, PropId, StyleId, StyleMask};
+use crate::generated::{
+    ColorInterpolationFilters, ColorScheme, NodeType, PropId, StyleId, StyleMask, StyleProps,
+};
 use crate::kernel::NodeRef;
 use crate::style::Dimension;
 use crate::svg::filter::{
@@ -142,9 +144,11 @@ impl Chain {
 }
 
 /// One CSS filter function (Filter Effects 1 §12) appended to `chain`, its
-/// `SourceGraphic` the chain so far, growing the region from `visual` (the
-/// box it filters, with any stroke) by what it spreads. Colours resolve
-/// under the `dark` appearance; `text_color` already has.
+/// `SourceGraphic` the chain so far, growing the region by what it spreads.
+/// What it spreads is the chain's output so far, or `visual` (the box it
+/// filters, with any stroke) when it is first: each function consumes the
+/// previous one's result (§5), so a second shadow shadows the first.
+/// Colours resolve under the `dark` appearance; `text_color` already has.
 fn function(
     chain: &mut Chain,
     f: &FilterFn,
@@ -154,7 +158,7 @@ fn function(
 ) {
     let src = chain.source();
     let grow = |chain: &mut Chain, by: Rect| {
-        if let Some(v) = visual {
+        if let Some(v) = chain.region.or(visual) {
             let r = (v.0 + by.0, v.1 + by.1, v.2 + by.2, v.3 + by.3);
             chain.region = Some(chain.region.map_or(r, |c| union(c, r)));
         }
@@ -171,7 +175,7 @@ fn function(
             grow(&mut *chain, (-g, -g, 2.0 * g, 2.0 * g));
         }
         FilterFn::DropShadow(dx, dy, blur, color) => {
-            // A reference resolves as the host reported it.
+            // A reference resolves as the host reported it (LLP 1095 D1).
             let color = color.map_or(text_color, |c| c.resolve(dark));
             // The third length is the standard deviation itself (Filter
             // Effects 1 §10.9: `feGaussianBlur stdDeviation="[radius]"`),
@@ -323,11 +327,12 @@ impl Resolver<'_, '_> {
     pub(super) fn filter(
         &mut self,
         node: &NodeRef<'_>,
+        style: &StyleProps,
         bbox: Option<Rect>,
         stroke: f32,
         vp: Viewport,
     ) -> Option<Filter> {
-        let list = &node.style.filter;
+        let list = &style.filter;
         if list.0.is_empty() {
             return None;
         }
@@ -372,8 +377,8 @@ impl Resolver<'_, '_> {
                     &mut chain,
                     f,
                     visual,
-                    node.style.text_color.resolve(false),
-                    false,
+                    style.text_color.resolve(self.appearance(style)),
+                    self.appearance(style),
                 );
                 if !self.budget.primitives(&chain.primitives[before..]) {
                     return Some(nothing);
@@ -412,10 +417,20 @@ impl Resolver<'_, '_> {
         let coord = |d, default, obb, basis| vp.coord(d, default, if obb { 1.0 } else { basis });
         let row = |n: &NodeRef<'_>, s: StyleId, d: Dimension| n.style.mask.has(s).then_some(d);
         let raw = (
-            coord(row(f, StyleId::X, f.style.x), -0.1, obb, vp.width),
-            coord(row(f, StyleId::Y, f.style.y), -0.1, obb, vp.height),
-            coord(row(f, StyleId::Width, f.style.width), 1.2, obb, vp.width),
-            coord(row(f, StyleId::Height, f.style.height), 1.2, obb, vp.height),
+            coord(row(f, StyleId::X, f.style.x.clone()), -0.1, obb, vp.width),
+            coord(row(f, StyleId::Y, f.style.y.clone()), -0.1, obb, vp.height),
+            coord(
+                row(f, StyleId::Width, f.style.width.clone()),
+                1.2,
+                obb,
+                vp.width,
+            ),
+            coord(
+                row(f, StyleId::Height, f.style.height.clone()),
+                1.2,
+                obb,
+                vp.height,
+            ),
         );
         let region = match (obb, bx) {
             (true, Some(b)) => (
@@ -439,8 +454,7 @@ impl Resolver<'_, '_> {
             (true, Some(b)) => (b.2, b.3),
             _ => (1.0, 1.0),
         };
-        let inherited = f.arena.computed_rows(f.slot, StyleMask::INHERITED);
-        let fstyle = cascade(f, &inherited);
+        let fstyle = f.arena.computed_rows(f.slot, StyleMask::INHERITED);
         let base = chain.primitives.len() as u16;
         let source = chain.source();
         let mut names: Vec<(&str, u16)> = Vec::new();
@@ -609,6 +623,9 @@ impl Resolver<'_, '_> {
                         Some("B") => 2,
                         _ => 3,
                     };
+                    // One scale for both axes, the box's width in bounding-box
+                    // units, as Chrome has it (Blink's `FEDisplacementMap`
+                    // applies only `ApplyHorizontalScale`).
                     Op::Displacement(
                         number(prop(PropId::FeScale), 0.0) * kx,
                         ch(PropId::XChannelSelector),
@@ -720,11 +737,11 @@ impl Resolver<'_, '_> {
                         }
                     })
                 };
-                let x = len(StyleId::X, p.style.x, vp.width, b.0, b.2).unwrap_or(region.0);
-                let y = len(StyleId::Y, p.style.y, vp.height, b.1, b.3).unwrap_or(region.1);
-                let w = len(StyleId::Width, p.style.width, vp.width, 0.0, b.2)
+                let x = len(StyleId::X, p.style.x.clone(), vp.width, b.0, b.2).unwrap_or(region.0);
+                let y = len(StyleId::Y, p.style.y.clone(), vp.height, b.1, b.3).unwrap_or(region.1);
+                let w = len(StyleId::Width, p.style.width.clone(), vp.width, 0.0, b.2)
                     .unwrap_or(region.0 + region.2 - x);
-                let h = len(StyleId::Height, p.style.height, vp.height, 0.0, b.3)
+                let h = len(StyleId::Height, p.style.height.clone(), vp.height, 0.0, b.3)
                     .unwrap_or(region.1 + region.3 - y);
                 let x0 = x.max(region.0);
                 let y0 = y.max(region.1);
@@ -750,11 +767,20 @@ impl Resolver<'_, '_> {
         Some(region)
     }
 
+    fn appearance(&self, style: &StyleProps) -> bool {
+        match style.color_scheme {
+            ColorScheme::Light => false,
+            ColorScheme::Dark => true,
+            ColorScheme::Normal => self.dark,
+        }
+    }
+
     /// `flood-color` with `flood-opacity`, straight sRGB.
     fn flood(&self, style: &crate::generated::StyleProps) -> [f32; 4] {
+        let dark = self.appearance(style);
         let c = match &style.rare.flood_color {
-            Paint::CurrentColor => style.text_color.resolve(false),
-            Paint::Color(c) => c.resolve(false),
+            Paint::CurrentColor => style.text_color.resolve(dark),
+            Paint::Color(c) => c.resolve(dark),
             _ => crate::style::Color(0x0000_00ff),
         };
         rgba(c, style.rare.flood_opacity)
@@ -762,9 +788,10 @@ impl Resolver<'_, '_> {
 
     /// `lighting-color`, straight sRGB.
     fn lighting_color(&self, style: &crate::generated::StyleProps) -> [f32; 3] {
+        let dark = self.appearance(style);
         let c = match &style.rare.lighting_color {
-            Paint::CurrentColor => style.text_color.resolve(false),
-            Paint::Color(c) => c.resolve(false),
+            Paint::CurrentColor => style.text_color.resolve(dark),
+            Paint::Color(c) => c.resolve(dark),
             _ => crate::style::Color(0xffff_ffff),
         };
         let v = rgba(c, 1.0);

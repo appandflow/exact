@@ -1,5 +1,5 @@
 // A native client's first join while the dev loop's resident producers
-// start: its envelope request
+// start (dtool2's pass 3 #8; theme2's plan approval): its envelope request
 // is answered at once, a 503 `application/vnd.exact.dev-status+json` with
 // the step the resident is on, not held for the minutes a first build takes;
 // once the resident is up it is served as before. A start that fails ends
@@ -11,8 +11,9 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const ENVELOPE = 'application/vnd.exact.envelope+json, text/html;q=0.9';
 const PHASE_MODULE = resolve(ROOT, 'host/web/dev-phase.mjs');
 afterEach(() => stopAll());
@@ -24,6 +25,7 @@ afterEach(() => stopAll());
 const STUB = `
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 const { phased, failedPhase } = await import(process.env.STUB_PHASE);
 const port = Number(process.argv[process.argv.indexOf('--port') + 1]);
 console.log('phase: building the module producer (a stand-in)');

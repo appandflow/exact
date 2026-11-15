@@ -1,13 +1,13 @@
-// @exact/age-range on Apple: Declared Age Range,
+// @exact/age-range on Apple (LLP 1133.028 D7-D11): Declared Age Range,
 // iOS and macOS 26. Under the agent it asks the framework for nothing: the
 // runner holds the sheet as an `age-range` ticket, whose answer reaches the
-// implementation as the call's `preferred` (AgentAgeRange.swift);
+// implementation as the call's `preferred` (AgentAgeRange.swift, §7);
 // `--bind age-range` asks the framework.
 //
 // - The answer is a range in the app's gates, or the region's regulatory
-//   gates where a law requires them; both bounds inclusive. Apple's nil
+//   gates where a law requires them; both bounds inclusive (D8). Apple's nil
 //   lower bound, below the lowest gate, is 0.
-// - One sheet at a time: a second request waits for the first, and
+// - One sheet at a time (D10): a second request waits for the first, and
 //   the platform then answers it from its cache.
 // - The sheet needs a window: the key window's top view controller on iOS,
 //   the key window on the Mac. With none the request fails NotAllowedError
@@ -59,13 +59,16 @@ public final class AgeRangeModule: ExactPackage {
         if shown { context.changed("age-range.ageRangeStatus") }
     }
 
-    /// Apple's rule for gates: one to three whole ages, ascending, at least two years apart.
+    /// Apple's rule for gates (D8): one to three whole ages, ascending, at least two years apart.
+    /// An age is at most `oldest`, which also keeps each gate within `Int` for the request.
     static func refused(_ gates: [Double]) -> String? {
-        guard (1...3).contains(gates.count), gates.allSatisfy({ $0 >= 0 && $0 == $0.rounded() }) else {
+        guard (1...3).contains(gates.count), gates.allSatisfy({ (0...oldest).contains($0) && $0 == $0.rounded() }) else {
             return "ageGates are one to three whole ages"
         }
         return zip(gates, gates.dropFirst()).allSatisfy({ $1 - $0 >= 2 }) ? nil : "ageGates ascend at least two years apart"
     }
+
+    static let oldest = 150.0
 
     private func queue(_ work: @escaping (@escaping () -> Void) -> Void) {
         waiting.append(work)

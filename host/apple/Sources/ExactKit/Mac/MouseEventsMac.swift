@@ -1,4 +1,4 @@
-// DOM's `wheel` and `drop` on the Mac, beside the
+// DOM's `wheel` and `drop` on the Mac (studio diary R3, R19), beside the
 // pointer's events (MouseChainMac.swift) and `contextmenu`'s point
 // (NodeViewMac's `rightMouseDown`).
 //
@@ -14,7 +14,7 @@
 //
 // Files and folders dragged in from Finder land on the innermost node that
 // declares `drop`, a field under the pointer included: each a `doc:` handle
-// minted for this session, of any type (the 2026-10-11
+// minted for this session (LLP 1069.010 D1), of any type (the 2026-10-11
 // any-file waiver, extended to `drop`). `dragenter` and `dragleave` bracket
 // the drag over each node that hears them (FileDragMac.swift).
 #if os(macOS)
@@ -173,7 +173,7 @@ extension Presenter {
         var ancestor = node.superview
         while let view = ancestor {
             if let node = view as? NodeView, node.overflowClips {
-                drawn = drawn.intersection(node.drawnRect(node.bounds))
+                drawn = drawn.intersection(node.drawnRect(node.clipBox?.frame ?? node.bounds))
             } else if let clip = view as? NSClipView {
                 let rect = (clip.superview?.superview as? NodeView).map {
                     $0.drawnRect($0.convert(clip.bounds, from: clip))
@@ -213,7 +213,7 @@ extension NodeView {
             if contact.reaches(self) { contact.down(on: self); return }
         }
         guard !inert else { return }
-        // A control-click focuses as it did before its menu, whatever its `pointerdown` says (its own way).
+        // A control-click focuses as it did before its menu, whatever its `pointerdown` says (its own way, LLP 1005).
         if contextClick(event) { if pointerdownHeard, takesClickFocus, !focusInside(event) { takeClickFocus() }; return rightMouseDown(with: event) }
         pointerPressed(event)
         // A prevented `pointerdown` keeps the focus where it is and starts no selection; the press still goes on.
@@ -225,11 +225,10 @@ extension NodeView {
         if pointerdownHeard, takesClickFocus, !keepsFocus, !focusInside(event) { takeClickFocus() }
         if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "down") == true { return }
-        presenter?.leaves.pressed(self) // a held leaf's box was clicked: made now
+        presenter?.leaves.pressed(self) // a held leaf's box was clicked: made now (LLP 1068 §5.1)
         presenter?.collections.pointerDown(id, event: event)
         presenter?.mouseChain.down(self, event: event)
         guard !disabled else { pressed = false; return }
-        presenter?.interacting = id
         if let target = presenter?.svg.target(id, at: local(event.locationInWindow)) { svgPressed = target; return }
         if isParagraph, let run = inlineTarget(at: local(event.locationInWindow), handler: "press") {
             inlinePressed = run.id
@@ -237,13 +236,13 @@ extension NodeView {
             return
         }
         if selectsText { if !keepsFocus { presenter?.selection.press(self, event: event) }; return }
-        // A descendant that took focus keeps it. Forward
+        // A descendant that took focus keeps it (LLP 1088 D7.3). Forward
         // through the responder chain: NSView's default retries covered siblings.
         let inner = focusInside(event)
         if takesClickFocus, !inner, !keepsFocus { window?.makeFirstResponder(self) }
         if pressable { pressed = true } else { (chain?.responder(from: self, event: event) ?? (chain == nil ? nextResponder : nil))?.mouseDown(with: event) }
     }
-    /// A descendant that took focus keeps it: the click is in it.
+    /// A descendant that took focus keeps it (LLP 1088 D7.3): the click is in it.
     func focusInside(_ event: NSEvent) -> Bool {
         (window?.firstResponder as? NodeView).map { $0 !== self && ($0.tabbable || $0.explicitTabIndex != nil) && (window?.contentView?.hitTest(event.locationInWindow)?.isDescendant(of: $0) ?? false) } ?? false
     }
@@ -255,7 +254,7 @@ extension NodeView {
         if let window, !window.isKeyWindow, window.canBecomeKey { window.makeKey() }
     }
     /// A paragraph's drag selects its text unless a press takes it: its
-    /// own handler (a `<span onClick>`) or an ancestor's.
+    /// own handler (a `<span onClick>`, spreadsheet F12) or an ancestor's.
     var selectsText: Bool { isParagraph && !pressable && !hasPressableAncestor }
     var hasPressableAncestor: Bool { hasPressableAncestor(crossingPresentations: true) }
     func hasPressableAncestor(crossingPresentations: Bool) -> Bool {
@@ -299,7 +298,6 @@ extension NodeView {
         contact?.validate()
         if contact?.cancelled == true {
             let taken = chain?.up(event) == true
-            chain?.presenter?.interacting = 0
             if !taken, !inert { dispatchDblclick(dblclickTarget(event)) }
             return
         }
@@ -307,7 +305,6 @@ extension NodeView {
         guard !inert else { return }
         if isSurfaceControl || ownsSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); finishPointerPress(); return }
         if canvasInput?.pointer(event, phase: "up") == true { return }
-        defer { holdPresenter?.interacting = 0 }
         if presenter?.mouseChain.up(event) == true { return }
         presenter?.collections.releaseInteractionLater()
         let double = dblclickTarget(event)
@@ -377,13 +374,13 @@ extension NodeView {
         return false
     }
 
-    /// A Control-click is the Mac's secondary click: Chrome sends it as
+    /// A Control-click is the Mac's secondary click (X85): Chrome sends it as
     /// `contextmenu` and no `click`. AppKit asks the view under it for
     /// `menu(for:)` and, given none, sends `mouseDown`. Where a node from
     /// here up answers it (`contextMenuAuthored`), its down, drags and
     /// release take a right-click's path (`rightMouseDown`) with the primary
     /// button and Control the event holds, and nothing presses. Selectable
-    /// text with none above had its menu from `menu(for:)`; anywhere
+    /// text with none above had its menu from `menu(for:)` (#454); anywhere
     /// else it stays a click with Control held.
     func contextClick(_ event: NSEvent) -> Bool {
         contextClicked = event.type == .leftMouseDown && event.modifierFlags.contains(.control)
@@ -397,8 +394,8 @@ extension NodeView {
         return run.handlers.contains("contextmenu") || run.props["contextPopover"]?.isEmpty == false
     }
 
-    /// The run a secondary click at `point` (this paragraph's space) reaches:
-    /// the nearest from the innermost run there up whose own
+    /// The run a secondary click at `point` (this paragraph's space) reaches
+    /// (X77): the nearest from the innermost run there up whose own
     /// `contextmenu` or `contextPopover` answers, as the web's `contextmenu`
     /// bubbles from the run's element to its first handler. Nil where none
     /// does, and the paragraph and its ancestors hear the click as before.
@@ -419,7 +416,7 @@ extension NodeView {
         return nil
     }
 
-    /// A secondary click's `contextmenu` on the run under it, after
+    /// A secondary click's `contextmenu` on the run under it (X77), after
     /// the button's `pointerdown`, from the run's first line's top left as
     /// Chrome measures an inline element's offset, then its
     /// `contextPopover`'s menu at the click. True ends the click, as
@@ -432,8 +429,8 @@ extension NodeView {
         return dispatchInlineContextMenu(run, at: convert(event.locationInWindow, from: nil), sample: sample, click: event)
     }
 
-    /// A request from the keyboard at run `id` (VoiceOver's show menu; the
-    /// ContextMenu key at the run), as the key sends a node's: at the
+    /// A request from the keyboard at run `id` (VoiceOver's show menu, X84;
+    /// the ContextMenu key at the run), as the key sends a node's: at the
     /// middle of the run's first line, no button held, to the nearest run
     /// from it up that answers, from that run's first line's top left, else
     /// to the first node from this paragraph up that does, as Chrome's
@@ -587,7 +584,7 @@ extension NodeView {
     }
 
     /// The handles of dropped `urls`. A file of a type the manifest declares
-    /// is a document the person chose: kept, it arrives
+    /// is a document the person chose (LLP 1069.010.000 D3): kept, it arrives
     /// as the path it is kept by, and joins Open Recent. Any other file, and a
     /// folder (a directory handle, its path undisclosed; `fs.stat` tells the
     /// two apart), is content: minted for this session alone, as a paste's is.
@@ -603,7 +600,7 @@ extension NodeView {
 }
 
 extension NSControl {
-    /// The Control-click rule on AppKit's own controls (a native button, checkbox, switch,
+    /// X85 on AppKit's own controls (a native button, checkbox, switch,
     /// radio, range, select or date field): a Control-click that a
     /// `contextmenu` or `contextPopover` from the control's node up answers
     /// takes the right-click's path from that node (`contextClick`), and the

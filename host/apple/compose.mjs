@@ -1,12 +1,13 @@
-// The Swift that composes an app's module with its packages' implementations, which
+// The Swift that composes an app's module with its packages' implementations (LLP 1133.001 D5), which
 // host/apple/build.mjs writes beside the module's sources and never commits.
 
-/** The module side's fixed Swift, in `root`: the table, its view entries, the hatch bindings, extensions and service query. */
-export const moduleSeam = (resolve, root) => ['ExactNativeModule.swift', 'ExactNativeViews.swift', 'ExactTamber.swift', 'ExactExtensions.swift', 'ExactServices.swift']
-  .map(f => resolve(root, 'host/apple/modules', f));
+/** The module side's fixed Swift, in `root`: the table, its view entries, the hatch bindings, extensions and service query,
+ * and ExactCore's walk to an app file through no link, which an extension's `file` takes too. */
+export const moduleSeam = (resolve, root) => ['ExactNativeModule.swift', 'ExactNativeViews.swift', 'ExactForma.swift', 'ExactExtensions.swift', 'ExactServices.swift']
+  .map(f => resolve(root, 'host/apple/modules', f)).concat(resolve(root, 'host/apple/Sources/ExactCore/AppFileWalk.swift'));
 
 /** Link declared system frameworks even when only an Objective-C category uses them. Frameworks introduced
- * above the app's minimum OS are weak-linked; the package checks `#available` before using them. */
+ * above the app's minimum OS are weak-linked; the package checks `#available` before using them (LLP 1133.016 D15). */
 export function systemFrameworks(packages, os, minimum) {
   const above = (version) => { const [a, b] = [version, minimum ?? '0'].map(v => String(v).split('.').map(Number)); for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0); return false; };
   const names = new Map();
@@ -19,11 +20,11 @@ export function systemFrameworks(packages, os, minimum) {
 
 /** The app's module composed with its packages' implementations: an adapter over each package's class (its shape,
  * host/apple/modules/ExactPackage.swift; the adapter's, ExactExtensions.swift) with that session's context, the table
- * that names them, each view a package serves (`views`) made by that session's adapter, and,
+ * that names them, each view a package serves (`views`) made by that session's adapter (LLP 1133.008 D8 item 1), and,
  * for an app with no module of its own, an empty one. */
 export function composedModule(packages, ownModule) {
   const authenticator = packages.find(p => p.authenticator);
-  const lines = ['// Written by host/apple/build.mjs; never edited.', ...(packages.length ? ['import CoreGraphics', 'import ExactPackage'] : []), ...(authenticator ? ['import Security'] : []), ...packages.map(p => `import ${p.module}`)];
+  const lines = ['// Written by host/apple/build.mjs (LLP 1133.001 D5); never edited.', ...(packages.length ? ['import CoreGraphics', 'import ExactPackage'] : []), ...(authenticator ? ['import Security'] : []), ...packages.map(p => `import ${p.module}`)];
   for (const p of packages) lines.push(
     `final class ExactAdapter_${p.module}: ExactExtensionAdapter {`,
     `    let impl: ${p.className}, context: ExactPackageContext`,
@@ -54,7 +55,7 @@ export function composedModule(packages, ownModule) {
     '    override func due(_ wake: [String: Any], done: @escaping (Bool) -> Void) {',
     '        impl.woke(ExactWake(wake, context: context, done: done))',
     '    }',
-    // The authenticator entry: the class must conform, which compiling this checks.
+    // The authenticator entry (LLP 1133.010 D13): the class must conform, which compiling this checks.
     ...(p.authenticator ? [
       '    override func evaluate(_ accessControl: SecAccessControl, _ request: [String: Any], reply: @escaping (AnyObject?, [String: Any]?) -> Void) {',
       '        let origin = request["origin"] as? String ?? "app"',
@@ -73,6 +74,8 @@ export function composedModule(packages, ownModule) {
     '}');
   lines.push(`let exactAuthenticator: String? = ${authenticator ? JSON.stringify(authenticator.extension) : 'nil'}`);
   lines.push(`let exactStartAtLoad: [String] = [${packages.filter(p => p.start).map(p => JSON.stringify(p.extension)).join(', ')}]`);
+  const members = packages.flatMap(p => (p.credentialMembers ?? []).map(name => `${JSON.stringify(name)}: ${JSON.stringify(p.extension)}`));
+  lines.push(`let exactCredentialMembers: [String: String] = [${members.join(', ') || ':'}]`);
   lines.push(`let exactExtensions: [String: (ExactModule, String) -> ExactExtensionAdapter] = [${packages.map(p => `${JSON.stringify(p.extension)}: { ExactAdapter_${p.module}($0, session: $1) }`).join(', ') || ':'}]`);
   const views = packages.flatMap(p => (p.views ?? []).map(tag => `${JSON.stringify(tag)}: ExactNativeFactory(package: { try ExactExtensions.view($0, ${JSON.stringify(p.extension)}, ${JSON.stringify(tag)}, id: $1, props: $2, events: $3) })`));
   lines.push(`let exactPackageViews: [String: ExactNativeFactory] = [${views.join(', ') || ':'}]`);

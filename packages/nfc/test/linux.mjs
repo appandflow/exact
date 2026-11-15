@@ -1,4 +1,4 @@
-// @exact/nfc on the Linux host, headless:
+// @exact/nfc on the Linux host, headless (LLP 1133.035 §12 stage 0, D18):
 // the fixture app made outside the repo, its Linux crate built and driven
 // under the agent. Linux has no cell, so the status reads `available` false
 // and every request fails `NotSupportedError`, as in production.

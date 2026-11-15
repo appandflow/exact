@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// The presence ops on UIKit: `exit` keeps a leaving view where
+/// The presence ops on UIKit (LLP 1063): `exit` keeps a leaving view where
 /// it was, above its old siblings, inert and out of every lookup, while the
 /// engine's values still reach it, until the host's `destroy` ends it; a
 /// `layout` present places the box outermost, from its top-left corner.
@@ -21,7 +21,7 @@ final class PresenceIOSTests: XCTestCase {
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "view"],
-            // Named, so they are views and not flat leaves.
+            // Named, so they are views and not flat leaves (LLP 1068 §6.1).
             ["op": "create", "id": 3, "kind": "view", "props": ["testId": "inner"]],
             ["op": "create", "id": 4, "kind": "view", "props": ["testId": "sibling"]],
             ["op": "children", "id": 1, "ids": [2, 4]],
@@ -122,7 +122,7 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertEqual(bar.frame, owner.bounds)
         drainIntrinsicSizes()
         XCTAssertEqual(reports.count, 1, "applying the measured box does not remeasure forever")
-        // Its width is its narrowest, none: a narrower box
+        // Its width is its narrowest, none (LLP 1116.004 D2): a narrower box
         // keeps the one report.
         XCTAssertEqual(size.width, 1)
         p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
@@ -141,7 +141,7 @@ final class PresenceIOSTests: XCTestCase {
     }
 
     /// A tablist padded at a side keeps its bar inside the padding, the
-    /// bar's edges on the device's pixel grid: duo-lab's tabs
+    /// bar's edges on the device's pixel grid (LLP 1059 D2): duo-lab's tabs
     /// on a book fold's trailing segment, from 495.5 points.
     func testTabBarSpansAPaddedTablistsContentBoxOnThePixelGrid() throws {
         let p = tabBarFixture()
@@ -240,7 +240,7 @@ final class PresenceIOSTests: XCTestCase {
         drainIntrinsicSizes()
         let size = try XCTUnwrap(reports.last ?? nil)
         XCTAssertEqual(size, CGSize(width: 1, height: control.intrinsicContentSize.height),
-                       "the control's own height, not the box's; its narrowest none")
+                       "the control's own height, not the box's; its narrowest none (LLP 1116.004 D2)")
         XCTAssertGreaterThan(size.height, 20, "an unsized text row must not squash the native control")
         XCTAssertEqual(control.frame, owner.contentBox(), "the kernel still owns the final box")
         p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
@@ -306,7 +306,7 @@ final class PresenceIOSTests: XCTestCase {
             XCTAssertEqual(icon.image != nil, found)
             XCTAssertEqual(bar.items?.first?.image != nil, found)
             XCTAssertNil(icon.symbolRefusal)
-            // Unsized, a symbol is the platform body size.
+            // Unsized, a symbol is the platform body size (LLP 1115 D3).
             let body = PageFacts.defaultRootFontSize
             if !found { XCTAssertEqual(sizes.last ?? nil, CGSize(width: body, height: body)) }
         }
@@ -328,11 +328,11 @@ final class PresenceIOSTests: XCTestCase {
         }
     }
 
-    /// Four text tabs in a grouped row overflowed it by the hidden tabs' own
-    /// widths. The control reports no narrowest width, so the kernel fits the
-    /// tablist to the row; in a box narrower than its equal segments need,
-    /// each segment takes its content's share, so the longest title keeps its
-    /// letters.
+    /// LLP 1116.004 D2 (unit-converter, round 6): four text tabs in a
+    /// grouped row overflowed it by the hidden tabs' own widths. The control
+    /// reports no narrowest width, so the kernel fits the tablist to the row;
+    /// in a box narrower than its equal segments need, each segment takes
+    /// its content's share, so the longest title keeps its letters.
     func testASegmentedControlTooWideForItsBoxApportionsItsSegmentsByContent() throws {
         let p = tabBarFixture()
         defer { p.reset() }
@@ -363,11 +363,41 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertFalse(control.apportionsSegmentWidthsByContent, "wide again: equal")
     }
 
-    /// A text tab whose `aria-label` says more than its words
+    /// A long press runs the `contextmenu` of the tab whose segment is under
+    /// it, also where UIKit sizes the segments by their content.
+    func testALongPressNamesTheSegmentUnderItWhenSegmentsAreSizedByContent() throws {
+        let p = fixture()
+        defer { p.reset() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+            ["op": "create", "id": 31, "kind": "button", "props": ["accessibilityRole": "tab", "accessibilitySelected": "true"], "handlers": ["press", "contextmenu"]],
+            ["op": "create", "id": 32, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press", "contextmenu"]],
+            ["op": "create", "id": 33, "kind": "text", "props": ["text": "Temperature"]],
+            ["op": "create", "id": 34, "kind": "text", "props": ["text": "Length"]],
+            ["op": "children", "id": 31, "ids": [33]],
+            ["op": "children", "id": 32, "ids": [34]],
+            ["op": "children", "id": 30, "ids": [31, 32]],
+            ["op": "roots", "ids": [1, 30]],
+            ["op": "frame", "id": 30, "x": 0.0, "y": 0.0, "w": 160.0, "h": 32.0],
+        ]))
+        let control = try XCTUnwrap(p.segments.control(of: 30))
+        control.layoutIfNeeded()
+        XCTAssertTrue(control.apportionsSegmentWidthsByContent, "too narrow for equal segments")
+        let views = control.segmentViews
+        XCTAssertEqual(views.count, 2)
+        let boundary = try XCTUnwrap(views.first).convert(try XCTUnwrap(views.first).bounds, to: control).maxX
+        XCTAssertGreaterThan(boundary, 85, "Temperature takes more than its half")
+        for x in stride(from: 2.0, to: 158.0, by: 4.0) where abs(x - boundary) > 1 {
+            let tab = p.segments.contextTab(at: CGPoint(x: x, y: control.bounds.midY), in: control)
+            XCTAssertEqual(tab?.id, x < boundary ? 31 : 32, "at x = \(x), the segments meeting at \(boundary)")
+        }
+    }
+
+    /// LLP 1116 D6: a text tab whose `aria-label` says more than its words
     /// (`Temp`, named `Temperature`) keeps the native segmented control —
     /// the words its title, the label its segment's accessibility label —
-    /// where it fell back to the authored pills (unit-converter).
-    /// Each segment, and a tab bar's item, carries its tab's `testId`.
+    /// where it fell back to the authored pills (unit-converter). LLP 1116
+    /// D2: each segment, and a tab bar's item, carries its tab's `testId`.
     func testASegmentsAriaLabelIsItsAccessibilityLabelAndItsTestIdItsIdentifier() throws {
         let p = tabBarFixture()
         defer { p.reset() }
@@ -454,7 +484,7 @@ final class PresenceIOSTests: XCTestCase {
         let v = try XCTUnwrap(p.views[3])
         p.apply(wireBatch([["op": "style", "id": 3, "style": ["overflow_x": "hidden", "overflow_y": "hidden"]]]))
         // Laid out closed, 200 wide on screen: the difference carries what
-        // no ratio of a zero width could.
+        // no ratio of a zero width could (GitHub #940).
         p.apply(wireBatch([
             ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 0.0, "h": 50.0],
             ["op": "present", "id": 3, "property": "layout", "x": 0.0, "y": 0.0, "w": 200.0, "h": 0.0],
@@ -574,6 +604,204 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertTrue(clips())
         XCTAssertNil(mask())
         XCTAssertTrue(v.transform.isIdentity)
+    }
+
+    func testAResizingBorderedBoxClipsChildrenInsideItsBorder() throws {
+        let p = fixture()
+        let card = try XCTUnwrap(p.views[2])
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "view", "style": ["background_color": [0, 0, 255, 255]]],
+            ["op": "children", "id": 2, "ids": [3, 5]],
+            ["op": "frame", "id": 5, "x": 6.0, "y": 6.0, "w": 188.0, "h": 100.0],
+            ["op": "style", "id": 2, "style": ["background_color": [255, 255, 255, 255],
+                "border_width": 6, "border_color_top": [255, 0, 0, 255], "border_radius": 40,
+                "corner_shape": ["apple", "apple", "apple", "apple"],
+                "overflow_x": "hidden", "overflow_y": "hidden"]],
+            ["op": "style", "id": 3, "style": ["background_color": [0, 255, 0, 255]]],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 200.0],
+            ["op": "frame", "id": 3, "x": 6.0, "y": 6.0, "w": 188.0, "h": 288.0],
+        ]))
+        let flat = try XCTUnwrap(p.flats.leaves[5])
+        for height in [100.0, 300.0] {
+            p.apply(wireBatch([["op": "present", "id": 2, "property": "layout",
+                               "x": 0.0, "y": 0.0, "w": 0.0, "h": height - 200]]))
+            let surface = try XCTUnwrap(card.surface)
+            XCTAssertTrue(flat.layer.superlayer === card.container.layer, "flat children follow the animated clip")
+            let clip = try XCTUnwrap(surface.clip.path)
+            XCTAssertEqual(clip.boundingBoxOfPath, CGRect(x: 6, y: 6, width: 188, height: height - 12))
+            XCTAssertFalse(clip.contains(CGPoint(x: 100, y: height - 3)), "children cannot cover the bottom border")
+            XCTAssertFalse(clip.contains(CGPoint(x: 7, y: 7)), "children follow the inner corner")
+            XCTAssertFalse(surface.clipped === card.layer, "the child mask must not cut off the surface's border")
+            let outer = try XCTUnwrap(card.layer.mask as? CAShapeLayer)
+            XCTAssertEqual(outer.path?.boundingBoxOfPath, CGRect(x: 0, y: 0, width: 200, height: height), "the node's own paint still clips")
+            XCTAssertFalse(surface.clipped?.masksToBounds ?? true, "a shrinking clip can exceed the laid-out bounds")
+        }
+        p.apply(wireBatch([["op": "present", "id": 2, "property": "layout",
+                           "x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0]]))
+        XCTAssertNil(card.surface)
+        XCTAssertTrue(card.clipsToBounds)
+        XCTAssertNil(card.clipBox)
+        XCTAssertTrue(p.views[3]?.superview === card)
+        XCTAssertTrue(flat.layer.superlayer === card.layer, "flat children return with the views")
+    }
+
+    func testAPlacedBoxKeepsItsSurfaceClipsWhileResizingAndChangingTargets() throws {
+        for border in [0, 6] {
+            let p = fixture(), card = try XCTUnwrap(p.views[2])
+            defer { p.reset(); window.isHidden = true }
+            var style: [String: Any] = ["border_width": border, "border_radius": 20,
+                "overflow_x": "hidden", "overflow_y": "hidden"]
+            p.apply(wireBatch([["op": "style", "id": 2, "style": style]]))
+            card.placement = [1, 0, 100, 0, 1, 0, 0, 0, 1, 0]
+            let placementMask = try XCTUnwrap(card.layer.mask)
+            for height in [100.0, 150.0] {
+                p.apply(wireBatch([["op": "present", "id": 2, "property": "layout", "h": height - 50]]))
+                let surface = try XCTUnwrap(card.surface)
+                XCTAssertTrue(card.layer.mask === placementMask, "the empty placement mask stays installed")
+                XCTAssertEqual(card.alpha, 1)
+                XCTAssertTrue(surface.clipped?.boxMask === surface.clip, "the requested clip survives the next frame")
+                XCTAssertTrue(card.layer.boxMask === (border == 0 ? surface.clip : surface.ownClip))
+                XCTAssertEqual(surface.clip.path?.boundingBoxOfPath.height ?? 0, height - CGFloat(2 * border), accuracy: 1e-9)
+            }
+            let surface = try XCTUnwrap(card.surface), oldTarget = try XCTUnwrap(surface.clipped)
+            style["overflow_y"] = "auto"
+            p.apply(wireBatch([["op": "style", "id": 2, "style": style]]))
+            let scroll = try XCTUnwrap(card.scroll)
+            XCTAssertFalse(oldTarget.boxMask === surface.clip, "the old target releases the requested clip")
+            XCTAssertTrue(scroll.layer.mask === surface.clip)
+            XCTAssertTrue(card.layer.mask === placementMask)
+            p.apply(wireBatch([["op": "present", "id": 2, "property": "layout", "h": 0.0]]))
+            XCTAssertNil(card.surface)
+            XCTAssertFalse(card.layer.boxMask === surface.clip || card.layer.boxMask === surface.ownClip)
+            XCTAssertNil(scroll.layer.mask)
+            XCTAssertTrue(scroll.clipsToBounds)
+            XCTAssertTrue(card.layer.mask === placementMask, "ending the resize does not end placement")
+            let restored = card.layer.boxMask
+            card.placement = nil
+            XCTAssertTrue(card.layer.mask === restored, "unplacing restores the box's current mask")
+        }
+    }
+
+    func testALayoutBatchGivesTheSiblingAndSurfaceMatchingModelEdges() throws {
+        let p = fixture(), card = try XCTUnwrap(p.views[2]), sibling = try XCTUnwrap(p.views[4])
+        for offset in [-30.0, 100.0, 60.0, 0.0] {
+            p.apply(wireBatch([
+                ["op": "present", "id": 2, "property": "layout", "h": offset],
+                ["op": "present", "id": 4, "property": "layout", "y": offset],
+            ]))
+            let height = card.surface?.bounds.height ?? card.bounds.height
+            let bottom = card.convert(CGPoint(x: 0, y: height), to: p.root).y
+            XCTAssertEqual(sibling.convert(.zero, to: p.root).y, bottom, accuracy: 1e-6)
+        }
+    }
+
+    func testAResizingClipHandsItsChildrenToANewScroller() throws {
+        let p = fixture(), card = try XCTUnwrap(p.views[2])
+        var style: [String: Any] = ["border_width": 6, "border_color_top": [255, 0, 0, 255], "border_radius": 40,
+            "overflow_x": "hidden", "overflow_y": "hidden"]
+        p.apply(wireBatch([["op": "style", "id": 2, "style": style],
+            ["op": "present", "id": 2, "property": "layout", "h": 100.0]]))
+        let oldClip = try XCTUnwrap(card.clipBox)
+        style["overflow_y"] = "auto"
+        p.apply(wireBatch([["op": "style", "id": 2, "style": style]]))
+        let scroll = try XCTUnwrap(card.scroll), child = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(child.superview === scroll, "the child must scroll during the transition")
+        XCTAssertNil(card.clipBox)
+        XCTAssertNil(oldClip.layer.mask, "the former clip releases its surface mask")
+        XCTAssertTrue(oldClip.clipsToBounds, "the former clip restores its bounds clipping")
+        XCTAssertTrue(card.surface?.clipped === scroll.layer)
+        XCTAssertFalse(card.clipsToBounds, "the shrinking surface extends beyond the laid-out box")
+        let surface = try XCTUnwrap(card.surface)
+        XCTAssertEqual(surface.bounds.height, 150)
+        let ctx = try XCTUnwrap(CGContext(data: nil, width: 400, height: 160, bitsPerComponent: 8,
+            bytesPerRow: 1600, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 400, height: 160), format: format).image {
+            p.root.layer.render(in: $0.cgContext)
+        }
+        ctx.draw(try XCTUnwrap(image.cgImage), in: CGRect(x: 0, y: 0, width: 400, height: 160))
+        let bytes = try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self)
+        XCTAssertEqual((0..<4).map { Int(bytes[(147 * 400 + 200) * 4 + $0]) }, [255, 0, 0, 255],
+                       "the bottom border draws beyond the node's 50-point bounds")
+        p.apply(wireBatch([["op": "present", "id": 2, "property": "layout", "h": 0.0]]))
+        XCTAssertTrue(child.superview === scroll, "the child must still scroll after the transition")
+        XCTAssertTrue(scroll.clipsToBounds)
+        XCTAssertNil(scroll.layer.mask)
+        XCTAssertTrue(card.clipsToBounds, "the laid-out clip returns when the surface ends")
+    }
+
+    func testRemovingScrollingDuringAResizeRestoresVisibleOverflow() throws {
+        let p = fixture(), card = try XCTUnwrap(p.views[2]), child = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([
+            ["op": "style", "id": 2, "style": ["border_radius": 20,
+                "overflow_x": "auto", "overflow_y": "auto"]],
+            ["op": "frame", "id": 3, "x": 380.0, "y": 0.0, "w": 100.0, "h": 50.0],
+            ["op": "present", "id": 2, "property": "layout", "h": 100.0],
+        ]))
+        let surface = try XCTUnwrap(card.surface), scroll = try XCTUnwrap(card.scroll)
+        XCTAssertTrue(scroll.layer.mask === surface.clip)
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["border_radius": 20,
+            "overflow_x": "visible", "overflow_y": "visible"]]]))
+        p.apply(wireBatch([["op": "present", "id": 2, "property": "layout", "h": 75.0]]))
+        XCTAssertNotNil(card.surface, "the resize is still active")
+        XCTAssertNil(card.scroll)
+        XCTAssertTrue(child.superview === card)
+        XCTAssertGreaterThan(child.frame.maxX, card.bounds.maxX)
+        XCTAssertNil(scroll.layer.mask, "the detached scroller releases the mask")
+        XCTAssertNil(surface.clipped, "visible overflow has no clipping target")
+        XCTAssertNil(card.layer.mask, "the surface must not fall back to masking the host")
+        XCTAssertFalse(card.clipsToBounds)
+        p.apply(wireBatch([["op": "present", "id": 2, "property": "layout", "h": 0.0]]))
+        XCTAssertNil(card.surface)
+        XCTAssertNil(card.layer.mask)
+        XCTAssertFalse(card.clipsToBounds)
+    }
+
+    func testNativeContentClipsInsideAResizingBorder() throws {
+        let p = fixture()
+        for (id, kind, props) in [(10, "textarea", ["value": "Content"]),
+                                  (12, "input", ["value": "Content"]),
+                                  (11, "image", ["imageSource": "symbol:sf/square.fill", "symbolName": "square.fill"])] {
+            p.apply(wireBatch([
+                ["op": "create", "id": id, "kind": kind, "props": props,
+                 "style": ["appearance": "none", "border_width": 6, "border_radius": 40,
+                           "overflow_x": "hidden", "overflow_y": "hidden"]],
+                ["op": "roots", "ids": [1, id]],
+                ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 200.0, "h": 200.0],
+                ["op": "present", "id": id, "property": "layout", "h": -100.0],
+            ]))
+            let node = try XCTUnwrap(p.views[UInt32(id)])
+            let native = try XCTUnwrap(kind == "input" ? node.field : (kind == "textarea" ? node.textArea : node.symbolView))
+            let surface = try XCTUnwrap(node.surface)
+            XCTAssertTrue(native.superview === node.clipBox, "\(kind) belongs inside the padding-edge clip")
+            XCTAssertTrue(native.superview?.layer.mask === surface.clip)
+            XCTAssertFalse(try XCTUnwrap(surface.clip.path).contains(CGPoint(x: 7, y: 7)))
+            if kind == "input" {
+                node.field?.removeFromSuperview()
+                node.makeField()
+                XCTAssertTrue(node.field?.superview === node.clipBox, "a field created during the resize enters the clip")
+                node.props["type"] = "search"
+                p.apply(wireBatch([["op": "style", "id": id, "style": ["appearance": "auto",
+                    "border_width": 6, "border_radius": 40, "overflow_x": "hidden", "overflow_y": "hidden"]]]))
+                node.styleNativeField()
+                XCTAssertTrue(try XCTUnwrap(node.searchChrome).superview === node.clipBox,
+                              "search chrome stays beside the field")
+            }
+            let replacement = try XCTUnwrap(kind == "input" ? node.field : native)
+            p.apply(wireBatch([["op": "present", "id": id, "property": "layout", "h": 0.0]]))
+            XCTAssertTrue(replacement.superview === node, "native content returns when the surface ends")
+            if kind == "input" {
+                let chrome = try XCTUnwrap(node.searchChrome)
+                XCTAssertTrue(chrome.superview === node)
+                p.apply(wireBatch([["op": "present", "id": id, "property": "layout", "h": -100.0]]))
+                XCTAssertTrue(chrome.superview === node.clipBox, "existing search chrome enters the clip with its field")
+                XCTAssertTrue(replacement.superview === node.clipBox)
+                p.apply(wireBatch([["op": "present", "id": id, "property": "layout", "h": 0.0]]))
+                XCTAssertTrue(chrome.superview === node)
+                XCTAssertTrue(replacement.superview === node)
+            }
+        }
     }
 
     func testASurfaceTheLayerCannotSayIsDrawnUprightAtTheShownSize() throws {

@@ -1,5 +1,5 @@
-//! A driver fault fails a fetch by its URL's prefix, where a host would hand
-//! the request to its transport, as a refused connection does.
+//! LLP 1103: a driver fault fails a fetch by its URL's prefix, where a host
+//! would hand the request to its transport, as a refused connection does.
 
 use exact_kernel::Kernel;
 use exact_runner::failure::FailureCode;
@@ -127,13 +127,18 @@ fn a_stream_is_not_matched() {
     r.faults().arm("https://api.test/", None).unwrap();
     let mut r = r;
     let out = exact_runner::RequestOut {
+        class: exact_runner::RequestClass::Ordered,
         ticket: 99,
         target: "a".into(),
         request,
         forced: false,
     };
-    assert!(r.fault_dispatch(&out).is_none(), "streams are deferred");
+    assert!(
+        r.fault_dispatch(&out).is_none(),
+        "streams are deferred (D5)"
+    );
     let plain = exact_runner::RequestOut {
+        class: exact_runner::RequestClass::Ordered,
         request: Request::get("https://api.test/recipes/2"),
         ..out
     };
@@ -216,7 +221,7 @@ impl DataSource for Wide {
 
 #[test]
 fn state_says_why_a_resource_failed_until_it_answers() {
-    // A shape refusal is said in state, not only in the journal.
+    // App farm round 1: a shape refusal was only in the journal.
     let mut r = Runner::boot(
         contract::compile(APP).unwrap(),
         Wide,
@@ -238,7 +243,7 @@ fn state_says_why_a_resource_failed_until_it_answers() {
 }
 
 /// A source that lets a failed fetch through, as a TypeScript module that
-/// does not catch it (js/src/prelude.js `fail`), throws on `/boom`, throws
+/// does not catch it (js/src/reply.js `fail`), throws on `/boom`, throws
 /// a Snapback refusal naming its reason on `/full` (the snapback4 driver's
 /// `refused`), and answers wider than its shape on `/wide`.
 struct Through;
@@ -291,9 +296,9 @@ const WHY: &str = "shape Line\n  text: string\ncomponent App\n  resource a = thr
 
 #[test]
 fn failure_names_each_class_and_says_why() {
-    // `failure(x)` is `none` until `x` fails, then its code,
+    // LLP 1109 D3: `failure(x)` is `none` until `x` fails, then its code,
     // the message `state.failed` shows and the reason its error named
-    // (empty unless it named one).
+    // (empty unless it named one: the author's ruling of 2026-10-12).
     let mut r = Runner::boot(
         contract::compile(WHY).unwrap(),
         Through,

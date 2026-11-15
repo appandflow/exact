@@ -1,9 +1,9 @@
-//! The resolved SVG filter: a chain of primitives in the
+//! The resolved SVG filter (LLP 1055.000 D14): a chain of primitives in the
 //! element's user space, and its wire form. The kernel resolves it from a
 //! `filter` reference or CSS filter functions; the pixels are the hosts' and
 //! `exact-svg-raster`'s.
 //!
-//! Filter Effects 1 §9 (the `filter` element:
+//! @ref LLP 1055.000 D14; Filter Effects 1 §9 (the `filter` element:
 //! `filterUnits` `objectBoundingBox` with the region −10%/−10%/120%/120%,
 //! `primitiveUnits` `userSpaceOnUse`), §9.5 (subregions), §9.6
 //! (`color-interpolation-filters`)
@@ -11,7 +11,7 @@
 //! The chain crosses to a loaded module on Apple, so it has a flat wire
 //! form ([`Filter::encode`], [`Filter::decode`]): numbers only, versioned by
 //! the module's ABI. It is a crate of its own, below the kernel, so that
-//! module reads a chain without compiling the kernel.
+//! module reads a chain without compiling the kernel (LLP 1036.000 §12).
 
 /// An input to a primitive.
 #[derive(Debug, Clone, Copy, PartialEq)]

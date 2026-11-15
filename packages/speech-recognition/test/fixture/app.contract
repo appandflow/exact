@@ -1,4 +1,4 @@
-// The conformance fixture: every name of
+// The conformance fixture (LLP 1133.001 D7, LLP 1133.012 §10): every name of
 // @exact/speech-recognition, sent and read as an app would, on a track from
 // @exact/media-capture, on the microphone, or on a file, each answer shown by
 // testId for the suites.

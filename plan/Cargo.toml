@@ -2,6 +2,8 @@
 # executes. Everything is generated from tables/format.json by build.rs into
 # OUT_DIR, never committed.
 #
+# @ref LLP 1004 D2 (five crates on one table authority) / LLP 0485 (research).
+#
 # Depends on nothing and declares no kernel vocabulary: plan rows carry kernel
 # ordinals as numbers; exact-kernel gives them meaning elsewhere.
 [package]

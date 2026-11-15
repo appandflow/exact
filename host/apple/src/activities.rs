@@ -1,4 +1,4 @@
-//! The demand-loaded arm's reports and send replies.
+//! @ref LLP 1126.001 WP9 — the demand-loaded arm's reports and send replies.
 use super::{Batch, Host};
 use exact_runner::{DataSource, Outcome, Response, Timed};
 impl<D: DataSource> Host<D> {

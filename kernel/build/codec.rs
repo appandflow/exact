@@ -1,15 +1,29 @@
-const CODEC_PATHS: [&str; 8] = [
+const CODEC_PATHS: [&str; 11] = [
     "../vendor/taffy/src/style/grid.rs",
     "build.rs",
     "build/codec.rs",
     "src/style/calc/wire.rs",
     "src/style/calc/parse.rs",
+    "src/style/relative.rs",
+    "src/style/relative/wire.rs",
     "src/style/grid.rs",
     "src/style/grid/parse.rs",
     "src/wire/codec.rs",
+    "src/wire/ops.rs",
 ];
 const SCHEMA_PATH: &str = "tables/schema.json";
 const DIGEST_DOMAIN: &[u8] = b"exact-kernel-schema-v1\0";
+
+fn emit_style_capabilities(w: &mut String, schema: &Schema) {
+    w.push_str("    /// The parser family a bound row links, if any (LLP 1047 D2).\n");
+    w.push_str("    pub fn capability(self) -> Option<&'static str> {\n        match self {\n");
+    for row in &schema.styles {
+        if let Some(name) = &row.capability {
+            writeln!(w, "            StyleId::{} => Some({name:?}),", pascal(&row.field)).unwrap();
+        }
+    }
+    w.push_str("            _ => None,\n        }\n    }\n");
+}
 
 enum GridSeam {
     Decode,
@@ -73,11 +87,10 @@ enum Codec {
     U16,
     U32,
     I32,
-    Rgba8,
+    AutoI32,
     ColorValue,
     KeywordColor(&'static str),
     Vec2,
-    Color2,
     Tracks,
     Placement,
     Transitions,
@@ -98,17 +111,16 @@ fn parse_codec(s: &str) -> Codec {
         "u16" => Codec::U16,
         "u32" => Codec::U32,
         "i32" => Codec::I32,
-        "rgba8" => Codec::Rgba8,
+        "auto-i32" => Codec::AutoI32,
         "color" => Codec::ColorValue,
         "auto-color" => Codec::KeywordColor("auto"),
         "current-color" => Codec::KeywordColor("currentcolor"),
         "vec2" => Codec::Vec2,
-        "color2" => Codec::Color2,
         "tracks" => Codec::Tracks,
         "placement" => Codec::Placement,
         "transitions" => Codec::Transitions,
         "animations" => Codec::Animations,
-        // SVG paint and dash lists travel as their CSS text.
+        // @ref LLP 1055 D2 — SVG paint and dash lists travel as their CSS text.
         "paint" => Codec::CssValue {
             path: "crate::svg::Paint",
             variant: "Paint",
@@ -119,7 +131,7 @@ fn parse_codec(s: &str) -> Codec {
             variant: "DashArray",
             error: "BadDashArray",
         },
-        // CSS transforms on SVG elements, as CSS text.
+        // @ref LLP 1055.000 D5 — CSS transforms on SVG elements, as CSS text.
         "transform" => Codec::CssValue {
             path: "crate::svg::TransformList",
             variant: "Transform",
@@ -145,7 +157,7 @@ fn parse_codec(s: &str) -> Codec {
             variant: "Filter",
             error: "BadFilter",
         },
-        // One parse/css/default codec for both shapes.
+        // @ref LLP 1043.000 §3 D1 — one parse/css/default codec for both shapes.
         "clip-path" => Codec::CssValue {
             path: "crate::clip::ClipPath",
             variant: "ClipPath",
@@ -161,11 +173,13 @@ fn parse_codec(s: &str) -> Codec {
             variant: "ShapeOutside",
             error: "BadShapeOutside",
         },
+        // @ref LLP 1066 D1
         "background-image" => Codec::CssValue {
             path: "crate::gradient::BackgroundImage",
             variant: "BackgroundImage",
             error: "BadBackgroundImage",
         },
+        // @ref LLP 1077 D1–D4
         "symbol-palette" => Codec::CssValue {
             path: "crate::style::symbols::SymbolPalette",
             variant: "SymbolPalette",
@@ -191,6 +205,11 @@ fn parse_codec(s: &str) -> Codec {
             variant: "FontVariations",
             error: "BadFontVariations",
         },
+        "font-features" => Codec::CssValue {
+            path: "crate::style::FontFeatures",
+            variant: "FontFeatures",
+            error: "BadFontFeatures",
+        },
         "text-shadow" => Codec::CssValue {
             path: "crate::style::TextShadow",
             variant: "TextShadow",
@@ -206,7 +225,7 @@ fn parse_codec(s: &str) -> Codec {
             variant: "CornerShape",
             error: "BadCornerShape",
         },
-        // Drag timelines, CSS scroll-timeline's shape.
+        // @ref LLP 1057.003 D1 — drag timelines, CSS scroll-timeline's shape.
         "drag-timeline" => Codec::CssValue {
             path: "crate::timeline::DragTimeline",
             variant: "DragTimeline",
@@ -221,6 +240,17 @@ fn parse_codec(s: &str) -> Codec {
             path: "crate::timeline::AnimationRange",
             variant: "AnimationRange",
             error: "BadAnimationRange",
+        },
+        // @ref LLP 1057.003 D5 — scroll and view timelines, CSS's own rows.
+        "timeline-name" => Codec::CssValue {
+            path: "crate::timeline::TimelineName",
+            variant: "TimelineName",
+            error: "BadTimelineName",
+        },
+        "view-timeline-inset" => Codec::CssValue {
+            path: "crate::timeline::ViewTimelineInset",
+            variant: "ViewTimelineInset",
+            error: "BadViewTimelineInset",
         },
         "position-try-fallbacks" => Codec::CssValue {
             path: "crate::position_try::PositionTryFallbacks",
@@ -248,11 +278,10 @@ impl Codec {
             Codec::U16 => "u16".into(),
             Codec::U32 => "u32".into(),
             Codec::I32 => "i32".into(),
-            Codec::Rgba8 => "Color".into(),
+            Codec::AutoI32 => "Option<i32>".into(),
             Codec::ColorValue => "ColorValue".into(),
             Codec::KeywordColor(_) => "Option<ColorValue>".into(),
             Codec::Vec2 => "Vec2".into(),
-            Codec::Color2 => "[Color; 2]".into(),
             Codec::Tracks => "GridTracks".into(),
             Codec::Placement => "GridPlacement".into(),
             Codec::Transitions => "Transitions".into(),
@@ -270,11 +299,10 @@ impl Codec {
             Codec::U16 => "U16",
             Codec::U32 => "U32",
             Codec::I32 => "I32",
-            Codec::Rgba8 => "Rgba8",
+            Codec::AutoI32 => "AutoI32",
             Codec::ColorValue => "ColorValue",
             Codec::KeywordColor(_) => "KeywordColor",
             Codec::Vec2 => "Vec2",
-            Codec::Color2 => "Color2",
             Codec::Tracks => "Tracks",
             Codec::Placement => "Placement",
             Codec::Transitions => "Transitions",
@@ -315,7 +343,10 @@ impl Codec {
             Codec::U16 => format!("{}u16", int(value, 0.0, u16::MAX as f64)),
             Codec::U32 => format!("{}u32", int(value, 0.0, u32::MAX as f64)),
             Codec::I32 => format!("{}i32", int(value, i32::MIN as f64, i32::MAX as f64)),
-            Codec::Rgba8 => format!("Color({}u32)", int(value, 0.0, u32::MAX as f64)),
+            Codec::AutoI32 => {
+                assert_eq!(value.as_str(), Some("auto"));
+                "None".into()
+            }
             Codec::ColorValue => format!(
                 "ColorValue::Fixed(Color({}u32))",
                 int(value, 0.0, u32::MAX as f64)
@@ -336,16 +367,6 @@ impl Codec {
                     .unwrap_or_else(|| panic!("schema: vec2 default on `{field}` must be [x, y]"));
                 format!("Vec2 {{ x: {}f32, y: {}f32 }}", num(&arr[0]), num(&arr[1]))
             }
-            Codec::Color2 => {
-                let arr = value.as_array().unwrap_or_else(|| {
-                    panic!("schema: color2 default on `{field}` must be [a, b]")
-                });
-                format!(
-                    "[Color({}u32), Color({}u32)]",
-                    num(&arr[0]) as u32,
-                    num(&arr[1]) as u32
-                )
-            }
             Codec::Tracks => {
                 assert!(
                     value.is_null(),
@@ -354,7 +375,7 @@ impl Codec {
                 "GridTracks::default()".into()
             }
             // Paint's initial value differs by row: `fill` the text's colour
-            //, `stroke` none, a gradient stop black.
+            // (LLP 1115.000 D3.8), `stroke` none, a gradient stop black.
             Codec::CssValue {
                 variant: "Paint", ..
             } => match value.as_str() {
@@ -405,11 +426,10 @@ impl Codec {
             Codec::U16 => "r.u16()?".into(),
             Codec::U32 => "r.u32()?".into(),
             Codec::I32 => "r.i32()?".into(),
-            Codec::Rgba8 => "r.color()?".into(),
+            Codec::AutoI32 => "r.auto_i32()?".into(),
             Codec::ColorValue => "r.color_value()?".into(),
             Codec::KeywordColor(_) => "r.optional_color()?".into(),
             Codec::Vec2 => "r.vec2()?".into(),
-            Codec::Color2 => "r.color2()?".into(),
             Codec::Tracks => "r.tracks_for_style()?".into(),
             Codec::Placement => "r.placement_for_style()?".into(),
             Codec::Transitions => "r.transitions()?".into(),
@@ -422,23 +442,22 @@ impl Codec {
     }
     fn encode_stmt(&self, access: &str) -> String {
         match self {
-            Codec::Dimension => format!("w.dimension({access});"),
+            Codec::Dimension => format!("w.dimension({access}.clone());"),
             Codec::LineHeight => format!("w.line_height({access});"),
             Codec::F32 => format!("w.f32({access});"),
             Codec::U8 => format!("w.u8({access});"),
             Codec::U16 => format!("w.u16({access});"),
             Codec::U32 => format!("w.u32({access});"),
             Codec::I32 => format!("w.i32({access});"),
-            Codec::Rgba8 => format!("w.color({access});"),
+            Codec::AutoI32 => format!("w.auto_i32({access});"),
             Codec::ColorValue => format!("w.color_value({access});"),
             Codec::KeywordColor(_) => format!("w.optional_color({access});"),
             Codec::Vec2 => format!("w.vec2({access});"),
-            Codec::Color2 => format!("w.color2({access});"),
             Codec::Tracks => format!("w.tracks(&{access});"),
             Codec::Placement => format!("w.placement(&{access});"),
             Codec::Transitions => format!("w.transitions(&{access});"),
             Codec::Animations => format!("w.animations(&{access});"),
-            // A colour-carrying value keeps its references.
+            // @ref LLP 1095 D1 — a colour-carrying value keeps its references.
             Codec::CssValue {
                 variant:
                     "Paint" | "Filter" | "BackgroundImage" | "MaskImage" | "BoxShadow" | "TextShadow"
@@ -453,7 +472,8 @@ impl Codec {
     fn is_copy(&self) -> bool {
         !matches!(
             self,
-            Codec::Tracks
+            Codec::Dimension
+                | Codec::Tracks
                 | Codec::Placement
                 | Codec::Transitions
                 | Codec::Animations
@@ -464,23 +484,25 @@ impl Codec {
 
 /// A keyword row's vocabulary as bits (`schema.json` `keywords`), emitted into
 /// its enum's `impl`: the first value alone is the empty set, a `none` alone is
-/// every `no-` value (CSS `font-variant-ligatures`), and each other value is
+/// every `no-` value (CSS `font-variant-ligatures`), or every value where the
+/// vocabulary has no `no-` one (`-exact-safe-area`), and each other value is
 /// one bit in vocabulary order; repeats, a value with its `no-` form, unknown
 /// words and the empty list are `None`.
-const KEYWORD_BITS: &str = r#"    /// This value's bits: 0 for the first, every `no-` value's for `none`,
-    /// else its own bit. Bits are numbered in vocabulary order, skipping the
+const KEYWORD_BITS: &str = r#"    /// This value's bits: 0 for the first, every `no-` value's for `none`
+    /// (every value's where none is a `no-` one), else its own bit. Bits are numbered in vocabulary order, skipping the
     /// first value and `none`.
     pub fn keyword_bits(self) -> u8 {
         if self as u8 == 0 { return 0; }
-        let (mut bit, mut no) = (0u32, 0u8);
+        let (mut bit, mut no, mut all) = (0u32, 0u8, 0u8);
         for v in &Self::ALL[1..] {
             if v.name() == "none" { continue; }
             let own = 1u8 << bit;
             bit += 1;
             if *v == self { return own; }
             if v.name().starts_with("no-") { no |= own; }
+            all |= own;
         }
-        no
+        if no == 0 { all } else { no }
     }
     /// A space-separated keyword list as a row's bits: the first value and
     /// `none` stand alone; a repeat, a value with its `no-` form and an
@@ -508,9 +530,11 @@ const KEYWORD_BITS: &str = r#"    /// This value's bits: 0 for the first, every 
     }
 "#;
 
-/// A row's initial value as Rust. A colour default may name a role
-/// (`"CanvasText"`): the platform's own colour where a host has it, so an
-/// unstyled node follows the system's appearance and contrast.
+/// A colour row's initial value naming a role (`"CanvasText"`, LLP 1095
+/// stage 2): the platform's own colour where a host has it, so an unstyled
+/// node follows the system's appearance and contrast.
+/// A row's initial value as Rust. @ref LLP 1095 stage 2 — a colour default
+/// may name a role.
 fn default_of(
     codec: &Codec,
     default: &serde_json::Value,
@@ -534,17 +558,17 @@ pub fn role_default(colors: &[[String; 8]], name: &str, field: &str) -> String {
     format!("ColorValue::Role({id}u8)")
 }
 
-/// The colour roles' type and table, from the schema's
+/// @ref LLP 1095 D2 — the colour roles' type and table, from the schema's
 /// `colors`: CSS's system colours, then Exact's.
 pub fn write_color_roles(w: &mut String, colors: &[[String; 8]], rgba: impl Fn(&str) -> u32) {
     w.push_str(concat!(
-        "/// One colour role: each Apple platform's class colour\n",
+        "/// One colour role (LLP 1095 D2): each Apple platform's class colour\n",
         "/// property (`@tint` for the view's inherited tint, `/a` for an alpha),\n",
         "/// and the two pairs a host without the platform's colour may show:\n",
-        "/// Apple's, and the neutral one (`roles::Column`).\n",
+        "/// Apple's, and the neutral one (LLP 1115.000 D3.2; `roles::Column`).\n",
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
         "pub struct ColorRole {\n",
-        "    /// The role's name: CSS's spelling for a system colour, which is how\n    /// it is written; else Exact's role, written `-exact-<name>`\n    /// and carried as `var(--exact-<name>, …)` on the web.\n    pub name: &'static str,\n",
+        "    /// The role's name: CSS's spelling for a system colour, which is how\n    /// it is written; else Exact's role, written `-exact-<name>` (LLP 1081\n    /// D2) and carried as `var(--exact-<name>, …)` on the web.\n    pub name: &'static str,\n",
         "    /// WebKit's `-apple-system-*` name this role answers to, or empty.\n    pub alias: &'static str,\n",
         "    /// `UIColor`'s class property.\n    pub ios: &'static str,\n",
         "    /// `NSColor`'s class property.\n    pub macos: &'static str,\n",
@@ -579,7 +603,7 @@ type TextStyleRow = (
     Vec<f32>,
     [Option<f32>; 4],
 );
-/// `textStyles`: the platform's type ramp.
+/// `textStyles` (LLP 1115 D3): the platform's type ramp.
 pub fn write_text_styles(w: &mut String, bodies: &[f32], styles: &[TextStyleRow]) {
     assert!(
         !bodies.is_empty() && bodies.windows(2).all(|p| p[0] < p[1]),
@@ -587,7 +611,7 @@ pub fn write_text_styles(w: &mut String, bodies: &[f32], styles: &[TextStyleRow]
     );
     assert!(styles.len() <= 64, "schema: at most 64 text styles");
     w.push_str(concat!(
-        "/// One platform text style: written `-exact-<name>` (or\n",
+        "/// One platform text style (LLP 1115 D3): written `-exact-<name>` (or\n",
         "/// its WebKit alias) as a `font-size`, and what a heading's level lowers to.\n",
         "#[derive(Debug, Clone, Copy, PartialEq)]\n",
         "pub struct TextStyle {\n",
@@ -596,10 +620,10 @@ pub fn write_text_styles(w: &mut String, bodies: &[f32], styles: &[TextStyleRow]
         "    /// `UIFont.TextStyle`'s.\n    pub ios: &'static str,\n",
         "    /// `NSFont.TextStyle`'s.\n    pub macos: &'static str,\n",
         "    /// Its weight, CSS's number, in each column of the metric table: the\n",
-        "    /// web, iOS, the Mac, neutral.\n    pub weights: [u16; 4],\n",
+        "    /// web, iOS, the Mac, neutral (LLP 1115.000 D12.2).\n    pub weights: [u16; 4],\n",
         "    /// Its size at each of [`TEXT_STYLE_BODIES`].\n    pub sizes: &'static [f32],\n",
         "    /// Its leading in each column, a line height over its size; `None` is\n",
-        "    /// `normal`, the face's own.\n    pub leadings: [Option<f32>; 4],\n",
+        "    /// `normal`, the face's own (LLP 1115.000 D12.2).\n    pub leadings: [Option<f32>; 4],\n",
         "}\n",
     ));
     w.push_str(&format!(
@@ -614,7 +638,7 @@ pub fn write_text_styles(w: &mut String, bodies: &[f32], styles: &[TextStyleRow]
     }
     w.push_str("];\n");
 }
-/// `lengths`: the named lengths, each written
+/// `lengths` (LLP 1115.000 D10.3): the named lengths, each written
 /// `-exact-<name>`. What one resolves to is `style/relative.rs`'s.
 pub fn write_lengths(w: &mut String, lengths: &[String]) {
     assert!(
@@ -623,10 +647,10 @@ pub fn write_lengths(w: &mut String, lengths: &[String]) {
         "schema: a named length is kebab-case"
     );
     w.push_str(&format!(
-        "/// Every named length, without `-exact-`.\npub const NAMED_LENGTHS: &[&str] = &{lengths:?};\n"
+        "/// Every named length, without `-exact-` (LLP 1115.000 D10.3).\npub const NAMED_LENGTHS: &[&str] = &{lengths:?};\n"
     ));
 }
-/// `lengthRamps`: each a length at every body size of
+/// `lengthRamps` (LLP 1137): each a length at every body size of
 /// `textStyleBodies`, written `-exact-<name>`. What one resolves to is
 /// `style/relative.rs`'s.
 pub fn write_length_ramps(w: &mut String, bodies: &[f32], ramps: &[(String, Vec<f32>)], lengths: &[String]) {
@@ -638,7 +662,7 @@ pub fn write_length_ramps(w: &mut String, bodies: &[f32], ramps: &[(String, Vec<
         assert!(!lengths.contains(name), "schema: {name} is a named length and a ramp");
         assert_eq!(sizes.len(), bodies.len(), "schema: length ramp {name} has a length per body");
     }
-    w.push_str("/// Every length ramp, without `-exact-`, and its length at each\n/// [`TEXT_STYLE_BODIES`] body size.\npub const LENGTH_RAMPS: &[(&str, &[f32])] = &[\n");
+    w.push_str("/// Every length ramp, without `-exact-`, and its length at each\n/// [`TEXT_STYLE_BODIES`] body size (LLP 1137).\npub const LENGTH_RAMPS: &[(&str, &[f32])] = &[\n");
     for (name, sizes) in ramps {
         w.push_str(&format!("({name:?}, &{sizes:?}),\n"));
     }
@@ -689,13 +713,13 @@ fn metric_cell(name: &str, kind: &str, cell: &MetricCell) -> String {
         _ => panic!("schema: metric {name}: a {kind} is a number"),
     }
 }
-/// `metrics`: the looks Exact
+/// `metrics` (LLP 1115.002 D6, D8.4; LLP 1115.000 D17): the looks Exact
 /// draws itself, a column a platform or a look. What reads one is
 /// `style/metrics.rs`. `taken` is every other name written `-exact-<name>`,
 /// which a metric's must not be.
 fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
     w.push_str(concat!(
-        "/// What a metric is in one column.\n",
+        "/// What a metric is in one column (LLP 1115.002 D6; LLP 1115.000 D17).\n",
         "#[derive(Debug, Clone, Copy, PartialEq)]\n",
         "pub enum MetricValue {\n",
         "    /// Pixels, or a row's bare number.\n    Number(f64),\n",
@@ -715,13 +739,13 @@ fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
         "pub struct Metric {\n",
         "    /// The metric's name, without `-exact-`.\n    pub name: &'static str,\n",
         "    /// What its values are.\n    pub kind: MetricKind,\n",
-        "    /// Its values are lengths: a `length` row, or a `style` row written on a length property (`style length` in the schema), whose number is px.\n    pub length: bool,\n",
+        "    /// Its values are lengths: a `length` row, or a `style` row written on a length property (`style length` in the schema, theme2's unit flag), whose number is px.\n    pub length: bool,\n",
         "    /// On iOS.\n    pub ios: MetricValue,\n",
         "    /// On the Mac.\n    pub macos: MetricValue,\n",
         "    /// In the web's first look, which a process reads until its host says otherwise.\n    pub web: MetricValue,\n",
         "    /// In the neutral look: the web's, and a host's that paints its own controls.\n    pub neutral: MetricValue,\n",
         "    /// In Android's Material look: the web's first look unless the row says otherwise.\n    pub material: MetricValue,\n",
-        "    /// In the terminal: the web's first look, which it read before it had a column.\n    pub terminal: MetricValue,\n",
+        "    /// In the terminal (LLP 1121 stage 11 B): the web's first look, which it read before it had a column.\n    pub terminal: MetricValue,\n",
         "}\n",
     ));
     let mut names = BTreeSet::new();
@@ -792,7 +816,7 @@ fn names_no_length(name: &str) -> bool {
         .any(|e| name.ends_with(e))
         || name.ends_with("-size") && name.contains("switch")
 }
-/// The unit flag: a `style` row that holds a
+/// theme2's unit flag (LLP 1121 stage 11 B): a `style` row that holds a
 /// length says so (`style length`), and the build holds the marker to the
 /// row both ways. A row whose name says a length property is refused
 /// without it; one with it is refused where its name says no length, or a
@@ -826,11 +850,12 @@ fn style_length_marker(name: &str, kind: &str, cells: &[MetricCell]) {
         _ => {}
     }
 }
-/// Whether `text` is a `calc()` whose value is a length: CSS's typed grammar
-/// over numbers and lengths (`px`, `em`, `rem`, `vw`, `vh`, a percentage of
-/// one), `+` and `-` between two of one type (spaced, as CSS requires), `*`
-/// with a number on one side, `/` by a number, and parentheses. `calc(1deg)`,
-/// `calc(garbage)` and `calc(2 * 3)` are none.
+/// Whether `text` is a `calc()` whose value is a length (round 3's re-check,
+/// Astra): CSS's typed grammar over numbers and lengths (`px`, `em`,
+/// `rem`, `vw`, `vh`, a percentage of one), `+` and `-` between two of one
+/// type (spaced, as CSS requires), `*` with a number on one side, `/` by a
+/// number, and parentheses. `calc(1deg)`, `calc(garbage)` and `calc(2 * 3)`
+/// are none.
 fn calc_length(text: &str) -> bool {
     #[derive(Clone, Copy, PartialEq)]
     enum T {
@@ -957,7 +982,7 @@ fn hex_rgba(hex: &str) -> [u8; 4] {
 
 fn write_controls(w: &mut String, rows: &[[String; 9]]) {
     w.push_str(concat!(
-        "/// How a host honours a control's parameter.\n",
+        "/// How a host honours a control's parameter (LLP 1121 D9).\n",
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
         "pub enum Fidelity {\n",
         "    /// As written.\n    Exact,\n",
@@ -975,7 +1000,7 @@ fn write_controls(w: &mut String, rows: &[[String; 9]]) {
         "    /// Per host, in `CONTROL_HOSTS`' order.\n    pub hosts: [(Fidelity, &'static str); 7],\n",
         "}\n",
     ));
-    w.push_str("/// The control-role table.\npub const CONTROLS: &[ControlRow] = &[\n");
+    w.push_str("/// The control-role table (LLP 1121 D9).\npub const CONTROLS: &[ControlRow] = &[\n");
     for [control, parameter, hosts @ ..] in rows {
         let (name, state) = control.split_once(':').map_or((control.as_str(), None), |(n, s)| (n, Some(s)));
         let cells: Vec<String> = hosts

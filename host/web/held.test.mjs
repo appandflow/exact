@@ -3,9 +3,9 @@ import { resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { driveHeld, holdingServer } from '../../scripts/held-fixture.mjs';
 
-// A request the server holds (`exactHeld`) on the wasm target, through the wasm module's
+// A request the server holds (`exactHeld`, LLP 1016.000 D9) on the wasm target, through the wasm module's
 // `fetch`, the runner and glue.js: no clock waits on it, each clock reply names it, the answer's work after
-// its reply is waited on again, and the same ask unmarked is waited on before a due timer.
+// its reply is waited on again, and the same ask unmarked is waited on before a due timer (calendar F10).
 // Against a built dist: `bun scripts/held-fixture.mjs native <dir> [port]`, then
 // `(cd <dir> && EXACT_APP_DIR=<dir> EXACT_WEB_DIST=<dist> bun <checkout>/host/web/build.mjs <dir's name>-web --wasm)`,
 // then EXACT_HELD_WASM_DIST=<dist> EXACT_HELD_PORT=<port> (47711).

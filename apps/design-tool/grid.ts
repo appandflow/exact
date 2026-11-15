@@ -1,20 +1,20 @@
-// Several live copies of the app (tamber/1.14): a grid of the
+// Several live copies of the app (LLP 1122 T7, forma/1.14): a grid of the
 // dev loop's page, each copy pinned to one mode and text size; or the
 // selected view's states side by side, each copy holding one, in the
 // selection's mode. Each copy is a frame this page names `exact-copy-<n>`;
 // its page posts `{type: 'exact-build', id}` here on registering, and the
 // copy is the build whose word came from that frame (the message's source,
 // from that frame's origin) since the frame last loaded its page: no URL
-// marker. A pin or hold goes only to a
+// marker (theme2's 18:11Z/18:14Z rulings). A pin or hold goes only to a
 // copy's own build, and the grid gives back only what it set and still
 // holds. With Mirror navigation, a copy the person moves leads: the others
 // are sent `navigate` to its location, or reloaded there when their build
 // can't. Each local copy is at a loopback name of its own,
-// `exact-copy-<n>.localhost` (a browser carries six
+// `exact-copy-<n>.localhost` (theme2's F1 ruling: a browser carries six
 // connections a host, and each copy holds a stream), so each has its own
 // storage; through a paired server's gateway the copies share its one origin,
 // and at most 4 show. A pinned copy holds its pin over the app's own choice,
-// and says when the app asked otherwise.
+// and says when the app asked otherwise (F2).
 import type { Sources } from './app.contract.d.ts';
 
 type Call = (path: string, body: unknown, timeout?: number, bound?: string) => Promise<{ error: string; reply: { ok?: any; error?: any }; used: string }>;
@@ -24,7 +24,7 @@ type Pin = { scheme?: string; mode?: Record<string, string>; rootFontSize?: numb
 type Hold = { site: number; instance: unknown[]; state: string };
 type Tile = { name: string; label: string; pin: Pin; state: string };
 
-/** The most copies a grid shows (the default shows fewer, at its measured cap). */
+/** The most copies a grid shows (Q5's measured cap is the default's). */
 export const MOST = 8;
 const NAMES = Array.from({ length: MOST }, (_, i) => `exact-copy-${i + 1}`);
 const ID = /^[\w.:-]{1,64}$/;
@@ -108,7 +108,7 @@ export function gridSources(call: Call, builds: () => Map<string, Build & { pinR
    * asked, or '' with the reply. */
   const send = async (mine: number, body: Record<string, unknown>) => {
     if (mine !== asks) return { why: 'superseded', ok: null as any };
-    const { error, reply, used } = await call('/__tamber', body, undefined, handle || undefined);
+    const { error, reply, used } = await call('/__forma', body, undefined, handle || undefined);
     if (!error && !handle) handle = used;
     return { why: error ? (reply.error?.unsupported ? `unsupported:${error}` : error) : '', ok: reply.ok };
   };
@@ -234,7 +234,7 @@ export function gridSources(call: Call, builds: () => Map<string, Build & { pinR
         note: !b ? 'Waiting for this copy\'s build to say which it is.'
           : !canWrite ? 'Pins need write scope: this copy shows the app\'s own mode.'
           : words || (reason ? `It said: ${reason}` : ''),
-        // (Nothing the app asked is hidden by the pin.)
+        // (theme2's F2 condition 5: nothing the app asked is hidden by the pin.)
         app: st?.app && b?.pin ? `The app set ${appText(st.app)}; pinned to ${pinWords(b.pin)}.` : '',
       });
     }

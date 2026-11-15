@@ -1,4 +1,4 @@
-# The async render host: a page's runner, its requests run
+# The async render host (LLP 1048.000 D9): a page's runner, its requests run
 # by the native executor core the Apple and Linux hosts share, until the
 # document settles or its deadline passes; then exact-web's projection. The
 # build and the server both run it. Native only: exact-web builds to wasm
@@ -12,29 +12,30 @@ description = "The async render host: a page's requests run until its document s
 publish = false
 
 [dependencies]
-# `exact_data::storage`, which the executor core reads a scoped grant through.
+# `exact_data::envelope`'s base64 for the server's hashes.
 exact-data = { path = "../../data" }
 exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
-exact-grants = { path = "../../grants" }
+# The executor the Apple and Linux hosts share (LLP 1048.000 D9).
+exact-executor = { path = "../executor" }
 exact-web = { path = "../web" }
 exact-web-capabilities = { path = "../web-capabilities" }
-# The executor core's transport, as the Apple and Linux hosts
+# The executor core's transport (LLP 1016 D2), as the Apple and Linux hosts
 # take it: rustls off Apple.
 # `websocket`: the transport for an app's WebSockets (exactStream sockets); the
 # vendored v4 crate gates it behind a default feature (27275f3d4), which
 # default-features = false had turned off.
 ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket", "portable-http"] }
-# The Apple executor's hop check, which this crate compiles, reads a hop's host; a scripted socket transport names the type too.
+# A page's base URL, for its CSP (src/csp.rs).
 url = "2.5"
 serde_json = "1.0"
 # The server's ETags and surrogate keys.
 sha2 = "0.10"
-# The server's content codings: brotli, else gzip.
+# The server's content codings (D11): brotli, else gzip.
 brotli = "9"
 flate2 = "1"
-# SIGTERM drains the server.
+# SIGTERM drains the server (D10).
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
@@ -42,12 +43,9 @@ libc = "0.2"
 windows-sys = { version = "0.61.2", features = ["Win32_Networking_WinSock"] }
 
 [features]
-# Integration tests only: a new executor waits for a native-worker slot
-# (src/executor.rs `WAIT_FOR_SLOT`), turned on by the dev-dependency below.
-test-wait = []
+# Integration tests only: each test thread owns its executor worker budget.
+test-budget = []
 
 [dev-dependencies]
-# The listener the shared executor's tests install.
-exact-listen = { path = "../listen" }
-exact-render = { path = ".", features = ["test-wait"] }
+exact-render = { path = ".", features = ["test-budget"] }
 contract = { path = "../../contract/cli" }

@@ -4,7 +4,7 @@ What the agent cannot judge: whether the platform holds a lock when a
 person turns the device. Under the agent the lock is applied for real, so
 the simulator's turns are driven (`drive.mjs`), but a physical phone's
 sensor, a person's rotation lock, an iPad's multitasking and Android 16's
-large-screen rule need a person and a device.
+large-screen rule need a person and a device (LLP 1133.029 §9.1 drive 9).
 Each item says what to see; note the device, the OS version and what you
 saw where it differs.
 
@@ -17,7 +17,7 @@ tablet all four.
 | iPhone, iPad | `bun host/apple/build.mjs --ios orientation-fixture-apple --device --run` |
 | Android phone or tablet | `bun scripts/agent-android.mjs build orientation-fixture --apk`, then `adb install -r` the APK it names (`ANDROID_NDK_HOME` an NDK of clang 18 or newer, `JAVA_HOME` a JDK 17 or newer) |
 | Chrome on Android | `bun host/web/build.mjs orientation-fixture`, its `target/web-dist` served over HTTPS; add it to the home screen or open it, then enter fullscreen from the browser's menu |
-| Windows convertible or tablet | the Windows host's build of the fixture |
+| Windows convertible or tablet | the Windows host's build of the fixture, as LLP 1115.004 builds an app for the NucBox |
 
 Turn the system's own rotation lock off before starting.
 

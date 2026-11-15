@@ -1,6 +1,6 @@
 // A person's Follow button (Bluesky's FollowButtonInner: a solid Button,
 // size "small", rounded_full), an authored pressable as PostButton and
-// HeaderButton are.
+// HeaderButton are (LLP 1139 D9's exception; LLP 1121 stage 15 B batch 2).
 // Its variants are Bluesky's real ones, no knob for a copy's drift: `tone`
 // primary (color primary), inverted (secondary_inverted, colorInverted),
 // subtle (primary_subtle) and overlay (on a video); `size` small or tiny;
@@ -11,8 +11,8 @@
 // Its words are the app's (no English in a package): `text` is the visible
 // label (Follow, Follow back, Following), `label` the spoken one ("" says
 // `text`). Following is said by the label alone, as Bluesky does, with no
-// aria-pressed (a toggle with aria-pressed keeps one label), so the app
-// swaps both. A round button shows no text: its `label`
+// aria-pressed (theme2's 14:15 ruling: a toggle with aria-pressed keeps one
+// label), so the app swaps both. A round button shows no text: its `label`
 // must not be "" ("Follow Ada", "Following Ada"), which the compiler can't
 // see; library-gate.test checks every round cell, and an adopting copy its
 // round sites.

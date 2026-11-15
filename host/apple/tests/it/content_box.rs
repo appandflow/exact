@@ -81,7 +81,7 @@ fn a_box_with_a_percentage_padding_is_sent_its_resolved_content_box() {
         Some(serde_json::json!([10, 0, 200, 100])),
         "points too: the one source a sheet or a failed layout holds"
     );
-    // A scroller UIKit insets under its bars keeps its
+    // A scroller UIKit insets under its bars (LLP 1075.003 §3.5) keeps its
     // CSS padding: the platform adds those insets itself
     let list = view(&host, "list");
     let covered = host.set_covers(&[(list, Some(HostCover::Inset([140.0, 34.0])))]);

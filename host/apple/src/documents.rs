@@ -1,12 +1,13 @@
-//! The documents a person chose, as the Swift host asks for them: minted
-//! for the session that asks, and, for an app granted `doc.keep`, kept
-//! across launches in a set beside its `app:/` roots
-//! (`kept-documents.json`), never inside them. Under the agent that is the
-//! drive's scratch store, and a drive with none keeps nothing.
+//! The documents a person chose, as the Swift host asks for them (@ref LLP
+//! 1069.010 D1; LLP 1069.010.000 D3–D6): minted for the session that asks,
+//! and, for an app granted `doc.keep`, kept across launches in a set beside
+//! its `app:/` roots (`kept-documents.json`), never inside them. Under the
+//! agent that is the drive's scratch store, and a drive with none keeps
+//! nothing.
 //!
 //! The Swift host makes and resolves the security-scoped bookmarks and
 //! reads `NSDocumentController`'s recents, the list that decides what stays
-//! kept; what a bookmark found is checked here against the object
+//! kept (D6); what a bookmark found is checked here against the object
 //! recorded ([`kept::restore`]).
 
 use exact_data::documents::{self, kept};
@@ -27,9 +28,9 @@ const OPS: [&str; 8] = [
     "keptRecents",
 ];
 
-/// Whether an app keeps the documents a person chooses: on a Mac; iOS
-/// keeps nothing until an iOS document app asks.
-fn keeps(grants: &str) -> bool {
+/// Whether an app keeps the documents a person chooses (D7): on a Mac; iOS
+/// keeps nothing until an iOS document app asks (the LLP's Rulings).
+pub(crate) fn keeps(grants: &str) -> bool {
     cfg!(target_os = "macos") && grants.lines().any(|line| line.trim() == "doc.keep")
 }
 
@@ -50,7 +51,7 @@ fn store_file(app_id: &str) -> Option<PathBuf> {
 ///   every handle the session minted that its app does not keep.
 /// - `documentPermission` (`{"path"}`): `{"granted": true}` when the path
 ///   resolves for the session, what a native host answers to
-///   `requestPermission`.
+///   `requestPermission` (LLP 1069.010.000 D7).
 /// - `keptDocuments`, as the session's data activates: `{"keep": false}`
 ///   for an app that keeps nothing; else the records this launch has yet to
 ///   find (`restore`: `n`, `bookmark`, `device`, `inode`), which the host
@@ -90,7 +91,7 @@ fn documents<D: exact_runner::DataSource>(
         s
     };
     // Read the kept set before the session mints anything, so no `<n>` is
-    // one an earlier launch gave.
+    // one an earlier launch gave (D4).
     if keeps(data.grants()) && op != "forgetDocuments" {
         if let Some(file) = store_file(data.app_id()) {
             kept::open(owner, data.app_id(), &file);
@@ -157,7 +158,7 @@ fn documents<D: exact_runner::DataSource>(
                     ))
                 })
                 .collect();
-            // What the list no longer holds is never restored.
+            // What the list no longer holds is never restored (D6).
             kept::held(owner, &recent());
             kept::restore(owner, &found);
             "{}".into()

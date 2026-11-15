@@ -6,7 +6,7 @@
 // `AppDelegate`, the responder every chain ends at, so they fire whatever
 // has focus (the Simulator's own File menu claims plain ⌘R for Record
 // Screen; ⇧⌘R gets through). EXACT_DEV_MENU=0 removes all of it. The
-// standalone adapter installs it; an embedder installs
+// standalone adapter installs it (LLP 1031 D11); an embedder installs
 // nothing.
 #if os(iOS) || os(tvOS)
 import UIKit
@@ -113,7 +113,7 @@ final class DevMenuTarget: NSObject, UIGestureRecognizerDelegate {
 public enum DevMenu {
     static let target = DevMenuTarget()
     nonisolated(unsafe) static weak var sheet: UIViewController?
-    /// On in every build, a release one too, unless `EXACT_DEV_MENU=0` at build or launch.
+    /// On in every build, a release one too (LLP 1115 D9), unless `EXACT_DEV_MENU=0` at build or launch.
     public static var enabled: Bool { ExactEnv.devMenu ?? true }
     /// The session the menu reloads and describes, and the controller that presents the sheet.
     nonisolated(unsafe) static weak var session: ExactSession?
@@ -212,6 +212,7 @@ public enum DevMenu {
     /// controller has presented (a route's sheet, a UIKit sheet), never
     /// refused for it.
     static var presenter: UIViewController? {
+        session?.presenter.navigation.finishBootOwner()
         guard var top = controller else { return nil }
         while let next = top.presentedViewController, !next.isBeingDismissed { top = next }
         return top
@@ -242,7 +243,7 @@ public enum DevMenu {
         #if !os(tvOS)
         a.addAction(UIAlertAction(title: "Copy Info", style: .default) { _ in UIPasteboard.general.string = text })
         #endif
-        // The session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
+        // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
         if FrameSampler.measured { a.addAction(UIAlertAction(title: "Save Trace", style: .default) { _ in saveTrace() }) }
         a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         sheet = a
@@ -250,7 +251,7 @@ public enum DevMenu {
         #endif
     }
 
-    /// Save Trace: where it went, or why not, as an alert.
+    /// Save Trace (LLP 1079 D5): where it went, or why not, as an alert.
     static func saveTrace() {
         guard controller != nil, let session else { return }
         let message: String, saved: URL?
@@ -278,8 +279,8 @@ public enum DevMenu {
     }
     #endif
 
-    /// The typed URL — what a physical iPhone actually uses (a device
-    /// launch carries no environment): seeded with the
+    /// The typed URL — what a physical iPhone actually uses (LLP 1023
+    /// Stage 1: a device launch carries no environment): seeded with the
     /// last value, kept in defaults.
     static func openProject() {
         guard controller != nil else { return }

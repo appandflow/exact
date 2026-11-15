@@ -1,4 +1,4 @@
-# The OAuth fixture on the Linux host.
+# The OAuth fixture on the Linux host (LLP 1019 §13).
 [package]
 name = "oauth-fixture-linux"
 version.workspace = true
@@ -14,8 +14,10 @@ test = false
 bench = false
 
 [dependencies]
+ibex2-sqlite = { path = "../../../vendor/ibex/crates/ibex2-sqlite" }
 exact-logic = { path = "../../../logic" }
 exact-linux = { path = "../../../host/linux" }
+exact-painted = { path = "../../../host/painted" }
 exact-js = { path = "../../../js" }
 
 [build-dependencies]

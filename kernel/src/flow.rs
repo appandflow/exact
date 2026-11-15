@@ -1,4 +1,4 @@
-//! Sparse, derived exclusions in leaf coordinates.
+//! @ref LLP 1043.000 §3 D1–D4, §8 — sparse, derived exclusions in leaf coordinates.
 //!
 //! Frame publication collects exclusions in preorder. This second pass visits
 //! only their wrapping contexts, skipping hidden and exclusion-owned subtrees.
@@ -88,13 +88,13 @@ fn own_length(d: Dimension, env: &Env) -> bool {
 // independent of what the flowed text makes that size.
 fn placed(arena: &NodeArena, exclusion: u32) -> bool {
     let s = arena.style(exclusion);
-    let env = arena.env();
+    let env = &*arena.env_of(exclusion);
     let bounded = |d: Dimension| matches!(d, Dimension::Auto) || own_length(d, env);
-    own_length(s.top, env)
-        && (own_length(s.height, env)
+    own_length(s.top.clone(), env)
+        && (own_length(s.height.clone(), env)
             || (s.height == Dimension::Auto && s.bottom == Dimension::Auto))
-        && bounded(s.min_height)
-        && bounded(s.max_height)
+        && bounded(s.min_height.clone())
+        && bounded(s.max_height.clone())
 }
 
 // A block places children in order: a child's offset depends on what precedes
@@ -107,12 +107,13 @@ fn orders(arena: &NodeArena, slot: u32) -> bool {
 
 fn in_flow(arena: &NodeArena, slot: u32) -> bool {
     let s = arena.effective_style(slot);
-    let offset = |d: Dimension| d == Dimension::Auto || own_length(d, arena.env());
+    let env = arena.env_of(slot);
+    let offset = |d: Dimension| d == Dimension::Auto || own_length(d, &env);
     // A static or sticky box's insets do not move its layout; a relative one's
     // must not depend on the context's height. A popover is out of flow.
     match crate::style::top_layer::layout_position(arena, slot) {
         PositionType::Static | PositionType::Sticky => true,
-        PositionType::Relative => offset(s.top) && offset(s.bottom),
+        PositionType::Relative => offset(s.top.clone()) && offset(s.bottom.clone()),
         PositionType::Absolute => false,
     }
 }
@@ -126,7 +127,7 @@ pub(crate) fn contexts(arena: &NodeArena, exclusions: &[u32]) -> Contexts {
         let Some(context) = arena.parent(exclusion) else {
             continue;
         };
-        // The exclusion is placed against its containing
+        // @ref LLP 1074 T1 — the exclusion is placed against its containing
         // block. Auto-height flow is proven only where that is the context.
         let contains = arena.is_root(context)
             || crate::style::top_layer::layout_position(arena, context) != PositionType::Static;
@@ -201,7 +202,7 @@ pub(crate) fn visible_exclusions(arena: &NodeArena, root: u32) -> Vec<u32> {
                     return true;
                 }
                 // Another layout's: an exclusion shapes no text across a
-                // host's containing block.
+                // host's containing block (LLP 1115.002 D8.2).
                 if arena.blocks.holds(at) {
                     return false;
                 }
@@ -255,12 +256,7 @@ fn visit(
         };
         let resolve_shape = |exclusion| {
             let f = frame(exclusion);
-            let s = arena.style(exclusion);
-            s.rare
-                .shape_outside
-                .resolve(f.width, f.height)
-                .grow(s.shape_margin)
-                .translate(f.x, f.y)
+            resolved_shape(arena, exclusion, f)
         };
         let first_shape = resolve_shape(first);
         let grouped;
@@ -321,6 +317,96 @@ pub(crate) fn targets(
             out.entry(leaf).or_default().extend(shapes);
         }
     });
+    out
+}
+
+fn resolved_shape(arena: &NodeArena, slot: u32, frame: Frame) -> FlowShape {
+    let s = arena.style(slot);
+    s.rare
+        .shape_outside
+        .resolve(frame.width, frame.height)
+        .grow(s.shape_margin)
+        .translate(frame.x, frame.y)
+}
+
+fn region_shell_exclusion(arena: &NodeArena, owner: u32, slot: u32) -> bool {
+    is_exclusion(arena, slot)
+        && arena
+            .parent(slot)
+            .is_some_and(|context| context == owner || arena.is_ancestor(context, owner))
+}
+
+/// Shell exclusions, their ancestors and their descendants: the nodes whose
+/// commits or intrinsic sizes can change the region's wrapping geometry.
+pub(crate) fn region_shell_inputs(arena: &NodeArena, owner: u32) -> crate::id::IdSet<NodeKey> {
+    let mut inputs = crate::id::IdSet::default();
+    for slot in arena.exclusion_slots.iter() {
+        if region_shell_exclusion(arena, owner, slot) {
+            let mut below = arena.children(slot).to_vec();
+            while let Some(s) = below.pop() {
+                inputs.insert(arena.key(s));
+                below.extend_from_slice(arena.children(s));
+            }
+            let mut at = Some(slot);
+            while let Some(s) = at {
+                if !inputs.insert(arena.key(s)) {
+                    break;
+                }
+                at = arena.parent(s);
+            }
+        }
+    }
+    inputs
+}
+
+/// Shell exclusions that can reach the region, relative to its owner's origin.
+/// Their geometry can change without touching any paragraph in the region.
+pub(crate) fn region_shell_shapes(
+    arena: &NodeArena,
+    owner: u32,
+    frames: &[crate::RegionFrame],
+    origin: Frame,
+) -> Vec<FlowShape> {
+    frames
+        .iter()
+        .filter_map(|f| {
+            let slot = arena.resolve(f.node)?;
+            region_shell_exclusion(arena, owner, slot)
+                .then(|| resolved_shape(arena, slot, f.frame).translate(-origin.x, -origin.y))
+        })
+        .collect()
+}
+
+/// Definite-height region paint inputs, resolved from the candidate's own frames.
+/// Auto-height region text keeps its unobstructed measurement.
+pub(crate) fn region_targets<'a>(
+    arena: &NodeArena,
+    root: u32,
+    frames: impl Iterator<Item = &'a crate::RegionFrame>,
+) -> IdMap<u32, Vec<FlowShape>> {
+    let exclusions = visible_exclusions(arena, root);
+    let mut out = IdMap::<u32, Vec<FlowShape>>::default();
+    if exclusions.is_empty() {
+        return out;
+    }
+    let live: HashMap<_, _> = frames
+        .filter_map(|f| arena.resolve(f.node).map(|s| (s, f)))
+        .collect();
+    let exclusions: Vec<_> = exclusions
+        .into_iter()
+        .filter(|s| live.contains_key(s))
+        .collect();
+    visit(
+        arena,
+        &exclusions,
+        &|s| live[&s].frame,
+        &|s| live.contains_key(&s),
+        |leaf, shapes| {
+            if !live[&leaf].height_measured {
+                out.entry(leaf).or_default().extend(shapes);
+            }
+        },
+    );
     out
 }
 
@@ -468,7 +554,7 @@ pub(crate) fn shapes_eq(a: &[FlowShape], b: &[FlowShape]) -> bool {
 
 /// The region path publishes frames separately; carry the same height proof and
 /// use only selected live keys, never the unselected placeholder/content branch.
-/// RegionLayoutReceipt.shell carries both flow lists.
+/// @ref LLP 1043.000 §3 D4 — RegionLayoutReceipt.shell carries both flow lists.
 pub(crate) fn resolve_region(
     arena: &mut NodeArena,
     root: u32,

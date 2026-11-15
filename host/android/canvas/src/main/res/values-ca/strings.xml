@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="exact_clear">Esborra</string>
+    <string name="exact_default_channel">Notificacions</string>
+    <string name="exact_silent_channel">Notificacions silencioses</string>
 </resources>

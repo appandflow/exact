@@ -4,7 +4,7 @@ use super::{
     arms, disagree, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
 use contract_syntax::{
-    Attr, Component, Expr, File, Node, Owner, Span, TemplatePart, TypeExpr, UnOp, HOST_COMMANDS,
+    Attr, Component, Expr, File, Node, Owner, Span, TypeExpr, UnOp, HOST_COMMANDS,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -35,8 +35,10 @@ pub(super) fn roster_spelling(f: exact_plan::Stdlib, spec: &str) -> &str {
         (Stdlib::Length | Stdlib::IsEmpty, "any") => "string | list",
         (Stdlib::ToString, "any") => "number | string | bool",
         (Stdlib::First | Stdlib::At, "any") => "list",
-        // The ISO 4217 codes `"currency"` takes, too many to spell here.
-        (Stdlib::FormatNumber, code) if code.starts_with("\"USD\"") => "\"USD\" | \"EUR\" | …",
+        // The ISO 4217 codes `"currency"` takes (LLP 1116 D8), too many to spell here.
+        (Stdlib::FormatNumber, code) if code.starts_with("\"USD\"") => {
+            "\"USD\" | \"EUR\" | … | 0..=100"
+        }
         _ => spec,
     }
 }
@@ -106,54 +108,10 @@ pub(super) fn check_function_cycles(file: &File) -> Result<(), TypeError> {
 
 /// Function calls in expression order, excluding calls outside the authored graph.
 fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
-    match e {
-        Expr::Call(n, args, _) => {
-            if let Some(&index) = indices.get(n.as_str()) {
-                out.push(index);
-            }
-            for a in args {
-                calls_in(a, indices, out);
-            }
-        }
-        Expr::Some(x, _)
-        | Expr::Unary(_, x, _)
-        | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _)
-        | Expr::Typed(x, _, _) => calls_in(x, indices, out),
-        Expr::Binary(_, a, b, _) => {
-            calls_in(a, indices, out);
-            calls_in(b, indices, out);
-        }
-        Expr::Ternary(a, b, c, _) => {
-            calls_in(a, indices, out);
-            calls_in(b, indices, out);
-            calls_in(c, indices, out);
-        }
-        Expr::Match {
-            subject,
-            some,
-            none,
-            ..
-        } => {
-            calls_in(subject, indices, out);
-            calls_in(some, indices, out);
-            calls_in(none, indices, out);
-        }
-        Expr::Let { value, body, .. } => {
-            calls_in(value, indices, out);
-            calls_in(body, indices, out);
-        }
-        Expr::Arrow { body, .. } => calls_in(body, indices, out),
-        Expr::Template(parts, _) => {
-            for p in parts {
-                if let TemplatePart::Expr(x) = p {
-                    calls_in(x, indices, out);
-                }
-            }
-        }
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
-        Expr::List(items, _) => items.iter().for_each(|x| calls_in(x, indices, out)),
-    }
+    out.extend(e.walk().filter_map(|e| match e {
+        Expr::Call(n, _, _) => indices.get(n.as_str()).copied(),
+        _ => None,
+    }));
 }
 
 pub(super) use super::enums::accepts_expr;
@@ -181,7 +139,7 @@ pub(super) fn call_arity<P: std::fmt::Display>(
     params: impl IntoIterator<Item = P>,
 ) -> String {
     let params: Vec<_> = params.into_iter().map(|p| p.to_string()).collect();
-    // A trailing optional parameter is spelled `number?`.
+    // A trailing optional parameter is spelled `number?` (LLP 1088 D2).
     let required = params.iter().filter(|p| !p.ends_with('?')).count();
     let count = if required == params.len() {
         params.len().to_string()
@@ -189,7 +147,7 @@ pub(super) fn call_arity<P: std::fmt::Display>(
         format!("{required} to {}", params.len())
     };
     if contract_syntax::idioms::is_method(name) && !params.is_empty() {
-        // `x.slice(…)` counts what is in its parentheses.
+        // `x.slice(…)` counts what is in its parentheses (LLP 1116.015 D2).
         let rest = &params[1..];
         let required = required.saturating_sub(1);
         let count = if required == rest.len() {
@@ -308,6 +266,8 @@ impl Shapes {
 }
 
 /// Reject shape cycles before lowering recursively materializes plan types.
+/// The walk keeps its own stack, so a long acyclic chain of shapes reaches
+/// the depth refusal instead of exhausting the native one.
 pub(super) fn check_shape_cycles(file: &File, shapes: &Shapes) -> Result<(), TypeError> {
     let indices: BTreeMap<&str, usize> = file
         .shapes
@@ -315,67 +275,70 @@ pub(super) fn check_shape_cycles(file: &File, shapes: &Shapes) -> Result<(), Typ
         .enumerate()
         .map(|(i, shape)| (shape.name.as_str(), i))
         .collect();
+    // 0: unvisited, 1: on the path, 2: done.
     let mut states = vec![0u8; file.shapes.len()];
-    let mut path = Vec::new();
-    for i in 0..file.shapes.len() {
-        visit_shape(i, file, shapes, &indices, &mut states, &mut path)?;
-    }
-    Ok(())
-}
-
-fn visit_shape(
-    index: usize,
-    file: &File,
-    shapes: &Shapes,
-    indices: &BTreeMap<&str, usize>,
-    states: &mut [u8],
-    path: &mut Vec<String>,
-) -> Result<(), TypeError> {
-    if states[index] == 2 {
-        return Ok(());
-    }
-    states[index] = 1;
-    path.push(file.shapes[index].name.clone());
-    for field in &file.shapes[index].fields {
-        // Wrapper types still depend on their leaf shape. Ask the same
-        // resolver as field typing: primitive names take precedence even if
-        // an authored shape has that spelling.
-        let mut leaf = &field.ty;
-        while let TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) = leaf {
-            leaf = inner;
-        }
-        let Ty::Record(name) = shapes.resolve(leaf)? else {
+    for root in 0..file.shapes.len() {
+        if states[root] != 0 {
             continue;
-        };
-        let Some(&next) = indices.get(name.as_str()) else {
-            continue;
-        };
-        if states[next] == 1 {
-            let start = path.iter().position(|part| part == &name).unwrap_or(0);
-            let mut cycle = path[start..].to_vec();
-            cycle.push(name);
-            return err(
-                "type-shape-recursive",
-                format!(
-                    "shape field `{}` makes a recursive type cycle ({}); plan values are finite trees",
-                    field.name,
-                    cycle.join(" -> ")
-                ),
-                field.span,
-            );
         }
-        visit_shape(next, file, shapes, indices, states, path)?;
+        // The path from `root`, each shape with the next field to follow.
+        let mut path: Vec<(usize, usize)> = vec![(root, 0)];
+        states[root] = 1;
+        while let Some(top) = path.last_mut() {
+            let (index, cursor) = *top;
+            top.1 += 1;
+            let Some(field) = file.shapes[index].fields.get(cursor) else {
+                states[index] = 2;
+                path.pop();
+                continue;
+            };
+            // Wrapper types still depend on their leaf shape. Ask the same
+            // resolver as field typing: primitive names take precedence even if
+            // an authored shape has that spelling.
+            let mut leaf = &field.ty;
+            while let TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) = leaf {
+                leaf = inner;
+            }
+            let Ty::Record(name) = shapes.resolve(leaf)? else {
+                continue;
+            };
+            let Some(&next) = indices.get(name.as_str()) else {
+                continue;
+            };
+            match states[next] {
+                0 => {
+                    states[next] = 1;
+                    path.push((next, 0));
+                }
+                1 => {
+                    let start = path.iter().position(|&(i, _)| i == next).unwrap_or(0);
+                    let mut cycle: Vec<&str> = path[start..]
+                        .iter()
+                        .map(|&(i, _)| file.shapes[i].name.as_str())
+                        .collect();
+                    cycle.push(&name);
+                    return err(
+                        "type-shape-recursive",
+                        format!(
+                            "shape field `{}` makes a recursive type cycle ({}); plan values are finite trees",
+                            field.name,
+                            cycle.join(" -> ")
+                        ),
+                        field.span,
+                    );
+                }
+                _ => {}
+            }
+        }
     }
-    path.pop();
-    states[index] = 2;
     Ok(())
 }
 
 /// The lexical scope at each expanded region arm, by tag and arm, whose
 /// subject types now, and whether every region's subject typed. A region
 /// over a list a later write completes (`state items = []`) is skipped,
-/// with all it holds: the view check refuses a list that never types,
-/// without a fixed point.
+/// with all it holds: the view check refuses a list that never types
+/// (@ref LLP 1088 D6's two repros, without its fixed point).
 fn owner_scopes(
     c: &Component,
     ct: &ComponentTypes,
@@ -394,7 +357,7 @@ fn owner_scopes(
 /// Infer each lifted child state's initializer where its instance is
 /// created: in its use site's scope, after derives and resources have
 /// types, so it may read them, a row's item, a `match` binding, and every
-/// earlier state.
+/// earlier state (LLP 1017 P4c).
 pub(super) fn infer_owned_state_initializers(
     c: &Component,
     ct: &mut ComponentTypes,
@@ -475,7 +438,7 @@ pub(super) fn infer_owned_state_initializers(
             if let Some(e) = super::component::initializer_scope(c, i, &scope, &types.shapes) {
                 return Err(e);
             }
-            ct.slots[i] = infer(&state.expr, &scope, &types.shapes)?;
+            ct.slots[i] = super::component::state_type(state, &scope, &types.shapes)?;
         }
         base.push_name_at(
             1,
@@ -551,7 +514,7 @@ fn collect_owner_scopes(
     complete
 }
 
-/// The three pickers' positional arguments: an element
+/// The three pickers' positional arguments (LLP 1069.010 D2): an element
 /// id, then `multiple` (a bool) for `showOpenFilePicker` or
 /// `suggestedName` (a string) for `showSaveFilePicker`.
 fn picker_args(
@@ -604,10 +567,10 @@ fn picker_args(
     Ok(())
 }
 
-/// `saveFile(id, from, suggestedName)`: three strings,
+/// `saveFile(id, from, suggestedName)` (LLP 1069.010 D3): three strings,
 /// positional. Whether `from` is granted is the host's to refuse. Or the
 /// file's text itself, `saveFile(id, text=…, suggestedName=…)`, so
-/// exporting what is on screen is one press: the names
+/// exporting what is on screen is one press (x2apps notes #4): the names
 /// are `share`'s `text` and `showSaveFilePicker`'s `suggestedName`.
 fn save_file_args(
     args: &[Expr],
@@ -654,7 +617,7 @@ fn save_file_args(
     Ok(())
 }
 
-/// `share(title=, text=, url=, files=)`:
+/// `share(title=, text=, url=, files=)` (LLP 1069.003 D1; LLP 1125 D12):
 /// the Web Share API's member names, named only, at least one of `text`,
 /// `url` and `files`; each a string but `files`, a list of strings. A
 /// literal file is an `app:/` path or an element's `"#id"`. Whether `url`
@@ -711,7 +674,7 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
 }
 
 /// `files=`: a list of strings; a literal list shares something, and each
-/// literal entry is an `app:/` path or an `"#id"`.
+/// literal entry is an `app:/` path or an `"#id"` (LLP 1125 D12).
 fn share_files(value: &Expr, t: &Ty) -> Result<(), TypeError> {
     if Ty::List(Box::new(Ty::String)).unify(t).is_none() {
         return err(
@@ -742,13 +705,13 @@ fn share_files(value: &Expr, t: &Ty) -> Result<(), TypeError> {
     Ok(())
 }
 
-/// `scrollIntoView("list-id", key, block=, inline=, behavior=, row=)`: a
-/// virtualized list's `id` as a literal, a row key, and the
+/// `scrollIntoView("list-id", key, block=, inline=, behavior=, row=)` (LLP
+/// 1070.000 §1): a virtualized list's `id` as a literal, a row key, and the
 /// web's `ScrollIntoViewOptions` by name with literal values; `row=` names an
 /// inner list's outer row. Whether the list exists is the runner's to find.
 /// With one positional argument, `scrollIntoView("element-id", block=,
 /// inline=, behavior=)` is `Element.scrollIntoView()` on any element by its
-/// HTML `id`, as `focus("id")` names one: its scroll
+/// HTML `id`, as `focus("id")` names one (minesweeper F3): its scroll
 /// containers, innermost first, then the page; the host finds it.
 fn into_view_args(
     args: &[Expr],
@@ -872,15 +835,15 @@ pub(super) fn check_command(
     span: Span,
 ) -> Result<(), TypeError> {
     if !HOST_COMMANDS.contains(&name) {
-        // A name some component declares as an action is told where it is:
-        // this component's own and its action props and
+        // A name some component declares as an action is told where it is
+        // (LLP 1089 D10): this component's own and its action props and
         // injects are calls, which never reach here.
         let message = match shapes.actions.get(name) {
             Some(owner) if owner != component => format!(
                 "`{name}` is an action of `{owner}`, not in `{component}`'s scope; pass it as an `action` prop or `provide` it"
             ),
             None if matches!(name, "showNotification" | "closeNotification" | "setAppBadge" | "clearAppBadge") => format!(
-                "`{name}` is `@exact/notifications`': `exact add notifications`, then `use {name} from \"@exact/notifications\"` (`closeNotification` takes `tag=`)"
+                "`{name}` is `@exact/notifications`' (LLP 1133.004): `bun exact.mjs add notifications`, then `use {name} from \"@exact/notifications\"` (`closeNotification` takes `tag=`)"
             ),
             _ => format!(
                 "`{name}` is not a host command; the hosts answer {}",
@@ -912,7 +875,7 @@ pub(super) fn check_command(
             span,
         );
     }
-    // one opacity, 0 (unseen) to 1 (opaque).
+    // @ref LLP 1069.010 — one opacity, 0 (unseen) to 1 (opaque).
     if name == "setWindowOpacity" {
         let fits = match args {
             [Expr::Number(n, _)] => (0.0..=1.0).contains(n),
@@ -929,10 +892,17 @@ pub(super) fn check_command(
             span,
         );
     }
+    if name == "hideWindow" && !args.is_empty() {
+        return err(
+            "type-hide-window",
+            "`hideWindow()` takes no arguments: the session's window is put away and the app keeps running, as when the person closes it under `keepRunning`; bare `focus()` shows it again",
+            span,
+        );
+    }
     if name == "close" && args.len() > 1 {
         return err(
             "type-close",
-            "`close()` closes the window this session shows, without asking its `beforeunload` again; `close(id)` closes the dialog with that `id`; nothing else",
+            "`close()` closes the window this session shows, without asking its `beforeunload` again; `close(id)` closes the dialog with that `id` (LLP 1101.001 P5); nothing else",
             span,
         );
     }
@@ -1008,7 +978,10 @@ pub(super) fn check_command(
     if name == "setRootFontSize" {
         return root_font_size_args(args, scope, shapes, span);
     }
-    // one factor, CSS px per device-independent
+    if name == "setLocale" {
+        return super::strings::set_locale_args(args, scope, shapes, span);
+    }
+    // @ref LLP 1021 §5.3.1 — one factor, CSS px per device-independent
     // pixel: 1 is Actual Size.
     if name == "setPageZoom" {
         let fits = match args {
@@ -1025,7 +998,7 @@ pub(super) fn check_command(
             span,
         );
     }
-    // an axis and its value; lowering checks literal
+    // @ref LLP 1121 D5 — an axis and its value; lowering checks literal
     // ones against the design's axes.
     if name == "setMode" {
         let [axis, value] = args else {
@@ -1042,7 +1015,10 @@ pub(super) fn check_command(
         }
         return Ok(());
     }
-    if matches!(name, "playSound" | "playSounds" | "stopSounds" | "haptic") {
+    if matches!(
+        name,
+        "playSound" | "playSounds" | "stopSounds" | "setSounds" | "haptic"
+    ) {
         return sounds::args(name, args, scope, shapes, span);
     }
     if matches!(name, "requestMIDIAccess" | "sendMIDI") {
@@ -1085,9 +1061,9 @@ pub(super) fn check_command(
 }
 
 /// `setRootFontSize(px)`, a number of CSS pixels, `setRootFontSize("125%")`,
-/// a percentage of the host's size that follows it, or
-/// `setRootFontSize("medium")`, CSS's keyword for the host's own size.
-/// A size the source spells as zero or less, or a string that
+/// a percentage of the host's size that follows it (LLP 1121 D6), or
+/// `setRootFontSize("medium")`, CSS's keyword for the host's own size (LLP
+/// 1069.000 D3). A size the source spells as zero or less, or a string that
 /// is neither, is refused here; a computed one, when it runs.
 fn root_font_size_args(
     args: &[Expr],
@@ -1126,7 +1102,8 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                 ..
             } => {
                 for p in positional {
-                    // `scroll document` and `input switch` are words, not names.
+                    // `scroll document` and `input switch` are words, not names
+                    // (LLP 1048.003 D4, LLP 1069.001 D1).
                     if !contract_syntax::is_scroll_document(tag, p)
                         && !contract_syntax::is_input_switch(tag, p)
                         && !contract_syntax::is_input_multiple(tag, p)
@@ -1315,7 +1292,7 @@ fn check_attr(a: &Attr, scope: &Scope, shapes: &Shapes) -> Result<(), TypeError>
     if shapes.style_attr.is_some_and(|style| style(&a.name)) {
         return style_value(&a.value, scope, shapes).map(|_| ());
     }
-    // `glassGroup` alone may put the literal
+    // @ref LLP 1053.000.000.000 D1 — `glassGroup` alone may put the literal
     // `"auto"` beside numbers in a choice; lowering rewrites it to `-1`.
     if a.name == "glassGroup" {
         return glass_group_value(&a.value, scope, shapes).map(|_| ());
@@ -1429,10 +1406,20 @@ fn spacing_tree(e: &Expr) -> bool {
 /// in the other; lowering checks each literal against the row and the
 /// runner converts each value; `none` clears a row, as a one-sided class does.
 /// Arms that disagree otherwise are refused as
-/// any expression's are.
+/// any expression's are. A `let` around the choice (a shared derive's or
+/// prop's) leaves its arms the value's.
 fn style_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
     if matches!(e, Expr::None(_)) {
         return Ok(Ty::Unknown);
+    }
+    if let Expr::Let {
+        name, value, body, ..
+    } = e
+    {
+        let t = infer(value, scope, shapes)?;
+        let mut inner = scope.clone();
+        inner.push(vec![(name.clone(), Ref::Local(0), t)]);
+        return style_value(body, &inner, shapes);
     }
     if !matches!(e, Expr::Ternary(..) | Expr::Match { .. }) {
         return infer(e, scope, shapes);

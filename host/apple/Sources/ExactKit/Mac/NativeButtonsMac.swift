@@ -1,21 +1,38 @@
-// Native buttons on AppKit: a `button appearance="auto"` is a
+// Native buttons on AppKit (LLP 1069.011): a `button appearance="auto"` is a
 // `Control` of type `button`, and its control is AppKit's own `NSButton`,
 // its look the `buttonStyles` row's macOS column (`borderless`, `push`,
 // `push-accent`, `glass`, `glass-accent`). Its title and symbol are the
 // node's face, read from the kernel (`exact_button_face`). The button takes
-// the click and runs the node's activation; it is the focus owner and
-// relays focus and keys to its node, and a click on it leaves
-// the first responder where it is. It is the one
+// the click and runs the node's activation (D4); it is the focus owner and
+// relays focus and keys to its node (LLP 1104 D6), and a click on it leaves
+// the first responder where it is (LLP 1115.000 D7.1). It is the one
 // accessibility element. A glass look's button is the glass body the
-// glass-group pass isolates.
+// glass-group pass isolates (D9).
 #if os(macOS)
 import AppKit
 
 /// A native button's cell: AppKit ignores the button, so the cell is the
 /// accessibility element VoiceOver lands on. Its show menu (AXShowMenu) is
-/// its node's, offered where the node offers it: a `contextPopover`.
+/// its node's, offered where the node offers it (X84): a `contextPopover`.
 final class NativeButtonCellMac: NSButtonCell {
     private var owner: NodeView? { (controlView as? NativeButtonMac)?.owner }
+    var imagePadding: NSEdgeInsets?
+    var borderlessImage: Bool { !isBordered && imagePosition == .imageOnly && image != nil }
+    override func imageRect(forBounds rect: NSRect) -> NSRect {
+        guard borderlessImage, let p = imagePadding else { return super.imageRect(forBounds: rect) }
+        let content = NSRect(x: rect.minX + p.left, y: rect.minY + (controlView?.isFlipped == false ? p.bottom : p.top),
+            width: max(0, rect.width - p.left - p.right), height: max(0, rect.height - p.top - p.bottom))
+        return super.imageRect(forBounds: content)
+    }
+    // AppKit's borderless push cell supplies empty focus bounds and, for
+    // some symbols, no mask. Let AppKit ring the image's alpha instead.
+    override func focusRingMaskBounds(forFrame cellFrame: NSRect, in controlView: NSView) -> NSRect {
+        borderlessImage ? imageRect(forBounds: cellFrame) : super.focusRingMaskBounds(forFrame: cellFrame, in: controlView)
+    }
+    override func drawFocusRingMask(withFrame cellFrame: NSRect, in controlView: NSView) {
+        guard borderlessImage, let image else { super.drawFocusRingMask(withFrame: cellFrame, in: controlView); return }
+        drawImage(image, withFrame: imageRect(forBounds: cellFrame), in: controlView)
+    }
     /// AppKit's highlight while the mouse holds it, and a held press's beside it (HeldState.swift).
     override var isHighlighted: Bool {
         get { super.isHighlighted || owner?.holds("active") == true }
@@ -29,8 +46,8 @@ final class NativeButtonCellMac: NSButtonCell {
         (controlView as? NativeButtonMac)?.nativeHighlightChanged()
     }
     /// A borderless button's title stands inside the padding the kernel
-    /// applied at each side it names (an author's, or a list row's inset),
-    /// as UIKit's configuration's content insets place it; a
+    /// applied at each side it names (an author's, or a list row's inset,
+    /// LLP 1138), as UIKit's configuration's content insets place it; a
     /// bezel's title stays AppKit's, centred in its bezel.
     override func titleRect(forBounds rect: NSRect) -> NSRect {
         guard !isBordered, let p = owner?.kernelPadding, p.count == 4 else { return super.titleRect(forBounds: rect) }
@@ -62,7 +79,11 @@ final class NativeButtonCellMac: NSButtonCell {
 final class NativeButtonMac: NSButton {
     override class var cellClass: AnyClass? { get { NativeButtonCellMac.self } set {} }
     weak var owner: NodeView?
-    override var focusRingMaskBounds: NSRect { uncovered(super.focusRingMaskBounds) }
+    override var focusRingMaskBounds: NSRect {
+        // NSButton bypasses its cell's focus bounds for borderless images.
+        guard let cell = cell as? NativeButtonCellMac, cell.borderlessImage else { return uncovered(super.focusRingMaskBounds) }
+        return uncovered(cell.focusRingMaskBounds(forFrame: bounds, in: self))
+    }
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
         if attribute.rawValue == "AXEnabled", owner?.ariaUnavailable == true { return false }
         return super.accessibilityAttributeValue(attribute)
@@ -179,8 +200,8 @@ final class NativeButtonMac: NSButton {
                 title.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: title.length))
                 attributedTitle = title
             }
-            if let color = ButtonConfigurationMac.color(rows.symbol["tint_color"], appearance: owner.effectiveAppearance, accent: written.accent), let base = image {
-                let path = written.face.symbol.map(FaceSymbol.isPath) == true
+            if written.face.symbol.map(FaceSymbol.isOriginal) != true, let color = ButtonConfigurationMac.color(rows.symbol["tint_color"], appearance: owner.effectiveAppearance, accent: written.accent), let base = image {
+                let path = written.face.symbol.map(FaceSymbol.isCustom) == true
                 let shown = path ? FaceSymbol.tinted(base, color)
                     : base.withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [color]))
                         ?? (base.isTemplate ? FaceSymbol.tinted(base, color) : nil)
@@ -201,7 +222,7 @@ final class NativeButtonMac: NSButton {
     var isGlass = false
     /// The look drawn, its name in the table's macOS column.
     var drawn = "push"
-    // It takes the focus an action or
+    // @ref LLP 1104 D6; LLP 1115.000 D7.2 — it takes the focus an action or
     // `autofocus` gives it whatever Keyboard Navigation says, and is a Tab
     // stop as that setting has an `NSButton` (`NodeView.tabStop`).
     override var acceptsFirstResponder: Bool {
@@ -210,8 +231,8 @@ final class NativeButtonMac: NSButton {
             && !isHiddenOrHasHiddenAncestor && !owner.cssVisibilityHidden
     }
     override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabStop == true }
-    /// A click gives the button no focus, whatever its `tabindex`. AppKit's
-    /// window focuses a clicked view that accepts
+    /// A click gives the button no focus, whatever its `tabindex` (LLP
+    /// 1115.000 D7.1). AppKit's window focuses a clicked view that accepts
     /// first responder and needs its panel key, before the mouse-down.
     override var needsPanelToBecomeKey: Bool { false }
     override func becomeFirstResponder() -> Bool {
@@ -232,8 +253,8 @@ final class NativeButtonMac: NSButton {
             owner.presenter?.tab(from: self, back: event.modifierFlags.contains(.shift), in: window)
             return
         }
-        // Space presses the focused control. Return is the default button's:
-        // a dialog's took it before it came here
+        // Space presses the focused control. Return is the default button's
+        // (LLP 1115.000 D7.3): a dialog's took it before it came here
         // (`DialogHost.key`), and a merely focused button does nothing with
         // it. A menu's row, or a button its author opted in, presses on it
         // (`pressesOnReturn`).
@@ -242,8 +263,8 @@ final class NativeButtonMac: NSButton {
             return
         }
         if name == "Enter" { return }
-        // An authored radio group's arrows (Radios.swift, `ariaRadioKey`).
-        if owner.presenter?.controls.radioKey(owner, name, held: KeyCodes.held(event.modifierFlags)) == true { return }
+        // A painted radio group's or tablist's keys (RoleKeys.swift).
+        if owner.presenter?.controls.roleKey(owner, name, held: KeyCodes.held(event.modifierFlags)) == true { return }
         super.keyDown(with: event)
     }
     /// Return's press of a dialog's default button: AppKit's own click, its
@@ -260,17 +281,17 @@ final class NativeButtonMac: NSButton {
     /// counts here as at a node (`NodeView.everyClickCounts`): without it a
     /// destructive button took no click from the driver at all.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { NodeView.everyClickCounts || super.acceptsFirstMouse(for: event) }
-    // `pointerdown`/`pointerup`: AppKit's tracking loop
+    // `pointerdown`/`pointerup` (LLP 1005 §Events): AppKit's tracking loop
     // takes the button's mouse events, so the node hears them here. The up
     // goes before the action the loop sends, DOM's order.
     override func mouseDown(with event: NSEvent) {
         defer { heldContact = false; cancelsHeldContact = false }
         // A Control-click that a `contextPopover` or `contextmenu` from its
-        // node up answers is no click.
+        // node up answers is no click (X85).
         if contextClicked(event) { return }
         owner?.pointerPressed(event)
-        // A click leaves the first responder where it is: AppKit's tracking
-        // must not take the editor beside it. The
+        // A click leaves the first responder where it is (LLP 1115.000
+        // D7.1): AppKit's tracking must not take the editor beside it. The
         // button accepts first responder for Tab, `focus()` and `autofocus`.
         refusesFirstResponder = true
         defer { refusesFirstResponder = false }
@@ -281,7 +302,7 @@ final class NativeButtonMac: NSButton {
         owner?.pointerReleased(nil)
         // The loop ends a click with the action; the second of two is then
         // a double click, heard from the node up after its press, the web's
-        // order, as a node's own `mouseUp` sends it.
+        // order (LLP 1057.001 §1 rule 5), as a node's own `mouseUp` sends it.
         if clicked, let owner { owner.dispatchDblclick(owner.dblclickTarget(event)) }
     }
     /// The tracking loop sent the action: the click landed.
@@ -305,11 +326,11 @@ final class NativeButtonMac: NSButton {
 }
 
 extension NodeView {
-    /// A `button appearance="auto"`.
+    /// A `button appearance="auto"` (LLP 1069.011 D3).
     var isNativeButton: Bool { kind == "control" && props["type"] == "button" }
 
     /// Where a native control sits: the isolation container's content when
-    /// the glass-group pass made one, else the node.
+    /// the glass-group pass made one (D9), else the node.
     var controlMount: NSView {
         if #available(macOS 26.0, *), let isolation = glassIsolation as? NSGlassEffectContainerView, let content = isolation.contentView {
             return content
@@ -321,18 +342,18 @@ extension NodeView {
     var nativeTitle: String? { (presenter?.controls.controls[id] as? NativeButtonMac)?.written?.face.title }
 
     /// The native glass button this node shows, the glass body the
-    /// glass-group pass isolates; nil for anything else.
+    /// glass-group pass isolates (D9); nil for anything else.
     var nativeGlassBody: NSView? {
         guard isNativeButton, let b = presenter?.controls.controls[id] as? NativeButtonMac, b.isGlass else { return nil }
         return b
     }
 
-    /// The button's action is what a custom button's click does, once.
+    /// D4: the button's action is what a custom button's click does, once.
     /// The target is this node or, without a handler, the nearest ancestor
     /// with one whose box holds the click (refused at a disabled or inert
     /// one), as iOS resolves it. The focus stays where it is, for a click,
     /// for Space on the focused button and for Return's press of a default
-    /// button alike: the action's own `focus()` is what
+    /// button alike (LLP 1115.000 D7.1): the action's own `focus()` is what
     /// moves it. Then `press` and the canvas's pointer return. `mouse`: the
     /// mouse's press AppKit sent the action for, whose point the press
     /// carries (`Presenter.pressPoint`); a key's has none.
@@ -374,7 +395,8 @@ extension NodeView {
 
 extension NodeView {
     /// A field's text: its own `color`, else the design's `FieldText`, else
-    /// the platform's; an inherited colour never tints a field.
+    /// the platform's; an inherited colour never tints a field (LLP 1115 D4,
+    /// LLP 1121 D9).
     /// A field of the author's own (`appearance="none"`) is their box, and
     /// inherits as text does.
     var fieldInk: NSColor {
@@ -409,7 +431,7 @@ extension ControlHost {
         let face = self.face(owner.id)
         // A destructive button is the destructive role AppKit draws (`hasDestructiveAction`), in the platform's red as
         // a hand-built pane's is: the accent it only inherits leaves it red, as on iOS, and an accent written on the
-        // button itself wins over the red (what the author writes wins).
+        // button itself wins over the red (LLP 1116.008; LLP 1115: what the author writes wins).
         let destructive = owner.props["destructive"] == "true"
         let red = destructive && !owner.wrote("accent_color")
         let accent = red ? NSColor.systemRed : accent
@@ -421,7 +443,7 @@ extension ControlHost {
             pressed: owner.pressedState, role: owner.isMenuItem ? .menuItem : .button, appearance: owner.effectiveAppearance.name.rawValue,
             interactive: owner.style["pointer_events"]?.string != "none",
             // HTML's `title`, else an icon-only button's label: AppKit's help
-            // tag, as a toolbar item's label is.
+            // tag, as a toolbar item's label is (LLP 1115 wave 1).
             toolTip: owner.props["title"] ?? (face.title == nil ? owner.authoredLabel : nil))
         guard button.written != written else { return }
         if !face.known, button.written?.face.style != face.style {
@@ -452,7 +474,7 @@ extension ControlHost {
         if let checked = owner.checkedRole, checked.role == "radio" { button.setAccessibilityChecked(checked.role, checked.checked) }
     }
 
-    /// What the agent's `layout` says of a native button.
+    /// What the agent's `layout` says of a native button (D10).
     func nativeObservation(_ button: NativeButtonMac) -> [String: Any] {
         let face = button.written?.face ?? ButtonFace()
         let rows = ButtonConfigurationMac.observation(face, button: button)

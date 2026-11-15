@@ -151,7 +151,7 @@ fn transcript_follows_new_tail_only_when_reading_at_the_end() {
 
 /// Past 10,000 records the virtualized transcript asks 200-record windows:
 /// the whole history (about 23 MB at 100,000) is more than one answer over a
-/// Rust module's seam carries (16 MiB).
+/// Rust module's seam carries (16 MiB, LLP 1071 §7).
 #[test]
 fn past_ten_thousand_the_virtualized_transcript_asks_windows() {
     let mut runner = boot();

@@ -1,13 +1,13 @@
-// An indeterminate `progress` is
+// @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate `progress` is
 // AppKit's spinning `NSProgressIndicator`, centred in the node's box: small,
 // or regular where the box's shorter side holds its 32 points. AppKit gives
 // a spinner no tint, so it draws in the system's colour, as `NSSwitch`
-// takes no accent. It turns while it shows, and stops
+// takes no accent (D6's as built). It turns while it shows, and stops
 // where it is hidden (`display: none` on it or above it), removed, or under
 // the agent's clock, which shows one still frame. It is its own
 // accessibility element (AppKit's busy indicator), named by the node's
 // `aria-label`.
-// With a `value`, it is AppKit's determinate bar
+// @ref LLP 1116 D8 — with a `value`, it is AppKit's determinate bar
 // instead, across the content box at its own height (regular where the box
 // holds its 20 points, else small), from 0 to `max`. AppKit gives a bar no
 // tint either: it draws in the system accent.
@@ -78,7 +78,7 @@ extension ControlHost {
         animating.formIntersection(Set(spinners.keys))
     }
 
-    /// The determinate bars: AppKit's own value, minimum and
+    /// The determinate bars (LLP 1116 D8): AppKit's own value, minimum and
     /// maximum are what VoiceOver reads, `aria-valuetext` its description.
     private func syncBars(_ owners: [NodeView], leaving: Set<UInt32>) {
         let live = Set(owners.map(\.id))

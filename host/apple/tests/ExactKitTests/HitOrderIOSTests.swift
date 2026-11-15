@@ -172,7 +172,7 @@ final class HitOrderIOSTests: XCTestCase {
     }
 
     /// A native module's view inside a `pointer-events: none` box is not a
-    /// target either: the touch reaches the button around it.
+    /// target either: the touch reaches the button around it (paint F9).
     func testAPointerEventsNoneBoxsPlatformViewLetsTheTouchThrough() throws {
         let p = presenter(raised: 0)
         p.apply(wireBatch([
@@ -187,7 +187,7 @@ final class HitOrderIOSTests: XCTestCase {
         XCTAssertTrue(hit(p, CGPoint(x: 360, y: 20)) === p.views[2], "the button around the native view")
     }
 
-    /// A button floating above a zero-height box: a dock (4) of
+    /// A button floating above a zero-height box (#721): a dock (4) of
     /// `pointer-events: none` boxes over the list, its zero-height box (5)
     /// holding a row (6) that overflows it upward, and in the row a capsule
     /// (7) whose clip leaves its shadow outside, so its children are in a
@@ -277,6 +277,34 @@ final class HitOrderIOSTests: XCTestCase {
         XCTAssertTrue(hit(p, CGPoint(x: 360, y: 10)) === title, "the title's node, not its scroll view")
         scroller.contentSize = CGSize(width: 44, height: 200)
         XCTAssertTrue(hit(p, CGPoint(x: 360, y: 10)) === scroller, "a scroller with somewhere to go keeps the touch for its pan")
+    }
+
+    /// A box whose overflow is not visible clips its children at its padding
+    /// edge (CSS Overflow 3 §3), rounded by its inner border radius (CSS
+    /// Backgrounds 3 §5.3): a touch on its border is the box's, never a child's
+    /// under it, as a browser hit-tests it.
+    func testAClippingBoxsBorderIsItsOwnNotAChilds() throws {
+        let p = presenter(raised: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "view", "handlers": ["press"], "props": ["testId": "card"],
+             "style": ["overflow_x": "hidden", "overflow_y": "hidden", "border_width": 10, "border_radius": 30,
+                       "border_color_top": [0, 0, 0, 255], "text_color": [0, 0, 0, 255]]],
+            ["op": "create", "id": 21, "kind": "view", "handlers": ["press"], "props": ["testId": "photo"]],
+            ["op": "children", "id": 20, "ids": [21]],
+            ["op": "children", "id": 1, "ids": [2, 3, 20]],
+            ["op": "frame", "id": 20, "x": 100.0, "y": 100.0, "w": 100.0, "h": 100.0],
+            ["op": "frame", "id": 21, "x": -50.0, "y": -50.0, "w": 200.0, "h": 200.0],
+        ]))
+        window.layoutIfNeeded()
+        let card = try XCTUnwrap(p.views[20]), photo = try XCTUnwrap(p.views[21])
+        XCTAssertTrue(hit(p, CGPoint(x: 150, y: 150)) === photo, "inside the padding edge: the child")
+        XCTAssertTrue(hit(p, CGPoint(x: 115, y: 150)) === photo, "just inside the left border")
+        XCTAssertTrue(hit(p, CGPoint(x: 105, y: 150)) === card, "on the left border: the box")
+        XCTAssertTrue(hit(p, CGPoint(x: 150, y: 195)) === card, "on the bottom border")
+        XCTAssertTrue(hit(p, CGPoint(x: 113, y: 113)) === card, "inside the padding box's rectangle, outside its rounded corner")
+        card.applyStyle(["overflow_x": "visible", "overflow_y": "visible", "border_width": 10, "border_radius": 30,
+                         "border_color_top": [0, 0, 0, 255], "text_color": [0, 0, 0, 255]])
+        XCTAssertTrue(hit(p, CGPoint(x: 105, y: 150)) === photo, "visible overflow: the child over the border")
     }
 
     func testInFlowTheLaterSiblingIsOnTop() throws {

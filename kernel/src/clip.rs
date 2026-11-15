@@ -1,7 +1,7 @@
 //! CSS `clip-path`: `none`, `path([<fill-rule>,]? <string>)` in CSS pixels
 //! from the border box, or (on an SVG element) a `clipPath` by reference,
-//! `url(#id)`. The string is SVG path data in full, read
-//! by the SVG path parser; the parsed commands
+//! `url(#id)` (LLP 1055.000 D10). The string is SVG path data in full, read
+//! by the SVG path parser (LLP 1055.000 addendum A); the parsed commands
 //! (absolute `M L C Z`) cross the Apple batch, so presenters parse no CSS.
 
 use crate::generated::FillRule;

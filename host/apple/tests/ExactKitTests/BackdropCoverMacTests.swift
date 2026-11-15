@@ -3,7 +3,8 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// A focused button under a later `backdrop-filter` node: AppKit's ring is not blurred by the
+/// A focused button under a later `backdrop-filter` node (LLP 1115.002 D7,
+/// the user's ruling of 2026-11-05): AppKit's ring is not blurred by the
 /// cover, so the button draws none while the cover is over its ring's
 /// bounds, keeps the focus, and is ringed again when the cover goes.
 final class BackdropCoverMacTests: XCTestCase {

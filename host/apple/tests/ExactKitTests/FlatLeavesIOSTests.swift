@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// An inert leaf box is a bare layer in its parent's: its
+/// An inert leaf box is a bare layer in its parent's (LLP 1068 §6.1): its
 /// place among the parent's views, its promotion to a view when it needs
 /// one, and hits falling to its parent. UIKit, so a simulator runs it:
 ///   bun host/apple/build.mjs --test --ios
@@ -50,7 +50,7 @@ final class FlatLeavesIOSTests: XCTestCase {
         return p
     }
     /// A bar as the host sends one: its rows, and which of them its author
-    /// wrote, which a leaf does not paint.
+    /// wrote (LLP 1115.000 D2), which a leaf does not paint.
     private func bar(_ id: Int, x: Double, color: Any = [0, 122, 255, 255]) -> [[String: Any]] {
         [["op": "create", "id": id, "kind": "view",
           "style": ["width": 3.0, "height": 20.0, "background_color": color,

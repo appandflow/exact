@@ -34,7 +34,14 @@ pub(crate) fn css_rows(css: &str) -> Rows {
         // Keywords, and `line-height` in pixels (a bare number multiplies).
         let text = matches!(
             name,
-            "aspect-ratio" | "column-fill" | "break-before" | "break-after" | "break-inside"
+            "aspect-ratio"
+                | "column-fill"
+                | "break-before"
+                | "break-after"
+                | "break-inside"
+                | "overflow"
+                | "overflow-x"
+                | "overflow-y"
         );
         let v = match (px, percent, value) {
             (Ok(_), _, _) if name == "line-height" => t(value),
@@ -97,12 +104,12 @@ pub(crate) fn css_rows(css: &str) -> Rows {
             "opacity" => &[Opacity],
             "z-index" => &[ZIndex],
             // What makes a containing block in a browser and is not a row these
-            // cases give the kernel (the compiler lowers `position: relative`
-            // onto such a box).
+            // cases give the kernel (LLP 1074 T1: the compiler lowers `position:
+            // relative` onto such a box).
             "translate" | "scale" | "rotate" | "transform" | "filter" | "backdrop-filter"
             | "isolation" => &[],
             "position" => &[PositionType],
-            // Multi-column layout and the text its cases flow.
+            // LLP 1093: multi-column layout and the text its cases flow.
             "column-count" => &[ColumnCount],
             "column-width" => &[ColumnWidth],
             "column-gap" => &[ColumnGap],
@@ -760,7 +767,8 @@ fn lay_out_button(button: u32, nodes: Vec<(u32, u32, Rows)>, text: Option<(u32, 
 }
 
 /// A `button` is Chrome's `<button>` with `index.html`'s reset (`all:
-/// unset; display: block`): its automatic width shrinks to fit, and a block button's content
+/// unset; display: block`; Charlie, 2026-10-04, reversing 2026-09-23's flex
+/// column): its automatic width shrinks to fit, and a block button's content
 /// sits in an anonymous flow-root box centred, safely, in its height, which
 /// no `align-content` moves. A flex or grid button is an ordinary container.
 /// Chrome 154, 2026-10-04, `<span style="display:block">` children,

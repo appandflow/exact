@@ -95,7 +95,7 @@ impl Glyphs {
         phase: u8,
         sigma: f32,
     ) -> Result<Option<Glyph>> {
-        // Animated blur shares quarter-pixel radii.
+        // Animated blur shares quarter-pixel radii. @ref LLP 1149 D3.1.
         let sigma = if sigma.is_finite() {
             (sigma.max(0.) * 4.).round() / 4.
         } else {

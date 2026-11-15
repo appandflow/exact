@@ -1,4 +1,4 @@
-// The Surfaces capability: GPU surfaces and Canvas 2D. An
+// The Surfaces capability (LLP 1047.001 D4): GPU surfaces and Canvas 2D. An
 // app's composition links this module only when its plan has a surface or a
 // 2D canvas, and installs it before any session is made.
 #if canImport(UIKit)
@@ -42,7 +42,7 @@ extension MetalCanvasView: MetalView {}
 extension CanvasInputHost: CanvasInput {}
 
 extension TextEngine {
-    /// Canvas 2D's fonts and lines over this engine, made at
+    /// Canvas 2D's fonts and lines over this engine (LLP 1056 D8), made at
     /// first use and dropped with the engine's fonts.
     var canvasText: CanvasText {
         if let made = canvasTextCache as? CanvasText { return made }

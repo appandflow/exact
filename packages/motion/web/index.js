@@ -1,27 +1,30 @@
-// @exact/motion on the web: the Generic Sensor
+// @exact/motion on the web (LLP 1133.013 D2, D11): the Generic Sensor
 // classes where the browser has them (Chromium), else `devicemotion` and
 // `deviceorientation`, answered in the interface's shapes. The page runtime
 // (host/web-js/modules.js) calls it outside the agent; under the agent the
 // runner's substitute answers and this is never loaded.
 //
-// - One acquisition per name for the page: a `Sensor` object, or one
-//   listener of an event, at the fastest `frequency` its readers ask; each
-//   reader group (a name with one `frequency`, `referenceFrame` and
-//   `history`) keeps a ring of its own thinned samples, numbered, and is
-//   answered statelessly from the cursor the runner passes as `after`.
+// - One acquisition per name for the page (D4), and for `deviceOrientation`
+//   one per event type (`absolute` picks `deviceorientationabsolute`): a
+//   `Sensor` object, or one listener of an event, at the fastest
+//   `frequency` its readers and canvas inputs ask, 60 Hz for a reader that
+//   names none, as Apple's; each reader group (a name with one
+//   `frequency`, `referenceFrame` and `history`) keeps a ring of its own
+//   thinned samples, numbered, and is answered statelessly from the cursor
+//   the runner passes as `after` (D5).
 // - The device frame is the specifications' (Device Orientation §3.1);
 //   `referenceFrame: "screen"` turns x and y by `screen.orientation.angle`
 //   (Accelerometer §7.1), per reader, from the one stream.
 // - WebKit reports `devicemotion`'s accelerations with the opposite sign to
 //   the specification and Chromium (`kGravity` in WebCoreMotionManager.mm);
 //   known by `webkitCompassHeading`, which only WebKit ships, they are
-//   negated, and nothing else is.
+//   negated, and nothing else is (D2).
 // - `requestMotionPermission` calls both events' `requestPermission` in the
 //   turn it is called, before awaiting either, so both stay inside the
-//   press: the runtime calls it synchronously in the input event's
+//   press (D11): the runtime calls it synchronously in the input event's
 //   dispatch (`"gesture": true`).
 // - Acquisition stops while the page is hidden and resumes when it is
-//   shown; the next answer of each reader reads `interrupted`.
+//   shown; the next answer of each reader reads `interrupted` (D8).
 // - A canvas input needs the host's `surfaces.input`, a writer into the
 //   surface's input; where the context has none, `startSensorInput` fails
 //   `NotSupportedError`.
@@ -73,16 +76,16 @@ const finite = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const xyz = v => (v && [v.x, v.y, v.z].every(n => typeof n === 'number') ? [v.x, v.y, v.z] : null);
 
 export function implementation({ changed, now = () => performance.now(), foreground = () => true, log = () => {}, surfaces } = {}) {
-  // The page's time origin to the session clock: a sample's DOMHighResTimeStamp, on the session's.
+  // The page's time origin to the session clock: a sample's DOMHighResTimeStamp, on the session's (D7).
   const offset = () => now() - performance.now();
-  const streams = new Map(); // name → { sensor | listener, frequency, groups: Map, latest }
+  const streams = new Map(); // streamKey(name, args) → { name, absolute, stop, frequency, groups: Map, latest }
   const inputs = new Map(); // `${surface} ${sensor}` → { writer, name, period, next, dropped }
   let decided = null, paused = false;
 
   /** The platform's answer for one sample of `name`: `{values, at, fields}` in the device frame. */
   const reading = (name, values, at, extra = {}) => ({ name, values, at, extra });
 
-  // A group's thinned ring: a sample nearest each point of its grid of 1 / frequency.
+  // A group's thinned ring: a sample nearest each point of its grid of 1 / frequency (D4).
   const group = (stream, args) => {
     const key = JSON.stringify([args.frequency ?? null, args.referenceFrame ?? 'device', args.history ?? 0]);
     let g = stream.groups.get(key);
@@ -113,21 +116,22 @@ export function implementation({ changed, now = () => performance.now(), foregro
     return { x, y, z, timestamp: at };
   };
 
-  // The platform stream of `name`, started at `frequency`: a Generic Sensor object, else an event.
-  const start = (name, frequency) => {
+  // The platform stream `s`, started at `frequency`: a Generic Sensor object, else an event.
+  const start = (s, frequency) => {
+    const name = s.name;
     if (CLASSES[name] && hasClass(name)) {
       const Class = global[CLASSES[name]], options = frequency ? { frequency } : {};
       const sensor = new Class(options);
       sensor.addEventListener('reading', () => {
         const values = ORIENTATIONS.has(name) ? [...sensor.quaternion] : [sensor.x, sensor.y, sensor.z];
-        if (values.every(Number.isFinite)) take(streams.get(name), reading(name, values, sensor.timestamp));
+        if (values.every(Number.isFinite)) take(s, reading(name, values, sensor.timestamp));
       });
-      sensor.addEventListener('error', e => fail(name, e.error?.name === 'NotAllowedError' ? 'NotAllowedError' : e.error?.name === 'NotReadableError' ? 'NotReadableError' : 'NotSupportedError'));
+      sensor.addEventListener('error', e => fail(s, e.error?.name === 'NotAllowedError' ? 'NotAllowedError' : e.error?.name === 'NotReadableError' ? 'NotReadableError' : 'NotSupportedError'));
       sensor.start();
       return () => sensor.stop();
     }
     const motion = ['accelerometer', 'linearAccelerationSensor', 'gravitySensor', 'gyroscope', 'deviceMotion'].includes(name);
-    const type = name === 'absoluteOrientationSensor' || (name === 'deviceOrientation' && streams.get(name)?.absolute) ? 'deviceorientationabsolute' : 'deviceorientation';
+    const type = name === 'absoluteOrientationSensor' || s.absolute ? 'deviceorientationabsolute' : 'deviceorientation';
     const listener = motion ? e => {
       const sign = webkit() ? -1 : 1, with_ = xyz(e.accelerationIncludingGravity), without = xyz(e.acceleration);
       const at = e.timeStamp, scale = v => v && v.map(n => n * sign);
@@ -141,15 +145,15 @@ export function implementation({ changed, now = () => performance.now(), foregro
         const v3 = v => (v ? { x: v[0], y: v[1], z: v[2] } : null);
         const extra = { acceleration: v3(scale(without)), accelerationIncludingGravity: v3(scale(with_)),
           rotationRate: r ? { alpha: finite(r.alpha), beta: finite(r.beta), gamma: finite(r.gamma) } : null, interval: e.interval ?? 0 };
-        return take(streams.get(name), reading(name, [0, 0, 0], at, extra));
+        return take(s, reading(name, [0, 0, 0], at, extra));
       }
-      if (values?.every(Number.isFinite)) take(streams.get(name), reading(name, values, at));
+      if (values?.every(Number.isFinite)) take(s, reading(name, values, at));
     } : e => {
       if (name === 'deviceOrientation') {
         const extra = { alpha: finite(e.alpha), beta: finite(e.beta), gamma: finite(e.gamma), absolute: !!e.absolute };
-        return take(streams.get(name), reading(name, [0, 0, 0], e.timeStamp, extra));
+        return take(s, reading(name, [0, 0, 0], e.timeStamp, extra));
       }
-      if ([e.alpha, e.beta, e.gamma].every(n => typeof n === 'number')) take(streams.get(name), reading(name, quaternionFromAngles(e.alpha, e.beta, e.gamma), e.timeStamp));
+      if ([e.alpha, e.beta, e.gamma].every(n => typeof n === 'number')) take(s, reading(name, quaternionFromAngles(e.alpha, e.beta, e.gamma), e.timeStamp));
     };
     addEventListener(motion ? 'devicemotion' : type, listener);
     return () => removeEventListener(motion ? 'devicemotion' : type, listener);
@@ -160,31 +164,35 @@ export function implementation({ changed, now = () => performance.now(), foregro
     if (name === 'absoluteOrientationSensor' || name === 'deviceOrientation') return 'ondeviceorientationabsolute' in global || name === 'deviceOrientation';
     return hasEvents();
   };
-  const fail = (name, code) => {
-    const stream = streams.get(name);
-    if (!stream) return;
-    stream.error = code;
-    for (const g of stream.groups.values()) for (const w of g.waiting.splice(0)) w();
-    changed(`motion.${name}`);
+  const fail = (s, code) => {
+    s.error = code;
+    for (const g of s.groups.values()) for (const w of g.waiting.splice(0)) w();
+    changed(`motion.${s.name}`);
   };
-  // The stream of `name`, running at the fastest frequency of its groups and inputs.
-  const stream = (name, args) => {
-    let s = streams.get(name);
-    if (!s) streams.set(name, s = { name, groups: new Map(), frequency: null, stop: null, latest: null, error: null, absolute: !!args.absolute });
-    const g = group(s, args);
+  const streamKey = (name, args) => (name === 'deviceOrientation' && args.absolute ? 'deviceOrientation absolute' : name);
+  // The stream of `name` that `args` reads, running at the fastest frequency of its groups and inputs; with
+  // `reads` false (a canvas input), no reader group is made.
+  const stream = (name, args, reads = true) => {
+    const key = streamKey(name, args);
+    let s = streams.get(key);
+    if (!s) streams.set(key, s = { name, groups: new Map(), frequency: null, stop: null, latest: null, error: null, absolute: key !== name });
+    const g = reads ? group(s, args) : null;
     restart(s);
+    // A reader that moved to the other `deviceOrientation` event left its old stream with no group (`releaseArgs`).
+    for (const [k, o] of streams) if (o !== s && o.name === name && !o.groups.size) { o.stop?.(); streams.delete(k); }
     return [s, g];
   };
   const rate = s => {
-    const fs = [...s.groups.values()].map(g => g.args.frequency).concat([...inputs.values()].filter(i => i.name === s.name).map(i => 1000 / i.period));
-    return fs.some(f => !(f > 0)) || !fs.length ? null : Math.max(...fs);
+    const fs = [...s.groups.values()].map(g => (g.args.frequency > 0 ? g.args.frequency : 60))
+      .concat([...inputs.values()].filter(i => i.name === s.name).map(i => 1000 / i.period));
+    return fs.length ? Math.max(...fs) : null;
   };
   const restart = s => {
     const f = rate(s);
     if (s.stop && f === s.frequency) return;
     s.stop?.();
     s.frequency = f;
-    s.stop = paused ? null : start(s.name, f);
+    s.stop = paused ? null : start(s, f);
   };
 
   // `MotionSensors`: each sensor by its `startSensorInput` name, and the two events.
@@ -205,7 +213,7 @@ export function implementation({ changed, now = () => performance.now(), foregro
     return { available, state, sensors, apple: null, android: null };
   };
 
-  /** A reader's answer from its group's ring after `after`. */
+  /** A reader's answer from its group's ring after `after` (D5). */
   const answer = async (name, args) => {
     if (!supported(name)) return { error: 'NotSupportedError' };
     const known = await status();
@@ -258,7 +266,7 @@ export function implementation({ changed, now = () => performance.now(), foregro
     ...sources,
     motionStatus: status,
     motionStatusSync: () => ({ available: hasEvents() || Object.keys(CLASSES).some(hasClass), state: webkit() ? decided ?? 'prompt' : 'granted', sensors: sensorsOf(), apple: null, android: null }),
-    /** Both events' `requestPermission`, called before either is awaited. */
+    /** Both events' `requestPermission`, called before either is awaited (D11). */
     requestMotionPermission(args) {
       const asks = [];
       if (typeof global.DeviceMotionEvent?.requestPermission === 'function') asks.push(global.DeviceMotionEvent.requestPermission());
@@ -281,7 +289,7 @@ export function implementation({ changed, now = () => performance.now(), foregro
       inputs.get(key)?.writer.close?.();
       const frequency = args.frequency > 0 ? args.frequency : 60;
       inputs.set(key, { writer, name, sensor: args.sensor, period: 1000 / frequency, next: -Infinity, dropped: 0, screen: args.referenceFrame === 'screen' });
-      stream(name, {});
+      stream(name, {}, false);
       log(`sensor input ${key}: ${frequency} Hz`);
       return { surface: args.surface, sensor: args.sensor };
     },
@@ -297,21 +305,22 @@ export function implementation({ changed, now = () => performance.now(), foregro
       return { surface: args.surface, sensor: args.sensor };
     },
     foreground: visibility,
-    /** A reader group gone. */
+    /** A reader group gone (LLP 1133.009 D10 item 12). */
     releaseArgs(name, args) {
-      const s = streams.get(name);
+      const s = streams.get(streamKey(name, args ?? {}));
       if (!s) return;
       s.groups.delete(group(s, args ?? {}).key);
       restart(s);
     },
-    /** The last reader of `name` gone: its stream stops unless a canvas input still reads it. */
+    /** The last reader of `name` gone: its streams stop unless a canvas input still reads one. */
     release(name) {
-      const s = streams.get(name);
-      if (!s) return;
-      s.groups.clear();
-      if ([...inputs.values()].some(i => i.name === name)) return restart(s);
-      s.stop?.();
-      streams.delete(name);
+      for (const [key, s] of streams) {
+        if (s.name !== name) continue;
+        s.groups.clear();
+        if ([...inputs.values()].some(i => i.name === name)) { restart(s); continue; }
+        s.stop?.();
+        streams.delete(key);
+      }
     },
   };
 }

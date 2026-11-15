@@ -1,5 +1,5 @@
 //! Whole-set grant admission, sharing ibex2's pure grammar.
-//! Presenter and device grants remain
+//! @ref LLP 1016 D6 / LLP 1018 D3. Presenter and device grants remain
 //! with their owning executors, exactly as `io_grants` treats them.
 pub use exact_grants::{is_service_type, DEVELOPMENT, LOCAL_NETWORK};
 
@@ -16,7 +16,7 @@ impl<'a> Grants<'a> {
     }
 
     /// The names `secret.keep` grants, in declaration order: the store's
-    /// load list.
+    /// load list (LLP 1018 D3).
     pub fn secrets(&self) -> impl Iterator<Item = &'a str> + '_ {
         self.lines.iter().filter_map(|line| {
             let mut words = line.split_whitespace();
@@ -26,8 +26,8 @@ impl<'a> Grants<'a> {
         })
     }
 
-    /// The `secret.keep` names that carry a presence policy,
-    /// in declaration order.
+    /// The `secret.keep` names that carry a presence policy (LLP 1133.010
+    /// D4), in declaration order.
     pub fn presence(&self) -> impl Iterator<Item = (&'a str, exact_grants::Presence)> + '_ {
         self.lines
             .iter()
@@ -35,8 +35,36 @@ impl<'a> Grants<'a> {
     }
 }
 
+/// The grant each of `plan`'s declared sources carries, `net.fetch <origin>`,
+/// once each, in the plan's order (LLP 1162.001 D3).
+pub fn declared(plan: &exact_plan::Plan) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for row in &plan.fetches {
+        let line = format!("net.fetch {}", plan.str(row.origin));
+        if !lines.contains(&line) {
+            lines.push(line);
+        }
+    }
+    lines
+}
+
+/// `grants`, the data module's, with `plan`'s declared lines after it that
+/// it does not already have: what a host endows its executor with.
+pub fn with_declared(grants: &str, plan: &exact_plan::Plan) -> String {
+    let mut out = grants.to_string();
+    for line in declared(plan) {
+        if !grants.lines().any(|l| l.trim() == line) {
+            if !out.is_empty() && !out.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str(&line);
+        }
+    }
+    out
+}
+
 /// How the runner reads an I/O grant line (`net.fetch …`, `secret.keep …`),
-/// when an archive links I/O: its own lines (devices, auth)
+/// when an archive links I/O (LLP 1047.001): its own lines (devices, auth)
 /// it reads itself. An archive without I/O names no grant grammar, and the
 /// URL parsing an origin needs with it.
 pub type GrantsLink = Option<fn(&str) -> Result<(), String>>;
@@ -60,7 +88,10 @@ pub fn parse_with(spec: &str, link: GrantsLink) -> Result<Grants<'_>, Vec<String
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        if let Some(why) = own(line).then(|| listen_refusal(line)).flatten() {
+        if let Some(why) = own(line)
+            .then(|| listen_refusal(line).or_else(|| launch_refusal(line)))
+            .flatten()
+        {
             errors.push(format!("line {}: {why}", index + 1));
         } else if exact_grants::process::is_process_line(line) {
             match exact_grants::process::validate(line) {
@@ -98,10 +129,10 @@ pub fn parse_with(spec: &str, link: GrantsLink) -> Result<Grants<'_>, Vec<String
 /// narrowed by a source's `scope` (which may only select lines the app
 /// has): the first `net.websocket` line for a `ws:` or `wss:` URL, as every
 /// executor opens one, else the first `net.fetch` line. `state.streams`
-/// names it.
+/// names it (LLP 1016.000 D7).
 pub fn admitting<'a>(spec: &'a str, scope: Option<&'a str>, url: &str) -> Option<&'a str> {
     use exact_grants::{GrantSet, Operation};
-    // A listener's line, by its path as written.
+    // A listener's line, by its path as written (LLP 1133.005 D11).
     if let Ok(path) = crate::listen::unix_path(url) {
         return crate::listen::admitting(spec, scope, path, str::to_string);
     }
@@ -124,9 +155,36 @@ pub fn admitting<'a>(spec: &'a str, scope: Option<&'a str>, url: &str) -> Option
     })
 }
 
+/// `url` as a refusal may name it, and whether it has a user name or
+/// password: without its userinfo, query or fragment, any of which may
+/// carry a credential. Tabs and newlines are removed first, as the URL
+/// Standard's parser removes them; the authority runs from after the
+/// scheme's `:` and any slashes or backslashes to the next `/`, and its
+/// userinfo is what precedes its last `@`
+/// (<https://url.spec.whatwg.org/#authority-state>). That reads as userinfo
+/// all the parser does, and more where a backslash ends a special URL's
+/// authority before an `@`.
+pub fn redacted(url: &str) -> (String, bool) {
+    let url: String = url
+        .chars()
+        .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
+        .collect();
+    let url = url.split(['?', '#']).next().unwrap_or_default();
+    let Some((scheme, rest)) = url.split_once(':') else {
+        return (url.to_owned(), false);
+    };
+    let authority = rest.trim_start_matches(['/', '\\']);
+    let slashes = &rest[..rest.len() - authority.len()];
+    let end = authority.find('/').unwrap_or(authority.len());
+    match authority[..end].rfind('@') {
+        Some(at) => (format!("{scheme}:{slashes}{}", &authority[at + 1..]), true),
+        None => (url.to_owned(), false),
+    }
+}
+
 /// The line that admits a stream `request` under its scope, as
 /// [`admitting`] for a URL; for a child process, the first `process.spawn`
-/// line that names its program (as `state.streams` shows it).
+/// line that names its program (LLP 1133.007 D2's `state.streams`).
 pub fn admitting_request<'a>(spec: &'a str, request: &'a crate::Request) -> Option<&'a str> {
     let scope = request.grants.as_deref();
     if !request.is_process() {
@@ -148,17 +206,18 @@ pub fn refusal(errors: &[String]) -> String {
 
 /// Whether a trimmed line is one of exact2's own grants: enforced by the
 /// presenter (`surface.*`), by the OS and the capability that asks
-/// (`device.*`), by the OS's hardened runtime (`runtime.*`),
-/// by the host's auth arm (`auth.*`), by the host's
-/// kept documents (`doc.keep`), by the module
-/// admission of `@exact/browser-automation`'s names (`browser.automation`),
-/// of `@exact/local-network`'s service types
-/// (`net.dns-sd <type>`) and of `@exact/payments`'s
-/// (`payment.*`), never by the I/O executor's grammar;
+/// (`device.*`, LLP 1069.008 D3), by the OS's hardened runtime (`runtime.*`,
+/// D9), by the host's auth arm (`auth.*`, LLP 1069.006), by the host's
+/// kept documents (`doc.keep`, LLP 1069.010.000 D7), by the module
+/// admission of `@exact/browser-automation`'s names (`browser.automation`,
+/// LLP 1020.002 D9), of `@exact/local-network`'s service types
+/// (`net.dns-sd <type>`, LLP 1133.036 D7) and of `@exact/payments`'s
+/// (`payment.*`, LLP 1133.034 D13), never by the I/O executor's grammar;
 /// and the desktop-process lines (`process.spawn`, `env.read login:`,
-/// `secret.hold`), which the runner and the data executor
-/// read with `exact_grants::process`, and `net.listen`, which the listener
-/// checks.
+/// `secret.hold`, LLP 1133.007 §6), which the runner and the data executor
+/// read with `exact_grants::process`, `net.listen`, which the listener
+/// checks (LLP 1133.005 D11), and `env.launch`, which the data executor
+/// reads ([`launch_names`]).
 pub(crate) fn own(line: &str) -> bool {
     line == "doc.keep"
         || exact_grants::process::is_process_line(line)
@@ -172,6 +231,42 @@ pub(crate) fn own(line: &str) -> bool {
         || crate::device::is_device_line(line)
         || crate::hardened::is_runtime_line(line)
         || line.starts_with("auth.")
+        || line.split_whitespace().next() == Some(LAUNCH)
+}
+
+/// A setting a launch may give (LLP 1153.002 D2): `env.launch <NAME>`, one
+/// line for each name app.json's `env` marks, which the bake writes (an
+/// authored one is refused there). A host answers a launch's value only for
+/// a name its module's grants carry, so no other variable of the process is
+/// read, and an update, which carries exactly the binary's grants, adds none.
+pub const LAUNCH: &str = "env.launch";
+
+/// The names `spec`'s `env.launch` lines carry.
+pub fn launch_names(spec: &str) -> impl Iterator<Item = &str> {
+    spec.lines().filter_map(|line| {
+        let mut words = line.split_whitespace();
+        (words.next() == Some(LAUNCH))
+            .then(|| words.next())
+            .flatten()
+    })
+}
+
+/// Why an `env.launch` line is not one, if it is not: its one target is a
+/// setting's name (`[A-Z][A-Z0-9_]*`) and not the host's (`EXACT_…`).
+fn launch_refusal(line: &str) -> Option<String> {
+    let mut words = line.split_whitespace();
+    if words.next() != Some(LAUNCH) {
+        return None;
+    }
+    let name = words.next().unwrap_or_default();
+    let setting = name.starts_with(|c: char| c.is_ascii_uppercase())
+        && (name.chars()).all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+        && !name.starts_with("EXACT_");
+    (!setting || words.next().is_some()).then(|| {
+        format!(
+            "`{line}`: `{LAUNCH}` takes one setting's name, `[A-Z][A-Z0-9_]*` and not `EXACT_…`"
+        )
+    })
 }
 
 /// Why an own line naming `net.listen` is not one, if it is not.
@@ -387,6 +482,81 @@ pub fn normalized_json(spec: &str) -> String {
 mod tests {
     use super::normalized_json;
 
+    /// LLP 1153.002 D2: the bake's line for a setting a launch may give is
+    /// exact2's own, no I/O grant, and names one setting.
+    #[test]
+    fn an_env_launch_line_names_one_setting_and_is_no_io_grant() {
+        let spec = "net.fetch https:\nenv.launch API_BASE_URL\nenv.launch PICTURES";
+        assert!(super::parse(spec).is_ok());
+        let names: Vec<&str> = super::launch_names(spec).collect();
+        assert_eq!(names, ["API_BASE_URL", "PICTURES"]);
+        assert_eq!(crate::io_grants(spec), "net.fetch https:");
+        assert!(normalized_json(spec).contains(r#"[2,"env.launch API_BASE_URL",null,null]"#));
+        for bad in [
+            "env.launch",
+            "env.launch lower",
+            "env.launch EXACT_AGENT",
+            "env.launch A B",
+        ] {
+            let errors = super::parse(bad).unwrap_err();
+            assert!(
+                errors[0].contains("takes one setting's name"),
+                "{bad}: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_redacted_url_has_no_userinfo_query_or_fragment() {
+        for (url, shown, userinfo) in [
+            (
+                "https://example.com/f?token=t#x",
+                "https://example.com/f",
+                false,
+            ),
+            (
+                "https://example.com/@alice",
+                "https://example.com/@alice",
+                false,
+            ),
+            (
+                "https://alice:secret@example.com/f?x",
+                "https://example.com/f",
+                true,
+            ),
+            ("https://alice@example.com", "https://example.com", true),
+            (
+                "https://a@b:secret@example.com/f",
+                "https://example.com/f",
+                true,
+            ),
+            (
+                "HTTPS://alice:secret@example.com",
+                "HTTPS://example.com",
+                true,
+            ),
+            (
+                "https:alice:secret@example.com/f",
+                "https:example.com/f",
+                true,
+            ),
+            (
+                "https:\\\\alice:secret@example.com/",
+                "https:\\\\example.com/",
+                true,
+            ),
+            (
+                "https://al\tice:sec\nret@example.com/",
+                "https://example.com/",
+                true,
+            ),
+            ("https://example.com\\@evil.com/", "https://evil.com/", true),
+            ("example.com/f", "example.com/f", false),
+        ] {
+            assert_eq!(super::redacted(url), (shown.to_owned(), userinfo), "{url}");
+        }
+    }
+
     #[test]
     fn quoted_targets_keep_source_spelling_beside_decoded_namespaces() {
         let source = "fs.read \"C:\\\\With Space\\\\雪\"\nfs.write \"doc:/chosen/a b\"";
@@ -424,7 +594,7 @@ mod tests {
         assert!(json.contains("\"seal\":\""), "{json}");
     }
 
-    /// The desktop-process lines are the runner's own:
+    /// The desktop-process lines (LLP 1133.007 §6) are the runner's own:
     /// read whole here, never handed to the I/O grammar, and a name is
     /// kept or held, not both.
     #[test]
@@ -438,8 +608,8 @@ mod tests {
         assert!(super::parse("fs.read home:/").unwrap_err()[0].contains("home-grant-whole"));
     }
 
-    /// `browser.automation` is the runner's own line and names no target:
-    /// with a word after it, it is no such line, and the
+    /// `browser.automation` is the runner's own line and names no target
+    /// (LLP 1020.002 D9): with a word after it, it is no such line, and the
     /// I/O grammar refuses it.
     #[test]
     fn browser_automation_is_an_own_line_with_no_target() {

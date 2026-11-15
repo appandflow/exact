@@ -14,7 +14,7 @@ shape ChainLink
   up: number
   // The component the call site is in (the copy a press of it means to select), as the server joined it.
   component: string
-  // A slot's host (`slot: true`, tamber/1.18): the step lands on the component holding the node in its
+  // A slot's host (`slot: true`, forma/1.18, stage 15 D3): the step lands on the component holding the node in its
   // slot, named by its own call.
   slot: bool
 
@@ -41,13 +41,13 @@ shape Hello
   // The server's run: a restart is another.
   epoch: string
   // This tool's scope on the server, and whether its token is the local
-  // one, which pairs and revokes clients (tamber/1.13); a paired client's
+  // one, which pairs and revokes clients (forma/1.13); a paired client's
   // name, as the server gives it.
   scope: string
   local: bool
   client: string
 
-// A remote door a paired client comes through: its
+// A remote door a paired client comes through (LLP 1121 stage 10 B): its
 // origin and its certificate's SHA-256, made for this run, which the other
 // machine checks; a tunnel the developer trusts has none.
 shape Door
@@ -55,7 +55,7 @@ shape Door
   fingerprint: string
   tunnel: bool
 
-// A pairing code: good once, until `until`, for a
+// A pairing code (LLP 1122 D12, T6): good once, until `until`, for a
 // client's own token at `scope`.
 shape PairCode
   ok: bool
@@ -65,7 +65,7 @@ shape PairCode
   until: string
   doors: Door[]
 
-// A paired tool's canvas through the server's gateway: the
+// A paired tool's canvas through the server's gateway (stage 10 C): the
 // frame's URL, its single-use grant in the fragment; "" with none.
 shape Canvas
   ok: bool
@@ -77,7 +77,7 @@ shape Canvas
 shape CanvasIn
   entered: bool
 
-// One live copy of several: its frame's name, what it shows
+// One live copy of several (LLP 1122 T7): its frame's name, what it shows
 // (a mode and text size, or a state), the page it frames, the build its
 // page said it is, that build's facts as it reports them, and what is
 // wrong, if anything.
@@ -89,7 +89,7 @@ shape GridTile
   ready: bool
   facts: string
   note: string
-  // What the app asked that the copy's pin holds over, or "".
+  // What the app asked that the copy's pin holds over (theme2's F2 ruling), or "".
   app: string
 
 shape Grid
@@ -118,13 +118,13 @@ shape Change
   files: string[]
   tokens: string[]
 
-// A held proposal: its proposer, diff, the tokens it
+// A held proposal (LLP 1122 D10): its proposer, diff, the tokens it
 // changes and its operations; a recomputed one names the one it replaces.
 shape HeldItem
   index: number
   text: string
 
-// An import's review: the mapped tokens with each mode's
+// An import's review (LLP 1122 D11): the mapped tokens with each mode's
 // value and swatches, the role overrides it offers (off until ticked), the
 // values it did not map and why, and the count check.
 // A mode's value: `mode` 0 is the default (or a set's own `when`), k the
@@ -148,7 +148,7 @@ shape Mapped
   // In to begin with (the server's choice can leave it out); a picked id flips it.
   on: bool
 
-// What the card's choices sent answered (tamber/1.18 `choose`): the flips to drop, on cards another client chose on.
+// What the card's choices sent answered (forma/1.18 `choose`): the flips to drop, on cards another client chose on.
 shape Choices
   ok: bool
   answer: number
@@ -173,7 +173,7 @@ shape Unmapped
   block: string
   key: string
 
-// The diff a held import's card shows, as its choice is now: the held one when all of it is chosen,
+// The diff a held import's card shows, as its choice is now (stage 15 D1.1): the held one when all of it is chosen,
 // else the plan of what is chosen; `note` says when there is none, or it could not be planned.
 shape ChosenDiff
   proposal: string
@@ -225,7 +225,7 @@ shape Imported
   counted: string
   unmapped: Unmapped[]
 
-// A running build: its effective scheme, contrast, mode and
+// A running build (LLP 1122 D4): its effective scheme, contrast, mode and
 // root font size from its status, its pin, whether its status has caught
 // up with the last pin frame the server sent it (any client's pin, or a
 // hand-back), and the last command it could not apply.
@@ -240,7 +240,7 @@ shape InspectRefusal
   name: string
   tail: string
 
-// A build gone from the server's list and not back: shown as reloading for a bounded window.
+// A build gone from the server's list and not back: shown as reloading for a bounded window (stage 15 D1.2).
 shape GoneBuild
   id: string
   host: string
@@ -249,7 +249,7 @@ shape GoneBuild
 shape Build
   id: string
   host: string
-  // The variant gallery's page (`page: 'gallery'`, tamber/1.15): a label only.
+  // The variant gallery's page (`page: 'gallery'`, forma/1.15): a label only.
   gallery: bool
   // Its status has come (none since it registered or reloaded, else).
   reported: bool
@@ -273,7 +273,7 @@ shape AppAxes
   // Which read this is (0 for none): the inspector follows each.
   answer: number
 
-// One row of an inspected node: its value, where it comes
+// One row of an inspected node (LLP 1122 D5): its value, where it comes
 // from, and what the inspector offers: the token rung (`rung` "token", the
 // token and the grid column of the branch that won), a token it links, or
 // why it is read-only.
@@ -285,24 +285,24 @@ shape SelRow
   source: string
   rung: string
   token: string
-  // The param rung's: its full and short names; `token` is
-  // then the token it aliases, offered, never the default.
+  // The param rung's (LLP 1122 T3): its full and short names; `token` is
+  // then the token it aliases, offered, never the default (D6).
   param: string
   short: string
-  // The state rung's: the edit `set-state` makes of a style's state
+  // The state rung's (T4): the edit `set-state` makes of a style's state
   // part row (style|state|row|file), its words, or "" for none.
   state: string
   stateLabel: string
   // The row's value as its state part writes it, which the editor starts from.
   stateText: string
-  // The template or style rung's: `set-row`'s address (JSON), its words
+  // The template or style rung's (T5): `set-row`'s address (JSON), its words
   // ("Edit this template · 2 instances", "Edit style Panel") and the value as written.
   edit: string
   editLabel: string
   editText: string
   // The editor's heading: the scope and the attribute written (a shorthand's whole for a longhand of it).
   editWords: string
-  // A template row's promotion (to a new param; to a token where `tokenize`, an unconditional value),
+  // A template row's promotion (D6: to a new param; to a token where `tokenize`, an unconditional value),
   // and a param row's detach to its template: each move's address and value as written (JSON), or "".
   promote: string
   tokenize: bool
@@ -330,16 +330,16 @@ shape Inspected
   node: number
   readOnly: string
   source: string
-  // Each call site above it, innermost first, and how many up it is (tamber/1.16 `inspect` `select`).
+  // Each call site above it, innermost first, and how many up it is (forma/1.16 `inspect` `select`).
   chain: ChainLink[]
-  // A `select`'s move that landed here (tamber/1.17 `moved`): the up asked and the steps its page took (fewer only at
+  // A `select`'s move that landed here (forma/1.17 `moved`): the up asked and the steps its page took (fewer only at
   // the root), -1 for none.
   movedUp: number
   movedStepped: number
-  // Its own component, as the server joined its site (where a step landed is said by it).
+  // Its own component, as the server joined its site (the Apple pass's #1: where a step landed is said by it).
   component: string
   // Why the page's selection itself is not current (its build gone or moved on, its page's refusal), or "": a move
-  // up would be refused, so none is offered. A scheme or mode not known stops only edits.
+  // up would be refused, so none is offered (the Apple pass's #5, #6). A scheme or mode not known stops only edits.
   pageStale: string
   // The grid column of the branch that won for it (its modes and scheme),
   // and that column's place, whole (every axis's value, the scheme).
@@ -350,14 +350,15 @@ shape Inspected
   // Whether this tool has inspect mode on a build, as the server and the
   // pages tell it.
   inspecting: bool
-  // A state held on it: whether its build can hold, what is
+  // A state held on it (LLP 1122 D8): whether its build can hold, what is
   // held here, and what the server and the build said; the rows the held
   // state shows, or why they are not known.
   hold: HoldView
   heldState: string
   heldRows: SelRow[]
   heldNote: string
-  // A node of an exported library component's own view: the component's declaring identity ("" outside one), the
+  // A node of an exported library component's own view (stage 12 D4, LLP
+  // 1139 D5): the component's declaring identity ("" outside one), the
   // part this node is ("" for none), and its parts as the server lists them.
   libraryIdentity: string
   libraryPart: string
@@ -405,7 +406,7 @@ shape Changes
   seq: number
   epoch: string
   missed: bool
-  // From the long poll by cursor: it goes on by itself, so its reply asks nothing again.
+  // From the long poll by cursor (stage 14 D): it goes on by itself, so its reply asks nothing again.
   stream: bool
   recent: Change[]
   // The session's undo and redo depth, and which run of the server they
@@ -418,7 +419,7 @@ shape Changes
   heldDesign: number
   builds: Build[]
   // The builds gone from the server's list and not back (by id), each numbered by its going, and the newest number:
-  // the root shows one as reloading for a bounded window from the first going it saw.
+  // the root shows one as reloading for a bounded window from the first going it saw (stage 15 D1.2).
   reloading: GoneBuild[]
   reloadGen: number
   // The builds whose page refused inspect mode, said in the Inspector (at most three), and how many more.
@@ -442,8 +443,8 @@ shape Changes
   // Each client paired or gone, and each start again: the clients read again on it.
   clients: string
 
-// A control drawn from a dial's declared metadata:
-// `control` is `color`, `slider`, `stepper` or `select`.
+// A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
+// D4): `control` is `color`, `slider`, `stepper` or `select`.
 shape Control
   name: string
   kind: string
@@ -460,7 +461,7 @@ shape Control
   bounds: string
   options: string[]
   // What a number the slider or stepper gives is written with: `px` for a
-  // length (a length dial is a px value), nothing for a number.
+  // length (LLP 1121 D15: a length dial is a px value), nothing for a number.
   unit: string
   // A colour's swatch: the value itself, or (a param naming a token) what
   // it folds to.
@@ -471,7 +472,7 @@ shape DialGroup
   dials: Control[]
   more: Control[]
 
-// The component panel: a component's params, each with
+// The component panel (LLP 1122 D7, T3): a component's params, each with
 // its control (`c.name` is the param's full name), grouped as dials are.
 shape ParamRow
   c: Control
@@ -480,12 +481,12 @@ shape ParamRow
   // The app has a line for it in the design's `params` block.
   set: bool
   // The tokens the default reads that a literal line no longer follows
-  // (marked pinned).
+  // (LLP 1121 D14's mark).
   pinned: string[]
   default: string
   // The token its default names ("" for none), that token's package ("" for
-  // the app's own), and whether its component is a package's
-  // ("Set for this app" writes the app's line).
+  // the app's own), and whether its component is a package's (LLP 1139 D5:
+  // "Set for this app" writes the app's line).
   token: string
   tokenPackage: string
   // Whether that token is a base name the app leaves unset (Exact's base).
@@ -509,8 +510,8 @@ shape ParamSwatch
   label: string
   css: string
 
-// A package param's winning level for the first tuple (each
-// side's), read after the design: raw (the tooltip), and said: one
+// A package param's winning level for the first tuple (stage 12 B2-levels,
+// each side's), read after the design: raw (the tooltip), and said: one
 // level where the sides agree, else each side's, and whether other tuples
 // differ.
 shape LevelRow
@@ -531,12 +532,12 @@ shape ParamGroup
 shape ComponentPanel
   identity: string
   name: string
-  // Declared in the design (`app.tamber#Name`): a view that isn't Contract.
+  // Declared in the design (`app.forma#Name`): a view that isn't Contract.
   native: bool
   package: bool
-  // A library component's variant props, each with the
+  // A library component's variant props (stage 12 D3), each with the
   // options it takes: listed as text, nothing pinned or shown as chosen
-  // (no per-instance pins).
+  // (per-instance pins are LLP 1139 §9 Q5).
   variants: Variant[]
   groups: ParamGroup[]
 
@@ -548,7 +549,7 @@ shape Column
   id: string
   label: string
 
-// A declared pair's contrast in one cell (`pair=`).
+// A declared pair's contrast in one cell (LLP 1121 D3, `pair=`).
 shape PairBadge
   name: string
   ratio: string
@@ -561,14 +562,14 @@ shape Cell
   swatch: string
   residual: bool
   note: string
-  // The token's kind, and a shadow's value to preview
+  // The token's kind (LLP 1121 stage 6), and a shadow's value to preview
   // in the column's scheme.
   kind: string
   shadow: string
   scheme: string
   pairs: PairBadge[]
 
-// A base scale value on one platform: its value, its
+// A base scale value on one platform (LLP 1121 stage 11): its value, its
 // source (a metric, a measurement, a guideline), whether it is a stretch, and
 // whether this app's targets draw it.
 shape BaseColumn
@@ -588,7 +589,7 @@ shape TokenRow
   // and, for a base row, that column in words ("iOS's 16px").
   start: string
   startFrom: string
-  // Where its value comes from: "app", "base" (Exact's scale)
+  // Where its value comes from (stage 11 D): "app", "base" (Exact's scale)
   // or "package" (read-only; the app overrides it in its own file); for an
   // app line over a base or package name, what it replaces and the way back.
   source: string
@@ -599,7 +600,7 @@ shape TokenRow
   columns: BaseColumn[]
 
 // The tokens changed since the last highlight faded, each by its latest
-// client and in that client's colour.
+// client and in that client's colour (LLP 1122 D10).
 shape Lit
   seq: number
   epoch: string
@@ -645,9 +646,9 @@ shape Design
   tokenGroups: TokenGroup[]
   names: string[]
   axes: AxisChoice[]
-  // The design's icons, read only: no operation writes one.
+  // The design's icons (LLP 1121 D10), read only: no operation writes one.
   icons: IconRow[]
-  // Each component with params or variant props.
+  // Each component with params (LLP 1121 D15) or variant props (LLP 1139 D5).
   components: ComponentPanel[]
 
 shape IconRow
@@ -665,7 +666,7 @@ shape DialInput
   // `control=none`: no control to go to.
   hidden: bool
 
-// The branch a grid cell shows (the edit's target branch): the `when`
+// The branch a grid cell shows (LLP 1122 D6's target branch): the `when`
 // that won for its tuple, or the default, and what its value reads.
 shape Branch
   ok: bool
@@ -686,15 +687,15 @@ shape Branch
   roles: string[]
   exact: bool
   own: string
-  // A component's param, its full name in `token`: its edit
+  // A component's param (LLP 1122 T3), its full name in `token`: its edit
   // is `set-param`, and it has no rename or remove.
   param: bool
-  // Why it is not edited here (a base or package value), or "".
+  // Why it is not edited here (a base or package value, stage 11), or "".
   readOnly: string
   // The design read it is of.
   answer: number
 
-// The branch editor's typed fields: the value shown, cut
+// The branch editor's typed fields (stage 6's kinds): the value shown, cut
 // into parts by its kind, the source between them kept as `fixed` parts.
 // Joined again they are the value byte for byte; an optional part left
 // empty is dropped with its `pre` and `post`.
@@ -722,7 +723,7 @@ shape Typed
   tail: string
 
 // An edit before it is written: `propose`'s answer.
-// The scrub as the data module keeps it: `live` from Scrub
+// The scrub as the data module keeps it (LLP 1122 D6): `live` from Scrub
 // live until Keep, Cancel or an end; `open` its id once the server opened
 // it; `ready` when the server previews the draft as it is now (Keep writes
 // that); `ended`, how the last one ended without a write, said once it is
@@ -765,11 +766,11 @@ shape Written
   // carried to the proposal that replaced it.
   note: string
   carried: string[]
-  // The last write moved to its other rung (a re-scope):
+  // The last write moved to its other rung (LLP 1122 D6's re-scope, T3):
   // what the offer says, or "" where it has none.
   rescope: string
 
-// The session changeset: each write since the tool opened,
+// The session changeset (LLP 1122 D9): each write since the tool opened,
 // in plain words, with the diff under the tool's own.
 shape ChangeEntry
   seq: number

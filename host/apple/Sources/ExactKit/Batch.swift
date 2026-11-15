@@ -5,12 +5,12 @@ import CoreGraphics
 extension BatchValue {
     package func channels(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> [Double]? {
         if let c = numbers, c.count == 4 { return c }
-        // A platform colour by name, its pair the fallback.
+        // @ref LLP 1095 D5 — a platform colour by name, its pair the fallback.
         if case .object(let o) = self, let name = o["sys"]?.string {
             return SystemColor.channels(name, dark: dark, contrast: contrast, elevated: elevated, tintColor: tint, fallback: o["c"]?.channels(dark: dark))
         }
-        // A colour in its own space: its sRGB clip; a profile's
-        // colour has none on the wire, so Core Graphics converts it.
+        // A colour in its own space (LLP 1100 D2): its sRGB clip; a profile's
+        // colour has none on the wire, so Core Graphics converts it (D3).
         if case .object(let o) = self, o["cs"] != nil {
             if let c = o["c"] { return c.channels(dark: dark) }
             guard let cg = cgColor(dark: dark), let srgb = CGColorSpace(name: CGColorSpace.sRGB),
@@ -20,7 +20,7 @@ extension BatchValue {
         guard let a = array, a.count == 2, let c = a[dark ? 1 : 0].numbers, c.count == 4 else { return nil }
         return c
     }
-    /// Text's channels: the sRGB four, then for a colour in its
+    /// Text's channels (LLP 1100 D2): the sRGB four, then for a colour in its
     /// own space its space (0 sRGB, 1 Display P3, 2 linear sRGB) and its four
     /// components, which `TextEngine.color` reads.
     package func textChannels(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> [Double]? {
@@ -29,17 +29,18 @@ extension BatchValue {
               case .object(let half) = halves[dark && halves.count > 1 ? 1 : 0] else { return c }
         if let code = ["srgb": 0.0, "display-p3": 1, "srgb-linear": 2][half["s"]?.string ?? ""],
            let v = half["v"]?.numbers, v.count == 4 { return c + [code] + v }
-        // A profile's colour: as extended sRGB.
+        // A profile's colour: as extended sRGB (LLP 1100 D3).
         guard let cg = cgColor(dark: dark), let space = CGColorSpace(name: CGColorSpace.extendedSRGB),
               let e = cg.converted(to: space, intent: .relativeColorimetric, options: nil)?.components, e.count == 4 else { return c }
         return c + [0] + e.map { Double($0) }
     }
-    /// The colour as Core Graphics draws it: in its own space, unclipped,
-    /// else from its sRGB channels.
+    /// The colour as Core Graphics draws it: in its own space, unclipped
+    /// (LLP 1100 D2), else from its sRGB channels.
     func cgColor(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> CGColor? {
         if case .object(let o) = self, let halves = o["cs"]?.array, !halves.isEmpty,
            case .object(let half) = halves[dark && halves.count > 1 ? 1 : 0],
            let name = half["s"]?.string, let v = half["v"]?.numbers {
+            // @ref LLP 1100 D3
             if let space = half["s"]?.profileSpace ?? ProfileSpaces.space(name) {
                 guard v.count == space.numberOfComponents + 1 else { return nil }
                 guard let color = CGColor(colorSpace: space, components: v.map { CGFloat($0) }) else { return nil }

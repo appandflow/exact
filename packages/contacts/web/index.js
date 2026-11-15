@@ -1,13 +1,13 @@
-// @exact/contacts on the web: the Contact Picker API,
+// @exact/contacts on the web (LLP 1133.018 D15): the Contact Picker API,
 // `navigator.contacts`, where the browser has it (Chrome on Android); no
 // address book, so `contactsStatus` says the store is not available and
 // `queryContacts` is refused by the page runtime before it reaches here.
 //
-// - A pick is a copy: no `id`, and each icon a file the app owns under
+// - A pick is a copy (D4): no `id`, and each icon a file the app owns under
 //   `app:/tmp/picked/contacts/`.
 // - Where the browser has no picker, `getContactProperties` answers `[]` and
 //   `selectContacts` fails `NotSupportedError`.
-// - Under the agent the browser's picker is never opened: the page
+// - Under the agent (§10) the browser's picker is never opened: the page
 //   answers as a browser with the picker does, and a pick is the sheet's
 //   typed ids looked up in the package's fixture, which is loaded only then.
 
@@ -45,7 +45,7 @@ export function implementation({ agent, files, log }) {
     }
     return paths;
   };
-  // A contact with the properties asked, and no id.
+  // A contact with the properties asked, and no id (D4).
   const picked = async (contact, properties, n, iconsOf) => {
     const out = { id: null, name: null, email: null, tel: null, address: null, icon: null };
     for (const p of properties) {

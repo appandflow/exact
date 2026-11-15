@@ -1,5 +1,5 @@
 //! Bounded keyed row realization, driven by actual nested-scrollport feedback.
-//! No historical instance or row-state cache.
+//! @ref LLP 1010 §6 / LLP 1041 §8. No historical instance or row-state cache.
 mod api;
 mod index;
 mod inset;
@@ -15,6 +15,8 @@ mod reorder_group;
 mod reorder_tests;
 mod reuse;
 pub(crate) mod shown;
+mod sizing;
+mod snap;
 use shown::in_collection_row;
 mod start;
 #[cfg(test)]
@@ -31,17 +33,22 @@ use index::{MeasurementToken, SizeIndex};
 pub use into_view::{Align, IntoView, IntoViewStatus};
 pub(crate) use keep::idents as keep_mounted;
 pub use reorder_api::*;
+use sizing::Sizing;
 pub(super) use traversal::{collections_json, invalidate_typography};
 
-/// A collection's data update, through [`super::LISTS`].
+/// A collection's data update, through [`super::LISTS`] (LLP 1047.000 §9).
 pub(super) fn update_collection(
     c: &mut Collection,
     u: &mut Update<'_>,
     frames: &[Frame],
     follow: bool,
+    smooth: bool,
     keep: Option<&Value>,
+    sizing: [Option<&Value>; 2],
 ) -> Result<(), InstanceError> {
+    c.smooth = smooth;
     c.follow_end(follow);
+    c.resize(u, frames, sizing[0], sizing[1])?;
     let remount = c.keep_mounted(keep);
     c.update_data(u, frames, false, remount)
 }
@@ -116,13 +123,6 @@ pub fn set_bootstrap_extent(px: f64) {
     }
 }
 
-/// Candidates from one accepted geometry report. The second edge may run only
-/// after a pure no-op first action. State changes defer it until settlement.
-pub(crate) struct CollectionEdges {
-    pub first: EventKind,
-    pub end_after_noop: bool,
-}
-
 #[derive(Debug)]
 struct Mounted {
     position: usize,
@@ -130,8 +130,11 @@ struct Mounted {
     epoch: u64,
     token: MeasurementToken,
     preview_target: Option<f64>,
-    /// Hidden while a ghost stands for it.
+    /// Hidden while a ghost stands for it (LLP 1094 D6).
     preview_hidden: bool,
+    /// Its root says `display: none` in a list with a gap: its wrapper is
+    /// no flex item either, so no gap is laid out around it (`sizing.rs`).
+    undisplayed: bool,
     /// The position and count the wrapper last published (`aria-posinset`,
     /// `aria-setsize`), for hosts that select and copy across rows.
     published: (usize, usize),
@@ -141,24 +144,35 @@ struct Mounted {
     /// Past the window, kept for the next row it needs ([`reuse`]).
     held: bool,
 }
+
+// Both window publication paths share the sort, including under LTO.
+#[inline(never)]
+fn sort_mounted(rows: &mut [Mounted]) {
+    rows.sort_by_key(|row| row.position);
+}
+
 #[derive(Debug)]
 pub(crate) struct Collection {
-    /// The app modes around the list: what a row it mounts
+    /// The app modes around the list (LLP 1121 D5): what a row it mounts
     /// later, on a report, is in.
     pub(crate) around: super::theme::Around,
     preview: Option<reorder::Preview>,
-    /// The gap a grouped session opens here as its target.
+    pending_drops: Vec<reorder::PendingDrop>,
+    /// The gap a grouped session opens here as its target (LLP 1094 D4).
     incoming: Option<reorder_group::Incoming>,
-    /// The dragged row's identity while a ghost stands for it.
+    /// The dragged row's identity while a ghost stands for it (D6).
     hidden: Option<String>,
-    /// Emit preview offsets at once: the rows moved with them.
+    /// Emit preview offsets at once: the rows moved with them (D8).
     instant: bool,
     view: ViewId,
-    /// Fixed at creation from the list's style.
+    /// Fixed at creation from the list's style (LLP 1070 H1).
     axis: ListAxis,
     region: RegionsId,
     index: SizeIndex,
     estimated_height: f64,
+    /// Its estimate and gap as last read (`sizing.rs`); `estimated_height`
+    /// is a row's extent before measurement, the gap after it included.
+    sizing: Sizing,
     bootstrap_rows: usize,
     /// The list's literal size along its axis, when it declares one.
     declared_port: Option<f64>,
@@ -182,17 +196,20 @@ pub(crate) struct Collection {
     geometry: Option<CollectionFeedback>,
     correction: Option<AnchorCorrection>,
     follow_end: bool,
-    /// The list's `scroll-behavior: smooth`: its end-follow and its smooth
-    /// `scrollIntoView` corrections ask the host to animate.
+    /// Whether the list's current `scroll-behavior` asks the host to animate
+    /// its end-follow corrections (LLP 1070.000 §11).
     smooth: bool,
     edge_handlers: [bool; 2],
     reorderable: bool,
     edge_armed: [bool; 2],
     /// Each edge's row when it last fired ([`Collection::disarm_edge`]).
     edge_fired: [Option<Rc<str>>; 2],
+    /// A page landed before the first row: the start re-arms at the first
+    /// report whose window is measured ([`Collection::page_before_start`]).
+    start_owed: bool,
     /// The last realization left window rows unbuilt or kept rows past it.
     pending: bool,
-    /// The outer list whose row holds this one.
+    /// The outer list whose row holds this one (LLP 1070 N1).
     parent: Option<ViewId>,
     /// Whether this list's rows can hold virtualized lists.
     nested: bool,
@@ -200,7 +217,7 @@ pub(crate) struct Collection {
     inner: Option<Rc<traversal::InnerSites>>,
     /// The pins inside its rows, as of a [`nest::PinEpoch`] count.
     inner_pins: std::cell::Cell<Option<(u64, [Option<ViewId>; 2])>>,
-    /// Where its inner lists were when their rows left.
+    /// Where its inner lists were when their rows left (Q1 as ruled).
     kept: nest::Kept,
     /// `scroll-restoration: manual`: the app keeps this list's position.
     manual: bool,
@@ -208,7 +225,7 @@ pub(crate) struct Collection {
     restored: bool,
     /// That position, until a host reports one.
     restored_at: Option<(Rc<str>, f64)>,
-    /// A `scrollIntoView` under way.
+    /// A `scrollIntoView` under way (LLP 1070.000).
     target: Option<into_view::Target>,
     /// The last report said the reader's scroll is under way and a jump
     /// would not end it ([`CollectionFill::scrolling`]).
@@ -216,6 +233,8 @@ pub(crate) struct Collection {
     /// The last report said the host animates a smooth correction
     /// ([`CollectionFill::animating`]).
     animating: bool,
+    /// The actual port, when reports plan a destination instead.
+    view_offset: Option<f64>,
     /// A request ended or began while the host animated, which stops the
     /// animation where the port is: until a report says where, nothing
     /// anchors and a request waits.
@@ -236,11 +255,14 @@ pub(crate) struct Collection {
     keep: Vec<Rc<str>>,
     /// `scroll-start: end`, until the list has opened there.
     at_end: bool,
+    /// `scroll-start: end`, for good: rows put before its window keep its
+    /// last visible row (@ref LLP 1168.000 D1.2).
+    opens_at_end: bool,
     /// Consecutive reports that said the port was travelling, while it opens.
     end_travel: u8,
     /// The followed end last sent as a correction (`start::at_target`).
     end_sent: f64,
-    /// What a retiring row may be rebound to another item under:
+    /// What a retiring row may be rebound to another item under (LLP 1078):
     /// `None` when no row of this list can be.
     reuse: Option<Rc<reuse::Reuse>>,
 }
@@ -324,223 +346,7 @@ impl Collection {
         advance(&mut self.revision)?;
         Ok(())
     }
-    pub(super) fn create(
-        u: &mut Update<'_>,
-        node: NodesId,
-        view: ViewId,
-        frames: &[Frame],
-    ) -> Result<Option<Box<Self>>, InstanceError> {
-        let plan = u.env.plan;
-        let descriptor = plan.node(node);
-        let mut enabled = false;
-        let mut follow_end = false;
-        let mut smooth = false;
-        let mut at_end = false;
-        let mut reach = reach::Margin::default();
-        let mut keep = Vec::new();
-        let mut estimated_height = ESTIMATED_HEIGHT;
-        let mut initial: Option<usize> = None;
-        let mut axis = ListAxis::Vertical;
-        // The list's own literal size on each axis (`height=399`), which
-        // bounds the rows its first frame needs: [vertical, horizontal].
-        let mut declared: [Option<f64>; 2] = [None, None];
-        for binding in descriptor.bindings.iter().map(|b| plan.binding(b)) {
-            if binding.kind == BindingKind::Style {
-                use exact_kernel::StyleId;
-                let slot = match binding.id {
-                    id if id == StyleId::Height as u16 || id == StyleId::MaxHeight as u16 => {
-                        Some(0)
-                    }
-                    id if id == StyleId::Width as u16 || id == StyleId::MaxWidth as u16 => Some(1),
-                    _ => None,
-                };
-                if let Some(slot) = slot {
-                    if let Value::Number(n) = u.eval(binding.expr, frames)? {
-                        if n.is_finite() && n > 0.0 {
-                            declared[slot] = Some(declared[slot].map_or(n, |d: f64| d.min(n)));
-                        }
-                    }
-                }
-            }
-            // A flex list is CSS's row (the compiler refuses the other
-            // directions); its main axis is horizontal.
-            if binding.kind == BindingKind::Style
-                && binding.id == exact_kernel::StyleId::Display as u16
-                && u.eval(binding.expr, frames)?.as_str() == Some("flex")
-            {
-                axis = ListAxis::Horizontal;
-            }
-            if binding.kind == BindingKind::Style
-                && binding.id == exact_kernel::StyleId::ScrollBehavior as u16
-                && u.eval(binding.expr, frames)?.as_str() == Some("smooth")
-            {
-                smooth = true;
-            }
-            if binding.kind == BindingKind::Prop && binding.id == PropId::Virtualized as u16 {
-                enabled = u.eval(binding.expr, frames)? == Value::Bool(true);
-            }
-            if binding.kind == BindingKind::Prop && binding.id == PropId::ScrollFollowEnd as u16 {
-                follow_end = u.eval(binding.expr, frames)? == Value::Bool(true);
-            }
-            if binding.kind == BindingKind::Prop && binding.id == PropId::ReachMargin as u16 {
-                let margin = u.eval(binding.expr, frames)?;
-                reach = margin
-                    .as_str()
-                    .and_then(reach::Margin::parse)
-                    .ok_or_else(|| {
-                        invalid("reach margin must be one or two nonnegative px or % lengths")
-                    })?;
-            }
-            if binding.kind == BindingKind::Prop && binding.id == PropId::KeepMounted as u16 {
-                keep = keep::idents(&u.eval(binding.expr, frames)?).unwrap_or_default();
-            }
-            if binding.kind == BindingKind::Prop && binding.id == PropId::ScrollStart as u16 {
-                at_end = u.eval(binding.expr, frames)?.as_str() == Some("end");
-            }
-            if binding.kind == BindingKind::Prop
-                && (binding.id == PropId::EstimatedItemHeight as u16
-                    || binding.id == PropId::EstimatedItemWidth as u16)
-            {
-                let Value::Number(height) = u.eval(binding.expr, frames)? else {
-                    return Err(invalid("estimated item height must be a number"));
-                };
-                if !height.is_finite() || height <= 0.0 {
-                    return Err(invalid("estimated item height must be positive and finite"));
-                }
-                estimated_height = height;
-            }
-            if binding.kind == BindingKind::Prop && binding.id == PropId::InitialItemCount as u16 {
-                let Value::Number(count) = u.eval(binding.expr, frames)? else {
-                    return Err(invalid("initial item count must be a number"));
-                };
-                if !(count.fract() == 0.0 && (1.0..=64.0).contains(&count)) {
-                    return Err(invalid(
-                        "initial item count must be a whole number from 1 to 64",
-                    ));
-                }
-                initial = Some(count as usize);
-            }
-        }
-        if !enabled {
-            return Ok(None);
-        }
-        if descriptor.node_type != exact_kernel::NodeType::List as u8 {
-            return Err(invalid("virtualized requires List"));
-        }
-        let child_sites = u.sites.children(Some(node), descriptor.arm);
-        let [(_, Site::Region(region))] = child_sites else {
-            return Err(invalid("collection needs one direct `for`"));
-        };
-        let region = *region;
-        let row = plan.region(region);
-        if row.kind != RegionKind::Each || row.arms.len != 1 {
-            return Err(invalid("collection needs one `for` arm"));
-        }
-        if !matches!(
-            u.sites.children(None, row.arms.iter().next()),
-            [(_, Site::Node(_))]
-        ) {
-            return Err(invalid("collection row needs one flow root"));
-        }
-        let inner = traversal::validate_nesting(plan, u.sites, region)?;
-        let reuse = reuse::Reuse::new(plan, u.sites, region);
-        let nested = inner.is_some();
-        let port = declared[match axis {
-            ListAxis::Vertical => 0,
-            ListAxis::Horizontal => 1,
-        }];
-        // A list's reads of its own options are its structure, as a region's
-        // subject is: a trap here still poisons.
-        let mut manual = false;
-        for b in descriptor.bindings.iter().map(|b| plan.binding(b)) {
-            if b.kind == BindingKind::Prop && b.id == PropId::ScrollRestoration as u16 {
-                manual |= u.eval(b.expr, frames)?.as_str() == Some("manual");
-            }
-        }
-        let mut this = Box::new(Self {
-            // What a later row is in, not the visit's re-theme of the rest.
-            around: super::theme::Around {
-                retheme: false,
-                ..u.theme.clone()
-            },
-            preview: None,
-            incoming: None,
-            hidden: None,
-            instant: false,
-            view,
-            axis,
-            region,
-            index: SizeIndex::new(estimated_height).map_err(index_error)?,
-            estimated_height,
-            // The provisional extent ([`set_bootstrap_extent`]), capped at
-            // sixteen rows, unless the list says how many (`initial-item-count`).
-            // Actual nested-scrollport feedback determines the real window.
-            bootstrap_rows: initial.unwrap_or(
-                ((f64::from_bits(BOOTSTRAP_EXTENT.load(std::sync::atomic::Ordering::Relaxed))
-                    / estimated_height)
-                    .ceil()
-                    .min(
-                        port.filter(|_| in_collection_row(plan, frames))
-                            .map_or(f64::INFINITY, |p| (p / estimated_height).ceil() + 1.0),
-                    )
-                    .clamp(1.0, BOOTSTRAP_ROWS as f64)) as usize,
-            ),
-            declared_port: port,
-            items: Items::default(),
-            keys: Vec::new(),
-            dups: BTreeMap::new(),
-            string_keys: true,
-            mounted: Vec::new(),
-            any_awaiting: false,
-            spacers: Vec::new(),
-            children: Vec::new(),
-            revision: 0,
-            data_generation: 0,
-            next_epoch: 0,
-            zero_heights: Default::default(),
-            geometry: None,
-            correction: None,
-            follow_end,
-            smooth,
-            edge_handlers: [EventKind::Reachstart, EventKind::Reachend].map(|event| {
-                descriptor
-                    .handlers
-                    .iter()
-                    .any(|h| plan.handler(h).event == event)
-            }),
-            reorderable: descriptor
-                .handlers
-                .iter()
-                .any(|h| plan.handler(h).event == EventKind::Reorderdrop),
-            edge_armed: [true; 2],
-            edge_fired: [None, None],
-            pending: false,
-            parent: None,
-            nested,
-            inner,
-            inner_pins: Default::default(),
-            kept: Default::default(),
-            manual,
-            restored: false,
-            restored_at: None,
-            target: None,
-            scrolling: false,
-            animating: false,
-            port_unknown: false,
-            request: 0,
-            into_view_status: None,
-            covered: [0.0; 2],
-            start_offset: 0.0,
-            reach,
-            keep,
-            at_end,
-            end_travel: 0,
-            end_sent: f64::NAN,
-            reuse,
-        });
-        this.update_data(u, frames, true, false)?;
-        Ok(Some(this))
-    }
+
     /// Bring the rows up to date when the subject, the keys' other inputs or
     /// anything a mounted row reads changed; `fresh` on creation, `remount`
     /// when the rows it keeps mounted changed.
@@ -551,7 +357,7 @@ impl Collection {
         fresh: bool,
         remount: bool,
     ) -> Result<(), InstanceError> {
-        let deps = &u.sites.deps;
+        let deps = &u.sites.data.deps;
         let index = self.region.0 as usize;
         let keys_stale = fresh || u.stale_outside(&deps.keys[index], 1);
         let data_changed = keys_stale || u.stale(&deps.subjects[index]);
@@ -566,8 +372,8 @@ impl Collection {
         let rows_changed =
             u.changed_outside(&deps.keys[index], 1) || u.changed_outside(&deps.bodies[index], 1);
         let changed = fresh || rows_changed || u.changed_outside(&deps.subjects[index], 0);
-        // A grouped session's offsets move with its rows, at once:
-        // the layout moved by what they gave.
+        // A grouped session's offsets move with its rows, at once (LLP 1094
+        // D8): the layout moved by what they gave.
         let instant = changed
             && (self.incoming.is_some() || self.preview.as_ref().is_some_and(|p| p.grouped));
         if changed {
@@ -576,14 +382,31 @@ impl Collection {
         }
         self.instant = instant;
         let anchor = if changed { self.anchor()? } else { None };
-        let drop_anchor = if changed { self.drop_anchor()? } else { None };
+        let bottom = if changed { self.bottom_anchor()? } else { None };
+        let drop_anchor = if changed {
+            self.drop_anchor(u.env.now_ms)?
+        } else {
+            None
+        };
         // Items that changed in place: the same keys in the same order, and
         // no input of the rows' bodies or keys changed (a live tick's prices).
         let mut in_place: Option<Vec<usize>> = None;
-        let (last, count) = (self.last_key(), self.index.len());
+        let (order, last, count) = (self.index.order(), self.last_key(), self.index.len());
         if data_changed {
             let descriptor = u.env.plan.region(self.region);
-            let Value::List(items) = u.eval(descriptor.subject, frames)? else {
+            let Value::List(items) = u
+                .eval_named(descriptor.subject, frames, || "each subject".into())
+                .map_err(|e| {
+                    e.at_view(
+                        self.view,
+                        u.env
+                            .plan
+                            .region(self.region)
+                            .parent
+                            .expect("collection parent"),
+                    )
+                })?
+            else {
                 return Err(InstanceError::SubjectKind {
                     region: self.region,
                 });
@@ -610,7 +433,7 @@ impl Collection {
             // in full evaluation); `rekeyed` says whether one changed. Asking
             // it here made the revision differ between modes when a re-ask
             // answered the same rows (exact-live, a build-time answer asked
-            // again at data_ready).
+            // again at data_ready, 2026-10-04).
             // A key put in, taken out or moved: the rows that move are the
             // data's (`data_generation`).
             if fresh || shared || rekeyed {
@@ -638,8 +461,10 @@ impl Collection {
             }
             if self.index.len() == 0 {
                 self.edge_armed = [true; 2];
+                self.start_owed = false;
             }
-            // Rows that arrived are a new end: the old last row is still here with rows
+            // @ref LLP 1010 (2026-09-29 ruling, provisional) — rows that
+            // arrived are a new end: the old last row is still here with rows
             // after it, or the list grew and kept it (a page inserted before
             // a trailing row that stays last, a feed's "loading" tail), so the
             // edge re-arms and a reader still there when a page lands is
@@ -649,6 +474,10 @@ impl Collection {
             if kept.is_some_and(|p| p + 1 < self.index.len() || self.index.len() > count) {
                 self.edge_armed[1] = true;
             }
+            if self.edge_handlers[0] && self.page_before_start(&order) {
+                self.start_owed = true;
+            }
+            let anchor = self.end_list_anchor(&order, anchor, bottom);
             let anchor = self.committed_anchor(anchor, drop_anchor);
             self.cancel_if_row_left();
             self.restore_unless_unknown(anchor)?;
@@ -708,7 +537,7 @@ impl Collection {
     }
     /// An update restores the anchor, unless the host's animation left the
     /// port's position unknown: then nothing anchors, and no correction
-    /// planned before stands.
+    /// planned before stands (LLP 1070.000 §2.5).
     fn restore_unless_unknown(
         &mut self,
         anchor: Option<index::Anchor>,
@@ -790,7 +619,7 @@ impl Collection {
     /// the side of travel first, retiring at most `max(2·limit, 4)` rows past
     /// the window (none for a limit of zero), farthest first, more when the
     /// rows kept past the window would outnumber the window's own, and every
-    /// row more than two viewports from what shows. A
+    /// row more than two viewports from what shows (@ref LLP 1050.000 §6). A
     /// data update realizes the whole window. What a limit leaves undone is
     /// `pending`.
     fn realize_window(
@@ -907,7 +736,7 @@ impl Collection {
             admitted.extend(optional.into_iter().take(limit as usize).map(|(_, _, p)| p));
         }
         // With reuse, the rows nothing mounts are built once the retiring
-        // rows are known, so one can be rebound to each.
+        // rows are known, so one can be rebound to each (LLP 1078).
         let reusing = self.reusing(u);
         let mut needed: Vec<(usize, String)> = Vec::new();
         for position in ranges.into_iter().flatten() {
@@ -915,7 +744,7 @@ impl Collection {
             let mounted = match old.remove(&text) {
                 Some(mut mounted) => {
                     mounted.held = false;
-                    let body = &u.sites.deps.bodies[self.region.0 as usize];
+                    let body = &u.sites.data.deps.bodies[self.region.0 as usize];
                     let dirty = self.reposition(&mut mounted, position, body.reads_position());
                     if update {
                         update_row(u, &mut mounted.row, frames, dirty, body)?;
@@ -937,7 +766,7 @@ impl Collection {
             };
             self.settle_mounted(u, mounted, &text)?;
         }
-        // A build-only report retires nothing: rows past the
+        // A build-only report retires nothing (LLP 1072 §5): rows past the
         // window stay, and the report is pending until an immediate one.
         if fill.create_only && !update {
             self.build_needed(u, needed, Vec::new(), Vec::new(), None, 0, frames)?;
@@ -961,7 +790,7 @@ impl Collection {
                     }
                 }
             }
-            self.mounted.sort_by_key(|row| row.position);
+            sort_mounted(&mut self.mounted);
             self.pending = pending || kept;
             self.emit_children(u)?;
             self.emit_preview(u)?;
@@ -1029,7 +858,7 @@ impl Collection {
             self.reposition(&mut mounted, position, true);
             self.settle_mounted(u, mounted, &text)?;
         }
-        self.mounted.sort_by_key(|row| row.position);
+        sort_mounted(&mut self.mounted);
         self.pending = pending;
         self.emit_children(u)?;
         self.emit_preview(u)?;
@@ -1038,7 +867,7 @@ impl Collection {
     /// Move a mounted row to `position`; which fields of its item changed
     /// ([`crate::compare::changed_fields`]), every one when its position
     /// changed and its body reads its position (`reads_position`: a row that
-    /// moved reads its new one). A row that reads none keeps
+    /// moved reads its new one, LLP 1062 D8). A row that reads none keeps
     /// its bindings as an unmoved one would (a prepend moves every kept
     /// row). An equivalent item keeps its object for nested memos.
     fn reposition(&self, mounted: &mut Mounted, position: usize, reads_position: bool) -> u64 {
@@ -1109,6 +938,7 @@ impl Collection {
             token,
             preview_target: None,
             preview_hidden: false,
+            undisplayed: false,
             published: (usize::MAX, usize::MAX),
             row,
             awaiting: false,
@@ -1138,7 +968,20 @@ impl Collection {
         let arm = plan.region(self.region).arms.iter().next();
         for (i, s) in plan.slots.iter().enumerate() {
             if s.owner.is_some() && s.owner == arm {
-                let value = u.eval(s.init, &inner)?;
+                let value = u
+                    .eval_named(s.init, &inner, || {
+                        format!("state {:?} initializer", plan.str(s.name))
+                    })
+                    .map_err(|e| {
+                        e.at_view(
+                            self.view,
+                            u.env
+                                .plan
+                                .region(self.region)
+                                .parent
+                                .expect("collection parent"),
+                        )
+                    })?;
                 if !value.conforms(plan, s.ty) {
                     return Err(InstanceError::slot_type(
                         plan,
@@ -1193,7 +1036,7 @@ impl Collection {
         {
             return Ok(None);
         }
-        // A build-only report keeps the port, width and
+        // @ref LLP 1072 §5 — a build-only report keeps the port, width and
         // pins: a report that changes them may retire, so it is immediate.
         if fill.create_only
             && self.geometry.as_ref().is_none_or(|g| {
@@ -1233,7 +1076,7 @@ impl Collection {
             {
                 return Ok(None);
             }
-            max_value = max_value.max(m.size);
+            max_value = max_value.max(m.size + self.sizing.gap);
         }
         let changed_width = self
             .geometry
@@ -1260,7 +1103,8 @@ impl Collection {
             // cloning/scanning the N-row index or allocating for equal samples.
             for measurement in &feedback.measurements {
                 let position = self.mounted[by_view[&measurement.view]].position;
-                preview.set_height(position, self.index.denoised(position, measurement.size));
+                let extent = measurement.size + self.sizing.gap;
+                preview.set_height(position, self.index.denoised(position, extent));
             }
         }
         let extent = preview.total_height();
@@ -1282,11 +1126,17 @@ impl Collection {
         by_view: &BTreeMap<ViewId, usize>,
         mut fill: CollectionFill,
     ) -> Result<(bool, Option<CollectionEdges>), InstanceError> {
+        // A row's extent in the index is its size and the gap after it, but
+        // for a row that is not displayed, around which no gap is laid out.
+        for m in &mut feedback.measurements {
+            m.size += self.gap_after(by_view.get(&m.view).map(|&i| &self.mounted[i]));
+        }
         let waited = self.request_waits();
         self.animating = fill.animating;
+        self.view_offset = fill.view_offset;
         // A report gives where the port is, unless the host animates.
         self.port_unknown &= fill.animating;
-        // the padding the host laid out, taken in now
+        // @ref LLP 1010 §6.9 — the padding the host laid out, taken in now
         // that the report is accepted. A new padding (a rotation's safe area)
         // is no travel: the anchor is taken on the old range and restored on
         // the new, so a followed end follows it.
@@ -1307,7 +1157,7 @@ impl Collection {
         // A new port size or width retires every row that left and builds
         // the whole window: only travel is sliced. A list's first report
         // retires nothing, so a slice there builds what shows and leaves its
-        // lead pending (a tap's response frame).
+        // lead pending (a tap's response frame, LLP 1072 §5).
         if self.geometry.as_ref().is_some_and(|g| {
             (g.port_cross, g.port_main, g.cross)
                 != (feedback.port_cross, feedback.port_main, feedback.cross)
@@ -1322,7 +1172,7 @@ impl Collection {
         let pins_changed = self.geometry.as_ref().is_some_and(|g| {
             (g.focus_view, g.interaction_view) != (feedback.focus_view, feedback.interaction_view)
         });
-        // An enclosing list is moving: build what this list
+        // An enclosing list is moving (LLP 1070 F2): build what this list
         // owes and nothing else, first report and resize included.
         if fill.ancestor_moving {
             fill.limit = Some(0);
@@ -1340,12 +1190,12 @@ impl Collection {
         let previous = self.snapshot();
         self.scrolling = fill.scrolling;
         self.follow_into_view(fill);
-        // A request that waited lands in the report that ends its wait
+        // A request that waited lands in the report that ends its wait (§2.6)
         let landing = waited && self.target.is_some() && !self.request_waits();
         if landing {
             self.refuse_if_inner_gone(u, frames)?;
         }
-        // H4, Q3 (a): a row list anchors only an estimate
+        // @ref LLP 1070 H4, Q3 (a): a row list anchors only an estimate
         // replaced by a first measurement, the jump virtualization makes. A
         // card measured again moves what follows it, as Chrome, which does
         // not anchor on the inline axis, moves it. So its re-measurements

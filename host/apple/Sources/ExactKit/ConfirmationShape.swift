@@ -1,12 +1,12 @@
-// The shape of a confirmation (by Apple's HIG), shared by the
+// The shape of a confirmation (LLP 1115 D6, by Apple's HIG), shared by the
 // hosts that present one natively: UIKit's alert (`IOS/MenusIOS.swift`) and
-// AppKit's (`Mac/AlertsMac.swift`). An `alertdialog`'s
+// AppKit's (`Mac/AlertsMac.swift`, LLP 1115.000 D7.6). An `alertdialog`'s
 // rows are its text, its actions (buttons with a `press` that also close it)
 // and its cancel (a button that only closes it).
 //
 // What counts as an alert is one rule, the kernel's
 // (`exact_kernel::confirmation`): lowering reads it to imply an alert's
-// `closedby` (an alert has no outside), the Linux host to
+// `closedby` (LLP 1115.000 D13.4: an alert has no outside), the Linux host to
 // draw Android's, and these hosts ask it here, so the three cannot drift. The
 // counting of rows stays each host's, since each reads its own tree.
 import CExact

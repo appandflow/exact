@@ -1,6 +1,6 @@
-//! The card: `contract vocab` with no name. Without it a builder makes a
-//! dozen or more lookups, one call at a time, for what a React builder
-//! already knows: which functions exist, what a tag takes,
+//! The card (LLP 1116.010 D1): `contract vocab` with no name. Round 12's
+//! builders made eleven to fifteen lookups each, one call at a time, for what
+//! a React builder already knows: which functions exist, what a tag takes,
 //! what a part's call looks like. The card is that in one read, at most
 //! 12 KB, generated from the tables so it cannot drift: the
 //! functions from the roster and the grammar's tables (`functions.rs`), the
@@ -235,9 +235,18 @@ pub fn card() -> String {
             .collect::<Vec<_>>()
             .join(" ")
     );
+    // A filled state is named once, by its outline's role, which keeps the card under its size.
+    let roles = exact_kernel::generated::SYMBOL_ROLES;
+    let (filled, outlines): (Vec<&str>, Vec<&str>) =
+        roles.iter().partition(|role| role.ends_with("-fill"));
     out += &format!(
-        "symbol roles: {}\n",
-        exact_kernel::generated::SYMBOL_ROLES.join(" ")
+        "symbol roles: {}; with a <role>-fill: {}\n",
+        outlines.join(" "),
+        filled
+            .iter()
+            .map(|role| role.trim_end_matches("-fill"))
+            .collect::<Vec<_>>()
+            .join(" ")
     );
     out
 }
@@ -249,7 +258,7 @@ mod tests {
     use contract_lower::{tags, vocab};
 
     /// The card's size, in bytes: a builder's context is re-sent at every step
-    /// (12 KB with the how-to).
+    /// (12 KB since LLP 1116.011 D1 added the how-to).
     const LIMIT: usize = 12 * 1024;
 
     #[test]
@@ -532,7 +541,7 @@ mod tests {
             assert!(verify.contains(&usage), "`{flag}` is not in `{verify}`");
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
-        // The how-tos builders most often look up, by title.
+        // The how-tos the round-13 lookups ask for, by title.
         for want in [
             "screen",
             "sheet",
@@ -585,7 +594,7 @@ mod tests {
     }
 
     /// `docs/card.md` is the card checked in, for the builders that read
-    /// files rather than run commands.
+    /// files rather than run commands (LLP 1116.011 D1).
     #[test]
     fn docs_card_md_is_what_vocab_prints() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/card.md");

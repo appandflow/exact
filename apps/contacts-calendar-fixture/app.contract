@@ -1,5 +1,5 @@
-// @exact/contacts' and @exact/calendar's fixture on Android:
-// the Calendar example has no Android crate, so this is the
+// @exact/contacts' and @exact/calendar's fixture on Android (LLP 1133.018
+// stage 3): the Calendar example has no Android crate, so this is the
 // packages' consumer there. Both statuses, a page of contacts, the calendars
 // and two months of occurrences are read at launch (each read asks
 // permission while `prompt`); Pick, Save, Add with the editor and Full access

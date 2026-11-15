@@ -3,7 +3,7 @@ use super::*;
 use std::{fs, process::Command, time::Instant};
 
 #[test]
-#[ignore = "compiles a native module fixture; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: compiles a native module fixture"]
 fn native_image_settle_preserves_input_after_preparation() {
     let dir = std::env::temp_dir().join(format!("exact-apple-settle-{}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();

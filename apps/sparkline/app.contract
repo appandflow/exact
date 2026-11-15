@@ -1,4 +1,4 @@
-// Sparkline — an SVG fixture: a coin row with an inline SVG chart that
+// Sparkline — the LLP 1055 fixture: a coin row with an inline SVG chart that
 // draws in when the row mounts and a ring that breathes at the last point,
 // written as a web developer writes it (`svg` + `polyline`, `pathLength=1`
 // with `stroke-dasharray`/`stroke-dashoffset`, CSS `@keyframes`). Chrome is

@@ -178,6 +178,15 @@ impl Device for Selected {
             Self::D3d11(d) => d.generate_mips(texture),
         }
     }
+    fn create_target(&mut self, width: u32, height: u32) -> Result<TextureId> {
+        match self {
+            Self::Wgpu(d) => d.create_target(width, height),
+            #[cfg(exact_ink_metal)]
+            Self::Metal(d) => d.create_target(width, height),
+            #[cfg(windows)]
+            Self::D3d11(d) => d.create_target(width, height),
+        }
+    }
     fn resize_target(&mut self, target: TextureId, width: u32, height: u32) -> Result<TextureId> {
         match self {
             Self::Wgpu(d) => d.resize_target(target, width, height),

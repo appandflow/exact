@@ -1,4 +1,5 @@
-// In a real browser, a default build's stylesheet and the
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// LLP 1116.000 D4 in a real browser: a default build's stylesheet and the
 // navigation glue's projection (navigation.js, which both web targets run)
 // over nodes as the hosts write them. A pushed route's app bar draws Back,
 // in the app's accent (a route above its stack's root, not a sheet), for the
@@ -6,19 +7,19 @@
 // text is in the accent with the pointing hand while an authored colour, a
 // row inside it, a `role` or a `buttonStyle` keeps the author's look. The
 // browser's Back with no `navigate` handler is the platform's own whatever the
-// routes are keyed by. A root whose key names no route keeps
-// what is left of the stack it showed, so a closed sheet
+// routes are keyed by (LLP 1115 D5). A root whose key names no route keeps
+// what is left of the stack it showed (LLP 1035.001 D1), so a closed sheet
 // never leaves the route beneath it inert.
 import { test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
@@ -138,10 +139,20 @@ check('Escape closes a sheet as its Cancel does; with no Cancel the root names, 
   };
   await evaluate(`document.querySelector('#r4 #back').addEventListener('click', () => calls.push('pressed r4')); select('4'); calls.splice(0)`);
   expect(await escape()).toEqual(['pressed r4']);
+  // While an input method composes text in a field of the sheet, Escape is the input method's: it cancels the
+  // composition and the sheet stays, as AppKit and UIKit give a composing field every key. Composition over, it closes.
+  await evaluate(`{ const field = document.createElement('input'); field.id = 'field'; document.getElementById('r4').append(field); field.focus(); }`);
+  await call('Input.imeSetComposition', { text: 'にほん', selectionStart: 3, selectionEnd: 3 });
+  expect(await escape()).toEqual([]);
+  await call('Input.imeSetComposition', { text: '', selectionStart: 0, selectionEnd: 0 });
+  expect(await escape()).toEqual(['pressed r4']);
+  // WebKit ends a composition before the keydown of the key that ended it, which then says so only by keyCode 229.
+  expect(await evaluate(`document.getElementById('field').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 229, bubbles: true, cancelable: true })); calls.splice(0)`)).toEqual([]);
+  await evaluate(`document.getElementById('field').remove()`);
   // It presses a Cancel in the sheet header's closed menu too, as iOS presses the control wherever it is.
   await evaluate(`{ const menu = document.createElement('div'); menu.popover = 'manual'; document.querySelector('#r4 > header').append(menu); menu.append(document.querySelector('#r4 #back')); } select('4')`);
   expect(await escape()).toEqual(['pressed r4']);
-  // A Cancel whose id the root does not name: the runner's own back, as iOS's swipe down takes it.
+  // A Cancel whose id the root does not name (LLP 1129's probe): the runner's own back, as iOS's swipe down takes it.
   await evaluate(`document.querySelector('#r4 #back').id = 'cancel'; select('4')`);
   expect(await escape()).toEqual(['host back 4']);
   // The innermost shown sheet is the one Escape closes, and one that closes only by its own buttons stays: a sheet
@@ -167,7 +178,7 @@ check('a block link of text is in the accent and points; the author\'s look wins
   // A link of text (or a symbol and text) is in the accent, the app's when it names one; an authored colour, a row
   // inside it, a role or a buttonStyle keeps the author's look; an inline run keeps its LinkText row. Every link points.
   // (The page's accent is the look's: the browser's own hue, fitted to read as text. Each engine words it its own way.)
-  // An `href` that turns out empty is not written: that `<a>` is no link, so it does not point and is not
+  // An `href` that turns out empty is not written (LLP 1115 §3): that `<a>` is no link, so it does not point and is not
   // in the accent; the run's `inherit` is the compiler's row for an empty value.
   const accent = await evaluate(`getComputedStyle(document.getElementById('accent')).color`);
   expect(['rgb(1, 2, 3)', 'rgb(0, 0, 0)', 'rgba(0, 0, 0, 0)'].includes(accent)).toBe(false);
@@ -233,7 +244,7 @@ const keyed = '<title>Starter</title>' + page.match(/<style>[\s\S]*?<\/style>/)[
 
 check('the browser\'s Back with no navigate handler is the runner\'s own back, however the routes are keyed', () => inChrome(async (evaluate) => {
   // The route beneath is keyed "items", not visit 0: unheard, Back one entry down is the runner's own `back` from the
-  // visit the entry left, accepted where it landed.
+  // visit the entry left (LLP 1115 D5), accepted where it landed.
   expect(await evaluate(`push(1, '/item/1'); back()`)).toEqual([['navigate /', 'host back 1'], '/', 1]);
   // A `navigate` handler still wins: it is the Back, and the runner does nothing of its own.
   expect(await evaluate(`heard = true; push(2, '/item/2'); back().finally(() => { heard = false; })`)).toEqual([['navigate /'], '/', 1]);
@@ -247,7 +258,7 @@ check('the browser\'s Back with no navigate handler is the runner\'s own back, h
 }, keyed), 60000);
 
 check('the browser\'s Forward with no navigate handler is the runner\'s own go', () => inChrome(async (evaluate) => {
-  // Back pops two pushed routes, one entry at a time; Forward then re-pushes each: unheard, the
+  // LLP 1115.000 D4.3. Back pops two pushed routes, one entry at a time; Forward then re-pushes each: unheard, the
   // runner's own `go` to the entry's location, accepted where it landed (no restoring traversal, nothing refused).
   await evaluate(`push(1, '/item/1'); push(2, '/item/1/more'); back()`);
   expect(await evaluate('back()')).toEqual([['navigate /', 'host back 1'], '/', 1]);
@@ -264,7 +275,7 @@ check('Forward to a location the runner\'s own go refuses restores the entry', (
 }, keyed), 60000);
 
 check('the page\'s title follows the route: the head\'s, else the route header\'s heading, else the app\'s name', () => inChrome(async (evaluate) => {
-  // The selected route's header's heading, at the root, on a pushed route and on a sheet; back again.
+  // LLP 1115.000 D4.1. The selected route's header's heading, at the root, on a pushed route and on a sheet; back again.
   expect(await evaluate('document.title')).toBe('Items');
   expect(await evaluate(`push(1, '/item/1'); document.title`)).toBe('/item/1');
   expect(await evaluate(`push(2, '/add', true); document.title`)).toBe('New');
@@ -277,7 +288,7 @@ check('the page\'s title follows the route: the head\'s, else the route header\'
 }, keyed), 60000);
 
 check('a closed sheet or a popped screen leaves the route beneath it live when the root names no route there', () => inChrome(async (evaluate) => {
-  // The root names visit 0, which no route carries: nothing is projected at first.
+  // The root names visit 0, which no route carries (chat-rooms in bake-off round 6): nothing is projected at first.
   const beneath = `(r => [r.inert, r.style.visibility, r.hasAttribute('data-exact-covered')])(document.querySelector('[navigationKey="items"]'))`;
   expect(await evaluate(`byVisit = true; show([]); calls.splice(0); ${beneath}`)).toEqual([false, '', false]);
   // A sheet covers it, shown and inert; Cancel closes the sheet and the route beneath is live again, not left inert.
@@ -292,7 +303,7 @@ check('a closed sheet or a popped screen leaves the route beneath it live when t
 }, keyed), 60000);
 
 check('the bar says its own word, "Back", only on a page in English; elsewhere the arrow alone, named by the title beneath', () => inChrome(async (evaluate) => {
-  // No `lang` reads as English, as every app here is until it says otherwise.
+  // LLP 1115.000 D4.14. No `lang` reads as English, as every app here is until it says otherwise.
   const english = ['r2:Back|Back to People', 'r3:Done|Done', 't2:Back|Back to Favorites of everyone', 't3:Mine|Mine'];
   expect(await evaluate('backs()')).toEqual(english);
   // In another language the Back control's words stay and are its name; the bar's word is not said, so with no
@@ -302,7 +313,7 @@ check('the bar says its own word, "Back", only on a page in English; elsewhere t
   for (const lang of ['en-GB', 'EN', '']) expect([lang, await evaluate(`document.documentElement.lang = ${JSON.stringify(lang)}; select('2'); backs()`)]).toEqual([lang, english]);
 }), 60000);
 
-// A sheet whose header holds its heading and buttons is a web dialog: the title at the start of its
+// LLP 1115.000 D4.8: a sheet whose header holds its heading and buttons is a web dialog: the title at the start of its
 // top, the buttons its actions at the end of its foot in the order written, whatever flow its author gave the header
 // (an iOS bar's). Any other header stays a bar, its title leading, and so does a page's. Buttons 60 px wide, so the
 // edges are exact.

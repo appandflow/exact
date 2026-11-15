@@ -1,4 +1,4 @@
-//! Size-dependent stop fix-up and repetition (2026-10-12).
+//! Size-dependent stop fix-up and repetition (LLP 1066, 2026-10-12).
 use super::{fix_up, Color, ColorValue, Geometry, Gradient, Lookup, Stop, StopUnit};
 
 impl Gradient {

@@ -1,5 +1,5 @@
-// HTML's table and description list to the platform's accessibility: the
-// roles WebKit serves the same elements as (HTML-AAM).
+// HTML's table and description list to the platform's accessibility (LLP
+// 1153 D7.3): the roles WebKit serves the same elements as (HTML-AAM).
 #if os(macOS)
 import AppKit
 #else

@@ -1,5 +1,6 @@
-//! The module binding from the app's plan (`contract::module_rust`), into
-//! `OUT_DIR`: generated as each build compiles the Contract, never committed.
+//! The module binding from the app's plan (`contract::module_rust`, LLP 1133
+//! §5), into `OUT_DIR`: generated as each build compiles the Contract, never
+//! committed.
 
 fn main() {
     let path = std::path::Path::new("../app.contract");

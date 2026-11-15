@@ -1,5 +1,5 @@
-// The component panel: each component's params from
-// `describe`'s `components` (tamber/1.10), grouped and ordered
+// The component panel (LLP 1122 D7, T3): each component's params from
+// `describe`'s `components` (LLP 1121 D15, forma/1.10), grouped and ordered
 // as the dials panel is, each with its declared control. A param takes a
 // token as well as a literal, and its value is the app's line in the
 // design's `params` block when it has one, else the default as written.
@@ -11,7 +11,7 @@ type Design = Result<'loadDesign'>;
 type Panel = Design['components'][number];
 type Row = Panel['groups'][number]['params'][number];
 
-/** A param as `describe` gives it (docs/tamber-protocol.md, `components`). */
+/** A param as `describe` gives it (docs/forma-protocol.md, `components`). */
 type Param = {
   name: string; short: string | null; kind: string; default: string; values: unknown[] | null;
   range: [number, number] | null; step: number | null; control: string | null; options: string[] | null;
@@ -20,7 +20,7 @@ type Param = {
   reaches?: { token: string | null; base: string | null; app_set: boolean } | null;
 };
 
-/** A param's winning level, in the words the panel says (the `level` on each of
+/** A param's winning level, in the words the panel says (LLP 1139 D5; stage 12 B2-levels' `level` on each of
  * `resolve`'s tuples): one for each raw level, the raw one kept as the row's tooltip. */
 export const LEVEL_WORDS: Record<string, string> = {
   'app-param': 'set for this app',
@@ -38,7 +38,7 @@ export const levelWords = (level: string, name: string, self = '') => {
   return name ? `${words} ${name}` : words;
 };
 
-/** Each package param's winning level (`resolve`'s tuples, each side's `{light, dark}`), read after
+/** Each package param's winning level (stage 12 B2-levels' `resolve` tuples, each side's `{light, dark}`), read after
  * the design shows (each `ask` its answer, all asked at once): one that fails or does not fit the design's read
  * (`fits`) has no row, so no words; a reply with no level says so. Said for the first tuple: one level where both
  * sides agree, else each side's. */
@@ -110,8 +110,8 @@ export function paramRow(p: Param, tokens: ReadonlySet<string>): Row | null {
     pinned: p.pinned ?? [],
     default: typeof p.default === 'string' ? p.default : '',
     // The token its default names (by its name or its role's spelling, or a base name the app leaves unset), which
-    // editing instead changes for every use, that token's package ("" for the app's
-    // own), and whether it is a base name (Exact's, set for this app as any base name is).
+    // editing instead changes for every use (LLP 1139 D5's second choice), that token's package ("" for the app's
+    // own), and whether it is a base name (Exact's, set for this app as stage 11 D does).
     token: '',
     tokenPackage: '',
     tokenBase: false,
@@ -135,11 +135,11 @@ const iconText = (v: unknown) => {
 };
 
 /** The panel: every component with params or variants (a native one declared in the
- * design too, `app.tamber#Name`; a library one's variant props, describe's `variants`, listed), its groups in the order they first
+ * design too, `app.forma#Name`; a library one's variant props, D3's `variants`, listed), its groups in the order they first
  * appear, each by priority (1 first), priority 3 behind "more". A package's
  * component (its identity's file none of the app's own, `own`, describe's
  * `files`) says so: "Set for this app" writes the app's line, the package's
- * own files read only. */
+ * own files read only (LLP 1139 D5). */
 export function componentsOf(list: { identity: string; name: string; params: Param[]; variants?: { prop: string; options: string[] }[] }[] | undefined, design: string, tokens: ReadonlySet<string>, own: ReadonlySet<string> = new Set(), tokenOf: (value: string) => string | null = v => (tokens.has(v) ? v : null), packageOf: ReadonlyMap<string, string> = new Map(), bases: ReadonlySet<string> = new Set(), look: (token: string, p: Param) => { swatches: { label: string; css: string }[]; words: string } = () => ({ swatches: [], words: '' })): Design['components'] {
   return (list ?? []).filter(c => c.params?.length || c.variants?.length).map(c => {
     const groups = new Map<string, Row[]>();
@@ -150,7 +150,7 @@ export function componentsOf(list: { identity: string; name: string; params: Par
       if (!found) continue;
       const token = typeof p.default === 'string' ? tokenOf(p.default) ?? '' : '';
       const reached = p.reaches?.token ?? '';
-      // A colour param's colour in each grid column, and the chain to it in words (the grid's columns,
+      // A colour param's colour in each grid column, and the chain to it in words (review2 09:29: the grid's columns,
       // labelled; the platform's role said as one).
       const row = { ...found, ...(p.kind === 'color' ? look(token, p) : { swatches: [], words: '' }), package: fromPackage, token, tokenPackage: token ? packageOf.get(token) ?? '' : '', tokenBase: !!token && bases.has(token),
         packageToken: fromPackage && reached && packageOf.has(reached) ? reached : '', appSet: !!p.reaches?.app_set,
@@ -177,7 +177,7 @@ export function componentsOf(list: { identity: string; name: string; params: Par
 const SYSTEM = new Set(['canvas', 'canvastext', 'linktext', 'visitedtext', 'activetext', 'buttonface', 'buttontext', 'buttonborder', 'field', 'fieldtext', 'highlight', 'highlighttext', 'selecteditem', 'selecteditemtext', 'mark', 'marktext', 'graytext', 'accentcolor', 'accentcolortext']);
 const isRole = (v: string) => /^-exact-/i.test(v.trim()) || SYSTEM.has(v.trim().toLowerCase());
 
-/** A colour param's look: its colour in each of the token grid's
+/** A colour param's look (the second hands-on pass, #4; review2 09:29): its colour in each of the token grid's
  * columns, in their order and with their labels, and the chain to it in words. A param the app sets, or one naming
  * no token, reads its own values (one per tuple, its scheme side taken as a swatch shows it); one following a token
  * reads that token's cells as the grid paints them (a residual by its fallback). The words follow the token: what the

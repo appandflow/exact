@@ -1,7 +1,7 @@
 import XCTest
 @testable import ExactKit
 
-/// Chrome 154's rule for a muted video its autoplay attribute started.
+/// Chrome 154's rule for a muted video its autoplay attribute started (LLP 1042 §3).
 final class OffscreenAutoplayTests: XCTestCase {
     func testPlaysOnlyWhileVisibleAndStartsWhenFirstSeen() {
         var rule = OffscreenAutoplay()

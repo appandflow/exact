@@ -1,11 +1,11 @@
 use ChosenDiff, Changeset, Committed, Held, History, Reverted, Scope from "./shapes.contract"
 
-// Proposals held for review: each accepted whole or in
+// Proposals held for review (LLP 1122 D10, D11): each accepted whole or in
 // part, or dropped.
 component Proposals
   props
     held: Held[]
-    // The diff each recomputed or edited import's card shows, as its choice is now.
+    // The diff each recomputed or edited import's card shows, as its choice is now (stage 15 D1.1).
     diffs: ChosenDiff[]
     // The items picked for "Accept picked" (`<proposal>:<index>`).
     picked: string[]
@@ -30,7 +30,7 @@ component Proposals
       for h in held key=h.proposal
         column gap=6 padding=12 border-radius=10 border-width=2 border-style="solid" border-color=h.tint testId=`held-${h.proposal}`
           if h.importer != ""
-            // An import: mapped tokens in until unticked, role
+            // An import (LLP 1122 D11): mapped tokens in until unticked, role
             // overrides out until ticked, what it did not map, and the count.
             text `${h.client} imports a ${h.importer} theme` font="-exact-headline" testId=`held-title-${h.proposal}`
             if h.editedBy != "" and h.editedBy != h.client
@@ -56,7 +56,7 @@ component Proposals
                 text m.name width=200 flex-shrink=0 font="-exact-footnote"
                 if m.kind != "token"
                   text m.text color="-exact-secondary-label" font="-exact-caption1" testId=`mapped-text-${h.proposal}-${m.index}`
-                // Each mode's value whole (a light-dark pair's dark half included): its field grows
+                // Each mode's value whole (a light-dark pair's dark half included, the third pass's #10): its field grows
                 // with the row, and a mode that can't fit wraps onto a line of its own.
                 for md in m.modes key=`${md.mode}`
                   row gap=4 align-items="center" flex="1 1 24rem" min-width=0

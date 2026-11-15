@@ -1,15 +1,15 @@
-//! A `pan`'s release velocity on the web: the DOM
+//! A `pan`'s release velocity on the web (LLP 1057 §10.6 phase 2): the DOM
 //! measures none, so the page feeds the contact's pointer samples here and
 //! asks for `exact_motion::VelocityTracker`'s estimate when it ends — the one
-//! estimator, never a second one in JavaScript.
+//! estimator of LLP 1057.001 §3, never a second one in JavaScript.
 //!
 //! Reached only through motion's export (`exact_motion`, ops 13 and 14), so
 //! an artifact links it only when its plan uses motion, which a plan with a
-//! `panrelease` handler does.
+//! `panrelease` handler does (LLP 1047 stage 3).
 
 use exact_motion::{Value, VelocityTracker};
 
-/// One contact at a time, as the page's pan has.
+/// One contact at a time, as the page's pan has (LLP 1035.003 D1).
 pub struct PanVelocity {
     view: u32,
     tracker: Option<VelocityTracker>,

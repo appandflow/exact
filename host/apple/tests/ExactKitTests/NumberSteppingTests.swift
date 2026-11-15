@@ -1,4 +1,4 @@
-// What the platform's stepper does to a number input's
+// @ref LLP 1116.007 D4: what the platform's stepper does to a number input's
 // text, by HTML's `stepUp()` and `stepDown()`.
 import XCTest
 @testable import ExactKit
@@ -83,7 +83,7 @@ final class NumberSteppingTests: XCTestCase {
         XCTAssertEqual(NumberStepping([:]).shown("-7"), -7)
     }
 
-    /// A value typed past a bound commits as that bound, as
+    /// LLP 1116.008 D5: a value typed past a bound commits as that bound, as
     /// the stepper holds its own value; a number within them, text that is no
     /// number and a field with no bounds keep what was typed (nil: no change).
     func testAValueTypedPastABoundCommitsAsTheBoundItPassed() {

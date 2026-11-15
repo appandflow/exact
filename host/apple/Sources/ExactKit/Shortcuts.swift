@@ -2,10 +2,10 @@
 // the rule the web host's input-glue.js keeps and the Linux host's
 // `shortcuts.rs` states: a button bound to a world's action (`action="buy"`)
 // is one, pressed as a click presses it, so a focused canvas never hears its
-// key. None behind the frontmost
-// shown `aria-modal` view (Escape left the selection mode
+// key (LLP 1132 D11). None behind the frontmost
+// shown `aria-modal` view (gallery F22: Escape left the selection mode
 // behind an open dialog instead of closing it), and never Enter or Space
-// while the focus is a control those keys activate (Enter
+// while the focus is a control those keys activate (onboarding F27: Enter
 // on the focused Back went to the Next button's shortcut).
 #if os(macOS)
 import AppKit
@@ -18,7 +18,7 @@ extension Presenter {
     /// those shown: while one is up only shortcuts inside it are heard.
     var shortcutModal: NodeView? {
         #if os(iOS) || os(tvOS)
-        // A dialog in its sheet is modal with nothing written.
+        // A dialog in its sheet is modal with nothing written (LLP 1115.000 D11.5).
         if let dialog = menus.sheets.topDialog { return dialog }
         #endif
         return chrome.ids("accessibilityModal").sorted().compactMap { views[$0] }

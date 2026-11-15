@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// On UIKit, what the author leaves unsaid is the
+/// LLP 1115 wave 1 on UIKit: what the author leaves unsaid is the
 /// platform's. A colour a control only inherits is not its own; an unset
 /// background is `systemBackground`; the keyboard's Return does what its
 /// label says; the status bar scrolls one scroller. UIKit, so a simulator
@@ -21,7 +21,7 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         super.tearDown()
     }
 
-    /// Each node has a prop, so it stays a view, not a flat leaf.
+    /// Each node has a prop, so it stays a view, not a flat leaf (LLP 1068 §6.1).
     private func presenter(_ ops: [[String: Any]]) -> Presenter {
         let p = Presenter()
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
@@ -32,11 +32,11 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         return p
     }
 
-    /// A colour is a node's own when its author wrote it there, which the
-    /// style says row by row (`written`). So a platform colour and one
-    /// equal to the parent's are the node's own; a colour it only
-    /// inherits, or one the compiler implied (a sheet's, a link's), is
-    /// not, whatever its value.
+    /// §2 and LLP 1115.000 D2: a colour is a node's own when its author
+    /// wrote it there, which the style says row by row (`written`). So a
+    /// platform colour and one equal to the parent's are the node's own; a
+    /// colour it only inherits, or one the compiler implied (a sheet's, a
+    /// link's), is not, whatever its value.
     func testOwnColourIsWhatItsAuthorWrote() throws {
         let red: [String: Any] = ["sys": "systemRedColor", "c": [[255, 56, 60, 255], [255, 66, 69, 255]]]
         let page = [17, 17, 17, 255], wrote = ["text_color"]
@@ -69,7 +69,7 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertNil(try own(3), "the same colour, no longer written")
     }
 
-    /// A page with no background shows the platform's, not white.
+    /// D2: a page with no background shows the platform's, not white.
     func testAnUnsetBackgroundIsTheSystemBackground() throws {
         let p = presenter([["op": "create", "id": 1, "kind": "view"], ["op": "roots", "ids": [1]]])
         let dark = try XCTUnwrap(p.viewport.backgroundColor).resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
@@ -80,7 +80,7 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertEqual([r, g, b, a], [1, 0, 0, 1], "an authored one wins")
     }
 
-    /// A `button` whose author wrote no `buttonStyle` is
+    /// LLP 1115.000 D15: a `button` whose author wrote no `buttonStyle` is
     /// UIKit's plain button, tinted text with no fill, as `UIButton(type:
     /// .system)` and SwiftUI's `Button` are. Held against buttons UIKit
     /// configures itself, in the same window: its insets and its size (so
@@ -131,7 +131,7 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertEqual(bare.titleLabel?.font.pointSize, UIFont.preferredFont(forTextStyle: .body, compatibleWith: bare.traitCollection).pointSize, "body, which follows Dynamic Type")
         XCTAssertNil(bare.configuration?.baseForegroundColor, "the tint, by UIKit's own rule")
         XCTAssertEqual(bare.configuration?.background, reference.configuration?.background, "no fill")
-        // Its symbol: the same button with Exact's gap and symbol font, which every style has.
+        // Its symbol: the same button with Exact's gap and symbol font, which every style has (LLP 1069.011.001).
         let font = try XCTUnwrap(reference.titleLabel?.font)
         let withSymbol = uikit { c in
             c.image = UIImage(systemName: "plus")
@@ -172,7 +172,7 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertEqual(CGFloat(measured.width), ceil(fits.width * scale) / scale + 1 / scale, accuracy: 0.01)
         XCTAssertEqual(CGFloat(measured.height), ceil(fits.height * scale) / scale, accuracy: 0.01)
         // A destructive one is the same plain button in the system red, as SwiftUI's destructive role draws it
-        // (every style is painted; with no style that is red text and no fill).
+        // (LLP 1116.008 D7 paints every style; with no style that is red text and no fill).
         XCTAssertEqual(try drawn(6).drawn, "plain")
         XCTAssertEqual(try drawn(6).configuration?.baseForegroundColor, .systemRed)
         XCTAssertEqual(try drawn(6).configuration?.background, bare.configuration?.background, "no fill")
@@ -203,7 +203,7 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         return (p, fields, try fields.map { try XCTUnwrap($0.field) })
     }
 
-    /// Return puts the keyboard away from a single-line
+    /// LLP 1115.000 D9.2: Return puts the keyboard away from a single-line
     /// field, as a hand-built field's delegate resigns it, whether the key
     /// is plain or says Done. Next moves to the next field, and from the
     /// last field puts the keyboard away.
@@ -229,7 +229,7 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertFalse(editors[2].isFirstResponder, "Next from the last field puts the keyboard away")
     }
 
-    /// An
+    /// LLP 1116.019 D5 (replacing LLP 1115.000 D9.3's system label): an
     /// unsaid Return on a single-line field says Done, which is what it
     /// does there, and `enterkeyhint` names another. A `submit` handler does
     /// not make it Go, which was Safari's rule for a form.
@@ -271,7 +271,7 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertEqual(editor.returnKeyType, .default, "the word taken away: the plain key again")
     }
 
-    /// A field's `submit` runs before the keyboard goes, and the field
+    /// D9.2: a field's `submit` runs before the keyboard goes, and the field
     /// keeps the keyboard only when that action focused it again: an "add
     /// another" field stays up and never loses the focus on the way (no
     /// `blur`, so no flicker). An action that focuses another field moves the
@@ -321,7 +321,7 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         override func location(in view: UIView?) -> CGPoint { view.map { $0.convert(point, from: nil) } ?? point }
     }
 
-    /// A tap that lands on nothing ends the editing and
+    /// LLP 1115.000 D9.4: a tap that lands on nothing ends the editing and
     /// the keyboard goes. UIKit does not do this by itself; hand-built iOS
     /// apps add a background tap for it, which is why it stays.
     func testATapOnBlankGroundEndsTheEditing() throws {
@@ -333,7 +333,7 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertFalse(editors[0].isFirstResponder, "a tap on blank ground puts the keyboard away")
     }
 
-    /// With nothing written, a drag on a scroller that
+    /// LLP 1115.000 D9.1: with nothing written, a drag on a scroller that
     /// scrolls vertically takes the keyboard down with it once it reaches
     /// the keys, as a hand-built list or form has it; a sideways strip
     /// leaves the keyboard alone. What the author wrote wins, `none`
@@ -364,7 +364,7 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertEqual(try mode(3), .interactive)
     }
 
-    /// A button's `aria-keyshortcuts` is a key command
+    /// LLP 1115.000 D11.6: a button's `aria-keyshortcuts` is a key command
     /// that carries the button's name, so holding ⌘ on an iPad lists it. A
     /// command with no title is not listed, and Exact's had none.
     func testAShortcutsKeyCommandCarriesItsButtonsName() throws {
@@ -411,7 +411,7 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertNil(commands.first { $0.input == "j" }, "it invokes nothing")
     }
 
-    /// The bar's title is a heading by its role. An
+    /// LLP 1115.000 D12.5: the bar's title is a heading by its role. An
     /// `aria-level` with no `role="heading"` gets no heading style from the
     /// compiler (which warns, `lower-level-without-heading`), and the bar
     /// read it as the title anyway: a large title over body text. It is no
@@ -432,7 +432,7 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertFalse(text.isHeading)
         XCTAssertNil(HeaderShape(route: route, back: nil), "a level alone: the header holds no heading, so it is not the bar")
         XCTAssertFalse(HeaderTitle.holdsHeading(pressable), "nor is a pressable around one the title's group")
-        // Nor a heading to VoiceOver: the header trait is the role's.
+        // Nor a heading to VoiceOver (D12.5 in full, ruled 2026-10-12): the header trait is the role's.
         XCTAssertNil(text.headingLevel)
         XCTAssertFalse(text.accessibilityTraits.contains(.header), "a level alone is text to assistive technology")
         p.apply(wireBatch([["op": "props", "id": 3, "set": ["accessibilityRole": "heading"], "clear": []],
@@ -472,16 +472,16 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertFalse(p.viewport.scrollsToTop, "the viewport, which does not scroll")
     }
 
-    /// iOS has no square checkbox. A plain checkbox is the
+    /// LLP 1116 D2: iOS has no square checkbox. A plain checkbox is the
     /// checklist mark, as Reminders and Notes draw it: an empty circle at the
     /// body text's size that fills with a checkmark in the accent colour.
-    /// VoiceOver reads it as UIKit reads a toggle: the
+    /// VoiceOver reads it as UIKit reads a toggle (LLP 1115.000 D13.3): the
     /// `toggleButton` trait and UIKit's own value, a `UISwitch`'s "1" and
     /// "0", which it speaks in the reader's language; it had read Safari's
     /// English "checked" and "unchecked". A box whose ARIA role is
     /// `checkbox` or `switch` reads the same, and `tree --ax` says checkbox
     /// and its state for both. A radio is its own symbols at the same size
-    /// (RadioIOSTests).
+    /// (D13.2, RadioIOSTests).
     func testACheckboxIsTheChecklistMark() throws {
         let p = presenter([
             ["op": "create", "id": 1, "kind": "view", "props": ["id": "n1"]],

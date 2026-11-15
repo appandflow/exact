@@ -67,5 +67,21 @@ extension NavigationBarIOSTests {
         p.apply(wireBatch([["op": "style", "id": Int(tap.id), "style": ["appearance": "auto", "written": ["appearance"]]]]))
         XCTAssertNil(bar.authoredControl(at: onTitle), "a projected title is the bar's own")
     }
+
+    /// A header control the navigation bar draws as its item is hidden in
+    /// the page, and its `aria-keyshortcuts` chord is still a key command
+    /// that presses it, as the same button's in the page is (#501).
+    func testABarItemsShortcutIsAKeyCommandThatPressesIt() throws {
+        let session = try fixture("bar-item-shortcut", module: false, plan: "BAR_SHARE")
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        nav.view.layoutIfNeeded()
+        let more = try node(session, "more-home")
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(more.id), "set": ["accessibilityKeyShortcuts": "Meta+Z"]]]))
+        XCTAssertFalse(more.accessibilityVisible, "the bar's item stands for the control")
+        XCTAssertNotNil(session.presenter.navigation.tipItem(more), "the bar that shows draws it")
+        let commands = session.presenter.shortcutCommands(#selector(UIResponder.becomeFirstResponder))
+        XCTAssertEqual(commands.map { [$0.input, $0.title] }, [["z", "More"]], "one command, named for the button")
+        XCTAssertTrue(session.presenter.shortcut(key: "z", held: "Meta+", focus: nil) === more)
+    }
 }
 #endif

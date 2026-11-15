@@ -1,5 +1,5 @@
-//! Water: the surface, caustics and shafts, each measured in
-//! look frames of one pool under `Environment::underwater()`,
+//! Water (LLP 1139.002): the surface, caustics and shafts, each measured in
+//! look frames (LLP 1127.000) of one pool under `Environment::underwater()`,
 //! and each beside a fixture that must fail its oracle for the stated reason:
 //! a flat quad in place of the surface, a constant in place of the caustics,
 //! no shafts. The pool's surface is 6 m up; the camera is 2 m under it (or
@@ -688,6 +688,60 @@ fn draw_with(
     let pixels = fixture::read(gpu, &texture).unwrap();
     pixels.save(name);
     pixels
+}
+
+#[test]
+fn surface_crossings_keep_attachments_once_shafts_have_drawn() {
+    let Some(gpu) = gpu() else { return };
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("water crossings"),
+        size: wgpu::Extent3d {
+            width: 64,
+            height: 64,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let target = texture.create_view(&Default::default());
+    for samples in [SceneSamples::One, SceneSamples::Four] {
+        for shafts in [
+            None,
+            Some(Shafts {
+                intensity: 1.,
+                length: 0.5,
+            }),
+        ] {
+            let mut renderer = Renderer::with_samples(&gpu.device, &gpu.queue, format, samples);
+            let mut frame = exact_game_render::FrameInput {
+                proj: glam::camera::rh::proj::directx::perspective(1., 1., 0.1, 500.),
+                water: Some(Water {
+                    shafts,
+                    ..Water::at(0.)
+                }),
+                ..Default::default()
+            };
+            let mut creations = Vec::new();
+            for height in [-0.2, 0.2, -0.2, 0.2, -0.2, 0.2] {
+                frame.camera_position = Vec3::new(0., height, 0.);
+                frame.view = glam::camera::rh::view::look_at_mat4(
+                    frame.camera_position,
+                    frame.camera_position - Vec3::Z,
+                    Vec3::Y,
+                );
+                creations.push(renderer.draw(&target, (64, 64), &frame).texture_creations);
+            }
+            assert!(
+                creations.iter().all(|&n| n == creations[0]),
+                "surface crossings at {samples:?}, shafts {shafts:?}: {creations:?}"
+            );
+        }
+    }
 }
 
 #[test]

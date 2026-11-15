@@ -1,4 +1,4 @@
-// Intersection visibility. Loaded only after first paint.
+// @ref LLP 1005, Intersection visibility. Loaded only after first paint.
 // One observer per root/margin preserves the browser's entry order. The
 // mutation observer follows mount/removal and changes of scroll ownership;
 // the browser itself tracks geometry, clipping, transforms and scrolling.

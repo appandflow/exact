@@ -1,4 +1,4 @@
-//! An `atom` declaration's style: the pill's inline
+//! An `atom` declaration's style (LLP 1045.000 D3, D4): the pill's inline
 //! padding and border, which are measured and go in the kind's table row,
 //! and its paint, by state, which goes in `atomStyles` as kernel rows.
 use super::*;
@@ -337,7 +337,7 @@ impl Lowerer<'_> {
                 }
             }
             _ => {
-                return refuse(name, &row, "is not an atom's: an atom takes one form (`link=\"scheme:\"`, `link=\"relative\"` or `prefix=\"@\"`), an optional `role` (`button` or `link`), `color`, `background-color`, `padding-inline`, `-exact-icon-size`, `gap`, `border`, `border-radius`, `outline`, `outline-offset` and `text-decoration-line`, and the `:hover` and `:checked` states; its height and font are its line's");
+                return refuse(name, &row, "is not an atom's: an atom takes one form (`link=\"scheme:\"`, `link=\"relative\"` or `prefix=\"@\"`), an optional `role` (`button` or `link`), `color`, `background-color`, `padding-inline`, `-exact-icon-size`, `gap`, `border`, `border-radius`, `outline`, `outline-offset` and `text-decoration-line`, and the `:hover` and `:checked` states; its height and font are its line's (LLP 1045.000 D3, D4)");
             }
         }
         Ok(())

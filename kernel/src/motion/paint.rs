@@ -1,4 +1,4 @@
-//! Native paint ownership and appearance, shared by the hosts.
+//! Native paint ownership and appearance, shared by the hosts (LLP 1062).
 
 use super::{motion_node, node_key, MotionSync, PaintOwners};
 use crate::{CommitReceipt, Kernel, NodeKey};
@@ -20,9 +20,9 @@ pub struct PaintMotion {
     views: BTreeMap<u64, bool>,
 }
 
-/// The appearance a node's colours resolve by: its subtree's `color-scheme`,
-/// which is what a host's view of it is set to, else a host's
-/// report for its view (a sheet's own override), else the
+/// The appearance a node's colours resolve by: its subtree's `color-scheme`
+/// (LLP 1034 §8), which is what a host's view of it is set to, else a host's
+/// report for its view (a sheet's own override, LLP 1062 D4), else the
 /// session's.
 fn appearance(kernel: &Kernel, views: &BTreeMap<u64, bool>, key: NodeKey, session: bool) -> bool {
     kernel
@@ -37,8 +37,8 @@ std::thread_local! {
 }
 
 /// While the returned guard lives, a commit's paint changes on this thread
-/// jump to their values with no transition, as a scrub's frame shows (the
-/// tool drags the value; the frame is a development preview).
+/// jump to their values with no transition, as a scrub's frame shows (LLP
+/// 1121 D13: the tool drags the value; the frame is a development preview).
 /// The motion engine's observations jump too ([`exact_motion::engine::still`]):
 /// opacity, transforms, layout and heights, all through the commit.
 pub fn still() -> impl Drop {
@@ -80,7 +80,7 @@ impl PaintMotion {
     }
 
     /// A host's own report for a view whose appearance differs from the
-    /// session's, if any.
+    /// session's (LLP 1062 D4), if any.
     pub fn view_dark(&self, key: NodeKey) -> Option<bool> {
         self.views.get(&motion_node(key)).copied()
     }
@@ -203,7 +203,12 @@ impl PaintMotion {
             }
         }
         for (node, property) in &sync.retired {
-            self.current.remove(node);
+            if let Some(sides) = self.current.get_mut(node) {
+                sides.retain(|p| p != property);
+                if sides.is_empty() {
+                    self.current.remove(node);
+                }
+            }
             if let Some(pending) = self.pending.get_mut(node) {
                 pending.retain(|(p, _)| p != property);
                 if pending.is_empty() {
@@ -261,9 +266,9 @@ impl PaintMotion {
     }
 
     /// The platform's colours resolve differently (a host reported new
-    /// resolutions): every owner re-targets under its
-    /// appearance, transitioning under its row as an appearance change does.
-    /// Nothing before the first appearance report. `first`:
+    /// resolutions, LLP 1095 D1): every owner re-targets under its
+    /// appearance, transitioning under its row as an appearance change does
+    /// (LLP 1095 D6). Nothing before the first appearance report. `first`:
     /// the session's first report, which corrects what boot resolved from
     /// the fallback (or another session's report) in place, without motion.
     pub fn colors_changed(
@@ -305,7 +310,7 @@ impl PaintMotion {
             None => self.views.remove(&node),
         };
         // A view whose node sets or inherits a `color-scheme` reports what
-        // the commit already resolved by (`appearance`): its
+        // the commit already resolved by (`appearance`, LLP 1034 §8): its
         // transitions started there, and are not snapped as a first report's
         // correction would.
         let session = self.dark.unwrap_or(false);

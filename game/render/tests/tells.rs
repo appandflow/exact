@@ -1,5 +1,5 @@
-//! The look oracle's negative controls: five scenes, three
-//! wrong in one way a real game's picture can be, one blown out and one whose
+//! The look oracle's negative controls (LLP 1127.000 D6): five scenes, three
+//! wrong in one way the garden bakeoff's was, one blown out and one whose
 //! sparks draw nothing visible, must trip their tell, and the same scenes with
 //! the defect removed must trip none. Each is read twice: from
 //! a canvas that draws (the web and Apple hosts' path) and from a device-less

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "The TypeScript data-source executor: an app's `app.ts`, compiled to Hermes bytecode at bake, behind the runner's one data seam, run by the lean Hermes VM."
+description = "The TypeScript data-source executor (LLP 1027): an app's `app.ts`, compiled to Hermes bytecode at bake, behind the runner's one data seam, run by the lean Hermes VM."
 
 [lib]
 crate-type = ["rlib"]
@@ -20,28 +20,44 @@ exact-plan = { path = "../plan" }
 exact-runner = { path = "../runner" }
 serde_json = "1.0"
 sha2 = "0.10"
+# The Compression standard's codecs (src/compression.rs), already in the lockfile through `png`/`flate2`.
+miniz_oxide = "0.8"
+crc32fast = "1.5"
 
 # A turn's own time: this thread's CPU clock (src/turn.rs).
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# Default features for a crate of this graph, as the Apple host pins its own
+# (host/apple/Cargo.toml).
+[target.'cfg(target_vendor = "apple")'.dependencies]
+adler2 = "2"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [build-dependencies]
+serde_json = "1.0"
 cc = "1"
 hermes-lean-sys = { path = "../vendor/ibex/crates/hermes-lean-sys", default-features = false }
 
 [dev-dependencies]
 caltrain-data = { path = "../apps/caltrain/data" }
-# The storage composer a host stacks over the module.
+exact-executor = { path = "../host/executor" }
+# The storage composer a host stacks over the module (LLP 1097 D5).
 exact-data-host = { path = "../data/host" }
+exact-logic = { path = "../logic" }
 contract = { path = "../contract/cli" }
 exact-kernel = { path = "../kernel" }
+# Holds a database's lock from outside the module (tests/it/storage.rs);
+# the SQLite ibex2-sqlite links, so no second library.
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+
 # The render server uses Unix sockets/poll; direct executor interrupt tests
 # remain platform-independent.
 [target.'cfg(unix)'.dev-dependencies]
 exact-render = { path = "../host/render" }
 # The Apple host's Bridge, executor and pump over a module's answers
-# (tests/it/admission.rs).
+# (tests/it/admission.rs, LLP 1041 §8.4).
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 exact-apple = { path = "../host/apple" }

@@ -4,6 +4,9 @@ import QuartzCore
 import XCTest
 #if os(macOS)
 import AppKit
+#else
+import UIKit
+import UIKit.UIGestureRecognizerSubclass
 #endif
 @testable import ExactKit
 import ExactCore
@@ -39,7 +42,7 @@ final class SessionClockTimerTests: XCTestCase {
         XCTAssertEqual(custom.locale, "fr-CA")
         XCTAssertEqual(custom.timeZone, "America/Toronto")
         XCTAssertEqual(custom.seed, (1 << 32) - 1)
-        // The launch seed is below 2^32 on every host: a
+        // The launch seed is below 2^32 on every host (LLP 1116.005 D5): a
         // drawn one, and a given one past it is 1, as the agent's stream takes it.
         for _ in 0..<64 { XCTAssertLessThan(LaunchPlace(environment: [:]).seed, 1 << 32) }
         XCTAssertEqual(LaunchPlace(environment: ["EXACT_AGENT": "1", "EXACT_AGENT_SEED": "4294967296"]).seed, 1)
@@ -56,6 +59,16 @@ final class SessionClockTimerTests: XCTestCase {
         session.tellTime()
         session.tellTime()
         XCTAssertEqual(session.launchPlace, launch)
+    }
+
+    /// The table is chosen for the first preferred language a strings table serves, as the system chooses the
+    /// bundle's localization, so their directions agree (#486).
+    func testTheViewerLocaleIsTheFirstPreferredLanguageATableServes() {
+        XCTAssertEqual(SessionFacts.viewerLocale(preferred: ["fr-FR", "ar-MA"], localizations: ["en", "ar"]), "ar-MA")
+        XCTAssertEqual(SessionFacts.viewerLocale(preferred: ["zh-Hant-TW", "en"], localizations: ["en", "zh-hant"]), "zh-Hant-TW")
+        XCTAssertEqual(SessionFacts.viewerLocale(preferred: ["en-GB", "ar"], localizations: ["en", "ar"]), "en-GB")
+        XCTAssertEqual(SessionFacts.viewerLocale(preferred: ["fr-FR", "de"], localizations: ["en", "ar"]), "fr-FR", "none served: the runner takes the base")
+        XCTAssertEqual(SessionFacts.viewerLocale(preferred: ["fr-FR"], localizations: []), "fr-FR")
     }
 
     /// The hour cycle the user forces is the format locale's `hc` keyword,
@@ -106,6 +119,38 @@ final class SessionClockTimerTests: XCTestCase {
         NotificationCenter.default.post(name: NSLocale.currentLocaleDidChangeNotification, object: nil)
         XCTAssertTrue(wait(for: forced), "the running app reads the forced cycle")
         XCTAssertEqual(session.launchPlace.formatLocale, forced)
+        #endif
+    }
+
+    /// The session's clock stops while the system sleeps and the date does
+    /// not, so the date at the clock's zero moves by the sleep: it is told
+    /// again at the next timer's or frame's check (`followOffset`), and at
+    /// once on a wake or a clock change. `machineDate` set ahead stands for
+    /// the sleep or the clock being set.
+    func testTheDateIsToldAgainAfterASleepOrAClockChange() throws {
+        #if os(macOS)
+        defer { ExactSession.machineDate = Date.init }
+        let source = "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.epochAtZero}`\n"
+        let session = ExactSession(app: ExactApp.shared, label: "slept", launchPlace: LaunchPlace(environment: [:]))
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try TableFixture.plan(source), size: CGSize(width: 390, height: 844)).error)
+        func epoch() -> Double? { session.presenter.views.values.lazy.compactMap { $0.props["text"].flatMap(Double.init) }.first }
+        func told(_ want: Double) -> Bool { epoch().map { abs($0 - want) < 1000 } ?? false }
+        waitFor("the date") { epoch() != nil }
+        let start = try XCTUnwrap(epoch())
+        ExactSession.machineDate = { Date(timeIntervalSinceNow: 3600) }
+        session.followOffset()
+        waitFor("the date an hour on, at a check") { told(start + 3_600_000) }
+        ExactSession.machineDate = { Date(timeIntervalSinceNow: 7200) }
+        NotificationCenter.default.post(name: .NSSystemClockDidChange, object: nil)
+        waitFor("the date two hours on, at a clock change") { told(start + 7_200_000) }
+        ExactSession.machineDate = { Date(timeIntervalSinceNow: 10800) }
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: NSWorkspace.shared)
+        waitFor("the date three hours on, at a wake") { told(start + 10_800_000) }
+        // Less than a second is the same date: nothing is told.
+        ExactSession.machineDate = { Date(timeIntervalSinceNow: 10800.5) }
+        session.followOffset()
+        XCTAssertEqual(try XCTUnwrap(epoch()), start + 10_800_000, accuracy: 1000)
         #endif
     }
 
@@ -404,3 +449,33 @@ extension SessionClockTimerTests {
         XCTAssertEqual(batch.nativeTimers?.first?.generation, UInt64.max)
     }
 }
+
+#if canImport(UIKit)
+extension SessionClockTimerTests {
+    private final class ScrollTouch: TimerScrollTouch {
+        // uikit receives no system touch sequence in a unit test; retain the requested state.
+        private var phase = UIGestureRecognizer.State.possible
+        override var state: UIGestureRecognizer.State { get { phase } set { phase = newValue } }
+    }
+
+    func testScrollTouchObservationFinishesAfterEndingOrCancellingTheLastFinger() {
+        for cancelled in [false, true] {
+            let observer = ScrollTouch(changed: {})
+            let pan = UIPanGestureRecognizer()
+            let first = UITouch(), second = UITouch(), event = UIEvent()
+            observer.touchesBegan([first, second], with: event)
+            XCTAssertTrue(observer.held)
+            observer.touchesEnded([first], with: event)
+            XCTAssertEqual(observer.state, .possible, "the remaining finger still holds timer admission")
+            XCTAssertTrue(observer.held)
+            if cancelled { observer.touchesCancelled([second], with: event) }
+            else { observer.touchesEnded([second], with: event) }
+            XCTAssertEqual(observer.state, .failed, "an observer must finish so UIKit can reset the scroll and system gestures after a Home cancellation")
+            XCTAssertFalse(observer.held)
+            XCTAssertFalse(observer.cancelsTouchesInView)
+            XCTAssertFalse(observer.canPrevent(pan))
+            XCTAssertFalse(observer.canBePrevented(by: pan))
+        }
+    }
+}
+#endif

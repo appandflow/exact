@@ -5,15 +5,15 @@ tested against it, differentially and at random.
 
 | | |
 |---|---|
-| `Contract/Syntax.lean` | The abstract syntax: a deep embedding of the expanded root component (every used component's declarations lifted into it), the file's shapes and `fn`s. A statement may call an action (`Stmt.call`): by name, with its whole argument list, never the body the Rust compiler expanded. |
+| `Contract/Syntax.lean` | The abstract syntax: a deep embedding of the expanded root component (every used component's declarations lifted into it), the file's shapes and `fn`s. A statement may call an action (`Stmt.call`, LLP 1089 D9): by name, with its whole argument list, never the body the Rust compiler expanded. |
 | `Contract/Binary64.lean` | Numbers: IEEE-754 binary64 as its bits (`F64`), every operation the exact result rounded once to nearest, ties to even, over `Nat`/`Int` — computable in the kernel. |
 | `Contract/Trig.lean` | `sin` and `cos`: libm 0.2.16's kernels and argument reduction, including large arguments, over the exact F64 operations. No hardware floats or external oracle. |
 | `Contract/Binary64Facts.lean` | That model proved: correct rounding, overflow, monotonicity, exactness (below). |
 | `Contract/Number.lean` | `max`/`min` as JavaScript's `Math.max`/`Math.min` (NaN and signed zero included), and JavaScript's `Number#toString` over exact rationals. |
 | `Contract/Value.lean` | Values, structural equality as the runner's `compare::equal`, and the roster's string functions. |
 | `Contract/Format.lean` | The roster's formats (`formatTime`, `formatDate`, `formatDay`, `formatNumber`) and `t(...)`'s strings tables, as the runner computes them. |
-| `Contract/Route.lean` | The router: canonical locations, the route table's matching, `path`, launch, the six verbs and the reads. |
-| `Contract/Sort.lean` | `sortBy`'s order: a key per item (a number with NaN as +0, or a string's UTF-16 code units), core's `List.mergeSort` on the items decorated with their keys, ascending or descending. |
+| `Contract/Route.lean` | The router (LLP 1038): canonical locations, the route table's matching, `path`, launch, the six verbs and the reads. |
+| `Contract/Sort.lean` | `sortBy`'s order (LLP 1116.016 §5): a key per item (a number with NaN as +0, or a string's UTF-16 code units), core's `List.mergeSort` on the items decorated with their keys, ascending or descending. |
 | `Contract/SortFacts.lean` | That order proved: a strict total order on keys, and the sort's answer a permutation, sorted by key, stable (below). Kept apart from `Sort.lean`, which the VM model imports and the extracted VM builds at another Lean. |
 | `Contract/Eval.lean` | Operational semantics of expressions: the interpreter `eval`. |
 | `Contract/Tabs.lean` | Navigation tab eligibility and selection, shared by the flat and component interpreters. |
@@ -25,6 +25,7 @@ tested against it, differentially and at random.
 | `Contract/Vm.lean` | A model of the expression VM (`runner/src/vm.rs`) for the opcodes expressions and action bodies use, over instructions with symbolic operands, and a decoder from the plan's bytes (`plan/tables/format.json`, `opcodes`). |
 | `Contract/Lower.lean` | A compiler from the semantics' expressions and statements to VM code, mirroring `contract/lower` (`expr.rs`, `stmts.rs`) instruction for instruction. |
 | `Contract/VmFacts.lean`, `Lower{Types,Sim,Spec,Proof,Lists,Calls,Correct,Stmt}.lean` | Its correctness proof (below). |
+| `Contract/VmRows.lean` | Executable derive calls over the VM: fresh callee machines, owner-frame and owned-slot selection, shared call and callback-work counters, and caller restoration. |
 | `Contract/LowerCheck.lean` | The Lean half of `difftest lowering`. |
 | `vm-extract/` | The shipped VM machine (`runner/src/machine.rs`) extracted to Lean by Charon and Aeneas, and proved to refine `Contract/Vm.lean` step by step and run by run (`vm-extract/README.md`). |
 | `Contract/ValTy.lean` | Types as sets of values (`ValTy`, `conforms` without finiteness), the order and join the checker's `?` induces (`Ty.le`, `Ty.unify`), and that `conforms` at a complete type gives `ValTy`. |
@@ -58,17 +59,35 @@ routes, and what their fields name — not every shape the checker knows, so a
 compiler shape the program never reaches (an event's) does not make an app
 embedding stale when it is added.
 
+The embedding shares the plan lowerer's `delete=` expansion: an admitted
+list row includes its generated Delete button and suffixed `testId`, with
+`disabled` belonging to that button. Admission reads grouped-row layout
+before descending and keeps enum prop ascriptions as the plan does.
+Emission omits literal ascriptions that add no Lean type information;
+enums emit as strings.
+The plain embedding used to compare component expansion keeps the view
+before this lowering step.
+
 **Differential testing.** For each case, `difftest` compiles the program to a
 plan and boots it on the runner, delivers the script's events, and prints a
 canonical observation after every step: the outcome, the commits attempted, every root slot, derive
-and resource, the commands issued to a host (not `setMode`, which the
-runner takes and applies itself: `hostCommands`), and the text of every
+and resource, the commands issued to a host (`hostCommands` leaves out
+`setMode` and the seven-argument list-row form of `scrollIntoView`, which
+the runner consumes itself; the element form stays), and the text of every
 element with a `testId`. Then it emits the program with the Lean backend, and runs many cases
 in one generated Lean module whose `main` prints `Contract.Observe.run` for
 each. The two texts must match line for line. Data sources are a seeded oracle
 that answers any call with a value of the declared shape. The runner's
 transcript of that oracle becomes the Lean side's oracle, so if the semantics
-makes a call the runner didn't, that is a divergence.
+makes a call the runner didn't, that is a divergence. What the runner answers
+itself never reaches the oracle: its own sources (`exactViewport`, `exactPage`,
+…) and a native module's (LLP 1133.002 D13), which it answers from the module's
+substitute. Each such resource that answered at boot holds that answer as a
+host fact (`fact` in the oracle's text), and each module's source is named
+(`module`). Neither does a source the program declares (LLP 1162.001), whose
+HTTP request the runner makes itself: each is named (`fetch`), and a call to one
+is outside the semantics. A live `time`'s text (LLP 1126 D6) is the runner's
+presentation too, and the observation leaves it out.
 
 The observation starts with `== <step>` and `outcome ok|refused|poisoned`.
 Before the configuration, each attempted commit prints
@@ -164,9 +183,15 @@ replay the landing; a disagreement still fails verification. The `.events` file
 records its `clock until` origin and bound in a comment. The bound has no effect
 in this world. The usual mutation clock runs after a met step.
 
-The observation matcher reads only top-level values. A field or index path such
-as `session.phase` or `rows.0` stops at `clock until (field path)` before landing.
-The receipt counts met waits, not-met stops and field-path stops separately.
+State expectations and waits resolve record fields and zero-based list indices
+through the compiled plan's shapes on either evaluator's observation. Paths such
+as `session.phase` and `rows.0.name` read the same positional values. Present
+options unwrap during traversal and at the resolved leaf. An existing `none`
+can match `none`; a missing root, field or index, or a path through `none` or
+a scalar, has no value and cannot match even `none`. Traversal
+and value scanning are bounded by the runner's value-depth limit. A wait on a
+missing path lands once, then stops as not met. The receipt counts met waits and
+not-met stops separately.
 A leading `size WxH` is consumed as a launch fact with no event: the harness has
 no layout. The test parser refuses a `size` after an input; a `resize` still
 stops the block.
@@ -202,8 +227,8 @@ near overflow and underflow) and natural number, `+ - * / %`, `floor`,
 `round` (JavaScript's `Math.round`), `sin`, `cos`, `sum([a, b, -a])`, and
 `< <= ==`, as the runner computes them, compared by bits (every NaN one); and, for a numeral and two dates
 each case carries, `parseNumber` and `calendarDiff` in years and months
-, the runner's `stdlib` against `Contract.Value`'s;
-and, at a random digit count each, `toFixed` and `formatDecimal`,
+(LLP 1102 §3.1, §3.4), the runner's `stdlib` against `Contract.Value`'s;
+and, at a random digit count each, `toFixed` and `formatDecimal` (§3.2),
 the `format` capability against `Contract.Format`'s.
 The trigonometric reference is `exact_motion::math`, the runner's pinned
 libm 0.2.16. Every run starts with both signs and the neighbours of zero,
@@ -222,7 +247,7 @@ at least 0 is a refusal, as the runner and the web runtime trap one, and a
 count past 65,536 is unsupported, outside the semantics, so no such list is
 built here.
 
-`sortBy(xs, x => key, direction)` is `map`'s callback
+`sortBy(xs, x => key, direction)` (LLP 1116.016 §5) is `map`'s callback
 over the items, each key once, then `Contract.sortByKeys`: core's
 `List.mergeSort` on (item, key) pairs, numbers by `F64.key` with NaN read as
 +0, strings by `Str.unitsLt`, equal keys kept in input order in both
@@ -266,31 +291,16 @@ every resource and `send` must meet. A disagreement is kept under
 
 A divergence is kept under `target/difftest/failures/` (the program, the
 events, both observations); random failures have their scripts shrunk first.
-The full run is four checks, run by hand from the repository root with
-Lean's `lake` on `PATH`:
-
-```sh
-# lean: the Lean project and its proofs, the app proofs among them.
-# A proof that says `sorry` is not checked, so treat one as a failure.
-(cd semantics && lake build)
-# vm-extract: the extracted VM (vm-extract/README.md).
-sh semantics/vm-extract/check.sh
-# difftest: the app embeddings are current, then the corpus, the explored
-# programs, a random sweep and the lowering, number, type and expansion checks.
-export DIFFTEST_CACHE=1
-cargo run -q -p contract-difftest -- apps
-cargo run -q -p contract-difftest -- corpus
-cargo run -q -p contract-difftest -- explore contract/corpus apps/*/app.contract
-cargo run -q -p contract-difftest -- random --seed 1 --count 5000
-cargo run -q -p contract-difftest -- lowering-corpus
-cargo run -q -p contract-difftest -- lowering --seed 1 --count 300
-cargo run -q -p contract-difftest -- numbers --count 200000
-cargo run -q -p contract-difftest -- types --seed 1 --count 100
-cargo run -q -p contract-difftest -- expansion semantics/corpus --seed 1 --count 200
-```
-
-`difftest-js` runs the web JS target (below). The seeds are fixed, so a
-divergence belongs to the change that made it.
+The async lane (`scripts/async.mjs`) runs this as four checks: `lean`
+builds the Lean project and checks the proofs (the app proofs among them);
+`vm-extract` checks the extracted VM (`vm-extract/README.md`); `difftest`
+checks the app embeddings are current and runs the corpus, the explored
+programs, a random sweep with fixed seeds, the lowering, number, type and
+expansion checks; `difftest-js` runs the web JS target (below). Each is
+skipped when its inputs are those of a run that passed: the binaries it
+runs, the Lean sources, every program and what compiling it reads, the
+tools and the environment (`scripts/async-inputs.mjs`). `difftest` runs
+with `DIFFTEST_CACHE=1`.
 
 ## Using it day to day
 
@@ -302,7 +312,7 @@ after that, Lean's observation of a case is kept under
 events and by the semantics' sources and the harness that runs them
 (`leanrun.rs`), so a rerun only takes Lean time for what changed. Only
 `verify` and `quick` use the cache unless `DIFFTEST_CACHE=1`, which the
-full run sets.
+async lane sets.
 
 **Writing an app.** `contract verify apps/<app>/app.contract` runs the
 app's delivered test prefixes and explore script, plus 20 adaptive walks of at
@@ -380,7 +390,7 @@ an action never attempted is not exercised. A false property fails verify; if it
 holds on only one evaluator, it is also a divergence. These are observed-step
 checks under the seeded oracle, not proofs or device checks.
 
-Suggestions print test blocks; they never edit test files. They use all observed runner
+Suggestions print D1 blocks; they never edit test files. They use all observed runner
 scripts, including shrink candidates and confirmation replays. The receipt's script,
 step and property denominators count the search scripts once; shrink work is separate.
 Frames require at least two eligible input/landing pairs or clock advances and include
@@ -468,12 +478,12 @@ corpus when the names point at no area. It also runs 40 random programs
 and the lowering check on 8, seeded by the base, so a branch's reruns are
 warm. Warm, it takes about 10 s. Cold, with the semantics changed so Lean
 reruns everything, it takes one to three minutes depending on load. It
-prints a command that reproduces each divergence. The full `difftest`
-check (above) is still the complete one.
+prints a command that reproduces each divergence. The async lane's
+`difftest` check is still the full run.
 
 ## The web JS target
 
-The web build's JS target (`host/web-js`) is a second
+The web build's JS target (`host/web-js`, LLP 1071) is a second
 implementation of Contract: the plan compiled ahead to one ES module over a
 small runtime. `--js` on `corpus`, `explore` and `random` checks every case
 a third way, against the runner (`difftest/src/js.rs`); `--js-only` skips
@@ -509,17 +519,19 @@ runner never made is noted (`# js: the oracle has no answer…`) and shows as
 the refusal it causes. It prints `Contract.Observe`'s format from the
 module's own state (names.js) and the DOM: a `testId`'s text is a text's,
 an inline run's, an option's or an SVG text's, as `agent.js` reads them.
-A tap goes to the element's `press` listener and a `type` to its `change`;
-an element without one is refused, as the runner refuses (NoHandler), and so
+A tap goes to the element's `press` listener. A `type` prefers its `input`
+listener, falling back to `change`. An element without the listener is
+refused, as the runner refuses (NoHandler), and so
 is a value a browser could not deliver (a select's unknown or disabled
 option, a checkbox's text, a date outside HTML's format or its bounds).
 A press on a disabled control is outside the JS comparison: the runner's
 direct dispatch delivers it, while the browser's event handler declines it.
 
 The JS target's `sin` and `cos` are the browser's `Math.sin` and
-`Math.cos`, held to the runner's pinned libm by value, not by bits; the
-semantics is held to the runner's bits. The driver replaces the two
-(`roster.js`'s `x_sin`, `x_cos`) with the runner's bits for each input: an input it has no answer for is answered by `Math` and reported,
+`Math.cos`, held to the runner's pinned libm by value, not by bits (LLP
+1003 §7); the semantics is held to the runner's bits. The driver replaces
+the two (`roster.js`'s `x_sin`, `x_cos`) with the runner's bits for each
+input: an input it has no answer for is answered by `Math` and reported,
 the harness computes it with `exact_motion::math`, and the case is driven
 again until it asks for none, so a chain of trig results is answered link
 by link. Only a drive that asked for nothing is scored; a case still
@@ -530,14 +542,8 @@ A program `exact-web-js` refuses is outside the JS target (`OUTSIDE-JS`),
 not a failure. A divergence prints `DIVERGE-JS` with whether the semantics
 agreed with the runner, and is kept under `target/difftest/failures/`
 (`*-js-*.{contract,events,rust.txt,js.txt}`); random ones are shrunk first.
-The full run's `difftest-js` check runs the corpus and the explored
-programs, and a random sweep of 500, with `--js-only`:
-
-```sh
-cargo run -q -p contract-difftest -- corpus --js-only
-cargo run -q -p contract-difftest -- explore contract/corpus apps/*/app.contract --js-only
-cargo run -q -p contract-difftest -- random --seed 1 --count 500 --js-only
-```
+The async lane's `difftest-js` check runs the corpus and the explored
+programs, and a random sweep of 500, with `--js-only`.
 
 ## Verifying an app
 
@@ -551,7 +557,9 @@ source as it is.
    (`cargo run --release -p contract-difftest -- explore apps/<app>/app.contract`)
    and that it is not refused (geometry reads are outside the semantics,
    below). From then on `difftest apps`, in the
-   full run, fails when the source moves and the embedding did not.
+   async lane, fails when the source moves and the embedding did not.
+   After editing an app or its imports, regenerate the embeddings and run
+   `lake build Apps` in `semantics/` to recheck their proofs.
 2. **State.** Write the property in `Apps/Proofs/<Module>.lean` over the
    embedding: of every reachable configuration (`Reachable <name> c`), of
    every event from any configuration (`Event.step`), or of one committed
@@ -560,8 +568,12 @@ source as it is.
 3. **Prove.** A reachability invariant of one slot is
    `Reachable.slotIn`: the values the slot starts with (`SlotOrigin`:
    unfold the program's `states`), and for every action a handler of the
-   view or a task names, the body keeps it (`BodyKeeps`). An action body
-   is unfolded by `wp` (`BodyKeeps.of_wp`); `simp` with the `EvalR` rules
+   view, a task or a mutation's `then` names, the body keeps it (`BodyKeeps`).
+   Queue mutation slots use the same rule: `Reachable.slotInvariant` also
+   carries the waiting sends' answer property (`QueuedIn`) through drains.
+   [Queued sends](#queued-sends-and-gated-tasks-llp-1092) describes the
+   corresponding event and advance rules. An action body is unfolded by
+   `wp` (`BodyKeeps.of_wp`); `simp` with the `EvalR` rules
    (`EvalR.str_iff`, `EvalR.var_local`, …) turns it into a statement about
    values. A body that never touches the slot is dismissed by `decide`
    (`Stmt.noAssigns`, `BodyKeeps.untouched`); a body that calls an action
@@ -575,37 +587,27 @@ source as it is.
    `decide +kernel` for given operands. `native_decide` is not used (it
    adds an axiom).
 
-Worked example: Type Tour's `screen` is a string and
-`go(target: string)` writes any string it is given, yet the phone is only
-ever on one of its five screens, because every handler that names `go`
-passes a literal screen.
+Type Tour declares routes for its six screens. Its generated embedding also
+contains the not-found route. The proof checks the names and the parent chains
+used by direct Display and conversation links:
 
 ```lean
-def screens : List String := ["lock", "home", "settings", "display", "messages"]
-def ScreenOK (v : Value) : Prop := ∃ s ∈ screens, v = .str s
+def screens : List String := ["lock", "home", "messages", "thread", "settings", "display", "notfound"]
 
-theorem screen_always : ∀ c, Reachable typeTour c → SlotIn "screen" ScreenOK c.slots := by
-  refine Reachable.slotIn screen_boot ?_
-    (fun _ a ha => by simp [typeTour, clockActions, thenActions] at ha)
-  intro c ev a args env ls vs payload rows _ hh hvs
-  refine BodyKeeps.of_wp fun ad had hname => ?_
-  subst hname
-  simp only [typeTour, List.mem_cons, List.mem_nil_iff, or_false] at had
-  rcases had with rfl | rfl | … <;> simp only [wp, assignPre] <;>
-    simp [Keeps, Effects.write, Effects.rowWrite, Effects.command, ScreenOK, screens]
-  -- left: `go`, whose argument `go_handler` (checked over the view by
-  -- `decide`) says is a literal screen
-  …
+theorem route_names : ∀ r ∈ typeTour.routes, r.name ∈ screens := by decide
+
+theorem display_parents :
+    (Route.chain typeTour.routes "/settings/display").map (·.name) =
+      ["lock", "home", "settings", "display"] := by decide +kernel
 ```
 
-`screen_boot` unfolds `typeTour.states` to see `screen` starts as
-`"lock"`; tasks are none; every action but `go` is dismissed by `simp`
-over its `wp`. The whole proof is `Apps/Proofs/TypeTour.lean`. What is
+The proofs are in `Apps/Proofs/TypeTour.lean`. What is
 proved, by app:
 
 | App | Theorem | Says |
 |---|---|---|
-| Type Tour | `TypeTour.screen_always` | `screen` is always one of the five screens. |
+| Type Tour | `TypeTour.route_names` | Every declared route names one of the seven screens, including not-found. |
+| Type Tour | `TypeTour.display_parents`, `TypeTour.thread_parents` | Direct Display and conversation links include Settings and Messages respectively. |
 | Update Lab | `UpdateLab.advance_keeps_user_state` | Moving the clock (the 250 ms probe) never changes `counter`, `note` or `live`. |
 | Update Lab | `UpdateLab.results_shape` | The three result slots always hold `none` or `some` answer. |
 | Update Lab | `UpdateLab.increment_adds_one` | A committed `increment` leaves `counter` at its old value plus one. |
@@ -640,7 +642,7 @@ a base bound as a local, a `fn` expanded inline with its arguments as
 locals, `map`/`filter` with the callback inline after the opcode, `sortBy`
 as the list bound as a local, a `Map` of its key and a `Call sortBy`, blocks
 whose `let`s are dropped where the block ends, and a call of an action as
-the Rust compiler expands it: each argument bound as the next
+the Rust compiler expands it (LLP 1089 D8): each argument bound as the next
 local, the callee's body in a scope of those locals and the component's
 names alone, every local dropped at its end, no call opcode. It carries
 static types of its own (`STy`), proved sound, and refuses where it cannot
@@ -671,8 +673,9 @@ by that loop over the bound list, then the call.
 for each generated program it takes the plan `contract::compile` made, and
 in one Lean process per batch decodes every derive, root slot initializer,
 resource argument and action body, runs it on the VM model in every
-configuration the semantics reaches along the script (actions with sample
-arguments, inside a row instance) and compares the result with `eval`'s (or
+configuration the semantics reaches along the script, including after
+landings of mutation continuations and queued sends (actions with sample
+arguments, inside a row instance), and compares the result with `eval`'s (or
 `exec`'s effects); and compares the body with `Contract.Lower`'s,
 instruction for instruction. A divergence or an undecodable body fails the
 run and keeps the program under `target/difftest/failures/`; a structural
@@ -712,7 +715,7 @@ frame, locals, providers and fill; a `provide` covers the providing
 component's view. A handler names an action or an `action` prop, resolved
 through the props to the action it names with the curried arguments; its
 arguments are evaluated at dispatch. A child's action writes its
-instance's states; an `action` prop called last runs the
+instance's states; an `action` prop called last (LLP 1017 §11) runs the
 named action's statements in its own frame in the same commit. The root's
 own slots, settlement, actions and timers are `Contract.Runtime`'s
 (`rootProgram`). Each child's `exactViewport()` and `exactPage()` resources
@@ -723,15 +726,17 @@ to those resources.
 **The expander** (`Contract.Expand`) transcribes inline.rs and its
 submodules step for step, numbering and spelling included: capture-avoiding
 substitution renaming a binder `x@k` when a replacement mentions it, view
-binders `x#n`, derive resolution (freshened binders `x@bk`, a dependency
-read twice on every path bound once by a `let`), lifted states and actions
-`x#n` with their owners, a slot's fill inlined afresh at each `children`
-node under that node's region arms, props and injects captured as hidden
+binders `x#viewN` (0 for the root), derive resolution (freshened binders
+`x@bk`, a dependency read twice on every path bound once by a `let`), lifted
+states and actions `x#n` with their owners, a slot's fill inlined afresh at
+each `children` node under that node's region arms, props and injects captured as hidden
 parameters `@capture:n:i`, tail calls resolved (`p@ck`, `x@bk`, `p@tailk`; the
 `@check:` statement the flat embedding drops is not emitted). Device resources
 are hoisted once per declaration, including unused components, in file order.
 Their value reads and refresh targets are renamed; same-named function calls
-keep their heads.
+keep their heads. Style names, surface names and positional syntax words stay
+unchanged; only a conditional `class`'s condition and a surface's arguments
+are substituted.
 
 **`difftest expansion`** checks the real expander on each program:
 
@@ -751,16 +756,17 @@ argument's hidden parameter, `?` in both expansions until the checker types
 it from its handler, need only be at least the expansion's, `Ty.le`); (b) the
 component-level semantics of the unexpanded file against the flat
 semantics of Rust's expansion over the case's script, the oracle the
-runner's transcript, every observation line compared but the slots the
-expansion lifts out of children (`slot name#n …`), which the
-component-level semantics keeps per instance. A disagreement is kept under
+runner's transcript. It compares outcomes and configurations, omitting commit
+traces (`ran …`), which the component-level semantics does not emit, and the
+slots the expansion lifts out of children (`slot name#n …`), which it keeps
+per instance. A disagreement is kept under
 `target/difftest/expansion/`, its script shrunk.
 
 **What is proved** (no `sorry`, no axioms beyond Lean's own):
 
 - `ExpandSubst.subst_iff`: the expander's substitution commutes with
   evaluation. For an expression of the fragment (`Plain`: no
-  `pending`/`failed`, no `sortBy` (not yet carried through these proofs;
+  `pending`/`failed`/`failure`/`current`, no `sortBy` (not yet carried through these proofs;
   `difftest expansion` checks it), callbacks of at most two parameters, no binder named
   like a call in its scope), a substitution whose replacements are
   callbacks of at most two parameters and never a callback, and no call
@@ -857,7 +863,7 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
   or operator does: `stdlib_notPending`, `binop_notPending`).
 - `exec_sound_ty`: a well-typed action body run the same way asks only for
   writes of values of the target slots' types (root and row writes), sends
-  to mutations, or fails legitimately. With calls it takes
+  to mutations, or fails legitimately. With calls (LLP 1089 D9) it takes
   every action's body typed under its parameters, which `WellTyped`
   gives: a callee runs as the action it is.
 - `check_sound`: `check p = true → WellTyped p`. Beyond types, both ask
@@ -869,7 +875,9 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
   component scope without the states lifted from children (`lifted`: late
   or arm-owned), whose names (`x#N`) the root's source cannot write;
   `pending(x)`/`failed(x)` name a resource in scope (the checker's
-  `scope.lookup`), so a root initializer cannot ask after one.
+  `scope.lookup`), so a root initializer cannot ask after one;
+  `current(x)` names a resource, never a mutation; a resource's `when` is
+  typed where its arguments are, and a resource over a list has none.
 - `reachable_slotsOK` and `reachable_valTy` (`TypeInvariant.lean`, over
   `Contract.Reachable`): in every configuration a well-typed program
   reaches, each root slot is a state or mutation holding a value of its
@@ -939,7 +947,9 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
   event from a reachable configuration, whatever the oracle answers,
   commit or fail for a `Legitimate` reason — never a type error, an
   unbound name or a `pending` read — and every reachable configuration is
-  well typed.**
+  well typed.** The checks at a derive, a slot written and a slot
+  initialized report a value of another type as a type error (`unfit`),
+  so the theorem says they refuse only a number that is not finite.
 - Numbers (`Binary64Facts.lean`). A finite double `y` is the integer
   `y.scaled` times `2^-1074`, and an operation's exact result `±a / (d *
   2^1074)`, so distances are compared in integers. `round_nearest`: the
@@ -996,10 +1006,13 @@ the host presents no frames (the harness never does): due at
 ## Formatting and localized text
 
 `formatTime`, `formatDate`, `formatDay` and `formatNumber` (`Contract/Format.lean`) are
-the runner's (`runner/src/stdlib.rs`, `runner/src/format.rs`) transcribed:
+the runner's (`runner/src/stdlib.rs`, `runner/src/format/`) transcribed:
 `en-US` at the fixed UTC offset the call names, the wall time truncated
 then shifted and held to years 1–9999 (else `""`), the calendar by
-Hinnant's `civil_from_days` over integers, compact numbers from the
+Hinnant's `civil_from_days` over integers. `formatDate` also takes a strict
+ASCII `YYYY-MM-DD` Gregorian day key in years 0001–9999, validated by
+`Str.isoDate` and formatted without shifting its day; invalid keys or offsets
+print `""`. Compact numbers come from the
 shortest digits Rust's `{}` prints (of two equally near shortest forms the
 upper, where `toString` takes the even). `t(...)` reads the strings tables
 (`strings/<locale>.json` beside the source), which the embedding carries
@@ -1013,7 +1026,23 @@ locale slot, the key, then each name and its value through `toString`;
 event (a viewer locale other than the base) is not delivered by the
 harness, so only the base table is read there.
 
-## Queued sends and gated tasks
+Each takes the format locale last (LLP 1054.000.003 D6), as the embedding
+writes the call: `""` in a program whose tables all format as `en` does,
+which is the `en-US` above, else the format slot (`#format`, initialized to
+the base table's name after the locale slot and left out of the
+observation, as the runner's and the JS target's are). Its table's record
+(`contract/lower/src/formats.rs`) rides in that table's (key, text) pairs
+under `Format.formatKey`, a key no table can hold, and `Format.recordOf`,
+`styledIn`, `compactIn`, `dateIn`, `timeIn` and `dayIn` are
+`runner/src/format/locale.rs` transcribed over it. The corpus's
+`localized-formats` reads a German base, and `localized-formats-at` a base named
+with an extension (`de-AT-u-nu-latn`) whose money has its own symbols.
+Outside the semantics: a localized
+formatter in a `fn`, whose body the compiler expands where it is called and
+so reads the format slot there, while the semantics evaluates a `fn` closed
+over its parameters (as it does `t` there, which reads the locale slot).
+
+## Queued sends and gated tasks (LLP 1092)
 
 `Contract/Runtime.lean` carries both. A `queue` mutation's send that may not
 be asked now (it is not free — its `then` or its `next` armed, or it is
@@ -1025,13 +1054,13 @@ time (`Config.nexts`, the runner's `next_due`), so a queue's drain waits
 while its `then` is armed and `then` runs once per reply, in send order.
 `advance` runs an armed `next` (`clockPick`) before a `then` due at or after
 its time and before a timer due after it, as the runner's `advance_within`
-orders them; `nextCommit` (the `next` commit) asks the oldest waiting send,
+orders them; `nextCommit` (D3's `next` commit) asks the oldest waiting send,
 arms the mutation's `then` when it lands, and scans: its own ask's refusal
 drops it and stops the advance; any other refusal keeps it, records the state
 it saw in `Config.stalled`, and stops the advance, and no `next` is armed
 for it until a commit that stood changed a slot, a derive or a resource from
 that state. A gated task's timer is idle (an infinite deadline) until the
-gate step (`gateStep`), run inside every commit after its settlement and
+gate step (`gateStep`, D8), run inside every commit after its settlement and
 at boot after the late slots, finds its gate true; a changed key (`rowKey`'s
 reading) re-arms it from the commit's time — a frame task's virtual frames
 start again there, `virtualFrame now k` — and a key that is no key refuses
@@ -1039,6 +1068,19 @@ the commit. The observation prints `queued <mutation> <count>` for each
 queue mutation, on both sides. The corpus has `mutations/queue-*` (`queue-then`: a
 queue with a `then` beside a timer) and `timers/gated-*` (`gated-frame`), and the generator writes queue mutations (sent more than
 once on a path) and gated tasks over the states alone.
+
+The one-slot invariants include queue mutation slots. `SlotInvariant x V c`
+combines `SlotIn x V c.slots` with `QueuedIn x V c.queued`:
+`∀ q ∈ c.queued, q.1 = x → ∀ v, V (.some v)`. Boot has no waiting sends;
+`BodyKeeps` supplies the answer property for new sends, and a drain either
+lands such an answer, removes a refused send, or keeps it stalled. Poisoning
+clears the waiting sends. `Reachable.slotIn` projects the slot property;
+`Reachable.slotInvariant`, `Event.step_slotInvariant` and
+`Reachable.advance_slotInvariant` carry both. `Contract/Invariant.lean` has
+a checked example with two sends to one queue, a drain, refusal and poisoning.
+The equality rule `Reachable.advance_untouched` and the slot-only event rule
+`Event.step_slotIn` still require a slot no drain writes: waiting answers
+can change a queue mutation's slot even when no clock action touches it.
 
 What it does not carry, as restrictions:
 
@@ -1048,13 +1090,38 @@ What it does not carry, as restrictions:
 - A send behind one in flight (every answer here is synchronous) is the
   runner's and the conformance plans' tests (`contract/cli/tests/it/queue.rs`,
   `host/web-js/conformance/queue.contract`).
-- The one-slot invariants (`Reachable.slotIn`, `Event.step_slotIn`,
-  `Reachable.advance_untouched`) are proved of slots that are not a queue
-  mutation's, whose answers an advance lands.
 - The component-level semantics (`Contract.CompSem`) refuses both, so
   `difftest expansion` writes and reads programs without them.
 
-## Persisted state
+## Whether an answer is current, and a resource's `when` (LLP 1161.001, 1161.002)
+
+A resource may carry a gate (`ResourceDecl.gate`, `resource r = s(args)
+when cond`). `settle` reads it before the arguments (`gateOpen`; a value
+other than `true` closes it, as the runner reads it). Closed, the resource
+is idle: its arguments are not read, nothing is asked even when the commit
+refreshes it, it keeps its previous value (`idleValue`; before any value,
+its type's zero, `zeroOf`), it has no `Settled.args` entry, and its name is
+in `Settled.idle`. With no arguments kept, the settlement that opens the
+gate asks again, at the same arguments or new ones. `current(r)` reads
+`Env.idle`: every settled answer here answers its arguments, so it is true
+unless `r` is idle; the VM reads the runner's flag (`Vm.Env.currentResources`,
+`CurrentResource`), and the lowering proof takes the two to agree (`RefOk`).
+The corpus has `resources/current` and `resources/gate`.
+
+What it does not carry:
+
+- A placeholder: a resource idle before its first answer holds its type's
+  zero, where the runner shows its `else`. A program that gates a resource
+  with an `else` placeholder disagrees until the first answer, and a string
+  enum's zero here is `""` (the embedding types an enum `string`) where the
+  runner's is its first member.
+- A request in flight when the gate closes, an upload's or a stream's, and
+  the window between waking and the forced ask's answer, when the runner's
+  `current` is false: answers here are synchronous. The runner's tests
+  (`contract/cli/tests/it/when.rs`, `current.rs`) and the conformance plan
+  (`host/web-js/conformance/gate.contract`) check these.
+
+## Persisted state (LLP 1116 D5)
 
 A root `state … persist` starts from the device's store: `Oracle.stored`,
 each persisted state's kept value by name, which `restore` (Runtime.lean)
@@ -1087,11 +1154,18 @@ and the compiler's: the semantics takes decoded values and any type.
 
 Geometry reads (`frame(id)`, `measure(id)`: where layout put a node) are
 refused as unsupported rather than given a meaning: layout is out of
-scope. So are resources reading `exactTransport` and `exactMIDI`, which
-the runner answers from its transport and its MIDI ports and answers
-again as they play; the semantics models neither. `sendMIDI` and
+scope. So are resources reading `exactTransport` and `exactMIDI` (LLP
+1125), which the runner answers from its transport and its MIDI ports and
+answers again as they play; the semantics models neither. A native
+module's state (a permission, a preferred value, what a send to it answered)
+is the runner's: the semantics holds a module read's boot answer, a call it
+has no fact for (a send, one per element, or a read with no answer at boot:
+closed, held or failed, whose placeholder is no answer) is unsupported, and a
+step where a read no longer holds its boot answer carries `# outside: a
+module's answer moved`, from which a first difference is `OUTSIDE`, a poll
+the trace leaves out included. `sendMIDI` and
 `requestMIDIAccess` are in, as commands. `toLowerCase` and `toUpperCase`
- are typed but left out: their mappings are Unicode's case
+(LLP 1088 D2) are typed but left out: their mappings are Unicode's case
 tables, which the semantics does not carry, and the generator writes
 neither. The corpus checks them against the values Bun gives
 (`corpus/typescript/lowercase.contract`, `uppercase.contract`), the runner
@@ -1105,7 +1179,7 @@ the change the runner publishes to a host after a commit. A refused verb
 answers its input, and the runner journals the refusal in its log, which no
 observation shows. The router slot is observed like any other root slot.
 
-Navigation tabs are in (`Contract/Tabs.lean`): a literal
+Navigation tabs are in (`Contract/Tabs.lean`, LLP 1075.003 §9.14): a literal
 `role="tabpanel"` below a navigation root waits for its first selection.
 Selection opens panels until a route holds the root's key, preferring an
 `aria-selected` tab, then tab order; a panel no tab names opens at once.
@@ -1127,19 +1201,50 @@ except the six attributes tab selection reads (`role`, `id`,
 `navigationKey`, `navigationBack`, `aria-controls`, `aria-selected`).
 An attribute whose expression is refused (other than for fuel) has no
 value and the render goes on (`unsetRefused`), as the runner unsets a prop
-or style binding that traps; a refused subject, key or
+or style binding that traps (LLP 1017.003 D3); a refused subject, key or
 row initializer still fails the render. Only a `text`'s text and an
 element's `testId` are observed, and nothing inside a virtualized `list`:
 the runner builds only the rows its window lays out, which is layout, so
 both sides leave a virtualized list's descendants out of the observation
 (the list's own line stays). The runner's evaluation bounds (list steps,
-string length, value size and depth) are a refinement the semantics
-doesn't model: a step the runner refuses for one
-(`IterationLimit`, `StringTooLong` as a trap or an argument's or write's
-refusal, `ValueTooLarge`, `ValueTooDeep`) is `UNSUPPORTED`, outside the
+derive calls and call depth, string length, value size and depth) are a refinement the semantics
+doesn't model (LLP 1090 D8): a step the runner refuses for one
+(`IterationLimit`, `CallLimit`, `CallDepth`, `StringTooLong` as a trap or an
+argument's or write's refusal, `ValueTooLarge`, `ValueTooDeep`) is `UNSUPPORTED`, outside the
 semantics, not a divergence, and so is a step after the runner unset a
 binding for one (its journal line is a `#` note in the runner's
 observation). The web's JS target refuses the same steps
 (`host/web-js/conform.mjs`). The checker's two type refusals that bound a value
 (`type-option-option`, `type-too-deep`) are in `Contract.check` too
 (`checkBounds`, and where `infer` grows a type: `some`, `map`, the roster).
+
+Executable instance expressions share plan rows during lowering. Source
+expansion and `instance_iff` still use substitution. `VmRows` runs these
+calls over `Vm.step`: a fresh callee machine, empty parameters and writable
+slots, frames cut to the owner, and the caller restored with the returned
+value. Calls share a 65,536-call counter and a depth bound of 64. Callback
+work shares a 65,536-step counter. `owner_frames_cut` proves selection of
+the nearest owner; `frame_read_rebase` relates item, index and bound reads
+across the cut. Its checked examples exercise owner
+selection, local isolation, depth, sibling calls and caller-spent callback work.
+Instance frames carry owned-slot stores. A call reselects slots from the
+retained frames, taking only the nearest instance of each owning region;
+return restores the caller's slots and frames. Checked examples cover a
+retained owner, an inaccessible inner slot, a root call and a missing slot
+in the nearest instance. These stores are modeled but are not yet supplied
+by `LowerCheck`'s contextual validation.
+
+`LowerCheck` receives row bytecode, owner regions and the checked substituted
+expressions that lowering shares. It decodes every body and compares root-owned
+rows with source evaluation, including transitive row calls. A mutation test
+changes an executable body and requires a divergence. Arm-owned rows are
+reported as needing an instance environment and counted as refused by this
+check; they are not claimed as validated.
+
+Still owed: the general correspondence between shared loads and substitution,
+including the matcher's scope and binder conditions; contextual validation of
+arm-owned bodies and their view readers; and refinement of `VmRows` to the
+runner's row-call implementation. The model does not yet carry the roster's
+list-step, string and extent accounting. The existing
+lowering theorems cover `Vm` without this sharing transformation. The call
+model and its local invariants do not extend those theorems.

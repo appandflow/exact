@@ -1,22 +1,19 @@
-//! A reorder across the lists that share a `reorderGroup`: one
+//! A reorder across the lists that share a `reorderGroup` (LLP 1094): one
 //! session keeps the source's token and owner for the whole gesture and
-//! adds a target and a phase. Samples move the gap in whichever list
+//! adds a target and a phase (D4). Samples move the gap in whichever list
 //! the host names (`preview_reorder_into`), a drop fires once on the
-//! target, and a hold waits for the move to show; keys and custom
-//! actions step the gap. The collections hold their halves
+//! target, and a hold waits for the move to show (D8); keys and custom
+//! actions step the gap (D9). The collections hold their halves
 //! (`instance/collection/reorder_group.rs`).
 use super::*;
 use crate::instance::collection::{
     IntoView, ReorderBinding, ReorderEnding, ReorderGeometry, ReorderPhase, ReorderProgress,
-    ReorderStart, ReorderStep, ReorderToken,
+    ReorderStart, ReorderStep, ReorderToken, HOLD_MS,
 };
 use exact_kernel::{NodeKey, NodeType, Op, PropId};
 
-/// How long a drop's hold waits for its move, on the session clock.
-pub(super) const HOLD_MS: f64 = 1000.0;
-
 /// One gesture's session; `group` is `None` for a list without one, whose
-/// reorder stays within it.
+/// reorder stays within it (LLP 1041 §8.5).
 #[derive(Debug)]
 pub(crate) struct Session {
     pub(super) token: ReorderToken,
@@ -33,7 +30,7 @@ pub(crate) struct Session {
     /// its list and its neighbours. A hold watches for a change of either.
     pub(super) before: Option<String>,
     pub(super) place: Option<(NodeKey, Option<String>, Option<String>)>,
-    /// The host draws a ghost: the row stays hidden until `finish`.
+    /// The host draws a ghost (D6): the row stays hidden until `finish`.
     /// Without one it hides only while another list is the target.
     pub(super) ghost: bool,
     /// Every list this session offset or hid a row in.
@@ -51,7 +48,7 @@ impl Session {
 }
 
 impl<D: DataSource> Runner<D> {
-    /// A list's non-empty `reorderGroup`.
+    /// A list's non-empty `reorderGroup` (D1).
     pub(super) fn reorder_group(&self, list: NodeKey) -> Option<String> {
         let node = self.kernel.node_by_key(list)?;
         if node.node_type != NodeType::List {
@@ -64,7 +61,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The mounted lists of `group` that have a collection, in tree order
-    /// (left to right).
+    /// (D9's left and right).
     pub(super) fn group_lists(&self, group: &str) -> Vec<NodeKey> {
         let arena = self.kernel.arena();
         let Some(tree) = self.tree.as_ref() else {
@@ -84,10 +81,10 @@ impl<D: DataSource> Runner<D> {
         out
     }
 
-    /// Begin a session on a grouped list: `begin_reorder`'s
+    /// Begin a session on a grouped list (D4, D6): `begin_reorder`'s
     /// checks, with `ghost` when the host draws the row in its top layer,
     /// so the row itself hides until `finish_reorder`. A key's or a custom
-    /// action's session has no ghost. `None` for a list without a
+    /// action's session (D9) has no ghost. `None` for a list without a
     /// group, or whatever `begin_reorder` refuses.
     pub fn begin_group_reorder(
         &mut self,
@@ -108,12 +105,12 @@ impl<D: DataSource> Runner<D> {
             .filter(|s| s.token == token && s.group.is_some())
     }
 
-    /// Move the gap to `y` in `target`'s unpreviewed content coordinates:
-    /// `geometry` is the target's, certified as the source's is
+    /// Move the gap to `y` in `target`'s unpreviewed content coordinates
+    /// (D4, D5): `geometry` is the target's, certified as the source's is
     /// for `preview_reorder`. A target that is not the session's yet takes
     /// over in one commit (`Outgoing` on the source, `Incoming` on it). A
     /// list that already holds the row is no target: the sticky target
-    /// stays and the journal says so once.
+    /// stays and the journal says so once (D1).
     pub fn preview_reorder_into(
         &mut self,
         token: ReorderToken,
@@ -210,7 +207,7 @@ impl<D: DataSource> Runner<D> {
     /// The old target lets go as a new foreign one takes over: the source
     /// closes the gap behind its row (`Outgoing`); a foreign one closes its
     /// gap. Without a ghost the row stays shown: it is the focused grip's,
-    /// and a hidden one would lose the keys.
+    /// and a hidden one would lose the keys (D9).
     fn leave_target(&mut self, current: NodeKey, source: NodeKey) -> Result<Vec<Op>, RunnerError> {
         let mut ops = Vec::new();
         if current == source {
@@ -231,7 +228,7 @@ impl<D: DataSource> Runner<D> {
         Ok(ops)
     }
 
-    /// The journal's one line a drag about a list that holds the row.
+    /// The journal's one line a drag about a list that holds the row (D1).
     fn refuse_holder(&mut self, list: NodeKey) {
         let Some(s) = self.reorder_session.as_deref_mut() else {
             return;
@@ -253,7 +250,7 @@ impl<D: DataSource> Runner<D> {
             .unwrap_or_default()
     }
 
-    /// A grouped drop: the target's eligibility consumed once,
+    /// A grouped drop (D2, D8): the target's eligibility consumed once,
     /// the hold armed, then the target's `reorderdrop` with the keys and
     /// `ReorderEvent { from, to }`. The commit that shows the move ends the
     /// hold (`reconcile_reorder`), the drop's own when the action is
@@ -275,7 +272,8 @@ impl<D: DataSource> Runner<D> {
         }
         let source = token.list;
         let (item, before) = if target == source {
-            let (drop, _) = self.edit_reorder(source, |c, _, _| c.hold_drop(&geometry))?;
+            let (drop, _) =
+                self.edit_reorder(source, |c, u, _| c.hold_drop(&geometry, u.env.now_ms))?;
             let Some(Some((item, before))) = drop else {
                 return Ok(None);
             };
@@ -316,7 +314,7 @@ impl<D: DataSource> Runner<D> {
         result.map(Some)
     }
 
-    /// `reorderdrop`'s `ReorderEvent`: the list the row came from and
+    /// `reorderdrop`'s `ReorderEvent` (D2): the list the row came from and
     /// the one it was dropped on, by `id`; the same list for a drop within
     /// one and for a host's own `reorderdrop`.
     pub(super) fn reorder_record(&self, view: exact_kernel::ViewId) -> exact_plan::Value {
@@ -334,7 +332,7 @@ impl<D: DataSource> Runner<D> {
         ])
     }
 
-    /// Where a hold stands: landed (where it was dropped, or where
+    /// Where a hold stands (D8): landed (where it was dropped, or where
     /// the action put it), gone from every grouped list, or still waiting
     /// where it was at the drop.
     fn hold_outcome(&self, s: &Session) -> Option<ReorderEnding> {
@@ -407,7 +405,7 @@ impl<D: DataSource> Runner<D> {
         Ok(ops)
     }
 
-    /// The session's commit-end check, from `reconcile_reorder`: an
+    /// The session's commit-end check (D8), from `reconcile_reorder`: an
     /// active session whose grip died is cancelled, one whose foreign
     /// target went goes home, and a hold ends at the first commit that
     /// shows the move or loses the row.
@@ -447,7 +445,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The hold's deadline, which `timer_due_ms` reports beside the plan's
-    /// timers so a host wakes for it.
+    /// timers so a host wakes for it (D8).
     pub(super) fn reorder_deadline(&self) -> Option<f64> {
         self.reorder_session
             .as_deref()
@@ -455,7 +453,7 @@ impl<D: DataSource> Runner<D> {
             .and_then(|s| s.deadline_ms)
     }
 
-    /// The deadline passed: the previews close, the row springs onto
+    /// The deadline passed (D8): the previews close, the row springs onto
     /// wherever it is, and the journal says so. One commit, `ending:
     /// timeout`.
     pub(super) fn reorder_timeout(&mut self) -> Result<CommitReceipt, RunnerError> {
@@ -464,7 +462,7 @@ impl<D: DataSource> Runner<D> {
         self.apply(ops)
     }
 
-    /// One key's or custom action's move: the gap a row up or down in
+    /// One key's or custom action's move (D9): the gap a row up or down in
     /// the target, clamped, or the same index in the previous or next
     /// grouped list in tree order that does not hold the row, clamped to
     /// its end; then the gap is kept in view (`scrollIntoView`'s
@@ -556,7 +554,7 @@ impl<D: DataSource> Runner<D> {
         Ok(receipts)
     }
 
-    /// `state.reorder`: the session's row, its two lists, the key the
+    /// `state.reorder` (D12): the session's row, its two lists, the key the
     /// gap is before and its phase; `null` with none.
     pub fn reorder_json(&self) -> String {
         let Some(s) = self.reorder_session.as_deref() else {

@@ -1,16 +1,16 @@
-// Native modules on Apple hosts: one
+// Native modules on Apple hosts (@ref LLP 1024 D2–D5, LLP 1067.000): one
 // NativeView arm, one app module artifact behind `dlopen`, loaded after the
 // first painted frame, at the first long call, or for a first-frame tag
 // before that frame, and a versioned C function
 // table whose tag → factory roster is looked up by name. The artifact's
-// module is instantiated once per session: its views receive it, and a
+// module is instantiated once per session (Q6): its views receive it, and a
 // source's `native.later` calls reach it through the runtime
 // (`exact_set_app_module`). Shared by the AppKit and UIKit presenters.
 //
 // The table (`exact_native_abi()`, 64-bit layout; the module side is
 // `host/apple/modules/ExactNativeModule.swift`):
 //
-//   0  u32 major            3
+//   0  u32 major            4
 //   4  u32 size             104 or more
 //   8  const char *roster   JSON: {"tag": {"snapshot": bool, "reuse": bool,
 //                          "firstFrame": bool}, …}
@@ -19,7 +19,7 @@
 //  32  set_props(handle, json, len, err, errCap) → 0 accepted, else refused
 //  40  snapshot(handle, token)          nullable; answered on `reply`
 //  48  destroy(handle)
-//  56  set_bounds                       reserved, NULL
+//  56  set_bounds                       reserved, NULL (LLP 1024 §5)
 //  64  agent_input(handle, json, len, err, errCap) → 0 delivered, else refused
 //        nullable; JSON {text: string} or {key: chord, phase?: down|up}
 //  72  module_create(json, len, host, changed, now, err, errCap) → module
@@ -31,12 +31,12 @@
 //  96  module_call(module, body, len, slot, answer)
 //        answer(slot, status, bytes, len) before returning: exact_app_answer
 // 104  prepare_for_reuse(handle) → 0 reset, else refused   size ≥ 112; nullable
-//        as if created with no props; the next set_props is
+//        (LLP 1068 §4.8): as if created with no props; the next set_props is
 //        a first mount, and `load` follows once no pixel of the last row shows
 // 112  focus_target(handle) → borrowed NSView * / UIView *; size ≥ 120; nullable
 //        the platform view or an attached descendant; nil refuses focus
-// 120  module_connect(module, host_table)       size ≥ 144; the hatches
-//        (NativeHatches.swift): the host's callbacks, once
+// 120  module_connect(module, host_table)       size ≥ 144; the hatches (LLP
+//        1075.003 §3.2), NativeHatches.swift: the host's callbacks, once
 // 128  module_navigation(module, event, controller, flags) → flags
 //        event 0 built (the hatch runs), 1 retired; bit 0 showsBar
 // 136  module_route(module, event, controller, navigation, scroll, json, len)
@@ -48,26 +48,26 @@
 //        json {"names", "nodes", "selected"}; retained once, or nil (Exact's)
 // 160  platform_controller(handle) → UIViewController *, a native screen's
 // 168  module_element(module, event, view, platform, json, len) → flags
-//        size ≥ 176: a node marked `hatch="word"`; event
+//        size ≥ 176 (LLP 1075.003.000): a node marked `hatch="word"`; event
 //        0 built, 1 changed, 2 ended; json {"hatch", "node", "id", "kind",
 //        "data"}; flags bit 0: the hatch made it reusable
 // 176  module_toolbar(module, toolbar, window)        size ≥ 184; macOS:
-//        the window toolbar Exact installed
+//        the window toolbar Exact installed (LLP 1075.003.000 §3.7)
 // 208  module_will_quit(module, ctx, done)            size ≥ 216; macOS:
-//        the quit's work; done(ctx) once, from any thread
-// 216  module_tamber(module)                         size ≥ 224; nullable:
-//        after a batch that moved what a binding reads, the
-//        module asks its places again (ExactTamber.swift)
+//        the quit's work (LLP 1069.010 Q4); done(ctx) once, from any thread
+// 216  module_forma(module)                         size ≥ 224; nullable:
+//        after a batch that moved what a binding reads (LLP 1121 D12), the
+//        module asks its places again (ExactForma.swift)
 // 224  create_view(module, view, tag, …)              size ≥ 232; nullable:
 //        `create` with the node's id (u64), which a package's view is made
-//        with and its displayed reports name
+//        with and its displayed reports name (LLP 1133.008 D8 item 1)
 // 232  authenticate(module, json, len, access, ctx, done)  size ≥ 240;
-//        nullable: a presence check, Presence.swift
+//        nullable: a presence check (LLP 1133.010 D13), Presence.swift
 // 240  image(module, json, len, ctx, done)              size ≥ 248;
-//        nullable: a package picture, PackagePictures.swift
+//        nullable: a package picture (LLP 1133.019 D11 item 1), PackagePictures.swift
 // 248  session_view(module, view)                     size ≥ 256;
 //        nullable: the session's root view, borrowed, or nil, each time it
-//        changes
+//        changes (LLP 1133.027 D17 item 3)
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
@@ -76,12 +76,12 @@
 //     in points, or empty to clear. Never dispatched as a Contract event.
 //   reply(ctx, nonce, token, kind, bytes, len)   kind 0 PNG bytes, 2 error text.
 //
-// Every entry is called on the main thread. Callbacks may come from any
+// Every entry is called on the main thread (LLP 1067.000 Q5). Callbacks may come from any
 // thread: the bytes are copied, the call hops to the main queue, and an
 // invalidated nonce (a destroyed instance) is dropped and logged. The
-// artifact is never closed.
+// artifact is never closed (D5).
 //
-// Reuse (iOS): a tag whose roster entry says `reuse`
+// Reuse (iOS, LLP 1068 §4.8, §4.9): a tag whose roster entry says `reuse`
 // is pooled by tag (the app has one artifact). At a destroy the instance's
 // incarnation ends first (a callback it issues from then on is dropped),
 // then `prepare_for_reuse` resets it and its view leaves the window; a
@@ -105,17 +105,19 @@ typealias NativeImage = UIImage
 private typealias NativeEventFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
 private typealias NativeReplyFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
 
-private struct NativeFailure: Error { let state: String; let message: String }
+private struct NativeFailure: Error {
+    let state: String, message: String
+    /// The loader refused a file that is there: the build is broken (a
+    /// library it links is not in the bundle), not skewed (LLP 1024 D8.3).
+    var unloadable = false
+}
 
 /// The loaded table: the roster and the entries, read once.
 private final class NativeTable {
-    static let major: UInt32 = 3
+    static let major: UInt32 = 4
     /// The hatch words the module handles, or nil for one that does not say.
     var hatchWords: Set<String>?
-    /// Whether its `tabContainer` takes a tab Exact holds without a
-    /// navigation controller (HeldStackIOS.swift); an older module's does not.
-    var heldStacks = false
-    /// The modules' extensions the artifact composes.
+    /// The modules' extensions the artifact composes (LLP 1133.001 D4).
     var extensions: [String] = []
     /// The module reads `app.onLine` through the host table's `on_line`
     /// (its roster's `facts`); an older module reads only the app facts.
@@ -150,28 +152,28 @@ private final class NativeTable {
     let moduleLater: ModuleLaterFn
     let moduleCall: ModuleLaterFn
     var prepareForReuse: ReuseFn?
-    /// The hatches, in a table of 144 bytes or more.
+    /// The hatches (LLP 1075.003 §3.2), in a table of 144 bytes or more.
     var connect: HatchConnectFn?, navigationHatch: HatchNavigationFn?, routeHatch: HatchRouteFn?
     /// Tabs and native screens, in a table of 168 bytes or more.
     var tabsHatch: HatchTabsFn?, tabContainerHatch: HatchTabContainerFn?, platformController: ViewFn?
-    /// Hatched nodes, in a table of 176 bytes or more;
+    /// Hatched nodes (LLP 1075.003.000), in a table of 176 bytes or more;
     /// the window toolbar's hatch (macOS), in one of 184 or more.
     var elementHatch: HatchElementFn?, toolbarHatch: HatchToolbarFn?
-    /// The app and window scopes, in a table of 200 bytes or more.
+    /// The app and window scopes (LLP 1075.003.000.001 §2.1), in a table of 200 bytes or more.
     var appHatch: HatchAppFn?, windowHatch: HatchWindowFn?
-    /// The frame clock's callback, in a table of 208 bytes or more.
+    /// The frame clock's callback (§2.4), in a table of 208 bytes or more.
     var tickHatch: HatchTickFn?
     /// The quit's work (macOS), in a table of 216 bytes or more.
     var willQuit: WillQuitFn?
-    /// The bindings' moved inputs, in one of 224 or more.
-    var tamber: ModuleDestroyFn?
-    /// `create` with the node's id, in one of 232 or more.
+    /// The bindings' moved inputs (LLP 1121 D12), in one of 224 or more.
+    var forma: ModuleDestroyFn?
+    /// `create` with the node's id (LLP 1133.008 D8 item 1), in one of 232 or more.
     var createView: CreateViewFn?
-    /// The authenticator entry, in one of 240 or more.
+    /// The authenticator entry (LLP 1133.010 D13), in one of 240 or more.
     var authenticate: PresenceAuthenticateFn?
-    /// A package picture, in one of 248 or more.
+    /// A package picture (LLP 1133.019 D11 item 1), in one of 248 or more.
     var image: PackageImageFn?
-    /// The session's root view for packages, in one of 256 or more.
+    /// The session's root view for packages (LLP 1133.027 D17 item 3), in one of 256 or more.
     var sessionView: SessionViewFn?
     typealias SessionViewFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
     var agentInput: SetFn?
@@ -190,9 +192,9 @@ private final class NativeTable {
             return .failure(NativeFailure(state: "unavailable", message: "no module artifact at \(path)"))
         }
         guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
-            return .failure(NativeFailure(state: "unavailable", message: "dlopen \(path): \(String(cString: dlerror()))"))
+            return .failure(NativeFailure(state: "unavailable", message: "dlopen \(path): \(String(cString: dlerror()))", unloadable: true))
         }
-        // Never dlclosed, even on refusal: nothing in v1 unloads.
+        // Never dlclosed, even on refusal: nothing in v1 unloads (D5).
         guard let entry = dlsym(library, "exact_native_abi"),
               let table = unsafeBitCast(entry, to: AbiFn.self)()
         else { return .failure(NativeFailure(state: "unavailable", message: "\(path) exports no exact_native_abi table")) }
@@ -211,7 +213,7 @@ private final class NativeTable {
               var roster = try? JSONSerialization.jsonObject(with: Data(rosterText.utf8)) as? [String: [String: Any]]
         else { return .failure(NativeFailure(state: "unavailable", message: "\(path): unreadable roster")) }
         // The hatch words the module was built to handle, under a key no tag
-        // can take; an older module names none.
+        // can take (LLP 1075.003.000.001 §4.3); an older module names none.
         let hatches = roster.removeValue(forKey: "hatches")
         let hatchWords = (hatches?["words"] as? [String]).map(Set.init)
         let extensions = roster.removeValue(forKey: "extensions")?["names"] as? [String] ?? []
@@ -231,7 +233,6 @@ private final class NativeTable {
             moduleLater: unsafeBitCast(moduleLater, to: ModuleLaterFn.self),
             moduleCall: unsafeBitCast(moduleCall, to: ModuleLaterFn.self))
         loaded.hatchWords = hatchWords
-        loaded.heldStacks = hatches?["heldStacks"] as? Bool == true
         loaded.extensions = extensions
         loaded.asksOnLine = asksOnLine
         loaded.agentInput = pointer(64).map { unsafeBitCast($0, to: SetFn.self) }
@@ -255,7 +256,7 @@ private final class NativeTable {
         }
         if size >= 208 { loaded.tickHatch = pointer(200).map { unsafeBitCast($0, to: HatchTickFn.self) } }
         if size >= 216 { loaded.willQuit = pointer(208).map { unsafeBitCast($0, to: WillQuitFn.self) } }
-        if size >= 224 { loaded.tamber = pointer(216).map { unsafeBitCast($0, to: ModuleDestroyFn.self) } }
+        if size >= 224 { loaded.forma = pointer(216).map { unsafeBitCast($0, to: ModuleDestroyFn.self) } }
         if size >= 232 { loaded.createView = pointer(224).map { unsafeBitCast($0, to: CreateViewFn.self) } }
         if size >= 240 { loaded.authenticate = pointer(232).map { unsafeBitCast($0, to: PresenceAuthenticateFn.self) } }
         if size >= 248 { loaded.image = pointer(240).map { unsafeBitCast($0, to: PackageImageFn.self) } }
@@ -340,7 +341,7 @@ private enum NativeProcess {
     nonisolated(unsafe) static var retired: [UInt32: WeakNatives] = [:]
     nonisolated(unsafe) static var next: UInt32 = 1
     /// Module nonce → its current incarnation (0 while parked), read on the
-    /// calling thread when a callback is issued.
+    /// calling thread when a callback is issued (LLP 1068 §4.9).
     nonisolated(unsafe) static var live: [UInt32: UInt32] = [:]
     static let lock = NSLock()
     static func incarnation(_ nonce: UInt32) -> UInt32 { lock.lock(); defer { lock.unlock() }; return live[nonce] ?? 0 }
@@ -387,7 +388,7 @@ private let nativeLaterCallback: ExactAppLaterFn = { ctx, body, length, reply in
 
 // A `native.call` arrives on the source's thread: the owner's for main
 // placement, a worker's for worker placement. From the owner it goes through
-// the one door to main, served while main waits on the owner;
+// the one door to main (LLP 1072 T5), served while main waits on the owner;
 // from a worker, a synchronous hop, since main never waits on a worker.
 private let nativeCallCallback: ExactAppCallFn = { ctx, body, length, slot in
     let rt = ExactRuntime(UInt(bitPattern: ctx))
@@ -417,9 +418,9 @@ private let nativeNowCallback: NativeTable.NowFn = { host in
 
 final class NativeViews {
     weak var session: ExactSession? { didSet { hatchDiagnostics.attach(session) } }
-    /// What Exact times of each hatch call and what hatch code records.
+    /// What Exact times of each hatch call and what hatch code records (LLP 1075.003.000.001 §3.1–3.2).
     let hatchDiagnostics = HatchDiagnostics()
-    /// This session's slot in the crash breadcrumb, and the count of
+    /// This session's slot in the crash breadcrumb (§4.4), and the count of
     /// times its hatches have connected: a record's incarnation.
     var crumbSlot: Int?, hatchIncarnation: UInt32 = 0
     /// Each hatched node's plan site, once asked (`planSite`, NativeHatches.swift).
@@ -428,7 +429,7 @@ final class NativeViews {
     let scopes = HatchScopes()
     /// The hatches' frame tickets and `after`s on the session clock (HatchClock.swift).
     let hatchClock = HatchClock()
-    /// `EXACT_HATCHES=off` (a development build only): the module loads
+    /// `EXACT_HATCHES=off` (a development build only, §2.6): the module loads
     /// and its views and calls work; no hatch is connected or called.
     static let hatchesOff = !ExactEnv.productionBake && ExactEnv.environment["EXACT_HATCHES"] == "off"
     private var entries: [UInt32: NativeEntry] = [:]
@@ -445,7 +446,6 @@ final class NativeViews {
     fileprivate var observers: [NSObjectProtocol] = []
     deinit {
         for o in observers { NotificationCenter.default.removeObserver(o) }
-        if let crumbSlot { HatchBreadcrumb.shared?.free(crumbSlot) }
     }
     #endif
     private static let kinds = ["press", "change", "hover", "focus", "blur", "key", "submit", "load", "message"]
@@ -457,7 +457,7 @@ final class NativeViews {
 
     /// The artifact's path: beside the executable (macOS) or in Frameworks
     /// (iOS); a development build may name another file (`EXACT_MODULES`,
-    /// a file, never a directory). The module name never enters a path.
+    /// a file, never a directory: D5). The module name never enters a path.
     static func modulePath(session: ExactSession?) -> String {
         #if os(macOS)
         let standard = Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("libexact_modules.dylib").path
@@ -483,7 +483,7 @@ final class NativeViews {
     }
 
     /// A NativeView's create commit: the box exists now; the module attaches
-    /// at the paint gate, or at once when the gate has opened, or at the
+    /// at the paint gate, or at once when the gate has opened (D3), or at the
     /// end of its batch for a first-frame tag.
     func create(owner: NodeView) {
         entries[owner.id] = NativeEntry(owner: owner)
@@ -498,7 +498,7 @@ final class NativeViews {
     }
 
     /// The tags whose factory says they belong in the frame their node first
-    /// shows in (`firstFrame`): a cheap view such as a boot
+    /// shows in (`firstFrame`, LLP 1024 D3): a cheap view such as a boot
     /// splash, which would otherwise start a frame late over a bare one. The
     /// build reads them from the roster into Info.plist, so no other tag
     /// loads the module before first pixel. A node of one attaches at the end
@@ -560,7 +560,7 @@ final class NativeViews {
         return loaded
     }
 
-    // MARK: The session's module
+    // MARK: The session's module (LLP 1067.000 Q5–Q7)
 
     private(set) var instance: UnsafeMutableRawPointer? {
         // A module made after the quit was decided (its first pixel came
@@ -569,13 +569,11 @@ final class NativeViews {
     }
     private var instanceFailure: NativeFailure?
     /// Whether the module's hatches are connected, and who replays them for
-    /// the objects built before (NativeHatches.swift).
+    /// the objects built before (LLP 1075.003 §3.2; NativeHatches.swift).
     var hatchesConnected = false
-    /// The hatch words the loaded module was built to handle, or nil when
-    /// it does not say: then every word is called.
+    /// The hatch words the loaded module was built to handle (LLP
+    /// 1075.003.000.001 §4.3), or nil when it does not say: then every word is called.
     var handledHatches: Set<String>? { if case .success(let t) = NativeProcess.table { t.hatchWords } else { nil } }
-    /// Whether the loaded module's `tabContainer` takes held tabs (HeldStackIOS.swift).
-    var takesHeldStacks: Bool { if case .success(let t) = NativeProcess.table { t.heldStacks } else { false } }
     /// Whether the loaded module asks the host for `app.onLine` (`NativeTable.asksOnLine`).
     var moduleAsksOnLine: Bool { if case .success(let t) = NativeProcess.table { t.asksOnLine } else { false } }
     var onHatchesConnected: (() -> Void)?
@@ -590,11 +588,7 @@ final class NativeViews {
         if let instance { return .success(instance) }
         if let instanceFailure { return .failure(instanceFailure) }
         guard let session else { return .failure(NativeFailure(state: "unavailable", message: "the session ended")) }
-        let roots = NativeViews.roots(session: session)
-        // Who posts what an activation is for, as the host's delegate matches it.
-        let context: [String: Any] = ["agent": ExactEnv.agentMode, "data": roots.data, "cache": roots.cache, "temporary": roots.temporary,
-                                      "session": session.label, "owner": session.notificationOwnerID, "process": session.app.notificationProcessID]
-        let json = (try? JSONSerialization.data(withJSONObject: context)) ?? Data()
+        let json = (try? JSONSerialization.data(withJSONObject: Self.moduleContext(session))) ?? Data()
         var error = [UInt8](repeating: 0, count: 512)
         let host = UnsafeMutableRawPointer(bitPattern: UInt(session.runtime.rt))
         let made = json.withUnsafeBytes { j in
@@ -613,8 +607,8 @@ final class NativeViews {
         if !Self.hatchesOff, let connect = table.connect, let navigation = table.navigationHatch, let route = table.routeHatch {
             let tabs = table.tabsHatch.flatMap { tabs in table.tabContainerHatch.map { (tabs, $0) } }
             // The module's side of the table, and with it its frame clock, at
-            // once; the hatches are called from first pixel on, so a
-            // first-frame tag's module waits.
+            // once; the hatches are called from first pixel on (LLP
+            // 1075.003.000.001 D5), so a first-frame tag's module waits.
             openHatches(connect, made)
             hatchClock.natives = self
             hatchClock.call = table.tickHatch
@@ -666,6 +660,16 @@ final class NativeViews {
         return (home + "/Library/Application Support/exact/" + id + "/data", cache + "/cache", cache + "/temporary")
     }
 
+    /// What the session's module is made with (`ExactModuleContext`), which
+    /// each package's context reads: the roots, the session's label, and who
+    /// posts what an activation is for (LLP 1133.004 D7), as the host's
+    /// delegate matches it.
+    static func moduleContext(_ session: ExactSession) -> [String: Any] {
+        let roots = roots(session: session)
+        return ["agent": ExactEnv.agentMode, "data": roots.data, "cache": roots.cache, "temporary": roots.temporary,
+                "session": session.label, "owner": session.notificationOwnerID, "process": session.app.notificationProcessID]
+    }
+
     /// Tell the runtime this session has an app module, when the app ships
     /// an artifact: `native` is then available to its sources, and their long
     /// calls come here. Nothing loads until one arrives or a view needs it.
@@ -680,6 +684,16 @@ final class NativeViews {
 
     var hasAppModule = false
 
+    /// Why the loader refused the artifact the app ships (`dlopen`'s error
+    /// names the library it could not find), or nil. Loads it if nothing
+    /// has. A drive refuses such an app, whose every native call would
+    /// answer `unavailable`; a missing or skewed artifact is LLP 1024 D8.3's
+    /// failure family, which the app runs with.
+    func artifactFailure() -> String? {
+        guard hasAppModule, case .failure(let failure) = table(), failure.unloadable else { return nil }
+        return "the app's native module artifact did not load: \(failure.message)"
+    }
+
     /// After first pixel, before data activates: load the artifact and make
     /// the session's instance, so the first `native.call` pays for neither.
     /// A first load of a freshly built dylib took 164 ms inside a call's
@@ -693,7 +707,7 @@ final class NativeViews {
         // Under the agent those the drive binds (`--bind`) answer as in
         // production, and the rest are told they run under the agent: they
         // answer an interface that is its own substitute, and the runner's
-        // substitute every other.
+        // substitute every other (LLP 1124 D7, LLP 1133.006 D8).
         let real = ExactEnv.agentMode ? table.extensions.filter(ExactEnv.agentBind.contains) : table.extensions
         let agent = ExactEnv.agentMode ? table.extensions.filter { !ExactEnv.agentBind.contains($0) } : []
         if !(real.isEmpty && agent.isEmpty), let session {
@@ -702,7 +716,7 @@ final class NativeViews {
     }
 
     /// A long call, on the main thread: the artifact loads, the instance is
-    /// made if need be, and the module takes the call.
+    /// made if need be, and the module takes the call (Q5).
     fileprivate func later(_ body: Data, reply: UnsafeMutableRawPointer?) {
         let refuse = { (message: String) in
             let bytes = Array(message.utf8)
@@ -772,10 +786,10 @@ final class NativeViews {
     }
 
     /// After a batch: the module asks the places it observes again, when it
-    /// has the entry. Main thread.
-    func tamberMoved() {
-        guard let instance, case .success(let table)? = NativeProcess.table, let tamber = table.tamber else { return }
-        tamber(instance)
+    /// has the entry (LLP 1121 D12). Main thread.
+    func formaMoved() {
+        guard let instance, case .success(let table)? = NativeProcess.table, let forma = table.forma else { return }
+        forma(instance)
     }
 
     private func askQuit() {
@@ -798,6 +812,8 @@ final class NativeViews {
         endScopes()
         hatchClock.reset()
         pendingHatches = nil
+        // The session's end gives its breadcrumb slot back (LLP 1075.003.000.001 §4.4).
+        if let crumbSlot { HatchBreadcrumb.shared?.free(crumbSlot); self.crumbSlot = nil }
         guard let instance, case .success(let table)? = NativeProcess.table else { return }
         self.instance = nil
         hatchesConnected = false
@@ -863,7 +879,7 @@ final class NativeViews {
             return fail(entry, "error", "\(entry.name) returned no platform view")
         }
         let view = Unmanaged<NativePlatformView>.fromOpaque(raw).takeUnretainedValue()
-        // The host sizes the box; the platform view fills it (bounds are observed).
+        // The host sizes the box; the platform view fills it (bounds are observed, D4).
         view.frame = owner.contentBox()
         #if os(macOS)
         view.autoresizingMask = [.width, .height]
@@ -888,7 +904,7 @@ final class NativeViews {
         log("\(entry.name) #\(entry.id): ready")
     }
 
-    /// A host that holds a costly view mid-fling: `holds`
+    /// A host that holds a costly view mid-fling (LLP 1068 §5.1): `holds`
     /// answers whether `owner`'s instance waits, `measured` hears each
     /// creation's cost, and `release` makes a held instance now, from the
     /// owner's latest props.
@@ -898,6 +914,8 @@ final class NativeViews {
     /// Tests: the process's table from memory, and this session's module
     /// instance, without an artifact or a runtime.
     static func install(table: UnsafeRawPointer) { NativeProcess.table = NativeTable.read(table, path: "test") }
+    /// Tests: the ABI major a table must name, so a test's table follows the host's.
+    static let tableMajor = NativeTable.major
     static func uninstallTable() { NativeProcess.table = nil }
     func install(module: UnsafeMutableRawPointer, gateOpen open: Bool = true) { instance = module; gateOpen = open }
     /// Tests: the process's artifact from a file and this session's module
@@ -916,8 +934,8 @@ final class NativeViews {
     }
 
     /// Far module views, as UIKit's collection view treats the cells it
-    /// keeps and recycles (a SwiftUI baseline's map rows; both hosts, the
-    /// macOS hold passing `release: .infinity`):
+    /// keeps and recycles (the SwiftUI baseline's map rows; LLP 1068 §5.2;
+    /// both hosts, the macOS hold passing `release: .infinity`):
     /// `distance` says how far a node's box is from what shows, in
     /// viewports (0 inside, nil when not in a list's row). A made view past
     /// `hide` is hidden and shown again inside it; past `release` its
@@ -1082,7 +1100,7 @@ final class NativeViews {
     }
     #endif
 
-    /// The node is gone: the nonce dies first, then the instance.
+    /// The node is gone: the nonce dies first, then the instance (D4).
     func destroy(id: UInt32) {
         guard let entry = entries.removeValue(forKey: id) else { return }
         if entry.nonce != 0 {
@@ -1243,7 +1261,7 @@ final class NativeViews {
         wait.done = true
     }
 
-    /// `tree`: each NativeView's status object, `loading` until the gate.
+    /// `tree`: each NativeView's status object (D2), `loading` until the gate.
     func decorate(_ tree: [String: Any]) -> [String: Any] {
         guard var nodes = tree["nodes"] as? [[String: Any]] else { return tree }
         for index in nodes.indices where nodes[index]["type"] as? String == "NativeView" {
@@ -1294,38 +1312,14 @@ final class NativeViews {
     }
 }
 
-extension NodeView {
-    /// The embedded platform content a node's kind brings: an iframe's web
-    /// view or a native module's box.
-    func embedPlatformView(_ presenter: Presenter) {
-        if kind == "native" { presenter.session?.natives.create(owner: self); return }
-        guard kind == "iframe", let w = presenter.session?.webviews.create(owner: self) else { return }
-        w.frame = bounds
-        #if os(macOS)
-        w.autoresizingMask = [.width, .height]
-        w.wantsLayer = true
-        #else
-        w.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        #endif
-        w.isHidden = cssVisibilityHidden
-        addSubview(w)
-        web = w
-    }
-
-    func updateEmbedded() {
-        if kind == "iframe" { presenter?.session?.webviews.update(self) }
-        if kind == "native" { presenter?.session?.natives.update(self) }
-    }
-
-    func destroyEmbedded() {
-        presenter?.session?.webviews.destroy(id: id)
-        presenter?.session?.natives.destroy(id: id)
-    }
+extension ExactSession {
+    /// For a drive's ready line: `NativeViews.artifactFailure()`.
+    public var nativeArtifactFailure: String? { natives.artifactFailure() }
 }
 
 #if os(iOS) || os(tvOS)
 extension NativeViews {
-    /// A native screen: its controller becomes a child
+    /// A native screen (LLP 1075.003 §3.6): its controller becomes a child
     /// of the controller its node shows in (a route's), so UIKit gives it
     /// appearance calls, the safe area and traits, in UIKit's order: added
     /// as a child, its view `insert`ed, then moved in. A node created in the
@@ -1335,8 +1329,8 @@ extension NativeViews {
         guard let handle = entry.handle, let made = table.platformController?(handle), let owner = entry.owner else { return insert() }
         let screen = Unmanaged<UIViewController>.fromOpaque(made).takeUnretainedValue()
         // A node in a route is its route controller's, which the route may
-        // not have yet: one built with its tab or pushed with this node.
-        // Until it has, no controller above holds it.
+        // not have yet: one built with its tab or pushed with this node
+        // (LLP 1075.003 §9.14). Until it has, no controller above holds it.
         var responder: UIResponder? = owner, route: NodeView?
         while let next = responder, !(next is UIViewController) {
             if route == nil, let node = next as? NodeView, node.props["navigationKey"] != nil, node.props["navigationBack"] == nil { route = node }
@@ -1385,17 +1379,17 @@ extension NativeViews {
     }
 
     /// Parked instances per tag, and the rows one instance serves before it
-    /// is destroyed (measured on the iPad): an instance
+    /// is destroyed (LLP 1068 §6, measured on the iPad, §0.3): an instance
     /// keeps what it drew for every region it showed — a map served without
     /// a limit took the Extra Heavy fling's footprint from 257 MB to 502 —
     /// and four reuses kept the end footprint at a fresh map's while making
-    /// a fifth as many. With far instances released two reuses keep
+    /// a fifth as many. With far instances released (§5.2.1) two reuses keep
     /// the map feed's peak at the SwiftUI baseline's (889 against 886 MB on
     /// the iPad; four, 917) at a sixth more maps made.
     static let reuseCap = 2, reuseLimit = 2
 
     /// Whether a parked instance of `name` waits: taking one costs about a
-    /// tenth of a creation, so it is never held mid-fling.
+    /// tenth of a creation, so it is never held mid-fling (LLP 1068 §5.1).
     func canReuse(_ name: String) -> Bool { !(parked[name]?.isEmpty ?? true) }
 
     /// A destroyed entry's instance parks, if its tag is reused, it was

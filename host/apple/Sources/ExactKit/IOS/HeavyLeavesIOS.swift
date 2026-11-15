@@ -1,5 +1,5 @@
-// A costly heavy leaf is not created mid-fling: a declared deviation, kept
-// narrower than the collection's own build rule.
+// @ref LLP 1068 §5.1 (Q2, ruled 2026-09-27) — a costly heavy leaf is not
+// created mid-fling: a declared deviation, narrower than LLP 1050.000 D3.
 //
 // During user motion (a drag or a fling faster than a viewport a second), a
 // video, web view or native-module view whose measured creation cost
@@ -18,13 +18,13 @@
 // - retirement: a row retired first makes nothing;
 // - the agent: `state` lists the waiting leaves (`pool.pendingLeaves`, and
 //   `native.pending` on the node); `clock settle` makes every one.
-// Near the viewport only: a heavy leaf in a collection's row is made when
-// its row comes
+// Near the viewport only (2026-09-28, the Extra Heavy feed; LLP 1068
+// §5.2): a heavy leaf in a collection's row is made when its row comes
 // within a quarter viewport of what shows, as UIKit's collection view
 // prepares a cell just before it appears, not when the collection's lead
 // builds its row one to three viewports ahead. The row, its box and the
-// rest of its content are built as before (the never-blank rule is about
-// rows; this is a leaf, as above). Once made, a leaf stays until
+// rest of its content are built as before (LLP 1050.000's never-blank rule
+// is about rows; this is a leaf, as above). Once made, a leaf stays until
 // its row retires.
 // A kind is measured at each creation (the median of its last five, the
 // process's first of each kind, which pays for loading, left out); one not
@@ -160,7 +160,7 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
         return nil
     }
     /// A leaf whose kind costs more than a frame to make waits while its
-    /// list moves.
+    /// list moves (§5.1).
     private func costly(_ node: NodeView) -> Bool {
         guard let cost = Self.cost(node.kind), cost > frame, let list = list(holding: node) else { return false }
         return moving(list)

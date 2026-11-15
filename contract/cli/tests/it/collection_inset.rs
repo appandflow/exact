@@ -1,8 +1,8 @@
-//! A virtualized list's main-axis padding is CSS's room before the first row
-//! and after the last, inside the scroll content. The host reports offsets from
-//! the first row's start and the padding it laid out, so the runner's end (the
-//! window, `reachend`, a followed end, `scroll-start: end`, a clamped
-//! `scrollIntoView`) is the true one.
+//! LLP 1010 §6.9: a virtualized list's main-axis padding is CSS's room
+//! before the first row and after the last, inside the scroll content. The
+//! host reports offsets from the first row's start and the padding it laid
+//! out, so the runner's end (the window, `reachend`, a followed end,
+//! `scroll-start: end`, a clamped `scrollIntoView`) is the true one.
 use exact_kernel::{Env, Kernel, Offer};
 use exact_plan::Value;
 use exact_runner::{
@@ -277,7 +277,7 @@ fn a_followed_end_follows_the_padding_as_it_changes() {
     assert_eq!(top, max_top_with(&list(&r), 49.0), "and still following it");
 }
 
-/// `scroll-padding`: `scrollIntoView` aligns a row within
+/// `scroll-padding` (LLP 1010 §6.9): `scrollIntoView` aligns a row within
 /// the port less its scroll padding, as CSS aligns in the snapport. With
 /// `scroll-padding-top` the header's height, the first row's `start` is
 /// `scrollTop` 0 (Bluesky's soft reset under its header).
@@ -357,8 +357,9 @@ fn without_scroll_padding_start_is_the_ports_top_edge() {
 }
 
 /// A request before the list's first report, when the runner knows no
-/// padding yet, still lands at the very top once a report brings it, not a padding's
-/// height down after a report of 0 for the whole padding.
+/// padding yet, still lands at the very top once a report brings it (Grok's
+/// first scroll-padding review: a report of 0 for the whole padding finished
+/// it a padding's height down).
 #[test]
 fn the_soft_reset_before_any_report_still_reaches_the_top() {
     let mut r = boot(SNAP);
@@ -452,8 +453,8 @@ const AXES: [ListAxis; 2] = [ListAxis::Vertical, ListAxis::Horizontal];
 /// A list shorter than its port and paddings ends in the padding before its
 /// rows: four rows (600 points of port hold all of them and both paddings,
 /// so the only offset is `scrollTop` 0) and five (`scrollTop` 0 to 75). A
-/// request for the last row clamps there and settles, not at the first row's start, which the host
-/// cannot reach.
+/// request for the last row clamps there and settles (Astra's review: it
+/// clamped at the first row's start, which the host cannot reach).
 #[test]
 fn a_short_list_ends_in_the_padding_before_its_rows() {
     for axis in AXES {
@@ -495,8 +496,8 @@ fn scroll_start_end_on_a_short_list_opens_and_lets_go() {
 
 /// The padding before the rows grows under a followed end: the host's port
 /// stays where it was on the page, which is now short of the end, and the
-/// list moves it to the new end (the shorter offset from the first row is
-/// not the reader leaving the end). A reader among the
+/// list moves it to the new end (Astra's review: the shorter offset from
+/// the first row read as the reader leaving the end). A reader among the
 /// rows keeps them where they were on screen, as the end padding keeps them.
 #[test]
 fn a_followed_end_follows_the_padding_before_the_rows_as_it_grows() {
@@ -570,6 +571,41 @@ fn scroll_into_view_reads_the_scroll_padding_it_runs_with() {
     r.act("start", vec![Value::Number(50.0)]).unwrap();
     let correction = list(&r).correction.expect("a correction");
     assert_eq!(correction.offset, 50.0 * ROW - 50.0, "below the new header");
+}
+
+#[test]
+fn calculated_scroll_padding_clamps_at_use_for_keyed_jumps() {
+    for (axis, before, after) in [
+        (ListAxis::Vertical, "top", "bottom"),
+        (ListAxis::Horizontal, "left", "right"),
+    ] {
+        for side in [before, after] {
+            for (value, padding) in [
+                ("calc(10px - 50vw)", 0.0),
+                ("calc(200px - 50vw)", 0.0),
+                ("calc(250px - 50vw)", 50.0),
+                ("calc(env(safe-area-inset-top) - 100px)", 0.0),
+                ("calc(env(safe-area-inset-top) - 7px)", 40.0),
+            ] {
+                let app = padded(
+                    100,
+                    axis,
+                    "92",
+                    &format!(r#"scroll-padding-{side}="{value}""#),
+                )
+                .replace(r#" scroll-padding="92 0 83""#, "")
+                .replace(r#" scroll-padding="0 83 0 92""#, "");
+                let mut r = boot(&app);
+                host(&mut r, 0.0);
+                let (action, expected) = if side == before {
+                    ("start", TOP + 50.0 * ROW - padding)
+                } else {
+                    ("center", TOP + 50.5 * ROW - (PORT - padding) / 2.0)
+                };
+                assert_eq!(into(&mut r, action, 50.0, 0.0), expected, "{side}: {value}");
+            }
+        }
+    }
 }
 
 /// The action's computed scroll padding applies before the first correction,

@@ -1,4 +1,4 @@
-// The Rust binding's fixture: `here` is the app's Rust
+// The Rust binding's fixture (LLP 1133.002 stage 3): `here` is the app's Rust
 // data source, which asks @exact/geolocation for a position through the
 // binding generated from this plan (`contract::module_rust`). The Contract's
 // own read of the status is what puts the module in the plan: a module the

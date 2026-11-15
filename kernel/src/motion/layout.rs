@@ -1,4 +1,4 @@
-//! Native layout observation. Hosts choose when to lay out;
+//! Native layout observation (LLP 1063). Hosts choose when to lay out;
 //! the same bookkeeping feeds every native motion engine.
 
 use super::motion_node;
@@ -36,7 +36,7 @@ impl LayoutMotion {
         receipt: &CommitReceipt,
         engine: &mut Engine,
     ) -> Vec<NodeKey> {
-        // A renewed node is a new one: no old box to move from.
+        // A renewed node is a new one (LLP 1078): no old box to move from.
         for key in receipt.destroyed.iter().chain(&receipt.renewed) {
             self.tracked.remove(key);
             self.blocked.remove(key);
@@ -82,8 +82,8 @@ impl LayoutMotion {
     }
 
     /// Observe a box moved for no author: a list's window or a measurement
-    /// placed rows before it, or a host's fact such as the text
-    /// size laid it out again. An idle box takes its place with
+    /// placed rows before it (LLP 1010), or a host's fact such as the text
+    /// size laid it out again (LLP 1063 D6). An idle box takes its place with
     /// no transition, as UIKit's self-sizing does; a list keeps what shows
     /// still by its scroll offset. One already moving still moves.
     pub fn observe_unauthored(
@@ -133,7 +133,7 @@ impl LayoutMotion {
             };
             self.tracked.insert(key);
             // A box moving into its block or out of it (a popover set or
-            // cleared) changes spaces, not place: it snaps.
+            // cleared: stage 14 B) changes spaces, not place: it snaps.
             let blocked = kernel
                 .node_by_key(key)
                 .is_some_and(|n| kernel.host_block(n.id).is_some());

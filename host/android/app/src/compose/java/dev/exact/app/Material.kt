@@ -1,14 +1,21 @@
 package dev.exact.app
 
 import android.app.Activity
-import android.content.res.ColorStateList
+import android.content.Context
 import android.content.res.Configuration
+import android.content.res.Resources
+import android.database.ContentObserver
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.text.format.DateFormat
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.DatePickerDialog
@@ -23,11 +30,15 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDialog
 import androidx.compose.material3.TimePickerDialogDefaults
 import androidx.compose.material3.TimePickerDisplayMode
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,9 +47,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.setViewTreeLifecycleOwner
@@ -52,13 +65,13 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneOffset
 
-/** The plan has a date or time control: its picker is Compose Material 3's. */
+/** The plan has a date or time control: its picker is Compose Material 3's (LLP 1115.001.000 D1). */
 internal val materialPickers: Pickers? = MaterialPickers
 
 /**
- * Material 3's `DatePickerDialog` and `TimePickerDialog`, as a Compose app shows them, on the device's dynamic
- * colours. Each opens in a `ComposeView` added to the activity for as long as it is up; the dialog is a window of
- * its own above the page. `datetime-local` asks for the day, then the time.
+ * Material 3's `DatePickerDialog` and `TimePickerDialog`, as a Compose app shows them. Each opens in a
+ * `ComposeView` added to the activity for as long as it is up; the dialog is a window of its own above the page.
+ * `datetime-local` asks for the day, then the time.
  */
 private object MaterialPickers : Pickers {
     /** The reader's activity is a plain Activity: Compose looks for a lifecycle and a saved state on the view tree.
@@ -97,21 +110,29 @@ private object MaterialPickers : Pickers {
     }
 }
 
-/**
- * The device's dynamic colours, with the primary roles made from the control's `accent-color` where it has one:
- * Material's tones of that colour (its hue and chroma at each role's lightness, `ColorStateList.withLStar`), as a
- * scheme made from a source colour has them.
- */
 @Composable
 private fun Theme(activity: Activity, accent: Int?, content: @Composable () -> Unit) {
-    val dark = activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-    val device = if (dark) dynamicDarkColorScheme(activity) else dynamicLightColorScheme(activity)
-    val scheme = if (accent == null) device else {
-        val tone = { t: Float -> Color(ColorStateList.valueOf(accent).withLStar(t).defaultColor) }
+    // The activity keeps running across night mode (`configChanges`); the composition local is what recomposes then.
+    val dark = LocalConfiguration.current.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+    MaterialTheme(colorScheme = pickerColorScheme(activity, dark, accent), content = content)
+}
+
+/** Dynamic colours where available, else Material's baseline, as the page's Palette reads (LLP 1115.001.003 D2).
+ * An authored accent supplies the primary roles' hue and chroma at Material's tones, including before API 31. */
+internal fun pickerColorScheme(context: Context, dark: Boolean, accent: Int?): ColorScheme {
+    val dynamic = if (Build.VERSION.SDK_INT < 31) null else try {
+        if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    } catch (_: Resources.NotFoundException) {
+        null
+    }
+    val device = dynamic ?: if (dark) darkColorScheme() else lightColorScheme()
+    return if (accent == null) device else {
+        val hct = FloatArray(3)
+        ColorUtils.colorToM3HCT(accent, hct)
+        val tone = { t: Float -> Color(ColorUtils.M3HCTToColor(hct[0], hct[1], t)) }
         if (dark) device.copy(primary = tone(80f), onPrimary = tone(20f), primaryContainer = tone(30f), onPrimaryContainer = tone(90f), inversePrimary = tone(40f), surfaceTint = tone(80f))
         else device.copy(primary = tone(40f), onPrimary = tone(100f), primaryContainer = tone(90f), onPrimaryContainer = tone(10f), inversePrimary = tone(80f), surfaceTint = tone(40f))
     }
-    MaterialTheme(colorScheme = scheme, content = content)
 }
 
 @Composable
@@ -174,7 +195,11 @@ private fun DateDialog(picker: ExactPicker, drawn: () -> Unit, clear: () -> Unit
 @Composable
 private fun TimeDialog(picker: ExactPicker, day: LocalDate?, drawn: () -> Unit, clear: () -> Unit, done: (LocalTime?) -> Unit) {
     val t = picker.time()
-    val state = rememberTimePickerState(t.hour, t.minute, picker.hour24 ?: DateFormat.is24HourFormat(LocalContext.current))
+    val system = deviceHour24()
+    val hour24 = picker.hour24 ?: system
+    val state = rememberTimePickerState(t.hour, t.minute, hour24)
+    // The state takes its clock only as it is made: the setting changing under an open dial is told to it.
+    LaunchedEffect(hour24) { state.is24hour = hour24 }
     var mode by remember { mutableStateOf(if (picker.input) TimePickerDisplayMode.Input else TimePickerDisplayMode.Picker) }
     val title = picker.title
     // Material's clock offers no seconds: the held value's stay where its hour and minute are kept.
@@ -198,6 +223,24 @@ private fun TimeDialog(picker: ExactPicker, day: LocalDate?, drawn: () -> Unit, 
         val drawing = Modifier.drawWithContent { drawContent(); drawn() }
         if (mode == TimePickerDisplayMode.Picker) TimePicker(state, drawing) else TimeInput(state, drawing)
     }
+}
+
+/** Settings' "Use 24-hour format", else the locale's clock, followed while the picker is up: the setting is no
+ * part of a configuration, so it is watched as the activity watches it. */
+@Composable
+private fun deviceHour24(): Boolean {
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    var hour24 by remember(configuration) { mutableStateOf(DateFormat.is24HourFormat(context)) }
+    DisposableEffect(context) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) { hour24 = DateFormat.is24HourFormat(context) }
+        }
+        val uri = Settings.System.getUriFor(Settings.System.TIME_12_24)
+        context.contentResolver.registerContentObserver(uri, false, observer)
+        onDispose { context.contentResolver.unregisterContentObserver(observer) }
+    }
+    return hour24
 }
 
 /** Cancel, and Clear before it where the picker offers it (`ExactPicker.clear`). */

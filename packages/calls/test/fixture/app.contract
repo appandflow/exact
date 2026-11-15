@@ -1,9 +1,8 @@
-// The fixture: @exact/calls's names sent and
+// The fixture (LLP 1133.033 §9.2, §12 stage 4): @exact/calls's names sent and
 // read as an app would, each call listed by testId. It is Android's acceptance
-// app, since the team-chat app that carries the module has no Android build:
-// Make a Test Call places and connects a call, Ring me reports an incoming
-// one, Ring me in 10 s the same after ten seconds (lock the phone meanwhile),
-// and End ends the newest call.
+// app, since Harmony has no Android build: Make a Test Call places and connects
+// a call, Ring me reports an incoming one, Ring me in 10 s the same after ten
+// seconds (lock the phone meanwhile), and End ends the newest call.
 use startCall, reportIncomingCall, reportCallState, endCall, calls, callsStatus, callanswer, callhangup, callhold, Call, CallEvent, CallsStatus from "@exact/calls"
 
 component Fixture

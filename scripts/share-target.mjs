@@ -1,4 +1,4 @@
-// The manifest's `share_target`: what each
+// @ref LLP 1133.024 D1, D4–D6 — the manifest's `share_target`: what each
 // host derives from it, and what the bake refuses.
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -42,16 +42,17 @@ export function shareTargetProblems(manifest) {
   return problems;
 }
 
-/** The web's member: always GET with the text members, since a POST share needs a service worker; `notes` says what was rewritten, for the build to print. */
+/** The web's member (D6): always GET with the text members, since a POST share needs a service worker (LLP 1030
+ * D1); `notes` says what was rewritten, for the build to print. */
 export function webShareTarget(target, notes = []) {
   if (!target) return null;
   const { title, text, url, files } = target.params ?? {};
-  if (target.method === 'POST') notes.push('share_target: the web member is published as GET; a POST share needs a service worker');
-  if (files?.length) notes.push('share_target: the web member leaves out params.files; file shares on the web wait for a service worker');
+  if (target.method === 'POST') notes.push('share_target: the web member is published as GET; a POST share needs a service worker (LLP 1133.024 D6)');
+  if (files?.length) notes.push('share_target: the web member leaves out params.files; file shares on the web wait for a service worker (LLP 1133.024 §19 question 4)');
   return { action: target.action, method: 'GET', enctype: 'application/x-www-form-urlencoded', params: Object.fromEntries(Object.entries({ title, text, url }).filter(([, v]) => v)) };
 }
 
-/** Apple's `NSExtensionActivationRule`: the app's own, or derived from `params` — text when `text` is mapped, a
+/** Apple's `NSExtensionActivationRule` (D4): the app's own, or derived from `params` — text when `text` is mapped, a
  * web URL when `url` is, and each accepted kind of file with no count cap, as the web has none. */
 export function appleActivationRule(target) {
   if (target.apple?.NSExtensionActivationRule) return target.apple.NSExtensionActivationRule;
@@ -73,11 +74,11 @@ export const appleShareMembers = target => (target.params?.files ?? []).map(f =>
 export function appShareTarget(app) {
   const { dir } = resolveApp(app);
   const target = JSON.parse(readFileSync(join(dir, 'app.json'), 'utf8')).share_target;
-  if (!target) throw new Error(`share: ${join(dir, 'app.json')} declares no share_target`);
+  if (!target) throw new Error(`share: ${join(dir, 'app.json')} declares no share_target (LLP 1133.024 D1)`);
   return target;
 }
 
-/** The driver's `share:` form: `share:?title=…&text=…&url=…&files=<path>&files=<path>`, a URL only the driver
+/** The driver's `share:` form (D9): `share:?title=…&text=…&url=…&files=<path>&files=<path>`, a URL only the driver
  * speaks. Each path is made absolute here, where the host copies it from. Returns the wire's `share`. */
 export function driverShare(href, base) {
   const query = new URLSearchParams(href.replace(/^share:\??/, ''));
@@ -86,18 +87,23 @@ export function driverShare(href, base) {
   return files.length ? { ...share, files } : share;
 }
 
-/** Where the web delivers a share: its GET member's location, with a link joined to the text when no `url`
- * member is mapped, as the hosts' claim joins it. A file is refused: web file shares wait for a service worker. */
+/** Where the web delivers a share (D6): its GET member's location, with a link joined to the text when no `url`
+ * member is mapped, as the hosts' claim joins it. As a browser composes it (Web Share Target, "Handling incoming
+ * shares") and the runner's `location` does: the members, form-encoded, replace the action's query, and its fragment
+ * is kept. A file is refused: web file shares wait for a service worker. */
 export function webShareLocation(target, share) {
-  if (share.files?.length) throw new Error('share: the web takes text and links only; a file share waits for a service worker');
+  if (share.files?.length) throw new Error('share: the web takes text and links only; a file share waits for a service worker (LLP 1133.024 §19 question 4)');
   const { title, text, url } = target.params ?? {};
   let body = share.text;
   if (!url && share.url) body = !body ? share.url : body.includes(share.url) ? body : `${body}\n${share.url}`;
   const pairs = [[title, share.title], [text, body], [url, share.url]].filter(([name, value]) => name && value);
-  return pairs.length ? `${target.action}?${pairs.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')}` : target.action;
+  const hash = target.action.indexOf('#'), fragment = hash < 0 ? '' : target.action.slice(hash);
+  const path = target.action.slice(0, hash < 0 ? undefined : hash).split('?', 1)[0];
+  const query = new URLSearchParams(pairs).toString();
+  return `${path}${query ? `?${query}` : ''}${fragment}`;
 }
 
-/** Android's intent filters: `SEND text/plain` when text or a link is mapped, and `SEND` and `SEND_MULTIPLE`
+/** Android's intent filters (D5): `SEND text/plain` when text or a link is mapped, and `SEND` and `SEND_MULTIPLE`
  * with each accepted MIME pattern for files, or the app's own `mimeTypes`. */
 export function androidShareTypes(target) {
   if (target.android?.mimeTypes?.length) return { text: target.android.mimeTypes.includes('text/plain'), files: target.android.mimeTypes.filter(t => t !== 'text/plain') };
@@ -106,7 +112,7 @@ export function androidShareTypes(target) {
   return { text: !!(text || url), files: types };
 }
 
-/** The app activity's share filters and its `share_target`, as lines inside a manifest's `<application>`: the
+/** The app activity's share filters and its `share_target` (D5), as lines inside a manifest's `<application>`: the
  * activity becomes `singleTask`, so a share brings the app's one task forward rather than starting it in the
  * sender's, and carries the member as `dev.exact.share_target` meta-data, which the reader hands exact2 with each
  * share (`Shares.kt`). The platform words stay out of it. Null when the app declares no target. */

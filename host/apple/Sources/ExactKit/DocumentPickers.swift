@@ -1,4 +1,4 @@
-// Documents in place. What the person chooses
+// @ref LLP 1069.010 D1, D2 — documents in place. What the person chooses
 // becomes a `doc:` handle the library mints for this session; the app reads
 // and writes it under `fs.read doc:/` / `fs.write doc:/`. The File System
 // Access API's three pickers are commands: the runner rules first (refused,
@@ -9,7 +9,7 @@
 // line; a dismissed picker is HTML's `cancel` there. Each chosen URL stays
 // under `startAccessingSecurityScopedResource` while the session lives: a
 // no-op for today's unsandboxed builds, the call a sandboxed one needs, and
-// what a security-scoped bookmark would be made from (so the Mac App
+// what a security-scoped bookmark would be made from (ruled: the Mac App
 // Store stays possible). A drive that shows UIKit's own presentations
 // (`--touch platform`) keeps the hold and presents the real picker too: what
 // the person chooses there answers the hold, and the agent's answer, or
@@ -33,7 +33,7 @@ extension ExactSession {
         return (try? JSONSerialization.jsonObject(with: Data(agent(String(decoding: d, as: UTF8.self)).utf8))) as? [String: Any] ?? [:]
     }
 
-    /// A value arriving at the `open-file` field: a real
+    /// A value arriving at the `open-file` field (LLP 1069.010 D1): a real
     /// path from any host route — Launch Services, the command line, ⌘O,
     /// Open Recent, a path typed there — becomes the document path, for an
     /// app granted `fs.read doc:/`.
@@ -59,15 +59,15 @@ extension ExactSession {
 
 #if !os(macOS)
 extension ExactSession {
-    /// Nothing is kept across launches here (iOS keeps nothing until an
-    /// iOS document app asks).
+    /// Nothing is kept across launches here (LLP 1069.010.000: iOS keeps
+    /// nothing until an iOS document app asks).
     func restoreKeptDocuments() {}
 }
 #endif
 
 #if canImport(UIKit)
 extension ExactSession {
-    /// A document from Files ("Open in"): minted
+    /// A document from Files ("Open in", LLP 1069.010 slice 4): minted
     /// exactly, under its security scope, and delivered to the `open-file`
     /// node once the session has booted (a cold launch brings it first).
     public func openDocument(_ url: URL, tries: Int = 200) {
@@ -102,7 +102,7 @@ extension Picker {
                         suggestedName: ruling["suggestedName"] as? String ?? "")
     }
 
-    /// `requestPermission(id, path, mode)`: the
+    /// `requestPermission(id, path, mode)` (LLP 1069.010.000 D7): the
     /// runner's rule, then `granted` at `id` for a document that resolves
     /// (a native host owns no permission a person could withhold), else `denied`.
     func permission(_ args: [Any]) {
@@ -149,7 +149,7 @@ extension Picker {
         session.log("\(name): chosen")
         #if os(macOS)
         // A file chosen in the app is a document opened, as one Finder or
-        // ⌘O brings is: it joins Open Recent, and the
+        // ⌘O brings is (studio diary R18): it joins Open Recent, and the
         // window that shows it is no longer an empty one.
         ExactDocuments.chosen(urls, in: session)
         #endif
@@ -164,18 +164,18 @@ extension Picker {
 
     /// The manifest's `file_handlers`, as the bake wrote them into
     /// `CFBundleDocumentTypes`. The web-page type a Mac browser declares
-    /// (`ExactWebPage`) is Launch Services' alone: an HTML file
+    /// (`ExactWebPage`, LLP 1030 D2) is Launch Services' alone: an HTML file
     /// it brings is a link (`isWebPageFile`), never a document.
     static func declarations(in metadata: [String: Any] = ExactEnv.appMetadata) -> [[String: Any]] {
         (metadata["CFBundleDocumentTypes"] as? [[String: Any]] ?? []).filter { $0["ExactWebPage"] as? Bool != true }
     }
 
-    /// The declared types: the only ones a picker offers.
+    /// The declared types: the only ones a picker offers (D2).
     static var declaredTypes: [UTType] { documentTypes.filter { $0 != .folder } }
 
     /// Every declared type, and the type this device gives each declared
     /// extension: an app's own format whose extension another app's type
-    /// already has (Freeform has `.board`) is still offered,
+    /// already has (studio diary R13: Freeform has `.board`) is still offered,
     /// whichever type a file of it resolves to here.
     static var documentTypes: [UTType] { types(in: ExactEnv.appMetadata) }
 

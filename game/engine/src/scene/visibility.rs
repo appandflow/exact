@@ -1,4 +1,4 @@
-// Effective visibility: one current-row presentation predicate.
+// @ref LLP 1046.008#a-effective-visibility — one current-row presentation predicate.
 use crate::{Affine3A, Entity, Offset, Opacity, Parent, Transform, Visible, World};
 
 /// An entity as drawn: its displayed pose and effective opacity.

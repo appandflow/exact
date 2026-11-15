@@ -1,7 +1,8 @@
-// The Post button: pressed and faded while it can't post, its own control,
-// not a platform's prominent button, which would draw a disabled one grey. Its pressed and faded fills are params
-// beside `fill`: a `:disabled` row beats the node's own base row,
-// so an app that sets `fill` sets these two with it.
+// The Post button: pressed and faded while it can't post, its own control
+// (LLP 1121 D8), not a platform's prominent button, which would draw a
+// disabled one grey (D9's exception). Its pressed and faded fills are params
+// beside `fill`: a `:disabled` row beats the node's own base row (LLP 1139
+// D3), so an app that sets `fill` sets these two with it.
 style PostButtonLook
   color="actions.post-ink"
   border-radius="actions.post-corner"

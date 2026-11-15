@@ -1,5 +1,5 @@
 //! What `transformImage` and `compressImage`'s `rotate`, `flip` and `crop`
-//! do to the picture, as pure functions every codec
+//! do to the picture (LLP 1133.019 D14, D15), as pure functions every codec
 //! shares: the options read from their JSON, and the one order: the source
 //! upright, turned about its centre, flipped in the turned frame, cropped in
 //! that frame's pixels, then sized.
@@ -7,7 +7,7 @@ use super::failure;
 use serde_json::Value;
 
 /// The longest side an output may have: a free turn of the largest source
-/// (64 Mi pixels) is its bounding box, which the pixel bound refuses
+/// (64 Mi pixels, A1.5) is its bounding box, which the pixel bound refuses
 /// before this.
 pub const MAX_SIDE: u32 = 16_384;
 
@@ -54,7 +54,7 @@ pub enum ResizeQuality {
     High,
 }
 
-/// What an edit keeps of the source's metadata.
+/// What an edit keeps of the source's metadata (D15).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Metadata {
     /// The source's EXIF, TIFF, GPS, IPTC, XMP and maker notes, with the
@@ -77,7 +77,7 @@ impl Metadata {
     }
 }
 
-/// `transformImage`'s options, as TypeScript names them.
+/// `transformImage`'s options, as D14 names them.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Transform {
     pub edit: Edit,
@@ -156,11 +156,13 @@ pub fn parse_transform(options: &Value) -> Result<Transform, String> {
     if !(options.is_object() || options.is_null()) {
         return Err(invalid(CALL, "options must be an object"));
     }
+    // A whole number, however its JSON is written: a Rust source's `f64`
+    // serializes 32 as `32.0`.
     let side = |k: &str| match &options[k] {
         Value::Null => Ok(None),
         v => v
-            .as_u64()
-            .filter(|n| (1..=u64::from(MAX_SIDE)).contains(n))
+            .as_f64()
+            .filter(|n| n.fract() == 0.0 && (1.0..=f64::from(MAX_SIDE)).contains(n))
             .map(|n| Some(n as u32))
             .ok_or_else(|| invalid(CALL, format!("{k} must be an integer from 1 to {MAX_SIDE}"))),
     };
@@ -367,7 +369,7 @@ impl Geometry {
     }
 }
 
-/// Clipped to the frame as `drawImage` clips a source
+/// LLP 1114.003 D2: clipped to the frame as `drawImage` clips a source
 /// rectangle, each edge rounded to a whole pixel, at least one each way.
 fn clip(call: &str, r: Rect, (tw, th): (u32, u32)) -> Result<(u32, u32, u32, u32), String> {
     let (fw, fh) = (f64::from(tw), f64::from(th));

@@ -1,4 +1,4 @@
-//! `exact:` built-ins and packages through `node_modules`.
+//! LLP 1091 D8/D9: `exact:` built-ins and packages through `node_modules`.
 
 #[cfg(unix)]
 use std::path::Path;
@@ -261,8 +261,8 @@ fn under(k: &exact_kernel::Kernel, root: u32) -> Vec<exact_kernel::NodeRef<'_>> 
     out
 }
 
-/// `exact:content` draws an app's content with the platform's roles, and
-/// arranges itself for a phone and a wide window.
+/// LLP 1116.000 D3: `exact:content` draws an app's content with the
+/// platform's roles, and arranges itself for a phone and a wide window.
 #[test]
 fn exact_content_draws_a_hero_bars_an_empty_state_and_rows() {
     use exact_kernel::{NodeType, Offer, PropId};
@@ -392,8 +392,8 @@ component App
         Some("heading")
     );
     assert_eq!(count("bare", NodeType::Pressable), 0);
-    // It fills the space it is given and centres in it, as UIKit's
-    // content-unavailable view does in place of a list.
+    // LLP 1116.020 D5: it fills the space it is given and centres in it, as
+    // UIKit's content-unavailable view does in place of a list.
     let space = under(k, at(k, "space"));
     let title = find("space", "Centred").frame;
     assert!(
@@ -428,9 +428,9 @@ component App
 }
 
 /// `SummaryCard`'s symbol grows with Dynamic Type beside its label, as an SF
-/// Symbol configured with the label's text style does, rather than staying
-/// in a 20-point box beside a label at the largest size. An unsized symbol
-/// is a square of its font size, which the host measures.
+/// Symbol configured with the label's text style does: round 23's checkmark
+/// and star stayed in a 20-point box beside a label at the largest size. An
+/// unsized symbol is a square of its font size, which the host measures.
 #[test]
 fn summary_card_symbol_follows_its_label_through_dynamic_type() {
     use exact_kernel::{Dimension, NodeType, RowValue, StyleId};
@@ -486,8 +486,9 @@ component App
     );
 }
 
-/// `RowText` straight in a grouped section is the row: its value at the far
-/// edge, not mid-row, and the row as tall as the same part in a `row`.
+/// LLP 1116.020 D5: `RowText` straight in a grouped section is the row: its
+/// value at the far edge (round 18's workout-log drew it mid-row) and the
+/// row as tall as the same part in a `row`.
 #[test]
 fn row_text_straight_in_a_section_is_the_row_with_its_value_trailing() {
     use exact_kernel::{NodeType, Offer, PropId};
@@ -544,8 +545,8 @@ component App
         (row.height - wrapped.height).abs() <= 1.5,
         "{row:?} {wrapped:?}"
     );
-    // Its texts hyphenate, as the value cell's labels do, though the row is
-    // a custom cell.
+    // LLP 1141.001 D5: its texts hyphenate, as the value cell's labels do,
+    // though the row is a custom cell.
     let straight = under(
         k,
         k.node_by_key(k.find_by_test_id("straight")[0]).unwrap().id,
@@ -561,8 +562,8 @@ component App
     }
 }
 
-/// An `EmptyState` in a list is one of its rows; the warning names it at the
-/// call, and one in place of the list is quiet.
+/// LLP 1116.020 D5: an `EmptyState` in a list is one of its rows; the
+/// warning names it at the call, and one in place of the list is quiet.
 #[test]
 fn an_empty_state_inside_a_list_is_named() {
     let dir = Dir::new("empty-in-list");
@@ -585,8 +586,8 @@ fn an_empty_state_inside_a_list_is_named() {
     assert_eq!(warned(&instead), Vec::<u32>::new());
 }
 
-/// A `SummaryCard` in a grouped section's card is named; one above the list
-/// or in a card-less first section is quiet.
+/// LLP 1116.021 D7: a `SummaryCard` in a grouped section's card is named;
+/// one above the list or in a card-less first section is quiet.
 #[test]
 fn a_summary_card_in_a_grouped_section_is_named() {
     let dir = Dir::new("summary-in-list");
@@ -775,10 +776,10 @@ component App
     );
 }
 
-/// `RingProgress` is a ring around its value, one progress bar to a reader,
-/// and a state is a second colour: short of the goal the accent, a goal met
-/// the system green, done against not done green against grey; a `tint` says
-/// otherwise.
+/// LLP 1116.001 D2: `RingProgress` is a ring around its value, one
+/// progress bar to a reader, and a state is a second colour: short of the
+/// goal the accent, a goal met the system green, done against not done
+/// green against grey; a `tint` says otherwise.
 #[test]
 fn exact_content_draws_a_ring_and_state_as_a_second_colour() {
     use exact_kernel::style::roles::role;
@@ -862,7 +863,7 @@ component App
     );
     assert_eq!(right.props.str(PropId::AccessibilityValueNow), Some("0"));
     // A value wider than the ring's inside is drawn smaller, inside its
-    // stroke (a water tracker's "100,749 ml").
+    // stroke (water-tracker's "100,749 ml", round 29).
     let ring = &rings("long")[0];
     let value = under(k, ring.id)
         .into_iter()
@@ -921,7 +922,7 @@ component App
         .map(|m| m.props.str(PropId::AccessibilityLabel).unwrap_or(""))
         .collect();
     assert_eq!(names, ["Mon, done", "Tue, not done", "Done"]);
-    // The caption is what shows: short, under the mark.
+    // The caption is what shows: short, under the mark (LLP 1116.003 D7).
     let captions: Vec<_> = under(k, at(k, "marks"))
         .into_iter()
         .filter(|n| n.node_type == NodeType::Text)
@@ -953,12 +954,12 @@ component App
     );
 }
 
-/// Emphasis is a part. `RoundButton` is the platform's own button as an
-/// 80-point circle, filled with its `tint` (the neutral grey for `none`, the
-/// hue at low opacity for a light one); `AnswerTile` is a tile whose status
-/// is its fill, legible in both schemes: the green under dark ink, the red
-/// under white, whatever the app's scheme. Both pass their press, `disabled`
-/// and `testId` through.
+/// LLP 1116.003 D4: emphasis is a part. `RoundButton` is the platform's own
+/// button as an 80-point circle, filled with its `tint` (the neutral grey
+/// for `none`, the hue at low opacity for a light one); `AnswerTile` is a
+/// tile whose status is its fill, legible in both schemes: the green under
+/// dark ink, the red under white, whatever the app's scheme. Both pass their
+/// press, `disabled` and `testId` through.
 #[test]
 fn exact_content_draws_round_buttons_and_answer_tiles() {
     use exact_kernel::style::roles::role;
@@ -1024,11 +1025,11 @@ component App
     }
     let reset = k.node(at(k, "reset")).unwrap();
     assert_eq!(reset.props.bool(PropId::Disabled), Some(true));
-    // A light system hue fails 4.5:1 under the filled button's white ink
-    // (green's is 2.2:1) and looks off-platform under black (trivia's teal
-    // Start), so it draws the platform's tinted style, the hue at low opacity
-    // under the hue itself, an ink the part leaves to the platform; the other
-    // tints keep the platform's filled look.
+    // LLP 1116.008 D6: a light system hue fails 4.5:1 under the filled
+    // button's white ink (green's is 2.2:1) and looks off-platform under black
+    // (trivia's teal Start), so it draws the platform's tinted style, the hue at
+    // low opacity under the hue itself, an ink the part leaves to the platform
+    // (LLP 1116.019 D1); the other tints keep the platform's filled look.
     for (id, label, hue, disabled) in [
         ("go", "Go", "-exact-system-green", false),
         ("wait", "Wait", "-exact-system-yellow", true),
@@ -1096,6 +1097,24 @@ component App
         assert_eq!(n.props.bool(PropId::Disabled), Some(true), "{t}");
     }
     assert_eq!(tile("Quito").style.text_color, named("-exact-label"));
+    // A Windows contrast theme gives the label and every system hue one
+    // colour: a told tile is the theme's highlight pair, its mark included.
+    let mut preferences = r.viewport().preferences;
+    preferences.contrast = exact_runner::Contrast::Custom;
+    r.set_preferences(preferences).unwrap();
+    let k = r.kernel();
+    for t in ["Quito", "Bogota"] {
+        let n = k.node(at(k, t)).unwrap();
+        assert_eq!(n.style.background_color, Some(named("Highlight")), "{t}");
+        assert_eq!(n.style.text_color, named("HighlightText"), "{t}");
+        let mark = k.node(*n.children().last().unwrap()).unwrap();
+        assert_eq!(mark.style.text_color, named("HighlightText"), "{t}");
+    }
+    let lima = k.node(at(k, "Lima")).unwrap();
+    assert_eq!(
+        lima.style.background_color,
+        Some(named("-exact-tertiary-fill"))
+    );
 }
 
 /// A poll's options as a grouped list's rows (polls): each
@@ -1193,11 +1212,11 @@ component App
     );
 }
 
-/// A status is a `Badge`, not coloured text: its label in a capsule that
-/// keeps its own size at the start of a column and centred in a row, never
-/// stretched; its ink legible on its fill in either scheme (dark on a light
-/// system hue, white on the others, the platform's own on the accent and on
-/// the neutral grey); and a reader hears its text.
+/// LLP 1116.004 D9: a status is a `Badge`, not coloured text: its label in a
+/// capsule that keeps its own size at the start of a column and centred in a
+/// row, never stretched; its ink legible on its fill in either scheme (dark
+/// on a light system hue, white on the others, the platform's own on the
+/// accent and on the neutral grey); and a reader hears its text.
 #[test]
 fn exact_content_draws_a_status_badge() {
     use exact_kernel::style::roles::role;
@@ -1294,9 +1313,9 @@ component App
         assert_eq!(t.color_scheme_dark(), Some(true), "{word:?}");
         assert_eq!(t.style.text_color, named("-exact-label"));
     }
-    // The accent is a tint, not a fill under white ink (1.4:1 on yellow, 3.5:1 on the
-    // system blue, against a caption's 4.5:1): the accent at 16% on a layer under the
-    // label, which keeps its own ink, so it reads on every accent.
+    // LLP 1116.007 D3.10: the accent is a tint, not a fill under white ink (1.4:1 on
+    // yellow, 3.5:1 on the system blue, against a caption's 4.5:1): the accent at 16% on a
+    // layer under the label, which keeps its own ink, so it reads on every accent.
     assert_eq!(new.0.color_scheme_dark(), None);
     assert_eq!(new.1.style.text_color, named("-exact-label"));
     let tint = k.node(new.0.children()[0]).unwrap();
@@ -1315,11 +1334,12 @@ component App
     );
 }
 
-/// `SummaryCard` cannot know its page, and the secondary background is the
-/// grouped page's own grey in the light scheme, where the card would vanish
-/// (`check`'s `card` finding). Its surface is a translucent fill, which
-/// differs from the plain page and from the grouped page, by more than
-/// `check`'s four-step tolerance, in each scheme.
+/// LLP 1116.007 D3.10: `SummaryCard` cannot know its page, and the secondary
+/// background is the grouped page's own grey in the light scheme (the card
+/// vanished on unit-converter's grouped page, `check`'s `card` finding). Its
+/// surface is a translucent fill, which differs from the plain page and from
+/// the grouped page, by more than `check`'s four-step tolerance, in each
+/// scheme.
 #[test]
 fn a_summary_card_shows_on_a_plain_page_and_on_a_grouped_one_in_either_scheme() {
     use exact_kernel::style::roles::role;

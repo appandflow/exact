@@ -1,12 +1,12 @@
 //! `lower-symbol-tint`: `-exact-tint-color` on a `symbol:` image. A symbol
-//! is drawn in its computed `color` on every host
-//! (docs/agent-pitfalls.md), and `-exact-tint-color` colours a raster image
+//! is drawn in its computed `color` on every host (LLP 1081 stage 2;
+//! docs/agent-pitfalls.md), and `-exact-tint-color` colours a raster image
 //! and a native control's face, so on a symbol it does nothing: Apple draws
-//! the symbol's `color` (a tinted secondary-label icon draws opaque), and
-//! lowering answers the tint
+//! the symbol's `color` (theme2's 17:23Z ruling, 2026-10-23: the action
+//! row's secondary-label icons drew opaque), and lowering answers the tint
 //! with `currentcolor` for the web (`super::ink`). The repair is `color=`. The tint is the image's own row or its `class`'s.
 //! A native button's face (an `image` among its children, the button one
-//! lowering made the platform's own) keeps the button's tint
+//! lowering made the platform's own) keeps the button's tint (LLP 1115 D4)
 //! and is not warned. A source the compiler can't read as a symbol, such as
 //! a computed one with no literal `symbol:` start, a computed `class`, and a
 //! button lowered both ways (a component's, used twice) get the benefit of
@@ -14,25 +14,20 @@
 
 use crate::warnings::TextStyles;
 use crate::LowerError;
-use contract_syntax::{Attr, Expr, Node, StyleDecl, TemplatePart};
+use contract_syntax::{Attr, Expr, File, Node, StyleDecl, TemplatePart};
 use std::collections::BTreeSet;
 
 /// Every tinted symbol under `nodes`, once per source place (a component used
-/// twice is inlined twice): `styles` are the file's classes, `lowered` what
+/// twice is inlined twice): `file` holds the classes and params, `lowered` what
 /// lowering made of each element (whether a button is the platform's own).
-pub(crate) fn tints(
-    nodes: &[Node],
-    styles: &[StyleDecl],
-    lowered: &TextStyles,
-    out: &mut Vec<LowerError>,
-) {
+pub(crate) fn tints(nodes: &[Node], file: &File, lowered: &TextStyles, out: &mut Vec<LowerError>) {
     let (mut seen, mut faces, mut found) = (BTreeSet::new(), BTreeSet::new(), Vec::new());
     let mut made = std::collections::HashMap::new();
     walk(
         nodes,
         false,
         &mut Pass {
-            styles,
+            styles: &file.styles,
             lowered,
             made: &mut made,
             seen: &mut seen,
@@ -40,12 +35,17 @@ pub(crate) fn tints(
             out: &mut found,
         },
     );
+    if found.is_empty() {
+        return;
+    }
+    let params = crate::params::Shown::local(&crate::params::tokens(file));
     // A row a native face also takes (a class, a component's image) keeps its tint there: the
     // repair is a `color` for the use that is no face, not that row's rewrite.
     for mut warning in found {
         if faces.contains(&place(warning.span)) {
             warning.message = format!("{} (this row also colours a native button's face, which takes `-exact-tint-color` and refuses `color`: give this image its own `color`, or its own class)", warning.message.split("; ").next().unwrap_or_default());
         }
+        warning.message = params.text(&warning.message);
         out.push(warning);
     }
 }
@@ -93,19 +93,12 @@ fn walk(nodes: &[Node], face: bool, pass: &mut Pass<'_>) {
                 let face = tag == "button" && native(node, attrs, pass.lowered, pass.made);
                 walk(children, face, pass);
             }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                walk(then, face, pass);
-                walk(otherwise, face, pass);
-            }
-            Node::Each { body, .. } => walk(body, face, pass),
-            Node::Match { some, none, .. } => {
-                walk(&some.1, face, pass);
-                walk(none, face, pass);
-            }
             Node::Use { children, .. } => walk(children, false, pass),
-            Node::Children { .. } => {}
+            node => {
+                for list in node.child_lists() {
+                    walk(list, face, pass);
+                }
+            }
         }
     }
 }

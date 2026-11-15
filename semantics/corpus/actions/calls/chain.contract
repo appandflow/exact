@@ -1,4 +1,4 @@
-// A chain of calls: each callee's parameters and locals are its
+// A chain of calls (LLP 1089): each callee's parameters and locals are its
 // own, and every write lands in the one commit.
 component App
   state a = ""

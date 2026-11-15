@@ -7,11 +7,11 @@ import XCTest
 
 private var padRows: [[String: Any]] = []
 
-/// A held pad follows the focus and the key window on AppKit
-/// though it sends nothing more: GameController's snapshot controller,
+/// A held pad follows the focus and the key window on AppKit (LLP 1127.003
+/// D9) though it sends nothing more: GameController's snapshot controller,
 /// announced as the framework announces one, holds its south button.
 final class CanvasPadsMacTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactSurfaces.install() }
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     /// A window whose key status the test sets: a test process's borderless
     /// window is never key.
     private final class Window: NSWindow {
@@ -54,7 +54,15 @@ final class CanvasPadsMacTests: XCTestCase {
         canvas.addSubview(control); p.views[101] = control
         let editor = NSTextField(frame: NSRect(x: 220, y: 10, width: 120, height: 24))
         p.viewport.addSubview(editor)
-        canvas.canvasInput = CanvasInputHost(view: canvas)
+        let input = CanvasInputHost(view: canvas)
+        canvas.canvasInput = input
+        // The pads open only once the world reads them (issue #129).
+        m.wantsPads = { _ in 0 }
+        s.surfaceHost.messages(e)
+        XCTAssertFalse(input.padsOpened)
+        m.wantsPads = { _ in 1 }
+        s.surfaceHost.messages(e)
+        XCTAssertTrue(input.padsOpened)
         XCTAssertTrue(control.isSurfaceControl)
         XCTAssertTrue(window.makeFirstResponder(control))
         settle()

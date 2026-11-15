@@ -1,4 +1,4 @@
-//! The storage the host hands the app's native module: the
+//! The storage the host hands the app's native module (LLP 1154 D3): the
 //! app's three roots, and SQLite files admitted under the app's grants and
 //! reserved from Exact's own SQLite while the module holds them.
 //!

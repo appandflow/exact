@@ -1,4 +1,4 @@
-# Contacts by a person
+# Contacts by a person (LLP 1133.018 §11, stage 4)
 
 What no tool can do here: answer the system's contacts prompt, choose in
 the system's pickers, share contacts through iOS 18's access picker, and
@@ -43,7 +43,7 @@ Two apps carry the module:
    person.
 5. **Revoked.** Settings > Apps > the fixture > Contacts > None: on return
    `walk` reads `error NotAllowedError`. Record whether iOS ended the app
-   when the setting changed (observed, not documented by Apple).
+   when the setting changed (D7 observed it; Apple does not document it).
 6. **Icons.** Pick (the fixture's Pick asks for names and icons) a contact
    with a photo: `chosen` names it with an `app:/tmp/picked/contacts/…`
    path.
@@ -51,7 +51,7 @@ Two apps carry the module:
 ## A Mac
 
 1. In the Calendar, open an item and tap Invite…: a popover shows the
-   picker from the window's centre (there is no anchor yet).
+   picker from the window's centre (there is no anchor yet, D13 item 1).
    Choose one contact: it becomes a guest. macOS picks one at a time.
 2. Install the fixture as a bundle (`… contactsfixture-apple --bundle`,
    then open the `.app`). The launch read asks; the alert shows the
@@ -63,7 +63,7 @@ Two apps carry the module:
 `bun packages/contacts/test/android.mjs` builds
 `apps/contacts-calendar-fixture` and checks its APK here; neither its
 `--emulator` drives nor the steps below have run, since the emulator does
-not start on the Mac they were built on. Install with
+not start on the Mac stage 3 was built on. Install with
 `adb install -r host/android/app/build/contacts-calendar-fixture/outputs/apk/release/app-release.apk`.
 
 1. **The system's picker.** Tap Pick: Android's contact picker (not the

@@ -25,7 +25,7 @@
   function schedule(repeating, handler, delay) {
     if (typeof handler !== "function") {
       // The string form of setTimeout compiles source, and dynamic code is
-      // closed at construction. Refusing beats a confusing
+      // closed at construction (LLP 0060 D4). Refusing beats a confusing
       // "Parsing source code unsupported" from three frames down.
       throw new TypeError(
         "setTimeout/setInterval require a function; the string form needs eval, which is disabled"
@@ -94,14 +94,14 @@
   };
 
   // The runtime's clock, replacing any earlier performance.now: timers and
-  // performance.now read one clock.
+  // performance.now read one clock (LLP 0071 D4).
   global.performance = global.performance || {};
   var runtimeNow = function () {
     return performanceNow();
   };
   global.performance.now = runtimeNow;
   // An accessor can accept the assignment and keep its own clock: refuse
-  // installation rather than leave two clocks.
+  // installation rather than leave two clocks (LLP 0071 D4).
   if (global.performance.now !== runtimeNow) {
     throw new TypeError("performance.now cannot be replaced with the runtime's clock");
   }

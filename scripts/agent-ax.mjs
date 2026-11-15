@@ -1,14 +1,14 @@
-// `tree --ax`: the accessibility tree the platform
+// @ref LLP 1080.002 — `tree --ax`: the accessibility tree the platform
 // exposes, joined to Exact's views, with the four fixed findings over it.
-// The web's is read here, over the carrier's CDP pipe; a native host
-// answers `{"op":"tree","ax":true}` itself. Either way the driver
-// adds the intent of the views it joined and the findings.
+// The web's is read here, over the carrier's CDP pipe (D4); a native host
+// answers `{"op":"tree","ax":true}` itself (D2, D3). Either way the driver
+// adds the intent of the views it joined and the findings (D7, D8).
 // Observations only: Chrome's names and roles are kept as Chrome gives them.
 
 const ROLES_INTERACTIVE = new Set(['button', 'link', 'textbox', 'searchbox', 'checkbox', 'radio', 'switch', 'slider', 'tab', 'menuitem', 'combobox', 'option']);
 const FIELD = 200, BYTES = 256 * 1024, DEPTH = 64, EXCLUDED = 8;
 
-/** A request's `limit`, validated: an integer 1–2000, 500 when absent. */
+/** A request's `limit`, validated (D7): an integer 1–2000, 500 when absent. */
 export function axLimit(limit) {
   if (limit == null) return 500;
   if (!Number.isInteger(limit) || limit < 1 || limit > 2000) throw new Error('tree --ax: limit is an integer from 1 to 2000');
@@ -43,7 +43,7 @@ export function axIntent(tree) {
   return { parent, facts };
 }
 
-/** Chrome's computed tree, the oracle: one stamp, the plain tree
+/** Chrome's computed tree, the oracle (D2, D4): one stamp, the plain tree
  * (the views' intent), the AX tree, one DOM snapshot, the stamp again — all
  * inside one document nonce, retried twice when the document moved. */
 export async function webAx(carrier, opts = {}, readPlain = async () => null) {
@@ -119,11 +119,14 @@ function collectWeb(nodes, snapshot, limit) {
       // An aria-pressed toggle's state (Chrome's `pressed`), as `checked` is kept.
       const pressed = prop(n, 'pressed'); if (pressed != null) states.pressed = pressed === 'mixed' ? 'mixed' : pressed === true || pressed === 'true';
       const level = prop(n, 'level'); if (level != null) states.level = Number(level);
+      // The option a focused field names as active (LLP 1166.001 D2), as the view Chrome resolved it to.
+      const active = n.properties?.find(p => p.name === 'activedescendant')?.value?.relatedNodes?.[0]?.backendDOMNodeId;
+      if (active != null && dom.has(active)) { const view = stamp(dom.get(active)); if (view != null) states.activedescendant = view; }
       const el = d !== undefined && isElement(d) ? attrs(d) : {};
       const tag = d !== undefined ? str(doc.nodes.nodeName[d]) : null;
       if (tag === 'INPUT' && el.type === 'password') states.protected = true;
       const e = { i, parent: parent ?? null, id, via, role: cut(role, truncated) ?? 'unknown', name: cut(n.name?.value ?? '', truncated) };
-      // A hatch's part, by ownership: the element is the part's bound one or inside it, below its node.
+      // A hatch's part, by ownership: the element is the part's bound one or inside it, below its node (LLP 1075.003.000.001 §3.5).
       let part = d === undefined && parent != null ? elements[parent].part : undefined;
       for (let a = d ?? -1; a >= 0 && part === undefined; a = parentOf(a)) {
         if (!isElement(a)) continue;
@@ -162,7 +165,7 @@ function collectWeb(nodes, snapshot, limit) {
 }
 const round = x => Math.round(x * 100) / 100;
 
-/** The joined views' intent and the findings, added to any host's
+/** The joined views' intent and the findings (D7, D8), added to any host's
  * reply. Findings are computed over everything collected (so a target inside
  * a modal is judged against the whole modal); a target then keeps its
  * subtree's elements and the chain above; the reply then fits its bytes. */
@@ -206,7 +209,7 @@ export function axFinish(reply, tree, target) {
     ax.findings = all.filter(f => kept.has(f.i));
   };
   settle();
-  // The serialized UTF-8 budget, measured with every field the reply
+  // The serialized UTF-8 budget (D7), measured with every field the reply
   // will carry, truncation included: elements go from the end; then the
   // metadata (excluded frames, the ancestor chain) gives way, counted.
   const size = () => Buffer.byteLength(JSON.stringify(reply));
@@ -235,7 +238,7 @@ export function axFinish(reply, tree, target) {
   return reply;
 }
 
-/** The four fixed findings over one reply; `parity` comes from axParity. */
+/** The four fixed findings over one reply (D8); `parity` comes from axParity. */
 export function axFindings(reply) {
   const ax = reply.ax, out = [];
   if (!ax?.elements) return out;
@@ -260,15 +263,16 @@ export function axFindings(reply) {
     const h = hiddenBy(e);
     if (h) flagged.set(e.i, h.id);
     if (h && flagged.get(e.parent) !== h.id) out.push({ kind: 'exposed-hidden', i: e.i, id: e.id, testId: e.testId, detail: `${e.role} "${e.name}" under #${h.id} (${h.why})`, under: h.id });
-    // UIKit's rule is the host's to apply (it knows the modal view's siblings); elsewhere, outside the modal element.
+    // UIKit applies its own rule. Elsewhere, the modal's ancestor chain is structural; siblings can leak.
     const leaks = ax.source === 'uikit' ? e.outsideModal === true : ax.modal?.present && ax.modal.element != null && e.via !== 'none'
-      && !inside(e, ax.modal.element) && !(ax.source === 'appkit' && ax.modal.presented?.some(i => inside(e, i)));
+      && !inside(e, ax.modal.element) && !inside(byIndex.get(ax.modal.element), e.i)
+      && !(ax.source === 'appkit' && ax.modal.presented?.some(i => inside(e, i)));
     if (leaks) out.push({ kind: 'outside-modal', i: e.i, id: e.id, testId: e.testId, detail: `${e.role} "${e.name}"`, basis: ax.source === 'uikit' ? 'documented-rule' : ax.source === 'appkit' ? 'sheet' : 'platform' });
   }
   return out;
 }
 
-/** How each platform says a role and its states: the
+/** How each platform says a role and its states (LLP 1115.000 D14.4): the
  * comparison reads each side through its own row, so a platform's own form
  * of a control is what is expected of it, never a disagreement with the web.
  * `role` is the common role an element stands for (the fixture's control
@@ -291,7 +295,7 @@ const PLATFORMS = {
     role(e) {
       const traits = Array.isArray(e.native?.role) ? e.native.role : [];
       if (e.native?.class === 'UITextField' || e.native?.class === 'UITextView') return 'textbox';
-      // UIKit has no radio trait: the host's drawn radio says so by its class.
+      // UIKit has no radio trait: the host's drawn radio says so by its class (x2apps survey #2).
       if (e.native?.class === 'ExactRadio') return 'radio';
       // A toggle is UIKit's one form for a checkbox, a switch and a pressed button: which it is, is
       // what the view's author wrote, which the host's reply carries from the view it joined.
@@ -302,7 +306,7 @@ const PLATFORMS = {
       if (traits.includes('button') || traits.includes('toggleButton')) return 'button';
       return e.role;
     },
-    // UIKit's toggle value is expected here: "1" on, "0" off, "2" mixed, which VoiceOver
+    // UIKit's toggle value (D13.3) is expected here: "1" on, "0" off, "2" mixed, which VoiceOver
     // speaks in the reader's language. Another value (Safari's English "checked") is not the
     // platform's, so the state is missing. A radio has no toggle: its reply carries its state.
     checked(e) {
@@ -332,7 +336,7 @@ const PLATFORMS = {
   android: {
     // Android says a heading by a flag with no level, a link and a tab by a role description (as Material's own
     // tabs and navigation bar items say "Tab"), and everything else by its class: `android.widget.Button`,
-    // `CheckBox`, `Switch`, `RadioButton`, `SeekBar`, `EditText`, `Spinner`. A pressed button
+    // `CheckBox`, `Switch`, `RadioButton`, `SeekBar`, `EditText`, `Spinner` (LLP 1115.001 D13). A pressed button
     // is a `ToggleButton`, a `button` on the web. Its checked state is the node's own, true or false.
     observes: ['checked', 'disabled', 'expanded'],
     role(e) {
@@ -346,13 +350,13 @@ const PLATFORMS = {
     checked: e => e.states?.checked,
   },
 };
-// The roles a state applies to.
+// The roles a state applies to (D6).
 const APPLIES = { pressed: r => r === 'button', checked: r => r === 'checkbox' || r === 'radio' || r === 'switch', level: r => r === 'heading', disabled: () => true, expanded: () => true };
 const ABSENT_IS_FALSE = new Set(['disabled']);
 
-/** Parity between two hosts by unique testId, which is what the author
+/** Parity between two hosts by unique testId (D6), which is what the author
  * wrote: role, name, and the states both can observe, each read through its
- * platform's row of `PLATFORMS`. A missing element is
+ * platform's row of `PLATFORMS` (LLP 1115.000 D14.4). A missing element is
  * unjoined and a missing state a finding, as before. Refuses a truncated or
  * spanned side. */
 export function axParity(web, other, testIds) {
@@ -397,7 +401,7 @@ export function axParity(web, other, testIds) {
   return { findings, unjoined };
 }
 
-/** Whether a read with no findings means anything: complete, untruncated,
+/** Whether a read with no findings means anything (D8): complete, untruncated,
  * unspanned, and every expected testId present and joined self or owner. */
 export function axClean(reply, expected = []) {
   const ax = reply.ax;
@@ -405,7 +409,7 @@ export function axClean(reply, expected = []) {
   return expected.every(t => ax.elements.some(e => e.testId === t && (e.via === 'self' || e.via === 'owner')));
 }
 
-/** The transcript form: one line per element, then the findings. */
+/** The transcript form (D9): one line per element, then the findings. */
 export function renderAx(r) {
   const q = JSON.stringify, ax = r.ax;
   if (!ax || ax.unavailable) return `ax       unavailable: ${ax?.reason ?? 'no reply'}`;
@@ -435,7 +439,7 @@ export function renderAx(r) {
 }
 
 
-/** `tree(target, {ax: true})`: the host's or the browser's tree, with
+/** `tree(target, {ax: true})` (D1): the host's or the browser's tree, with
  * the intent and findings from a plain `tree` read in the same bracket. The
  * driver reads the whole session and scopes the target itself, so findings
  * see the whole tree (a native host scopes `target` on the wire on its own). */

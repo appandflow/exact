@@ -1,4 +1,4 @@
-// The compose drive on the Calendar example under the agent:
+// LLP 1133.024 §20 stage 5's drive on the Calendar example under the agent:
 // the guests picked with their phones, "Email the Invitation…" writing the
 // item's `.ics` and holding a `compose` ticket with it attached (or, where
 // the host's mail carries no attachment, the share sheet's), and "Text the

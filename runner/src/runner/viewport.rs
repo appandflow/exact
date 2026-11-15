@@ -1,4 +1,5 @@
 //! Host-owned viewport answers; never baked or carried device data.
+//! @ref LLP 1039 D1–D3; LLP 1061 D4; LLP 1078 D2
 use super::{DataError, DataSource, Runner, RunnerError};
 use crate::viewport::{Fold, Preferences, Viewport, SOURCE};
 use exact_kernel::CommitReceipt;
@@ -18,22 +19,50 @@ impl<D: DataSource> Runner<D> {
         width: f64,
         height: f64,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.set_view(Some((width, height)), None)
+    }
+
+    /// The software keyboard's overlap with the layout viewport, CSS's
+    /// `env(keyboard-inset-height)` (LLP 1039 D9): every viewport reader in
+    /// one commit; the same overlap commits nothing.
+    pub fn set_keyboard_height(
+        &mut self,
+        height: f64,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.set_view(None, Some(height))
+    }
+
+    /// The size, the keyboard's overlap, or both, with the kernel's insets
+    /// and segments as the host has just set them: what changes of a window
+    /// at once, one commit, so no reader sees the keys without the viewport
+    /// they shrank or a rotation's insets without its size (LLP 1039 D9).
+    /// Anything invalid is journaled and refused, changing nothing.
+    pub fn set_view(
+        &mut self,
+        size: Option<(f64, f64)>,
+        keyboard: Option<f64>,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let (width, height) = size.unwrap_or((self.viewport.width, self.viewport.height));
         let viewport = Viewport {
             width,
             height,
+            keyboard_height: keyboard.unwrap_or(self.viewport.keyboard_height),
             ..self.viewport
         };
         if let Err(error) = viewport.validate() {
             let (width, height) = (exact_num::Shortest(width), exact_num::Shortest(height));
-            self.log(format!("viewport {width} × {height} refused: {error:?}"));
+            let keyboard = exact_num::Shortest(viewport.keyboard_height);
+            self.log(format!(
+                "viewport {width} × {height}, keyboard {keyboard} refused: {error:?}"
+            ));
             return Err(error);
         }
         self.replace_viewport(viewport, "viewport")
     }
 
-    /// The user's display preferences changed: re-answer
-    /// every viewport resource in one commit; the same preferences again, or
-    /// no reader, commit nothing.
+    /// The user's display preferences changed (LLP 1061 D4): re-answer
+    /// every viewport resource in one commit. A Bold Text change also commits
+    /// when no resource reads the preferences, since it changes font metrics.
     pub fn set_preferences(
         &mut self,
         preferences: Preferences,
@@ -42,26 +71,29 @@ impl<D: DataSource> Runner<D> {
             preferences,
             ..self.viewport
         };
-        // Bold Text is the kernel's, no resource's: a
-        // change commits, whether or not a resource reads the rest.
         let bold = self.kernel.set_bold_text(preferences.bold_text);
-        let result = self.replace_viewport(viewport, "preferences");
-        if bold && result.is_err() {
-            // Refused: the setting waits for the next one, not the next commit.
-            let _ = self.kernel.set_bold_text(!preferences.bold_text);
-        }
-        if !bold || !matches!(result, Ok(None)) {
-            return result;
-        }
-        let result = self.commit_again(Vec::new(), "bold text");
-        if result.is_err() {
-            let _ = self.kernel.set_bold_text(!preferences.bold_text);
-        }
-        result.map(Some)
+        self.replace_fact(
+            |r| &mut r.viewport,
+            viewport,
+            SOURCE,
+            |r, _, readers| {
+                let result = r.recommit(readers, "preferences").and_then(|receipt| {
+                    if bold && receipt.is_none() {
+                        r.commit_again(Vec::new(), "bold text").map(Some)
+                    } else {
+                        Ok(receipt)
+                    }
+                });
+                if bold && result.is_err() {
+                    let _ = r.kernel.set_bold_text(!preferences.bold_text);
+                }
+                result
+            },
+        )
     }
 
-    /// The device's posture or the segments a fold makes changed:
-    /// re-answer every viewport resource in one commit; the same fold
+    /// The device's posture or the segments a fold makes changed (LLP 1078
+    /// D2): re-answer every viewport resource in one commit; the same fold
     /// again, or no reader, commit nothing. A grid without a column or a
     /// row is refused before anything changes.
     pub fn set_fold(&mut self, fold: Fold) -> Result<Option<CommitReceipt>, RunnerError> {
@@ -78,23 +110,39 @@ impl<D: DataSource> Runner<D> {
         viewport: Viewport,
         why: &str,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
-        if viewport == self.viewport {
-            return Ok(None);
-        }
-        let previous = self.viewport;
-        self.viewport = viewport;
-        let which = (0..self.plan.resources.len())
-            .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
-            .collect();
-        let result = self.recommit(which, why);
+        let geometry = crate::viewport::Geometry::of(&self.kernel);
+        let changed = self.viewport_geometry != geometry;
+        let previous = std::mem::replace(&mut self.viewport_geometry, geometry);
+        let result = self.replace_fact(
+            |r| &mut r.viewport,
+            viewport,
+            SOURCE,
+            |r, _, mut readers| {
+                if changed && readers.is_empty() {
+                    readers = r
+                        .resource_rows()
+                        .enumerate()
+                        .filter_map(|(i, row)| (r.plan.str(row.source) == SOURCE).then_some(i))
+                        .collect();
+                }
+                r.recommit(readers, why)
+            },
+        );
         if result.is_err() {
-            self.viewport = previous;
+            previous.restore(&mut self.kernel);
+            self.viewport_geometry = previous;
         }
         result
     }
 
+    /// Publish changed document insets or segment rectangles after the host
+    /// updates the kernel environment. Unchanged geometry commits nothing.
+    pub fn refresh_viewport_geometry(&mut self) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.replace_viewport(self.viewport, "viewport geometry")
+    }
+
     pub(super) fn viewport_answer(&self, i: usize) -> Result<Value, DataError> {
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i);
         if row.args.len > 0 {
             return Err(DataError::BadArguments(format!(
                 "{SOURCE} takes no arguments"
@@ -115,7 +163,9 @@ impl<D: DataSource> Runner<D> {
             } else if name == "accessibilityTextSize" {
                 Some(Value::Bool(self.accessibility_text_size()))
             } else {
-                self.viewport.field(name)
+                self.viewport_geometry
+                    .field(&self.plan, self.plan.field(f).ty, name, self.viewport)?
+                    .or_else(|| self.viewport.field(name))
             };
             match value {
                 Some(v) => fields.push(v),

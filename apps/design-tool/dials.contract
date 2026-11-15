@@ -6,7 +6,7 @@ component DialControl
   props
     c: Control
     focused: bool
-    // Below propose (a paired reader): not editable.
+    // Below propose (a paired reader, T6): not editable.
     locked: bool
     onNumber: action
     onText: action
@@ -39,14 +39,14 @@ component DialControl
         text c.help color="-exact-secondary-label" font="-exact-footnote" testId=`dial-${c.name}-help`
 
 // A param's row in the component panel: its control (the dials panel's),
-// whether the app sets it or the default applies, Reset, and the pinned mark.
+// whether the app sets it or the default applies, Reset, and D14's mark.
 component ParamControl
   props
     r: ParamRow
     // Its winning level, when read for the design shown (`levels`: none or one).
     won: LevelRow[]
     focused: bool
-    // Below propose (a paired reader): not editable.
+    // Below propose (a paired reader, T6): not editable.
     locked: bool
     onNumber: action
     onText: action

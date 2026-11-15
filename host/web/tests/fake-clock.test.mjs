@@ -1,9 +1,9 @@
-// The web runtime under a page's fake clock, installed before
+// LLP 1116.004 D6: the web runtime under a page's fake clock, installed before
 // the page loads (Playwright's `clock.install`, `setFixedTime`; sinon's alike).
 // Its Date and Intl.DateTimeFormat are fakes over the engine's prototypes, and
 // a data module's guards (the JS target's ts-fetch.js, the wasm target's
 // prelude) read `format`'s getter off the fake's prototype, found none, and
-// the page drew nothing. Now the app starts,
+// the page drew nothing (bake-off round 6, water-tracker). Now the app starts,
 // the guards still refuse an omitted date, and moving the fake clock fires the
 // app's timers as the real one would.
 import { afterAll, expect, test } from 'bun:test';
@@ -13,8 +13,10 @@ import { tmpdir } from 'node:os';
 import { resolve, sep } from 'node:path';
 import { chromium as installed, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
+import { modulePrelude } from '../../web-js/glue.mjs';
 
-const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const chrome = installed();
 const check = need('chrome', chrome.unavailable);
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-fake-clock-')), dist = resolve(dir, 'dist');
@@ -125,9 +127,9 @@ check("the module realm's prelude installs its guards under clock.install", asyn
         attempt(() => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', year: 'numeric' }).format(Date.UTC(2020, 5, 1))),
         attempt(() => new Date(86_400_000).toISOString().slice(0, 10)), attempt(() => new Date()), attempt(() => Date.now()),
         attempt(() => new Intl.DateTimeFormat('en-US').format()), attempt(() => new Intl.DateTimeFormat('en-US').formatToParts())];
-    }, // A door that answers the prelude's load-time ask for a local listener: a page has none.
+    }, // A door that answers the prelude's load-time ask for a local listener (LLP 1133.005): a page has none.
     "globalThis.__exact_host = (op, name) => (op === 12 && name === 'listen' ? '' : undefined);\n"
-      + readFileSync(resolve(ROOT, 'js/src/binary.js'), 'utf8') + '\n' + readFileSync(resolve(ROOT, 'js/src/prelude.js'), 'utf8'));
+      + readFileSync(resolve(ROOT, 'js/src/binary.js'), 'utf8') + '\n' + modulePrelude(ROOT));
     expect(answers).toEqual(['loaded', '2020', '1970-01-02', 'new Date() refused', 'Date.now() refused',
       'Intl.DateTimeFormat.format() refused', 'Intl.DateTimeFormat.formatToParts() refused']);
   } finally { await context.close(); }

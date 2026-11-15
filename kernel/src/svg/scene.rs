@@ -1,8 +1,10 @@
 //! The resolved scene: one `svg`'s elements with inheritance, lengths,
 //! transforms, paint and presented motion values resolved, which every
 //! native host paints without asking a node anything again.
-//! Lengths resolve against the nearest viewport, transforms as the
-//! transform-origin sandwich, and `display` and `visibility` as SVG 2 says.
+//!
+//! @ref LLP 1055.000 D1 (one resolver in Rust), D4 (lengths against the
+//! nearest viewport), D5 (the transform sandwich), D19 (`display`,
+//! `visibility`)
 //!
 //! Inherited rows are carried down the walk, not looked up per node, so an
 //! instance (a `use`, later) can inherit from somewhere other than its
@@ -40,7 +42,7 @@ pub use text::{TextChunk, TextItem, TextRun};
 
 /// What a host's motion engine presents: a node's value for a property (a
 /// running transition's or a sampled animation's), and a path's `d` while a
-/// transition moves it; `None` shows the row. A closure
+/// transition moves it (LLP 1055.000 D15); `None` shows the row. A closure
 /// over the values is one that presents no path.
 pub trait Present {
     /// The presented value of `p` on `key`.
@@ -73,26 +75,26 @@ pub struct Scene {
     /// The elements, in paint order.
     pub items: Vec<Item>,
     /// What this host cannot draw and so leaves out, by name: a
-    /// `foreignObject`, which is the web's alone.
+    /// `foreignObject` (LLP 1055.000 D13), which is the web's alone.
     pub refused: Option<&'static str>,
-    /// The cost limit the scene passed; `items` is then
+    /// The cost limit the scene passed (LLP 1011.001 D2); `items` is then
     /// empty.
     pub over: Option<Limit>,
 }
 
 /// The refusal a native host reports for a `foreignObject`.
-pub const FOREIGN_OBJECT: &str =
-    "`foreignObject` renders on the web only: on this host, position a box over the `svg` instead";
+pub const FOREIGN_OBJECT: &str = "`foreignObject` renders on the web only (LLP 1055.000 D13): on this host, position a box over the `svg` instead";
 
 /// One rendered element.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Item {
     /// The element's node (for an instance under a `use`, the target's
-    /// node: events on it go to the `use`).
+    /// node: events on it go to the `use`, LLP 1055.000 D8).
     pub id: ViewId,
-    /// A key unique in the scene: the node id, or for an instance the node
-    /// id mixed with the `use`s above it, so two instances of one node are
-    /// two layers.
+    /// A key unique in the scene: the node id, or for an instance a key
+    /// given to its whole instance path, so two instances of one node are
+    /// two layers. Below 2^50: a host keys a part of an item by setting a
+    /// bit above.
     pub uid: u64,
     /// Its generation-checked key (the motion engine's).
     pub key: NodeKey,
@@ -105,13 +107,14 @@ pub struct Item {
     pub ctm: Affine,
     /// `clip-path: url(#…)`: the clip in the element's user space.
     pub clip: Option<Box<Clip>>,
-    /// `mask: url(#…)`: the mask in the element's user space, applied inside
-    /// the clip.
+    /// `mask: url(#…)`: the mask in the element's user space (LLP
+    /// 1055.000 D10), applied inside the clip.
     pub mask: Option<Box<Mask>>,
-    /// `filter`: the chain, in the element's user space, applied before the clip and the mask.
+    /// `filter`: the chain, in the element's user space (LLP 1055.000
+    /// D14), applied before the clip and the mask.
     pub filter: Option<Box<super::filter::Filter>>,
     /// `mix-blend-mode`, as an index into `filter::BLEND_MODES` (0 is
-    /// `normal`), and `isolation: isolate`.
+    /// `normal`), and `isolation: isolate` (LLP 1055.000 D19).
     pub blend: u8,
     /// `isolation: isolate`: the element's content blends within it.
     pub isolate: bool,
@@ -179,7 +182,7 @@ pub enum Kind {
     },
     /// A shape.
     Shape(Box<Shape>),
-    /// A `text` element.
+    /// A `text` element (LLP 1055.000 D11).
     Text(Box<TextItem>),
 }
 
@@ -192,10 +195,10 @@ pub struct ShapePaint {
     pub color: ColorValue,
     /// Zero to one.
     pub opacity: f32,
-    /// A gradient in the shape's user space.
+    /// A gradient in the shape's user space (LLP 1055.000 D7).
     pub server: Option<Box<super::server::Server>>,
-    /// A pattern, whose pattern space maps to the shape's user space. `color`
-    /// and `server` are unused beside it.
+    /// A pattern, whose pattern space maps to the shape's user space (LLP
+    /// 1055.000 D7). `color` and `server` are unused beside it.
     pub pattern: Option<Box<Pattern>>,
 }
 
@@ -233,14 +236,14 @@ pub struct Shape {
     /// `paint-order`: fill (0), stroke (1), markers (2), first to last.
     pub order: [u8; 3],
     /// `pointer-events`, with what it reads: whether the shape is visible
-    /// and which of its paints are set.
+    /// and which of its paints are set (LLP 1055.000 D17).
     pub pointer_events: crate::generated::PointerEvents,
     /// `visibility: visible`.
     pub visible: bool,
     /// Whether `fill` and `stroke` are other than `none`.
     pub painted: (bool, bool),
     /// Marker instances at its vertices, in its user space, painted where
-    /// `paint-order` puts markers. They take no hits.
+    /// `paint-order` puts markers (LLP 1055.000 D9). They take no hits.
     pub markers: Vec<Item>,
 }
 
@@ -250,19 +253,23 @@ pub struct Shape {
 /// the engine's also holds a native field's chrome.
 pub fn content_box(kernel: &Kernel, node: &NodeRef<'_>) -> (f32, f32, f32, f32) {
     let (pl, pt, pr, pb) = kernel.resolved_padding(node.key).unwrap_or_default();
-    let [bt, br, bb, bl] = node.style.border_widths_in(kernel.arena().env());
+    let [bt, br, bb, bl] = node
+        .style
+        .border_widths_in(&kernel.arena().env_of(node.key.index));
     let (left, top) = (pl + bl, pt + bt);
     let w = node.frame.width - left - pr - br;
     let h = node.frame.height - top - pb - bb;
     (left, top, w.max(0.0), h.max(0.0))
 }
 
-/// Resolve the `svg` `node` whose content box is `content`.
+/// Resolve the `svg` `node` whose content box is `content`. Filter colours
+/// use the host's `dark` appearance unless `color-scheme` overrides it.
 pub fn resolve(
     kernel: &Kernel,
     node: &NodeRef<'_>,
     content: (f32, f32, f32, f32),
     presented: Presented<'_>,
+    dark: bool,
 ) -> Scene {
     let vb = view_box(node.props);
     let view = view_box_transform(
@@ -271,16 +278,18 @@ pub fn resolve(
         content.2,
         content.3,
     );
+    // Its lengths may read the safe area where the `svg` is (LLP 1123 D9)
+    let env = kernel.arena().env_of(node.slot);
     let vp = match vb {
         Some(v) => Viewport {
             width: v.width,
             height: v.height,
-            env: kernel.arena().env(),
+            env: &env,
         },
         None => Viewport {
             width: content.2,
             height: content.3,
-            env: kernel.arena().env(),
+            env: &env,
         },
     };
     let clip =
@@ -290,10 +299,12 @@ pub fn resolve(
     let mut r = Resolver {
         kernel,
         presented,
+        dark,
         uses: Vec::new(),
         refused: None,
         budget: budget::Budget::new(),
         bboxes: Default::default(),
+        keys: Keys::default(),
     };
     r.present(node, &mut inherited);
     let items = match view {
@@ -314,6 +325,7 @@ pub fn resolve(
 struct Resolver<'k, 'p> {
     kernel: &'k Kernel,
     presented: Presented<'p>,
+    dark: bool,
     /// The `use` elements (and marker instances) above the item being
     /// resolved, outermost first: its instance path, and what a cycle is
     /// checked against.
@@ -325,7 +337,43 @@ struct Resolver<'k, 'p> {
     /// Bounding boxes found on this walk, by node, instance and viewport:
     /// a group's box asks each child's twice (its own and its
     /// transform's), which nested groups would make exponential.
-    bboxes: std::cell::RefCell<BoxMemo>,
+    bboxes: BoxMemo,
+    /// The keys given to instance paths.
+    keys: Keys,
+}
+
+/// Instance keys: each path's, by the key of the path above it and the step
+/// below that (a node id, or a salted one), so a path's key is exact
+/// whatever its length. A step's key is a hash of the two, moved past any
+/// key already given.
+#[derive(Default)]
+struct Keys {
+    given: std::collections::HashMap<(u64, u64), u64>,
+    taken: std::collections::HashSet<u64>,
+}
+
+impl Keys {
+    /// Instance keys are `INSTANCE` and above, past every node id, and below
+    /// 2^50 ([`Item::uid`]).
+    const INSTANCE: u64 = 1 << 49;
+
+    fn step(&mut self, above: u64, step: u64) -> u64 {
+        use std::hash::{Hash, Hasher};
+        if let Some(&key) = self.given.get(&(above, step)) {
+            return key;
+        }
+        let mut h = std::hash::DefaultHasher::new();
+        (above, step).hash(&mut h);
+        let mut k = h.finish();
+        loop {
+            let key = Self::INSTANCE | (k & (Self::INSTANCE - 1));
+            if self.taken.insert(key) {
+                self.given.insert((above, step), key);
+                return key;
+            }
+            k = k.wrapping_add(1);
+        }
+    }
 }
 
 /// [`Resolver::bboxes`]: the node's key in its instance (`uid`), and the
@@ -339,10 +387,34 @@ type Rect4 = (f32, f32, f32, f32);
 fn cascade(node: &NodeRef<'_>, inherited: &StyleProps) -> StyleProps {
     let mut style = node.style.clone();
     style.copy_rows(inherited, StyleMask::INHERITED.minus(node.style.mask));
+    if let Some(weight) = node
+        .props
+        .str(PropId::SvgRelativeFontWeight)
+        .and_then(|keyword| relative_font_weight(keyword, inherited.font_weight))
+    {
+        style.font_weight = weight;
+    }
     style
 }
 
-impl Resolver<'_, '_> {
+/// CSS Fonts 4 §2.2.1: a relative weight against the parent's computed weight.
+pub fn relative_font_weight(keyword: &str, inherited: u16) -> Option<u16> {
+    match keyword {
+        "bolder" => Some(match inherited {
+            0..350 => 400,
+            350..550 => 700,
+            _ => inherited.max(900),
+        }),
+        "lighter" => Some(match inherited {
+            0..550 => inherited.min(100),
+            550..750 => 400,
+            _ => 700,
+        }),
+        _ => None,
+    }
+}
+
+impl<'k> Resolver<'k, '_> {
     fn value(&self, key: NodeKey, p: Property) -> Option<Value> {
         self.presented.value(key, p).filter(|v| v.is_finite())
     }
@@ -358,7 +430,7 @@ impl Resolver<'_, '_> {
 
     /// The inherited properties an animation or transition is moving on
     /// this node, over its computed style: its descendants inherit the
-    /// presented value, as CSS's computed value.
+    /// presented value, as CSS's computed value (LLP 1055.000 D15).
     ///
     /// A node's own presented value counts only where the node sets the row
     /// or animates the property itself: otherwise its engine slot holds the
@@ -426,6 +498,9 @@ impl Resolver<'_, '_> {
         if !node.node_type.is_svg_element() || !node.node_type.renders() {
             return None;
         }
+        // Each element's lengths may read the safe area where it is (LLP 1123 D9)
+        let env = self.kernel.arena().env_of(node.slot);
+        let vp = Viewport { env: &env, ..vp };
         if !self.budget.cost(budget::ITEM) {
             return None;
         }
@@ -477,6 +552,7 @@ impl Resolver<'_, '_> {
         let mask = if style.rare.svg_mask.url().is_some() {
             let bbox = match &kind {
                 Kind::Shape(s) => s.path.bounds(),
+                Kind::Text(t) => Some(t.reach()),
                 _ => self.bbox(node, &style, vp),
             };
             self.mask(node, bbox, vp, ctm).map(Box::new)
@@ -501,9 +577,10 @@ impl Resolver<'_, '_> {
                         0.0
                     },
                 ),
+                Kind::Text(t) => (Some(t.reach()), 0.0),
                 _ => (self.bbox(node, &style, vp), 0.0),
             };
-            self.filter(node, bbox, stroke, vp).map(Box::new)
+            self.filter(node, &style, bbox, stroke, vp).map(Box::new)
         };
         if let Some(f) = &filter {
             if !self.budget.filter(f, ctm) {
@@ -528,10 +605,15 @@ impl Resolver<'_, '_> {
     }
 
     /// The element's transform, or `None` when every part is the identity.
-    fn transform(&self, node: &NodeRef<'_>, style: &StyleProps, vp: Viewport) -> Option<Transform> {
+    fn transform(
+        &mut self,
+        node: &NodeRef<'_>,
+        style: &StyleProps,
+        vp: Viewport,
+    ) -> Option<Transform> {
         let key = node.key;
-        // Lengths, then percentages of the reference box
-        // (CSS Transforms 1 §4, as `transform-origin`'s).
+        // Lengths, then percentages of the reference box (CSS Transforms 1
+        // §4, as `transform-origin`'s; chess diary #4).
         let (translate, percent) = self.value(key, Property::Translate).map_or(
             (
                 (style.translate.x, style.translate.y),
@@ -548,7 +630,7 @@ impl Resolver<'_, '_> {
         let matrix = style.transform.matrix();
         // An animated element keeps its transform (its origin) even at the
         // identity: a host that plays the animation itself needs somewhere
-        // to play it (Apple's transform pair).
+        // to play it (Apple's transform pair, LLP 1055.001).
         if translate == (0.0, 0.0)
             && percent == (0.0, 0.0)
             && rotate == 0.0
@@ -559,7 +641,7 @@ impl Resolver<'_, '_> {
             return None;
         }
         let origin = if style.mask.has(StyleId::TransformOrigin) {
-            style.transform_origin
+            style.transform_origin.clone()
         } else {
             TransformOrigin::SVG
         };
@@ -594,10 +676,11 @@ impl Resolver<'_, '_> {
     }
 
     /// The object bounding box in the element's own user space, before its
-    /// transform (SVG 2 §8.10): a shape's geometry, or the union of a
-    /// group's children with their transforms.
+    /// transform (SVG 2 §8.10): a shape's geometry, the union of a group's
+    /// children with their transforms, or a `use`'s instance where it
+    /// draws.
     fn bbox(
-        &self,
+        &mut self,
         node: &NodeRef<'_>,
         style: &StyleProps,
         vp: Viewport,
@@ -605,20 +688,22 @@ impl Resolver<'_, '_> {
         // The instance's key: another `use` above may pass another
         // `stroke-width` or font size down.
         let key = (self.uid(node.id), vp.width.to_bits(), vp.height.to_bits());
-        if let Some(found) = self.bboxes.borrow().get(&key) {
+        if let Some(found) = self.bboxes.get(&key) {
             return *found;
         }
         let found = self.bbox_of(node, style, vp);
-        self.bboxes.borrow_mut().insert(key, found);
+        self.bboxes.insert(key, found);
         found
     }
 
     fn bbox_of(
-        &self,
+        &mut self,
         node: &NodeRef<'_>,
         style: &StyleProps,
         vp: Viewport,
     ) -> Option<(f32, f32, f32, f32)> {
+        let env = self.kernel.arena().env_of(node.slot);
+        let vp = Viewport { env: &env, ..vp };
         match node.node_type {
             NodeType::SvgGroup => {
                 let mut acc: Option<(f32, f32, f32, f32)> = None;
@@ -648,6 +733,32 @@ impl Resolver<'_, '_> {
                 let (x, y, w, h) = viewport_rect(style, vp);
                 Some((x, y, w, h))
             }
+            NodeType::SvgUse => {
+                // Charged as the instance is: a box through `use`s that
+                // copy `use`s is as many walks as the copies.
+                if !self.budget.cost(budget::ITEM) {
+                    return None;
+                }
+                let target = self.instanced(node)?;
+                // A `symbol` or `svg` instance is a viewport, boxed as one.
+                if matches!(
+                    target.node_type,
+                    NodeType::SvgSymbol | NodeType::SvgViewport | NodeType::Svg
+                ) {
+                    return Some(viewport_rect(style, vp));
+                }
+                let tstyle = cascade(&target, style);
+                if tstyle.display == Display::None {
+                    return None;
+                }
+                self.uses.push(node.id as u64);
+                let b = self.bbox(&target, &tstyle, vp);
+                let t = self.transform(&target, &tstyle, vp);
+                self.uses.pop();
+                let b = b?;
+                let (x, y, w, h) = t.map_or(b, |t| map_rect(t.affine(), b));
+                Some((x + vp.x(style.x.clone()), y + vp.y(style.y.clone()), w, h))
+            }
             _ => self.geometry(node, style, vp)?.0.bounds(),
         }
     }
@@ -658,7 +769,7 @@ impl Resolver<'_, '_> {
         style: &StyleProps,
         vp: Viewport,
     ) -> Option<(Path, Option<Circle>)> {
-        // Geometry rows moving under an animation
+        // @ref LLP 1055.000 D15 — geometry rows moving under an animation
         // or transition: their presented lengths, in user units.
         const MOVING: [(Property, StyleId); 6] = [
             (Property::Cx, StyleId::Cx),
@@ -687,8 +798,8 @@ impl Resolver<'_, '_> {
         let made = if node.node_type == NodeType::SvgCircle {
             let r = self
                 .value(node.key, Property::R)
-                .map_or(vp.d(style.r), |v| v.x as f32);
-            let (cx, cy) = (vp.x(style.cx), vp.y(style.cy));
+                .map_or(vp.d(style.r.clone()), |v| v.x as f32);
+            let (cx, cy) = (vp.x(style.cx.clone()), vp.y(style.cy.clone()));
             circle(cx, cy, r).map(|p| (p, Some((cx, cy, r))))
         } else if node.node_type == NodeType::SvgPath {
             let path = super::parse_d(&self.d(node)?);
@@ -711,7 +822,7 @@ impl Resolver<'_, '_> {
         let hidden = style.visibility != Visibility::Visible;
         let bbox = path.bounds();
         // A pattern paint's tile, resolved first: `Some(None)` paints
-        // nothing, `None` is not a pattern.
+        // nothing, `None` is not a pattern (LLP 1055.000 D7).
         let mut patterns = [None, None];
         for (slot, p) in patterns.iter_mut().zip([&style.fill, &style.stroke]) {
             if let (Paint::Url(id, _), false) = (p, hidden) {
@@ -820,7 +931,12 @@ impl Resolver<'_, '_> {
             .filter(|_| width > 0.0);
         let scale = dash_scale(&path, node.props);
         let offset = style.stroke_dashoffset;
-        let dash = style.stroke_dasharray.pattern(scale);
+        let mut dash = style.stroke_dasharray.pattern(scale);
+        // Zero-length geometry keeps its caps. Underflow on a nonzero path
+        // must still reach the dash budget, even when the scale is zero.
+        if !dash.is_empty() && dash.iter().all(|v| *v == 0.0) && path.length() == 0.0 {
+            dash.clear();
+        }
         if !self.budget.cost(dash.len() as u64) {
             return None;
         }
@@ -864,24 +980,23 @@ impl Resolver<'_, '_> {
         })
     }
 
-    /// A key unique in the scene for `id` under the current `use` path.
-    /// Kept within 53 bits, so a host reading it as a JSON number keeps it.
-    fn uid(&self, id: ViewId) -> u64 {
+    /// A key unique in the scene for `id` under the current `use` path
+    /// ([`Item::uid`]).
+    fn uid(&mut self, id: ViewId) -> u64 {
         if self.uses.is_empty() {
             return id as u64;
         }
-        self.uses.iter().fold(id as u64, |acc, u| {
-            (acc ^ (u << 32) ^ (u >> 32))
-                .rotate_left(13)
-                .wrapping_mul(0x9e37_79b9_7f4a_7c15)
-                & ((1 << 53) - 1)
-        })
+        let mut key = 0;
+        for &step in &self.uses {
+            key = self.keys.step(key, step);
+        }
+        self.keys.step(key, id as u64)
     }
 
     /// A `use`: an instance of its target, inheriting from the `use` (SVG 2
     /// §5.6), placed at `x`/`y`. A `symbol` (or `svg`) target is a viewport
     /// sized by the `use`'s `width`/`height` (`auto` is 100%) under the
-    /// target's view box. A missing target, or one whose
+    /// target's view box (LLP 1055.000 D8). A missing target, or one whose
     /// instance would contain this `use`, renders nothing.
     fn instance(
         &mut self,
@@ -890,24 +1005,8 @@ impl Resolver<'_, '_> {
         vp: Viewport,
         ctm: Affine,
     ) -> Option<Kind> {
-        let target_id = node
-            .props
-            .str(PropId::Href)
-            .and_then(|h| h.strip_prefix('#'))
-            .and_then(|h| self.kernel.resolve_id(node.id, h))?;
-        if self.uses.contains(&(node.id as u64)) || self.uses.len() > 16 {
-            return None;
-        }
-        // The target must not contain the `use` itself.
-        let mut up = Some(node.id);
-        while let Some(id) = up {
-            if id == target_id {
-                return None;
-            }
-            up = self.kernel.node(id).and_then(|n| n.parent);
-        }
-        let target = self.kernel.node(target_id)?;
-        let (x, y) = (vp.x(style.x), vp.y(style.y));
+        let target = self.instanced(node)?;
+        let (x, y) = (vp.x(style.x.clone()), vp.y(style.y.clone()));
         self.uses.push(node.id as u64);
         let kind = if matches!(
             target.node_type,
@@ -966,6 +1065,28 @@ impl Resolver<'_, '_> {
         };
         self.uses.pop();
         Some(kind)
+    }
+
+    /// The target the `use` `node` instances; `None` when it is missing or
+    /// its instance would contain this `use`.
+    fn instanced(&self, node: &NodeRef<'_>) -> Option<NodeRef<'k>> {
+        let target_id = node
+            .props
+            .str(PropId::Href)
+            .and_then(|h| h.strip_prefix('#'))
+            .and_then(|h| self.kernel.resolve_id(node.id, h))?;
+        if self.uses.contains(&(node.id as u64)) || self.uses.len() > 16 {
+            return None;
+        }
+        // The target must not contain the `use` itself.
+        let mut up = Some(node.id);
+        while let Some(id) = up {
+            if id == target_id {
+                return None;
+            }
+            up = self.kernel.node(id).and_then(|n| n.parent);
+        }
+        self.kernel.node(target_id)
     }
 
     /// `item`, for an instance's target: a definition (a `symbol`, or an
@@ -1027,12 +1148,12 @@ impl Resolver<'_, '_> {
 /// 100% (SVG 2 §8.2).
 fn viewport_rect(style: &StyleProps, vp: Viewport) -> (f32, f32, f32, f32) {
     (
-        vp.x(style.x),
-        vp.y(style.y),
-        vp.resolve(style.width, vp.width)
+        vp.x(style.x.clone()),
+        vp.y(style.y.clone()),
+        vp.resolve(style.width.clone(), vp.width)
             .unwrap_or(vp.width)
             .max(0.0),
-        vp.resolve(style.height, vp.height)
+        vp.resolve(style.height.clone(), vp.height)
             .unwrap_or(vp.height)
             .max(0.0),
     )

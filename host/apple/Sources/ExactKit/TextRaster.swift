@@ -1,4 +1,5 @@
 // Immutable paragraph inputs and worker-confined CoreText paint, shared by Apple hosts.
+// @ref LLP 1044.000 §5 items 2, 4, 7
 import Foundation
 import CoreText
 import IOSurface
@@ -56,7 +57,7 @@ struct TextRasterImage {
     /// it, within a band's clip. `frame` is the same unless the job crops.
     let covered: CGRect
     /// The ink's peak: 0 for ordinary SDR, 1 for extended SDR storage,
-    /// above 1 for HDR.
+    /// above 1 for HDR (LLP 1100 D8).
     var headroom: Float = 0
     /// An HDR `text-shadow` alone, the same size, for a layer under the ink's.
     #if os(iOS) || os(tvOS)
@@ -235,7 +236,7 @@ struct TextRasterJob {
             pixels: CGSize(width: right - left, height: bottom - top))
     }
     /// How far past the box a run's own `text-shadow` may reach in these
-    /// pixels: its offset plus 1.5× its blur, per side. Past
+    /// pixels (LLP 1077 D3): its offset plus 1.5× its blur, per side. Past
     /// it the shadow is cut, so a huge value cannot size an absurd bitmap:
     /// a 390 × 70 paragraph at 3× is at most 1414 × 1094 points, 56 MB,
     /// and a shadow cast 512 points to one side about 2 MB.
@@ -243,23 +244,35 @@ struct TextRasterJob {
     private static let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
     private static let p3 = CGColorSpace(name: CGColorSpace.displayP3)!
     private static let extended = CGColorSpace(name: CGColorSpace.extendedSRGB)!
-    /// The bitmap's space and its colours' peak: extended
+    /// The bitmap's space and its colours' peak (LLP 1100 D2, D8): extended
     /// sRGB (at half float) for a colour past SDR white, Display P3 for a
     /// wide one, else sRGB.
-    private func format(_ runs: [CTRun]) -> (space: CGColorSpace, headroom: Float, deep: Bool) {
+    static func format(_ paints: some Sequence<NSDictionary>) -> (space: CGColorSpace, headroom: Float, deep: Bool) {
         var wide = false, deep = false, headroom: Float = 0
         // ColorSync round-off at gamut boundaries must not widen ordinary white.
         let outside = { (color: CGColor) in
             color.components?.prefix(3).contains { $0 < -0.00001 || $0 > 1.00001 } == true
         }
-        for run in runs {
-            let attributes = CTRunGetAttributes(run) as NSDictionary
+        for attributes in paints {
             guard attributes[NSAttributedString.Key.exactHidden] as? Bool != true else { continue }
+            if let icon = attributes[NSAttributedString.Key.exactAtomIcon] as? TextAtomIcon,
+               !icon.tinted, let image = icon.image {
+                headroom = max(headroom, RasterImage.headroom(of: image))
+                deep = deep || image.bitsPerComponent > 8 || image.bitmapInfo.contains(.floatComponents)
+                if let space = image.colorSpace {
+                    wide = wide || space == Self.p3
+                    // Other profiles may reach beyond P3. Keep their converted
+                    // components in extended storage rather than clipping them.
+                    deep = deep || CGColorSpaceUsesExtendedRange(space)
+                        || (space != Self.p3 && space != Self.srgb && space != CGColorSpaceCreateDeviceRGB() && space.model != .monochrome)
+                }
+            }
             for key in [NSAttributedString.Key.foregroundColor, .strokeColor, .underlineColor, .strikethroughColor, .exactBackground, .exactShadow] {
                 let value = attributes[key]
                 let cg = Self.paintColor(value)
-                // A run's HDR shadow is in the cast, not these pixels.
-                if value is TextRunShadow, ColorRange.isHDR(cg) { continue }
+                // Grouped HDR shadows composite with their glyphs here;
+                // only ungrouped shadows have a separate cast.
+                if value is TextRunShadow, attributes[NSAttributedString.Key.exactOpacity] == nil, ColorRange.isHDR(cg) { continue }
                 headroom = max(headroom, ColorRange.headroom(cg))
                 guard let cg else { continue }
                 if let srgb = cg.converted(to: Self.extended, intent: .relativeColorimetric, options: nil) {
@@ -275,8 +288,8 @@ struct TextRasterJob {
     }
 
     /// A tall paragraph's band around `port`: 32 points past the box each
-    /// side, and as far as the shadows in its pixels reach sideways (at
-    /// most `maxShadowReach`), as tall as `maximumBytes` allows.
+    /// side, and as far as the shadows in its pixels reach sideways (LLP
+    /// 1077 D3, at most `maxShadowReach`), as tall as `maximumBytes` allows.
     /// `down`: the port travels that way (true, toward the paragraph's end),
     /// so three quarters of the room is ahead of it; nil centres it.
     static func band(_ spec: Spec, width: CGFloat, port: CGRect, scale: CGFloat, maximumBytes: CGFloat, down: Bool? = nil) -> CGRect {
@@ -323,7 +336,8 @@ struct TextRasterJob {
         // First pixels reuse plain range lines; apply the clamp on both paths.
         if let clamped, !lines.isEmpty {
             let range = NSRange(location: clamped.location, length: clamped.length)
-            lines[lines.count - 1] = TextEngine.clampedLine(source, range: range, width: Double(box.width)) ?? lines[lines.count - 1]
+            let width = box.width - insets.at(range.location).width
+            lines[lines.count - 1] = TextEngine.clampedLine(source, range: range, width: Double(width)) ?? lines[lines.count - 1]
         }
         let positions = zip(lines, baselines).map { line, baseline in
             let inset = insets.at(CTLineGetStringRange(line).location)
@@ -351,7 +365,7 @@ struct TextRasterJob {
             if !ink.isNull, !ink.isEmpty {
                 let glyphs = CGRect(x: position.x + ink.minX, y: position.y - ink.maxY, width: ink.width, height: ink.height)
                 painted = painted.union(glyphs.insetBy(dx: -1 / scale, dy: -1 / scale))
-                // Runs' own shadows are in these pixels.
+                // Runs' own shadows are in these pixels (LLP 1077 D3).
                 var shadows = TextRunShadow.reach(line, ink: glyphs)
                 if let s = shadow {
                     let spread = s.blur * 1.5 + 1
@@ -381,13 +395,13 @@ struct TextRasterJob {
         let width = Int(pixelWidth), height = Int(pixelHeight)
         // Truncation inserts runs whose paint need not occur in the source.
         let runs = lines.flatMap { CTLineGetGlyphRuns($0) as! [CTRun] }
-        let (space, headroom, deep) = format(runs)
+        let (space, headroom, deep) = Self.format(runs.lazy.map { CTRunGetAttributes($0) as NSDictionary })
         #if os(iOS) || os(tvOS)
         // Color profiles do not change coverage; only paints needing separate colors or HDR keep pixels
         var fallbackReason: UInt8 = 0
         if shadow != nil { fallbackReason |= 2 }
         if shadow == nil, let color = oneColor(runs), !ColorRange.isHDR(color) {
-            if !runs.contains(where: Self.decorated) {
+            if !runs.contains(where: Self.needsLinePaint) {
                 let glyphs = lines.compactMap { MeasuredGlyphs.Line($0, origin: 0, paints: Self.paints) }
                 if glyphs.count == lines.count {
                     var out = TextRasterImage(TextDrawing(glyphs, at: positions, frame: frame, scale: scale, color: color, smooths: !antialiased, pixels: CGSize(width: width, height: height)), covered: covered)
@@ -407,6 +421,7 @@ struct TextRasterJob {
         // Runs' own HDR shadows, each once.
         var casters: [TextRunShadow] = []
         for run in runs where (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactHidden] as? Bool != true {
+            if (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactOpacity] != nil { continue }
             if let s = TextRunShadow.of(run), ColorRange.isHDR(s.color), !casters.contains(s) { casters.append(s) }
         }
         guard let ink = bitmap(width: width, height: height, space: space, headroom: headroom, deep: deep, keepsImage: shadow != nil, paint: {
@@ -499,6 +514,7 @@ struct TextRasterJob {
             let ink = Self.paintColor(attributes[NSAttributedString.Key.foregroundColor])
             guard let ink, color == nil || color == ink,
                   attributes[NSAttributedString.Key.exactBackground] == nil, attributes[NSAttributedString.Key.exactShadow] == nil,
+                  attributes[NSAttributedString.Key.exactAtomIcon] == nil,
                   attributes[NSAttributedString.Key.shadow] == nil, attributes[NSAttributedString.Key.strokeColor] == nil,
                   ((attributes[NSAttributedString.Key.strokeWidth] as? NSNumber)?.doubleValue ?? 0) == 0,
                   [NSAttributedString.Key.underlineColor, .strikethroughColor].allSatisfy({ key in
@@ -590,7 +606,9 @@ struct TextRasterJob {
         ctx.scaleBy(x: scale, y: -scale)
         ctx.translateBy(x: -frame.minX, y: -frame.minY)
         ctx.setShouldSmoothFonts(!antialiased)
-        for (line, position) in zip(lines, positions) { TextLinePaint.draw(line, at: position, in: ctx, scale: scale, pass: pass) }
+        if !TextLinePaint.drawOpacity(lines, at: positions, in: ctx, scale: scale, pass: pass) {
+            for (line, position) in zip(lines, positions) { TextLinePaint.draw(line, at: position, in: ctx, scale: scale, pass: pass) }
+        }
         ctx.flush()
     }
 
@@ -614,9 +632,10 @@ struct TextRasterJob {
     }
 
     #if os(iOS) || os(tvOS)
-    /// A run CoreText decorates as it draws its line: an underline or a line-through
-    private static func decorated(_ run: CTRun) -> Bool {
+    /// Glyph values alone omit decorations and inline opacity groups.
+    private static func needsLinePaint(_ run: CTRun) -> Bool {
         let attributes = CTRunGetAttributes(run) as NSDictionary
+        if attributes[NSAttributedString.Key.exactOpacity] != nil { return true }
         return [NSAttributedString.Key.underlineStyle, .strikethroughStyle].contains { ((attributes[$0] as? NSNumber)?.intValue ?? 0) != 0 }
     }
 

@@ -1,28 +1,28 @@
-// @exact/speech-recognition on Apple: Speech's
+// @exact/speech-recognition on Apple (LLP 1133.012 D7–D11, §9): Speech's
 // recognizers, answered in the interface's shapes.
 //
-// - The engine: on iOS and macOS 26 and later `SpeechAnalyzer` with
+// - The engine (D9): on iOS and macOS 26 and later `SpeechAnalyzer` with
 //   `SpeechTranscriber` where it is available, else `DictationTranscriber`,
 //   both on the device; before 26, or with `apple.engine=
 //   "sfSpeechRecognizer"`, `SFSpeechRecognizer`, which may send audio to
 //   Apple unless `processLocally` asks for the device.
-// - Inputs: `track=` is a consumer of a track `@exact/media-capture`
+// - Inputs (D8): `track=` is a consumer of a track `@exact/media-capture`
 //   opened, holding its lease like a recorder, and its start is an app's
 //   explicit start, which reopens an idle track; its buffers are converted
 //   to the analyzer's format on a queue of their own. `path=` transcribes an
 //   `app:/` file to its end. `microphone=true` is not built here: the status
 //   lists `track` and `file`, and a microphone start is `NotSupportedError`.
-// - Permission: the analyzer engines need no authorization and read
+// - Permission (D11): the analyzer engines need no authorization and read
 //   `granted`; `SFSpeechRecognizer` reads its authorization status and asks
 //   at a start that needs it.
-// - A recognition is an id, its state a value: final results numbered
+// - A recognition is an id (D7), its state a value: final results numbered
 //   from 0, the last `history` of them (20 by default, 200 at most, 256 KB)
 //   with the interim one. Every final goes, as it arrives, to the
 //   `transcript=` directory as JSON Lines files of at most 1 MiB, the
 //   directory emptied when the recognition starts.
 // - A reply the runner drops aborts its recognition; leaving the foreground
-//   aborts every one, its finals so far kept.
-// - Under the agent no recognizer is made, as on the web: a
+//   aborts every one (D10), its finals so far kept.
+// - Under the agent no recognizer is made (§9), as on the web: a
 //   recognition hears what the drive says (`heard`), one word as an interim
 //   result every 300 ms of the session clock and the final 500 ms after the
 //   last word; a non-continuous one then ends, and with no phrase ends
@@ -87,9 +87,9 @@ public final class SpeechRecognitionModule: ExactPackage {
         name == "speechRecognitionStatusSync" ? status(args) : ["error": "NotSupportedError"]
     }
 
-    // MARK: the status
+    // MARK: the status (D7, D8, D11)
 
-    /// The engine `args` select.
+    /// The engine `args` select (D9).
     static func engine(_ args: [String: Any]) -> String {
         if let written = (args["apple"] as? [String: Any])?["engine"] as? String { return written }
         if #available(iOS 26, macOS 26, *) { return SpeechTranscriber.isAvailable ? "speechTranscriber" : "dictationTranscriber" }
@@ -119,7 +119,7 @@ public final class SpeechRecognitionModule: ExactPackage {
             let state = ["authorized": "granted", "denied": "denied", "restricted": "denied"][auth] ?? "prompt"
             out.merge(["available": sf?.isAvailable ?? false, "state": state, "local": local && sf?.supportsOnDeviceRecognition == true]) { $1 }
         } else {
-            // The SpeechAnalyzer engines send no audio to Apple and need no authorization.
+            // The SpeechAnalyzer engines send no audio to Apple and need no authorization (D11).
             out.merge(["available": true, "state": "granted", "local": true]) { $1 }
         }
         out["apple"] = ["authorizationStatus": auth, "supportsOnDeviceRecognition": sf?.supportsOnDeviceRecognition ?? false, "engine": engine]
@@ -195,7 +195,7 @@ public final class SpeechRecognitionModule: ExactPackage {
             guard let url = context.file(args["path"] as! String), FileManager.default.fileExists(atPath: url.path) else { return reply(["error": "NotFoundError"]) }
             file = url
         }
-        // The SF recognizer asks its authorization at the start that needs it.
+        // The SF recognizer asks its authorization at the start that needs it (D11).
         if !context.agent, engine == "sfSpeechRecognizer", SFSpeechRecognizer.authorizationStatus() == .notDetermined {
             return SFSpeechRecognizer.requestAuthorization { _ in DispatchQueue.main.async { [weak self] in self?.start(args, reply) } }
         }
@@ -205,7 +205,7 @@ public final class SpeechRecognitionModule: ExactPackage {
         let r = Recognition(id: "recognition-\(context.session)-\(next)", input: input, args: args, leavesDevice: leaves, module: self)
         r.engineWord = engine
         if let path = args["transcript"] as? String, let url = context.file(path) { r.transcript = (path, url) }
-        // `processLocally` where the recognizer cannot keep audio on the device opens nothing.
+        // `processLocally` where the recognizer cannot keep audio on the device (D9) opens nothing.
         let refused = local && s["local"] as? Bool != true
         r.prepareTranscript()
         recognitions[r.id] = r
@@ -241,7 +241,7 @@ public final class SpeechRecognitionModule: ExactPackage {
         return RecognizerEngine(r, args, file: file)
     }
 
-    // MARK: the agent's hearing
+    // MARK: the agent's hearing (§9)
 
     /// `r` moved to the session clock's now: the words of each phrase heard since it began.
     func advance(_ r: Recognition) {
@@ -284,7 +284,7 @@ public final class SpeechRecognitionModule: ExactPackage {
         announce()
     }
 
-    /// Recognitions whose reply was dropped: aborted, never the app's.
+    /// Recognitions whose reply was dropped: aborted, never the app's (D7).
     public func dispose(_ ids: [String]) {
         for id in ids {
             guard let r = recognitions[id], r.state != "ended" else { continue }
@@ -293,7 +293,7 @@ public final class SpeechRecognitionModule: ExactPackage {
         }
     }
 
-    /// Recognition is a foreground activity: leaving the foreground aborts every one.
+    /// Recognition is a foreground activity: leaving the foreground aborts every one (D10).
     public func foreground(_ shown: Bool) {
         guard !shown else { return }
         for r in recognitions.values {
@@ -336,7 +336,7 @@ final class Recognition: ExactTrackConsumer {
     }
     /// The track's running capture, which an engine made after the subscription is given.
     private var source: ExactAudioSource?
-    // The agent's clock.
+    // The agent's clock (§9).
     let began: Double
     var cursor: Double, heard = 0
     private unowned let module: SpeechRecognitionModule
@@ -375,7 +375,7 @@ final class Recognition: ExactTrackConsumer {
     }
 
     /// A final result (best first): numbered, kept in the window, appended to the transcript; a text over 16 KB
-    /// in pieces split at a word boundary.
+    /// in pieces split at a word boundary (D7).
     func final(_ alternatives: [(String, Double)], _ start: Double?, _ end: Double?) {
         let pieces = Self.pieces(alternatives.first?.0 ?? "")
         for piece in pieces {
@@ -400,7 +400,7 @@ final class Recognition: ExactTrackConsumer {
         return out
     }
 
-    // MARK: the transcript
+    // MARK: the transcript (D7, D12 item 7)
 
     /// The directory, emptied as the recognition starts, so a replacement leaves no stale file.
     func prepareTranscript() {
@@ -428,7 +428,7 @@ final class Recognition: ExactTrackConsumer {
 
     // MARK: ending
 
-    /// `r` ends (with `error`): its input let go, its files finished; sticky. Every stop that waited is answered.
+    /// `r` ends (with `error`): its input let go, its files finished; sticky (D7). Every stop that waited is answered.
     func finish(_ why: String?, _ text: String? = nil) {
         guard state != "ended" else { return }
         state = "ended"; error = error ?? why; message = message ?? text
@@ -469,7 +469,7 @@ final class Recognition: ExactTrackConsumer {
         finish(why)
     }
 
-    /// A seam where the recognizer started a new request, journaled.
+    /// A seam where the recognizer started a new request (D9), journaled.
     func seam(_ why: String) { module.say("\(id): a new request (\(why))") }
 
     /// An engine's result, on main.
@@ -491,7 +491,7 @@ final class Recognition: ExactTrackConsumer {
         finish(error, text)
     }
 
-    // MARK: the track
+    // MARK: the track (D8, D10)
 
     func live(_ source: ExactAudioSource?) {
         audio = true; sound = true
@@ -661,7 +661,7 @@ final class AnalyzerEngine: RecognitionEngine {
 // MARK: SFSpeechRecognizer (before 26, or `apple.engine`)
 
 final class RecognizerEngine: RecognitionEngine {
-    /// A request's audio before a new request begins: Apple ends a task at about a minute.
+    /// A request's audio before a new request begins (D9): Apple ends a task at about a minute.
     static let segment = 50.0
     private weak var r: Recognition?
     private let recognizer: SFSpeechRecognizer?
@@ -670,7 +670,13 @@ final class RecognizerEngine: RecognitionEngine {
     private var tap: ExactSubscription?
     private var stopping = false, aborted = false
     private let lock = NSLock()
+    /// Under `lock`: the reader reads no further once the recognition stops, aborts or ends.
+    private var halted = false
     private var segmentStart = 0.0
+    /// Under `lock`: a live request's audio was ended at a seam, and `held` is what the track heard since, for the
+    /// next request.
+    private var seaming = false
+    private var held: [AVAudioPCMBuffer] = []
 
     init(_ r: Recognition, _ args: [String: Any], file: URL?) {
         self.r = r; self.args = args; self.file = file
@@ -692,8 +698,12 @@ final class RecognizerEngine: RecognitionEngine {
         if let punctuation = apple["addsPunctuation"] as? Bool { request.addsPunctuation = punctuation }
         let hints: [String: SFSpeechRecognitionTaskHint] = ["unspecified": .unspecified, "dictation": .dictation, "search": .search, "confirmation": .confirmation]
         if let hint = (apple["taskHint"] as? String).flatMap({ hints[$0] }) { request.taskHint = hint }
-        lock.lock(); self.request = request; lock.unlock()
+        lock.lock()
+        self.request = request
+        for buffer in held { request.append(buffer) }
+        held = []; seaming = false
         let offset = segmentStart
+        lock.unlock()
         task = recognizer?.recognitionTask(with: request) { [weak self] result, error in
             DispatchQueue.main.async { self?.answered(result, error, offset) }
         }
@@ -711,22 +721,42 @@ final class RecognizerEngine: RecognitionEngine {
             if result.isFinal { segmentEnded() }
         } else if let error {
             let code = (error as NSError).code
-            // 1110: no speech detected; 301: the request was canceled.
-            if code == 1110, r.continuous, !stopping { return segmentEnded() }
-            r.engineEnded(code == 1110 ? "no-speech" : code == 301 ? "aborted" : r.leavesDevice ? "network" : "audio-capture", error.localizedDescription)
+            lock.lock(); let seamed = seaming; lock.unlock()
+            // 1110: no speech detected; 301: the request was canceled. A file runs to its end (D9), so a silent request of one is a seam.
+            // A live request ended at a seam goes on in the next, whatever its task answered.
+            if seamed || (code == 1110 && (r.continuous || file != nil) && !stopping) { return segmentEnded() }
+            end(code == 1110 ? "no-speech" : code == 301 ? "aborted" : r.leavesDevice ? "network" : "audio-capture", error.localizedDescription)
         }
     }
 
     /// A request ended: the recognition goes on in a new one, or ends.
     private func segmentEnded() {
         guard let r, r.state != "ended" else { return }
-        if stopping || (!r.continuous && file == nil) { return r.engineEnded(nil) }
-        if file != nil, readDone { return r.engineEnded(nil) }
+        if stopping {
+            // What the track heard between a seam and the stop is recognized in a last request.
+            lock.lock(); let rest = !held.isEmpty; lock.unlock()
+            guard rest else { return end(nil) }
+            begin()
+            lock.lock(); let request = request; lock.unlock()
+            request?.endAudio()
+            return
+        }
+        if !r.continuous && file == nil { return end(nil) }
+        lock.lock(); let readDone = readDone; lock.unlock()
+        if file != nil, readDone { return end(nil) }
         r.seam("the request ended")
         begin()
     }
 
-    // The file, read in segments of under a minute each.
+    private func end(_ error: String?, _ text: String? = nil) {
+        halt()
+        r?.engineEnded(error, text)
+    }
+
+    private func halt() { lock.lock(); halted = true; lock.unlock() }
+    private var isHalted: Bool { lock.lock(); defer { lock.unlock() }; return halted }
+
+    // The file, read in segments of under a minute each (D9).
     private var readDone = false
     private func read(_ url: URL) {
         guard let f = try? AVAudioFile(forReading: url) else {
@@ -734,7 +764,7 @@ final class RecognizerEngine: RecognitionEngine {
         }
         let format = f.processingFormat, chunk = AVAudioFrameCount(format.sampleRate)
         var inSegment = 0.0
-        while !aborted, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunk), (try? f.read(into: buffer)) != nil, buffer.frameLength > 0 {
+        while !isHalted, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunk), (try? f.read(into: buffer)) != nil, buffer.frameLength > 0 {
             lock.lock(); let request = request; lock.unlock()
             request?.append(buffer)
             inSegment += Double(buffer.frameLength) / format.sampleRate
@@ -743,25 +773,40 @@ final class RecognizerEngine: RecognitionEngine {
                 segmentStart += inSegment * 1000
                 inSegment = 0
                 request?.endAudio()
-                while !aborted { lock.lock(); let same = self.request === request; lock.unlock(); if !same { break }; usleep(20000) }
+                while !isHalted { lock.lock(); let same = self.request === request; lock.unlock(); if !same { break }; usleep(20000) }
             }
         }
-        readDone = true
-        lock.lock(); let request = request; lock.unlock()
+        lock.lock(); readDone = true; let request = request; lock.unlock()
         request?.endAudio()
     }
 
+    /// The track's buffers, on the audio thread. A continuous recognition's request ends its audio after a segment's
+    /// worth, as the file reader's does, and what is heard until the next request begins is held for it.
     func live(_ source: ExactAudioSource) {
         guard tap == nil else { return }
+        let continuous = r?.continuous == true
+        var inSegment = 0.0
         tap = source.tap { [weak self] buffer, _ in
             guard let self else { return }
-            self.lock.lock(); let request = self.request; self.lock.unlock()
-            request?.append(buffer)
+            self.lock.lock(); defer { self.lock.unlock() }
+            guard let request = self.request else {
+                if self.seaming, !self.halted { self.held.append(buffer) }
+                return
+            }
+            request.append(buffer)
+            inSegment += Double(buffer.frameLength) / buffer.format.sampleRate
+            guard continuous, inSegment >= Self.segment else { return }
+            self.segmentStart += inSegment * 1000
+            inSegment = 0
+            self.request = nil
+            self.seaming = true
+            request.endAudio()
         }
     }
 
     func stop() {
         stopping = true
+        halt()
         tap?.cancel(); tap = nil
         lock.lock(); let request = request; lock.unlock()
         request?.endAudio()
@@ -769,6 +814,7 @@ final class RecognizerEngine: RecognitionEngine {
 
     func abort() {
         aborted = true
+        halt()
         tap?.cancel(); tap = nil
         task?.cancel()
     }

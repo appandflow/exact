@@ -8,7 +8,7 @@ use exact_runner::DataSource;
 mod abort_tests;
 
 impl<D: DataSource> Bridge<D> {
-    /// Whether the current runner still holds a request ticket.
+    /// Whether the current runner still holds a request ticket (LLP 1016 D5).
     pub fn request_active(&self, ticket: f64) -> u32 {
         u32::from(
             ticket.is_finite()
@@ -20,7 +20,7 @@ impl<D: DataSource> Bridge<D> {
         )
     }
 
-    /// A request's outcome from the page: the input buffer
+    /// A request's outcome from the page (LLP 1016 D2): the input buffer
     /// holds `hlen` bytes of header lines, then `blen` bytes of body.
     pub fn fulfill(
         &mut self,

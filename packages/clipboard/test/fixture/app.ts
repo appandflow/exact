@@ -37,7 +37,7 @@ const sources: Sources = {
         case 'jpeg': await write([new ClipboardItem({ 'image/jpeg': bytes(RED) })]); break;
         case 'nested': return { text: (() => { try { new ClipboardItem({}); return 'constructed'; } catch (e) { return said(e); } })() };
         case 'race': {
-          // A's data resolves after B is written: B is what the clipboard holds, and A is superseded.
+          // A's data resolves after B is written: B is what the clipboard holds, and A is superseded (D2).
           let late: (v: string) => void = () => {};
           const a = write([new ClipboardItem({ 'text/plain': new Promise<string>(r => { late = r; }) })]).then(() => 'A ok', said);
           const b = write([new ClipboardItem({ 'text/plain': 'B' })]).then(() => 'B ok', said);

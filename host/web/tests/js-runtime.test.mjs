@@ -1,193 +1,21 @@
 // The JS target over a baked plan (host/web-js/rt.js `res`): a build-time
 // answer is the first frame. A source not ready yet (a Rust module loads after
 // first paint) leaves it shown, not pending, and asks it at `ready`, as a native
-// runner asks at data_ready; a settled answer (an `else` row's, a dev
-// reload's) is not asked again. A key handler's preventDefault and
+// runner asks at data_ready (review B3); a settled answer (an `else` row's, a dev
+// reload's) is not asked again (review B4). A key handler's preventDefault and
 // stopPropagation act on its event even when a view transition defers the tree
-// update. rt.js runs beside stand-ins for the modules it imports,
+// update (review C3). rt.js runs beside stand-ins for the modules it imports,
 // with the real shape.js.
 import { test, expect, describe, beforeAll, afterAll } from 'bun:test';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { standIns } from './stand-ins.mjs';
+import { dir, webJs, freshRuntime } from './js-runtime-harness.mjs';
+import { fileURLToPath } from 'node:url';
 
-// The runtime in a `web-js` directory, as built: modules.js imports the web host's `../web/address-space.js`, stood in.
-const root = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-')), dir = resolve(root, 'web-js');
-mkdirSync(dir);
-mkdirSync(resolve(root, 'web'));
-writeFileSync(resolve(root, 'web/address-space.js'), 'export const setSpaceState = () => {};');
-const webJs = name => resolve(new URL(`../../web-js/${name}`, import.meta.url).pathname);
-
-// The collection protocol and index run unchanged; only DOM row construction
-// and publication are stand-ins, as the runtime's imported hosts are below.
-function collectionRuntime() {
-  const Views = new Map();
-  let next = 0;
-  let mapCount = 0;
-  const viewId = el => { const id = ++next; Views.set(id, el); return id; };
-  const source = readFileSync(webJs('list.js'), 'utf8').replace(/^import .*;\n/gm, '').replace(/^export /gm, '');
-  const { Collection, report, Lists, HeightPreview } = Function('viewId', 'Views', 'write', 'writeItem', 'Refusal', 'Hosts', 'After', 'settled', 'Map',
-    `${source}; return { Collection, report, Lists, HeightPreview };`)(viewId, Views, () => {}, () => {}, Error, {}, [], () => {},
-      class extends Map { constructor(...args) { super(...args); mapCount++; } });
-  const make = (horizontal = false) => {
-    const c = new Collection({}, { x: horizontal, pw: [], ph: [], est: 100 }, null);
-    c.items = Array.from({ length: 100 }, (_, i) => i);
-    c.index.replace(c.items.map(i => 'n:' + i));
-    c.createRow = (position, key) => {
-      const wrapper = { setAttribute() {}, contains: () => false }, view = viewId(wrapper);
-      return { position, key, wrapper, view, root: view, published: [-1, -1], inner: [], item: {}, index: {} };
-    };
-    c.emit = () => {}; c.retire = () => {};
-    c.margins = () => [0, 0]; c.scrollPadding = () => [0, 0];
-    c.realize(false, {});
-    Lists.set(c.view, c);
-    return c;
-  };
-  const facts = c => ({ view: c.view, revision: c.revision, scroll_sequence: c.geometry?.scroll_sequence ?? 0,
-    offset: 0, port_main: 600, port_cross: 320, cross: 320, padding: [0, 0], focus_view: null, interaction_view: null, measurements: [] });
-  return { make, facts, send: f => report(null, f, {}), HeightPreview, maps: () => mapCount };
-}
-
-test('collection padding alone publishes a revision and rejects older same-token feedback', () => {
-  for (const horizontal of [false, true]) {
-    const { make, facts, send } = collectionRuntime(), c = make(horizontal);
-    send(facts(c));
-    const before = c.snapshot(), old = facts(c), padded = { ...old, padding: [0, 100] };
-    send(padded);
-    const after = c.snapshot();
-    expect(after).toEqual({ ...before, revision: before.revision + 1 });
-    send(old);
-    expect(c.snapshot()).toEqual(after);
-    expect([c.index.leading, c.index.trailing]).toEqual([0, 100]);
-    send({ ...padded, revision: after.revision });
-    expect(c.snapshot()).toEqual(after);
-    c.intoView('n:99', 'start');
-    expect(c.correction.offset).toBe(9500);
-  }
-});
-
-test('collection padded overflow is rejected before heights, epochs, width and sibling pins mutate', () => {
-  const max = 3.4028234663852886e38;
-  for (const horizontal of [false, true]) for (let variant = 0; variant < 5; variant++) {
-    const { make, facts, send } = collectionRuntime(), sibling = make(), c = make(horizontal);
-    send({ ...facts(sibling), focus_view: sibling.mounted[0].view, interaction_view: sibling.mounted[1].view });
-    send(facts(c));
-    const row = c.mounted[0];
-    const measurements = [{ view: row.view, epoch: row.epoch, size: 1e38 }];
-    if (variant === 4) measurements.push({ view: c.mounted[1].view, epoch: c.mounted[1].epoch, size: 0 });
-    send({ ...facts(c), measurements });
-    if (variant === 4) c.est = 3e38;
-    const before = JSON.stringify([c.snapshot(), c.geometry, c.index.h, c.index.epoch, sibling.snapshot(), sibling.geometry]);
-    const f = { ...facts(c), padding: variant === 0 ? [max, 0] : [0, max], focus_view: row.view, interaction_view: row.view };
-    if (variant === 2) f.cross++;
-    if (variant === 3) { f.padding = [0, 2e38]; f.measurements = [{ view: row.view, epoch: row.epoch, size: 2e38 }]; }
-    if (variant === 4) { f.cross++; f.padding = [0, 0]; }
-    expect(() => send(f)).toThrow();
-    expect(JSON.stringify([c.snapshot(), c.geometry, c.index.h, c.index.epoch, sibling.snapshot(), sibling.geometry])).toBe(before);
-    if (variant === 3) {
-      send({ ...facts(c), padding: [0, 3e38], measurements: [{ view: row.view, epoch: row.epoch, size: 1e37 }] });
-      expect(c.index.extent).toBeLessThanOrEqual(max);
-      expect(c.correction == null || Math.abs(c.correction.offset) <= max).toBe(true);
-    }
-  }
-});
-test('collection aggregate preview uses binary sums and checks both padding associations', () => {
-  const initial = [3.855634828180998e37, 4.110381270879275e37, 1.2150761836965103e37, 1.4554140070018447e37];
-  const next = [7.162362434933901e36, 1.743078113874182e37, 1.85932241262857e37, 3.2119624082087986e37];
-  for (const horizontal of [false, true]) for (let variant = 0; variant < 3; variant++) {
-    const { make, facts, send } = collectionRuntime(), sibling = make(), c = make(horizontal);
-    send({ ...facts(sibling), focus_view: sibling.mounted[0].view, interaction_view: sibling.mounted[1].view });
-    c.items = c.items.slice(0, variant === 0 ? 4 : 1); c.index.replace(c.items.map(i => 'n:' + i)); c.realize(false, {});
-    const report = sizes => ({ ...facts(c), port_main: 1e38, offset: c.correction?.offset ?? 0,
-      measurements: c.mounted.flatMap(m => sizes[m.position] === undefined ? [] : [{ view: m.view, epoch: m.epoch, size: sizes[m.position] }]) });
-    send(report([])); send(report(variant === 0 ? initial : [1.3857361873091886e38]));
-    c.followEnd = true; c.atEnd = true;
-    const before = JSON.stringify([c.snapshot(), c.geometry, c.index.h, c.index.epoch, sibling.snapshot(), sibling.geometry]);
-    const f = { ...report(variant === 0 ? next : []), port_main: 600, focus_view: c.mounted[0].view, interaction_view: c.mounted[0].view,
-      padding: variant === 0 ? [0, 2.6497635485647948e38] : variant === 1 ? [1.383018962808564e37, 1.878785382795244e38] : [1.878785382795244e38, 1.383018962808564e37] };
-    expect(() => send(f)).toThrow();
-    expect(JSON.stringify([c.snapshot(), c.geometry, c.index.h, c.index.epoch, sibling.snapshot(), sibling.geometry])).toBe(before);
-    send(report([]));
-    expect(c.correction == null || Math.abs(c.correction.offset) <= 3.4028234663852886e38).toBe(true);
-  }
-});
-test('collection normal changes skip the overlay; extreme preview touches only changed ancestors', () => {
-  const { make, facts, send, HeightPreview, maps } = collectionRuntime(), c = make();
-  c.items = Array.from({ length: 25000 }, (_, i) => i); c.index.replace(c.items.map(i => 'n:' + i));
-  send(facts(c));
-  const f = { ...facts(c), measurements: c.mounted.map(m => ({ view: m.view, epoch: m.epoch, size: c.index.h[m.position] })) };
-  send(f);
-  f.revision = c.revision;
-  for (const noise of [0, 0.00003, 12, -100]) {
-    const before = maps();
-    expect(c.prepare({ ...f, measurements: f.measurements.map(m => ({ ...m, size: m.size + noise })) })).not.toBe(null);
-    expect(maps() - before).toBe(1); // Existing byView map; no preview/ancestor map.
-  }
-  const total = c.index.total, preview = new HeightPreview(c.index.t);
-  const changes = [[0, 1e38], [12000, 7.162362434933901e36], [24999, 0]];
-  for (const [p, h] of changes) preview.set(p, h);
-  expect(preview.sums.size).toBeLessThanOrEqual(changes.length * (Math.log2(c.index.t.base) + 1));
-  expect(c.index.total).toBe(total);
-  for (const [p, h] of changes) {
-    expect(c.index.h[p]).toBe(100);
-    c.index.setMeasured(c.index.order[p], c.index.token(c.index.order[p]), h);
-  }
-  expect(c.index.total).toBe(preview.total);
-});
-test('collection sufficient padded bound includes its boundary and bounds actual binary sums', () => {
-  const max = 3.4028234663852886e38;
-  for (const count of [0, 1, 2, 3, 257, 25000]) {
-    const { make } = collectionRuntime(), c = make();
-    c.items = Array.from({ length: count }, (_, i) => i); c.index.replace(c.items.map(i => 'n:' + i));
-    const bound = max / (4 * c.index.t.base), bits = new DataView(new ArrayBuffer(8));
-    bits.setFloat64(0, bound); bits.setBigUint64(0, bits.getBigUint64(0) + 1n);
-    expect(c.index.paddedExtentDefinitelyFits(bound)).toBe(true);
-    expect(c.index.paddedExtentDefinitelyFits(bits.getFloat64(0))).toBe(false);
-    for (const invalid of [-1, NaN, Infinity]) expect(c.index.paddedExtentDefinitelyFits(invalid)).toBe(false);
-    for (let p = 0; p < count; p++) c.index.setMeasured(c.index.order[p], c.index.token(c.index.order[p]), bound);
-    expect(c.index.total).toBeLessThanOrEqual(c.index.t.base * bound);
-    for (const [leading, trailing] of [[bound, bound], [bound / 3, bound], [bound, 0]]) {
-      expect(c.index.total + leading + trailing).toBeLessThanOrEqual(max);
-      expect(c.index.total + trailing + leading).toBeLessThanOrEqual(max);
-    }
-  }
-});
-test('collection normal fast path retains noise, revives zeros and discards old-width samples', () => {
-  for (const horizontal of [false, true]) {
-    const { make, facts, send, maps } = collectionRuntime(), c = make(horizontal);
-    send(facts(c));
-    const samples = size => c.mounted.map(m => ({ view: m.view, epoch: m.epoch, size }));
-    const sample = size => ({ ...facts(c), measurements: samples(size) });
-    send(sample(58)); send(sample(58.00003));
-    expect(c.index.h[0]).toBe(58);
-    send(sample(0));
-    expect(c.index.h[0]).toBe(0);
-    expect(c.zeros.size).toBeGreaterThan(0);
-    const width = { ...sample(77), cross: facts(c).cross + 1, padding: [30, 70] }, before = maps();
-    expect(c.prepare(width)).not.toBe(null);
-    expect(maps() - before).toBe(1); // Pre-existing byView map; no sparse overlay.
-    send(width);
-    expect(c.index.h[0]).toBe(100); // Estimate, since samples describe the old width.
-    expect(c.index.measured('n:0')).toBe(false);
-    expect(c.zeros.size).toBe(0);
-    expect([c.index.leading, c.index.trailing]).toEqual([30, 70]);
-  }
-});
-const REAL = ['rt.js', 'uploads.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'modules.js', 'samples.js', 'spans.js', 'update.js', 'arrival.js', 'devices.js', 'wakes.js', 'reach.js', 'members.js', 'resource-inspection.js', 'sheets.js'];
-for (const f of REAL) copyFileSync(webJs(f), resolve(dir, f));
-for (const [file, source] of standIns(REAL)) writeFileSync(resolve(dir, file), source);
-// A view transition that holds every tree update (shared.js's commit returns before its callback).
-writeFileSync(resolve(dir, 'shared.js'), 'export const commit = (tail) => { globalThis.heldTail = tail; return true; };');
-writeFileSync(resolve(dir, 'presence-glue.js'), 'globalThis.exact.presence = () => ({ before() {}, after() {}, exit() {} });');
 // ts-data.js over a scripted store (the storage test below), written before
 // anything is imported from here: the loader reads this directory once.
 const stub = (file, text) => writeFileSync(resolve(dir, file), text);
-stub('admission.js', 'export const createSecretFacade = () => ({ read: false }); export const hasGrant = () => true; export const appGrantSet = () => null; export const coversPath = () => true; export const setAppGrantSet = g => g; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);');
-stub('admission-data.js', 'export const tsGrantSet = {};');
-stub('ts-fetch.js', "export const answering = { call: null, untraced: new Set() }; export const files = { appId: null }; export const dropTimers = () => {}; export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fetch';");
-stub('names.js', 'export const sourceTypes = {};');
 stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentReads = []; export const emptyRead = () => [];");
 // A write lands a task later; a read answers at once: unqueued, it would overtake.
 stub('storage-fs.js', `const files = new Map(); export const createFileSystem = () => ({
@@ -234,7 +62,7 @@ stub('late.mjs', `export const appId = 'test'; export const answer = () => 'x';
 stub('topped.mjs', `export const appId = 'test'; export const answer = () => 'x';
   export let overlay = (source, args, answer) => answer.concat(['overlaid']);
   export function setOverlay(on) { overlay = on ? (source, args, answer) => answer.concat(['overlaid']) : undefined; }`);
-const tsData = readFileSync(webJs('ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(resolve(dir, 'app.mjs'))).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '');
+const tsData = readFileSync(webJs('ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(resolve(dir, 'app.mjs'))).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '').replace("'__FETCH_MODULE__'", "'./ts-fetch.js'");
 writeFileSync(resolve(dir, 'ts-data.js'), tsData);
 for (const name of ['late', 'topped']) writeFileSync(resolve(dir, `ts-data-${name}.js`), tsData.replace(JSON.stringify(resolve(dir, 'app.mjs')), JSON.stringify(resolve(dir, `${name}.mjs`))));
 
@@ -274,7 +102,7 @@ test('a stand-in whose ask is refused at ready fails its resource', async () => 
   } finally { if (page === undefined) delete globalThis.document; else globalThis.document = page; }
 });
 
-// `failure(x).reason`: a thrown error's string `reason` (the
+// `failure(x).reason` (LLP 1109 D3, amended by the author's ruling of 2026-10-12): a thrown error's string `reason` (the
 // snapback4 driver's refusal code), synchronous or after a request. A domain reason is also the failure code.
 test('a failure keeps the reason its error named', async () => {
   const page = globalThis.document;
@@ -331,7 +159,7 @@ test('a stand-in whose answer at ready makes a gate key no key fails in the next
   } finally { clock.agent = false; if (page === undefined) delete globalThis.document; else globalThis.document = page; }
 });
 
-// An answer that keeps coming: each message settles the
+// An answer that keeps coming (LLP 1016.000): each message settles the
 // resource and keeps its ticket; it is pending, and in flight for `clock
 // settle`, only until its first message; new arguments let the ticket go, and
 // the stream closes once that commit stands; its end lets the ticket go.
@@ -396,7 +224,7 @@ test('sin, cos, sum, range and flat compute as the runner does, and the lists st
   expect(() => budget.x_flat([[1], [2]], 65533, 7)).toThrow('IterationLimit');
 });
 
-// `sortBy`: the runner's stable merge sort on precomputed keys, taking no step of its own; against a
+// `sortBy` (LLP 1116.016 §5): the runner's stable merge sort on precomputed keys, taking no step of its own; against a
 // stable `toSorted` on the decorated key with NaN read as 0, at every length to 40 and both directions.
 test('sortBy orders by key, stably both ways, as a reference stable sort does', async () => {
   const { x_sortBy } = await import(resolve(dir, 'budget.js'));
@@ -554,7 +382,7 @@ test('a refused commit that fails an owed read leaves nothing owed when it is re
   } finally { clock.agent = false; }
 });
 
-// A refused commit puts a resource's failure back with the rest. New arguments clear a failure before the
+// A refused commit puts a resource's failure back with the rest (LLP 1005 §6). New arguments clear a failure before the
 // source is asked, and a source that refuses those arguments refuses the commit: the state is as it was, so the resource
 // is failed for the arguments it had, as the runner's `failed_args` is with its checkpoint. The refused commit's settle
 // asks nothing, and `failed(x)` follows what was put back (conformance's `failed`, `tap ask-bad`).
@@ -606,7 +434,7 @@ for (const queued of [false, true]) test(`a refused ${queued ? 'queued' : 'synch
   const wasAgent = clock.agent;
   clock.agent = true;
   try {
-    const slot = sig(null), edits = sig(0), m = mut('refused-send', slot, [], 's', queued);
+    const slot = sig(null), edits = sig(0), m = mut('refused-send', slot, [], 's', queued ? 1 : 0);
     if (queued) queues([[slot], [], []]);
     const send = act(value => { W(edits, edits() + 1); M(m, 'save', [value]); });
     send('later'); send('refuse');
@@ -666,7 +494,7 @@ describe('browser TypeScript send failures', () => {
           const rt = await import('/rt.js'), { install } = await import('/send-data.js');
           install(rt.data); rt.clock.agent = true;
           globalThis.asked = []; globalThis.failure = failure;
-          const slot = rt.sig('kept'), edits = rt.sig(0), m = rt.mut('failed-send', slot, [], 's', queued);
+          const slot = rt.sig('kept'), edits = rt.sig(0), m = rt.mut('failed-send', slot, [], 's', queued ? 1 : 0);
           if (queued) rt.queues([[slot, edits], [], []]);
           let thens = 0;
           m.then = () => { thens++; };
@@ -721,7 +549,7 @@ test('a send answered at once lets go of the one in flight it replaces', async (
   expect(slot()).toBe(2);
 });
 
-// A queue with no `then`: off the agent, the commit its reply lands in makes the waiting send due,
+// A queue with no `then` (LLP 1092 D3, D6): off the agent, the commit its reply lands in makes the waiting send due,
 // and the wall clock's `drive()` asks it with nothing else to wake it; the send waited with its own arguments.
 test('a queue with no then asks its waiting send by drive() alone, off the agent', async () => {
   const { mut, M, act, sig, data, queues, clock } = await import(resolve(dir, 'rt.js'));
@@ -741,7 +569,7 @@ test('a queue with no then asks its waiting send by drive() alone, off the agent
   expect([slot(), m.p(), m.next]).toEqual(['Q', false, Infinity]);
 });
 
-// On the JS target, the gate step runs inside the commit's undo `try`, after settlement, so a key that is
+// LLP 1092 D8 on the JS target: the gate step runs inside the commit's undo `try`, after settlement, so a key that is
 // no key refuses the commit (`TaskKey`), its writes and the timers both as they were; a changed key re-arms from now.
 test('a gate step that refuses rolls back the commit and its timers', async () => {
   const { sig, act, W, gated, clock, journal } = await import(resolve(dir, 'rt.js'));
@@ -819,7 +647,7 @@ test('capture stop ends Exact key handlers but leaves Enter submission and the b
   } finally { globalThis.addEventListener = saved; }
 });
 
-// The roster's string entries are JavaScript's, made well formed, and `replaceAll` is bounded by the
+// LLP 1088 D2: the roster's string entries are JavaScript's, made well formed, and `replaceAll` is bounded by the
 // runner's MAX_STRING as it builds (a quadratic `$\`` stops there), throwing the runner's trap at the call's pc (budget.js).
 test('slice, replaceAll, toLowerCase and toUpperCase are the web methods, well formed and bounded', async () => {
   const { x_slice: slice, x_replaceAll: replaceAll, x_toLowerCase: toLowerCase, x_toUpperCase: toUpperCase } = await import(resolve(dir, 'budget.js'));
@@ -840,7 +668,7 @@ test('slice, replaceAll, toLowerCase and toUpperCase are the web methods, well f
   expect(replaceAll('😀😀', '', '', 9, 8)).toBe('😀😀');
 });
 
-// The cases of runner/src/stdlib.rs's `number_and_date_reads_are_javascript_s`, roster.js's
+// LLP 1102 §3.1–§3.4: the cases of runner/src/stdlib.rs's `number_and_date_reads_are_javascript_s`, roster.js's
 // against the oracle the runner names: `Number` for a numeral the grammar admits, `Math.round` and `Math.ceil`.
 test('parseNumber, round, ceil and calendarDiff are the runner\'s', async () => {
   const { x_parseNumber, x_round, x_ceil, x_calendarDiff } = await import(resolve(dir, 'roster.js'));
@@ -867,8 +695,8 @@ test('parseNumber, round, ceil and calendarDiff are the runner\'s', async () => 
   }
 });
 
-// Format.js's `toFixed` is JavaScript's but "" for a non-finite number, and its
-// `formatDecimal` is runner/src/format.rs's exact count (runner/tests/it/format.rs has the same rows).
+// LLP 1102 §3.2 (decided (c)): format.js's `toFixed` is JavaScript's but "" for a non-finite number (D7), and its
+// `formatDecimal` is runner/src/format/mod.rs's exact count (runner/tests/it/format.rs has the same rows).
 test('toFixed and formatDecimal are the runner\'s', async () => {
   const { x_toFixed, x_formatDecimal } = await import(webJs('format.js'));
   expect([[1.005, 2], [-0.001, 2], [-0, 2], [2.5, 0], [-2.5, 0], [1e21, 2], [NaN, 2], [Infinity, 0], [-Infinity, 100]].map(([x, d]) => x_toFixed(x, d)))
@@ -879,7 +707,7 @@ test('toFixed and formatDecimal are the runner\'s', async () => {
   expect(x_formatDecimal(-Number.MAX_VALUE, 2)).toBe('-1797693134862315708145274237317043567980705675258449965989174768031572607800285387605895586327668781715404589535143824642343213268894641827684675467035375169860499105765512820762454900903893289440758685084551339423045832369032229481658085593321233482747978262041447231687381771809192998812504040261841248583.68');
 });
 
-// format.js's `decimal`, `currency` and `percent` are Intl.NumberFormat("en-US")'s, swept against Bun's own
+// LLP 1116 D8: format.js's `decimal`, `currency` and `percent` are Intl.NumberFormat("en-US")'s, swept against Bun's own
 // Intl: halves at each style's cut, magnitudes from 1e-12 to 1e28, random doubles, every code the roster lists
 // (runner/tests/it/format.rs pins the runner's to rows from the same Intl). Non-finite is "", as every format's is.
 test('decimal, currency and percent numbers are Intl\'s', async () => {
@@ -908,7 +736,7 @@ test('decimal, currency and percent numbers are Intl\'s', async () => {
     .toEqual(Array(9).fill(''));
 });
 
-// format.js's `formatDay` against Bun's own Intl at a fixed-offset `timeZone`: the medium and short
+// LLP 1116.020 D8: format.js's `formatDay` against Bun's own Intl at a fixed-offset `timeZone`: the medium and short
 // dates, the short time and the long weekday are Intl's; the day count is the offset's calendar days.
 test('formatDay\'s dates, times and weekdays are Intl\'s', async () => {
   const { x_formatDay } = await import(webJs('format.js'));
@@ -920,6 +748,11 @@ test('formatDay\'s dates, times and weekdays are Intl\'s', async () => {
     const at = options => dtf(off, options).format(new Date(then)), time = at({ timeStyle: 'short' });
     if (mode === 'list') return apart === 0 ? time : apart === -1 ? 'Yesterday'
       : apart >= -6 && apart <= -2 ? at({ weekday: 'long' }) : at({ dateStyle: 'short' });
+    // LLP 1168.000 D5: a weekday within six days either side, else MMMEd, yMMMEd in another year.
+    const year = ms => new Date(Math.trunc(ms) + off * 6e4).getUTCFullYear();
+    if (mode === 'section') return ({ 0: 'Today', '-1': 'Yesterday', 1: 'Tomorrow' })[apart]
+      ?? (Math.abs(apart) <= 6 ? at({ weekday: 'long' })
+        : at({ weekday: 'short', month: 'short', day: 'numeric', ...(year(then) === year(now) ? {} : { year: 'numeric' }) }));
     const label = ({ 0: 'Today', '-1': 'Yesterday', 1: 'Tomorrow' })[apart] ?? at({ dateStyle: 'medium' });
     return mode === 'day-time' ? `${label} at ${time}` : label;
   };
@@ -929,7 +762,7 @@ test('formatDay\'s dates, times and weekdays are Intl\'s', async () => {
   for (let i = 0; i < 3000; i++) {
     const now = 1e12 + next() * 1.5e12, then = now + Math.round((next() - 0.75) * 12 * 864e5);
     const off = [0, 60, -60, 330, 345, -420, -480, 840, -720, 1080, -1080][Math.floor(next() * 11)];
-    for (const mode of ['day', 'day-time', 'list'])
+    for (const mode of ['day', 'day-time', 'list', 'section'])
       if (x_formatDay(then, now, off, mode) !== expected(then, now, off, mode)) wrong.push([then, now, off, mode]);
   }
   expect(wrong.slice(0, 10)).toEqual([]);
@@ -941,7 +774,7 @@ test('formatDay\'s dates, times and weekdays are Intl\'s', async () => {
     .toEqual(['Yesterday', 'Yesterday at 11:59 PM', 'Yesterday', 'Tomorrow', 'Today', '12/24/26', 'Tuesday', '', '']);
 });
 
-// `concat`, and `slice` and `includes` over a list, are the web's array methods (`includes` by
+// LLP 1088 §9.1: `concat`, and `slice` and `includes` over a list, are the web's array methods (`includes` by
 // SameValueZero), on the caller's budget: each takes its `$s`, traps where the runner's `list_call` does — before it
 // builds — and leaves its own steps in `ST` (one an item kept, or scanned up to the match); text takes none.
 test('concat, slice and includes over a list are the web methods, on the caller\'s list steps', async () => {
@@ -984,11 +817,11 @@ test('requestFullscreen without media refuses as media.js does', async () => {
   expect(journal.at(-1).replace(/^t=\S+ /, '')).toBe('requestFullscreen: refused: no video with id "player"');
 });
 
-// `@exact/notifications`' web implementation: it asks permission once and posts through the
+// `@exact/notifications`' web implementation (LLP 1133.004): it asks permission once and posts through the
 // Notification API, now or at `showTrigger` while the page is open; a tag's `closeNotification` takes away a shown or
 // a waiting one; the click is bound through the host's `activation`.
 test('@exact/notifications on the web: posts by the Notification API, closes, holds a showTrigger, binds the click', async () => {
-  const { implementation } = await import(new URL('../../../packages/notifications/web/index.js', import.meta.url).pathname);
+  const { implementation } = await import(fileURLToPath(new URL('../../../packages/notifications/web/index.js', import.meta.url)));
   const posted = [], closed = [], bound = [], said = [];
   globalThis.Notification = class { static permission = 'default'; static requestPermission() { Notification.permission = 'granted'; return Promise.resolve('granted'); }
     constructor(title, options) { this.title = title; this.options = options; posted.push(this); } addEventListener() {} close() { closed.push(this.title); } };
@@ -1012,7 +845,7 @@ test('a module\'s activation: only a trusted event raises, and a navigate opens 
   const { clock, navigateTo, journal } = await import(resolve(dir, 'rt.js'));
   const { modules } = await import(resolve(dir, 'modules.js'));
   const corpus = JSON.parse(readFileSync(new URL('../../../route/tests/corpus.json', import.meta.url), 'utf8'));
-  // A canonical case through a URL keeps its fragment, which its canonical form drops.
+  // A canonical case through a URL keeps its fragment (LLP 1153 D5), which its canonical form drops.
   const cases = [...corpus.location_of, ...corpus.canonical.map(({ input, expected }) => ({
     input: 'https://x' + (input.startsWith('/') ? input : '/' + input), expected, fragment: true,
   }))];
@@ -1040,7 +873,7 @@ test('a module\'s activation: only a trusted event raises, and a navigate opens 
   } finally { if (previousFocus === undefined) delete globalThis.focus; else globalThis.focus = previousFocus; navigateTo(null); }
 });
 
-// The declaration's `checks` hold a send under the agent, as the runner's do.
+// LLP 1133.030 D2: the declaration's `checks` hold a send under the agent, as the runner's do.
 test('a declared check refuses a send on the JS target, and leaves its state', async () => {
   const { clock, journal } = await import(resolve(dir, 'rt.js'));
   const { modules } = await import(resolve(dir, 'modules.js'));
@@ -1059,7 +892,68 @@ test('a declared check refuses a send on the JS target, and leaves its state', a
   clock.agent = false;
 });
 
-// A module event's origin on the JS target.
+// LLP 1133.021 §12: a send with nothing preferred answers its declared default, as the runner's `decide`.
+test('a send with nothing preferred answers its declared default, a copy each time', async () => {
+  const { modules } = await import(resolve(dir, 'modules.js'));
+  modules({ read: ['dflt.read', true, { default: { token: null, status: 0 } }, 'u', 'never', null, false], find: ['dflt.find', true, { default: [] }, 'u', 'never', null, false],
+    bare: ['dflt.bare', true, {}, 'u', 'never', null, false] }, {});
+  const call = send => globalThis.exact.extensions.call({ extension: 'dflt', send, args: {} });
+  (await call('read')).status = 1;
+  expect([await call('read'), await call('find'), await call('bare')]).toEqual([{ token: null, status: 0 }, [], { error: 'NotSupportedError' }]);
+});
+
+test.each(['device.geolocation-approximate', 'device.geolocation'])('a precision substitute respects the app grant %s', async grant => {
+  const { modules } = await import(resolve(dir, 'modules.js'));
+  const { data, clock } = await import(resolve(dir, 'rt.js'));
+  const previous = { grants: data.grants, agent: clock.agent };
+  const declaration = JSON.parse(readFileSync(new URL('../../../packages/geolocation/exact.json', import.meta.url), 'utf8'));
+  const type = { available: 'b', state: 's', accuracy: 's' };
+  const install = web => {
+    const rows = Object.fromEntries(declaration.names.filter(n => ['geolocationStatus', 'requestPreciseLocation'].includes(n.source ?? n.send)).map(n => {
+      const name = n.source ?? n.send, sub = { ...n.substitute, permission: declaration.permission, grants: declaration.grants };
+      // Exercise the shared raise rule; the web's restriction is checked with the unmodified declaration below.
+      if (!web) delete sub.unsupported;
+      return [name, [`geolocation.${name}`, !!n.send, sub, type, n.request ? 'always' : 'never', null, !!n.live]];
+    }));
+    modules(rows);
+    return globalThis.exact.extensions;
+  };
+  try {
+    clock.agent = true;
+    data.grants = `${grant} locationPurpose`;
+    let api = install(false);
+    const call = () => api.call({ extension: 'geolocation', send: 'requestPreciseLocation', args: { purposeKey: 'forecastPurpose' } });
+    const tap = (capability, choice) => {
+      const holds = api.holds();
+      expect(holds).toHaveLength(1);
+      expect(holds[0].device.capability).toBe(capability);
+      expect(api.answer({ op: 'tap', ticket: holds[0].ticket, choice }).error).toBeUndefined();
+    };
+    const first = call();
+    tap('permission', 'allow');
+    expect(api.holds()).toEqual([]);
+    const accuracy = grant === 'device.geolocation' ? 'precise' : 'approximate';
+    expect(await first).toEqual({ available: true, state: 'granted', accuracy });
+    if (accuracy === 'precise') {
+      expect(api.prefer({ extension: { 'geolocation.geolocationStatus': { available: true, accuracy: 'approximate' } } }).error).toBeUndefined();
+      for (const choice of ['deny', 'cancel', 'allow']) {
+        const pending = call();
+        tap('precision', choice);
+        const expected = { available: true, state: 'granted', accuracy: choice === 'allow' ? 'precise' : 'approximate' };
+        expect(await pending).toEqual(expected);
+        expect(await api.call({ extension: 'geolocation', source: 'geolocationStatus' })).toEqual(expected);
+      }
+    }
+    const again = call();
+    expect(api.holds()).toEqual([]);
+    expect(await again).toEqual({ available: true, state: 'granted', accuracy });
+    api = install(true);
+    expect(await call()).toEqual({ error: 'NotSupportedError' });
+    expect(api.holds()).toEqual([]);
+  } finally { data.grants = previous.grants; clock.agent = previous.agent; }
+});
+
+// LLP 1133.004 D6, LLP 1133.002 D12: a module event's origin on the JS target.
 test('a command keeps the origin of the commit that queued it, whenever its tail runs', async () => {
   const { commit, C, Hosts, Origin } = await import(resolve(dir, 'rt.js'));
   let got = null;
@@ -1099,18 +993,18 @@ test('an emitted event\'s requests make data code the device\'s until they land;
   expect(journal.some(l => l.endsWith('act.moved: a pointermove is no person\'s activation; nothing is bound'))).toBe(true);
 });
 
-// A string past MAX_STRING comes only from a data source, which the
+// LLP 1090: a string past MAX_STRING comes only from a data source, which the
 // JS target's Rust seam caps at 16 MiB a message, so conformance cannot carry
 // one (host/web-js/conformance/budget.contract); the runtime's checks are run
 // here, against the runner's texts (runner/src/runner/commit.rs, stdlib.rs).
-// The JS target's storage: one queue for the module's
+// The JS target's storage (LLP 1097 D3, D8, D9): one queue for the module's
 // operations, so a read issued after an unawaited write sees it, though the
 // store would answer the read first; at most 256 wait behind the one in
 // flight, the next refused `full` and journaled; each counts in flight until
 // it lands, and a failure is journaled. ts-data.js over a scripted store.
 // Whether a module has an overlay is decided at install (ts-data.js `data.overlay`), as the native and wasm
 // executors decide it at load (js/tests/it/overlay.rs): a top-level overlay overlays, and one set or deleted after
-// install is not followed until the module is installed again.
+// install is not followed until the module is installed again (LLP 1054).
 test('an overlay is decided at install: a top-level one overlays, one set or deleted after is not followed', async () => {
   const { data } = await import(resolve(dir, 'rt.js'));
   const { sourceTypes } = await import(resolve(dir, 'names.js'));
@@ -1168,7 +1062,7 @@ test('storage keeps the order issued, a bound, a count, and a journal', async ()
   expect(journal.some(l => l.endsWith('storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file'))).toBe(true);
 }, 30_000); // hang bound
 
-// `fs.compressImage` on the JS target: its options are
+// `fs.compressImage` on the JS target (LLP 1069.002 A1.1): its options are
 // checked and copied before it is queued; a bad one is a TypeError that
 // never enters the queue.
 test('compressImage copies its options and refuses bad ones before the queue', async () => {
@@ -1185,7 +1079,7 @@ test('compressImage copies its options and refuses bad ones before the queue', a
   const badType = ask('compress-bad-type');
   expect(data.background().queued + data.background().inFlight).toBe(0);
   expect(await badType.promise).toBe('TypeError undefined storage.fs.compressImage(): type must be "image/jpeg" or "image/png"');
-  // The edit and a transform's options, copied as checked.
+  // LLP 1133.019 D14, D15: the edit and a transform's options, copied as checked.
   expect(JSON.parse(await ask('compress-edit').promise)).toMatchObject({ rotate: 90, width: 8 });
   expect(JSON.parse(await ask('transform').promise)).toEqual({ path: 'app:/tmp/edit.jpg',
     options: { rotate: 90, crop: { x: 0, y: 0, width: 4, height: 4 }, metadata: 'no-location' } });
@@ -1205,7 +1099,7 @@ test('a string past MAX_STRING joins to itself alone and is counted in UTF-8 byt
   // 2^25 units of "é" are exactly 2^26 bytes; one more is past.
   expect(cc('é'.repeat(2 ** 24), 'é'.repeat(2 ** 24), 7).length).toBe(2 ** 25);
   expect(() => cc('é'.repeat(2 ** 24), 'é'.repeat(2 ** 24 + 1), 7)).toThrow('Trap(StringTooLong { pc: 7 })');
-  // A remembered part counted as 3 bytes a unit is recounted exactly:
+  // A remembered part counted as 3 bytes a unit is recounted exactly (D3):
   // 10 MB three times is 30 MB, seven times 70 MB.
   const xs = K(Array.from({ length: 10000 }, () => 'a'.repeat(1000)), 1);
   expect(K([xs, xs, xs], 2)).toHaveLength(3);
@@ -1293,7 +1187,7 @@ test('translation expansion stops when its output exceeds the byte budget', asyn
 
 test('an argument or a write past MAX_STRING is refused by name, and a trapping argument is a trap, poisoned or not', async () => {
   const { act, sig, W, effect, journal } = await import(resolve(dir, 'rt.js'));
-  const { Trap, tg } = await import(resolve(dir, 'budget.js'));
+  const { Trap, tg, x_encodeRouteSegment } = await import(resolve(dir, 'budget.js'));
   const last = () => journal.at(-1).replace(/^t=\S+ /, '');
   const t = sig('', 's', 't');
   const put = act(v => W(t, v), ['s'], 0, ['v']);
@@ -1310,24 +1204,31 @@ test('an argument or a write past MAX_STRING is refused by name, and a trapping 
   expect(t()).toBe('');
   put.t(() => { throw new Trap('IterationLimit', 17); })();
   expect(last()).toBe('refused action: Trap(IterationLimit { pc: 17 })');
-  // A prop or style binding's trap unsets its row and the commit goes on, with one journal line however
+  // A prop or style binding's trap unsets its row and the commit goes on (LLP 1017.003 D3), with one journal line however
   // many writes read it (here two, as a painted flag and its row), until it evaluates to a value again.
-  const m = sig(0, 'm');
-  const el = {}, text = () => { if (m() > 0) throw new Trap('IterationLimit', 5); return 'x'; };
-  const lines = () => journal.filter(l => l.endsWith('site 4: text trapped Trap(IterationLimit { pc: 5 }); unset')).length;
-  let shown = 'x', painted = 'x';
-  effect(() => { shown = tg(el, 4, 'text', text)(); });
-  effect(() => { painted = tg(el, 4, 'text', text)(); });
-  const set = v => { act(() => W(m, v))(); globalThis.heldTail?.(); };
-  set(1);
-  expect(lines()).toBe(1);
-  expect([shown, painted]).toEqual([null, null]);
-  set(2);
-  expect(lines()).toBe(1);
-  set(0);
-  expect([shown, painted]).toEqual(['x', 'x']);
-  set(1);
-  expect(lines()).toBe(2);
+  const bindings = [
+    ['text', v => { if (v > 0) throw new Trap('IterationLimit', 5); return 'x'; }, 'IterationLimit'],
+    ...['', '.', '..'].map(invalid => ['href', v => `/chat/${x_encodeRouteSegment(v > 0 ? invalid : 'a/b', 5)}`, 'PathParameter']),
+  ];
+  for (const [row, binding, trap] of bindings) {
+    const m = sig(0, 'm'), start = journal.length;
+    const el = {}, text = () => binding(m());
+    const lines = () => journal.slice(start).filter(l => l.endsWith(`site 4: ${row} trapped Trap(${trap} { pc: 5 })${trap === 'IterationLimit' ? ': past the 65,536 list steps one evaluation may take' : ''}; unset`)).length;
+    let shown, painted;
+    effect(() => { shown = tg(el, 4, row, text)(); });
+    effect(() => { painted = tg(el, 4, row, text)(); });
+    const set = v => { act(() => W(m, v))(); globalThis.heldTail?.(); };
+    set(1);
+    expect(lines()).toBe(1);
+    expect([shown, painted]).toEqual([null, null]);
+    set(2);
+    expect(m()).toBe(2);
+    expect(lines()).toBe(1);
+    set(0);
+    expect([shown, painted]).toEqual(row === 'href' ? ['/chat/a%2Fb', '/chat/a%2Fb'] : ['x', 'x']);
+    set(1);
+    expect(lines()).toBe(2);
+  }
   // Any other trap while the tree updates (a subject's, a key's) poisons, as the runner's InstanceError; an argument still traps first.
   const n = sig(0, 'n');
   effect(() => { if (n() > 0) throw new Trap('IterationLimit', 9); });
@@ -1341,8 +1242,11 @@ test('an argument or a write past MAX_STRING is refused by name, and a trapping 
 });
 
 
+// A runtime with state of its own: the runtime's files copied to a directory of their own, so each module is loaded
+// afresh (a query on rt.js alone would load only rt.js again, not the files it is split into).
+
 test('a refused derive names itself and only the failed resources it reads', async () => {
-  const { memo, res, data } = await import(resolve(dir, 'rt.js') + '?derive-refusal');
+  const { memo, res, data } = await freshRuntime('derive-refusal');
   data.answer = () => { throw new Error('ambient Date is refused'); };
   const failed = res('profile', 'loadProfile', () => [], undefined, undefined, 's', '');
   const unrelated = res('other', 'loadOther', () => [], undefined, undefined, 's', '');
@@ -1356,7 +1260,7 @@ test('a refused derive names itself and only the failed resources it reads', asy
 
 
 test('a refused derive traces only failed resources it read through retained values', async () => {
-  const { memo, res, data } = await import(resolve(dir, 'rt.js') + '?retained-derive-refusal');
+  const { memo, res, data } = await freshRuntime('retained-derive-refusal');
   data.answer = () => { throw new Error('storage unavailable'); };
   const unrelated = res('other', 'loadOther', () => [], 1, [], 'n', 0);
   unrelated();
@@ -1372,7 +1276,7 @@ test('an input runs a due then before its own action', async () => {
   // Runner::dispatch_at moves the clock first, so a focus answer's `then` runs
   // at the start of the input that follows and reads the value it landed, not
   // the one this input writes (synthetic-then: wasm " a3 T3 T2 T12").
-  const { mut, sig, W, commit, on, onValue, clock } = await import(resolve(dir, 'rt.js') + '?dispatch-at');
+  const { mut, sig, W, commit, on, onValue, clock } = await freshRuntime('dispatch-at');
   clock.agent = true;
   const slot = sig(0);
   const m = mut('quick', slot, []);
@@ -1387,7 +1291,7 @@ test('an input runs a due then before its own action', async () => {
 });
 
 test('an async source failure remains named when its retained value breaks a derive', async () => {
-  const { memo, res, data, commit, journal } = await import(resolve(dir, 'rt.js') + '?async-derive-refusal');
+  const { memo, res, data, commit, journal } = await freshRuntime('async-derive-refusal');
   let reject;
   data.answer = () => new Promise((_, fail) => { reject = fail; });
   const count = res('count', 'loadCount', () => [], 0, [], 'n', 0);
@@ -1464,7 +1368,7 @@ test('focus handlers stop bubbling while a view transition holds their commit', 
   globalThis.requestAnimationFrame = f => setTimeout(f, 0);
   globalThis.document = { getElementById: () => ({}) };
   try {
-    const { on, onFocusWithin, act, C, pr, pieces } = await import(`${resolve(dir, 'rt.js')}?focus-events`);
+    const { on, onFocusWithin, act, C, pr, pieces } = await freshRuntime('focus-events');
     pr({}); await pieces();
     for (const kind of ['focusin', 'focusout']) {
       const listeners = [], heard = [];
@@ -1478,4 +1382,19 @@ test('focus handlers stop bubbling while a view transition holds their commit', 
       expect(ev.$stopped).toBe(true);
     }
   } finally { delete globalThis.document; delete globalThis.requestAnimationFrame; }
+});
+
+test('a trap names its evaluation and bound, and preserves an upstream evaluation', async () => {
+  const { Trap, $E } = await import(resolve(dir, 'budget.js'));
+  for (const [kind, words] of [
+    ['IterationLimit', 'the 65,536 list steps one evaluation may take'],
+    ['StringTooLong', 'the 64 MiB a string may hold'],
+    ['ValueTooLarge', 'the 16,777,216 nodes or 64 MiB a value may hold'],
+    ['ValueTooDeep', '64 levels'],
+  ]) {
+    const trap = new Trap(kind, 17);
+    expect(() => $E(trap, 'derive "visible"', 0)).toThrow(`Trap(${kind} { pc: 17 }) in derive "visible": past ${words}`);
+    expect(() => $E(trap, 'action "grow"', 0)).toThrow(`Trap(${kind} { pc: 17 }) in derive "visible": past ${words}`);
+    expect(() => $E(new Trap(kind, 17), 'site 58 each subject', 1)).toThrow(`Instance(Trap(${kind} { pc: 17 })) in site 58 each subject: past ${words}`);
+  }
 });

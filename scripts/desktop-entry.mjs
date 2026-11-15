@@ -1,4 +1,4 @@
-// The Linux build's desktop entry: the app, and the
+// The Linux build's desktop entry (LLP 1133.023 D3, D17): the app, and the
 // manifest's `shortcuts` as its `Actions`, each running the app with its
 // location as the first argument, which the host's `launch_location` reads.
 // The format is the Desktop Entry Specification's

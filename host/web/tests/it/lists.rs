@@ -1,4 +1,4 @@
-//! Logical text over a virtualized list's rows, mounted or not.
+//! LLP 1010 §6.2: logical text over a virtualized list's rows, mounted or not.
 use exact_kernel::Kernel;
 use exact_runner::{DataError, DataSource, Event, Runner, Value, Viewport};
 use std::cell::Cell;

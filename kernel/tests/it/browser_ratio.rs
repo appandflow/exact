@@ -1,4 +1,4 @@
-//! `aspect-ratio` against literal Chrome.
+//! `aspect-ratio` (LLP 1053 G1) against literal Chrome.
 //!
 //! Chrome 154, 2026-09-25, by the method of `browser_cases.rs`: each case is
 //! plain HTML/CSS in a `display: flow-root` box 400px wide (the kernel root,
@@ -184,7 +184,7 @@ fn a_non_replaced_box_sizes_through_its_ratio() {
 }
 
 /// A text leaf with a ratio is not replaced: its automatic minimum height is
-/// its content (CSS Box Sizing 4 §5.2), so taller text grows the box unless `min-height: 0`
+/// its content (§5.2), so taller text grows the box unless `min-height: 0`
 /// or a scroll container turns that off; a max still caps it. Taffy's leaf
 /// patch 5 had applied replaced-element constraints to any leaf with a ratio.
 #[test]

@@ -1,4 +1,4 @@
-//! Work that outlives its answer through the Apple host's
+//! Work that outlives its answer (LLP 1146 D2) through the Apple host's
 //! actual Bridge, executor and pump, with a scripted transport and no lock:
 //! a resource renews a token while a timer asks it again three times. The
 //! renewal's POST is held until every re-ask has let its answer go; the
@@ -42,13 +42,18 @@ static ENTERED: AtomicBool = AtomicBool::new(false);
 const HANG: Duration = Duration::from_secs(30);
 static WOKE: Mutex<Option<Sender<()>>> = Mutex::new(None);
 
-struct Scripted;
+/// `outlive.test` is scripted; anything else (the write server on
+/// 127.0.0.1) goes to the platform's transport.
+struct Scripted(Box<dyn Transport>);
 impl Transport for Scripted {
     fn open(
         &self,
         request: &ibex2::stdlib::fetch::Request,
         signal: &AbortSignal,
     ) -> Result<StreamingResponse, HostError> {
+        if !request.url.starts_with("https://outlive.test") {
+            return self.0.open(request, signal);
+        }
         let path = request
             .url
             .trim_start_matches("https://outlive.test")
@@ -96,9 +101,12 @@ fn start(
     grants: &str,
     wake: Option<(WakeFn, *mut c_void)>,
 ) -> Box<dyn Io> {
-    let bindings = ibex2::host::Host::with_transport(Box::new(Scripted))
-        .endow(ibex2::grant::GrantSet::parse(&exact_runner::io_grants(grants)).unwrap());
-    Box::new(Executor::start(Some(bindings), grants, wake))
+    let host = || {
+        ibex2::host::Host::with_transport(Box::new(Scripted(ibex2::transport::default_transport())))
+    };
+    let bindings =
+        host().endow(ibex2::grant::GrantSet::parse(&exact_runner::io_grants(grants)).unwrap());
+    Box::new(Executor::start_on(Some(bindings), grants, wake, host))
 }
 
 extern "C" fn woke(_: *mut c_void) {
@@ -466,7 +474,7 @@ fn held_write() -> WriteServer {
 /// An app aborts a kept write in a reply's turn whose commit is then refused:
 /// the write's rejection reaches its let-go answer's continuation in a module
 /// turn, outside that commit's checkpoint, so what the continuation writes
-/// stands.
+/// stands (LLP 1146 D2).
 #[test]
 fn an_aborted_kept_write_s_continuation_writes_in_a_module_turn() {
     let _one = DRIVE.lock().unwrap_or_else(|e| e.into_inner());

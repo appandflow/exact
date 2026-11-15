@@ -18,12 +18,15 @@ private struct FocusSnapshot {
 }
 
 extension Presenter {
-    /// A bubbling `focusin` or `focusout` at a listening ancestor.
+    /// A bubbling `focusin` or `focusout` at a listening ancestor (#283).
     var onFocusEvent: ((UInt32, String, String, String?) -> Void)? {
         get { focusEvents.onEvent }
         set { focusEvents.onEvent = newValue }
     }
     func focus(_ id: UInt32) {
+        #if os(iOS)
+        navigation.finishBootOwner()
+        #endif
         #if os(macOS)
         tabStart = nil
         #endif
@@ -59,6 +62,8 @@ final class FocusEvents {
 
     init(_ presenter: Presenter) { self.presenter = presenter }
     func reset() { current = nil; pending = nil }
+    /// The node that has the focus, as the page was told.
+    var focused: UInt32? { current?.node }
 
     private func snapshot(_ id: UInt32) -> FocusSnapshot? {
         guard let presenter, let view = presenter.textHost(id) else { return nil }
@@ -77,7 +82,7 @@ final class FocusEvents {
                 if node.handlers.contains("focusin") { inbound.append(node.id) }
                 if node.handlers.contains("focusout") { outbound.append(node.id) }
             }
-            // Its authored parent, across a native container's view
+            // Its authored parent, across a native container's view (LLP 1123 D2)
             cursor = presenter.eventParent(of: next)
         }
         return FocusSnapshot(node: id, name: (presenter.inlineText(id)?.props ?? view.props)["id"] ?? "", path: path, inbound: inbound, outbound: outbound)

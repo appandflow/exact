@@ -1,21 +1,22 @@
-// In a real browser at a phone's width (390) and a desktop's (1280): the shell's stylesheet and the
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// LLP 1116.004 D1 in a real browser at a phone's width (390) and a desktop's (1280): the shell's stylesheet and the
 // navigation glue's projection (navigation.js, which both web targets run) over nodes as the hosts write them. A root
 // tab bar whose placement is unsaid is a sidebar on a wide window and a bar on a phone; an arrangement the app wrote
 // stays its own. A stack whose root route is a list whose rows push shows that route beside its top on a wide window
 // (the list live, its disclosure gone, the row whose press pushed the detail marked, no Back in the detail, and while
 // nothing is selected the platform's placeholder in the pane or the author's own) and pushes on a phone;
 // `navigationSplit` opts out or names the width; a sheet stays a sheet; a resize changes nothing else. At a
-// desktop width `check` advises on a tab bar left along the bottom and on a list that pushes unsplit.
+// desktop width `check` advises (D1.3) on a tab bar left along the bottom and on a list that pushes unsplit.
 import { test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
@@ -183,7 +184,7 @@ check('retained root tabs yield to changed authored placement and restore withou
 
 check('a list whose rows push is beside its detail on a wide window, and pushes on a phone', () => inChrome(page(tabs(BAR)), async (evaluate, size) => {
   // Wide, nothing chosen: the list is a 320-wide column, its disclosure gone; the rest of the stack's width is the
-  // platform's placeholder, one line in the secondary label's colour (the look's, which its sheet carries).
+  // platform's placeholder (LLP 1116.006 D2), one line in the secondary label's colour (the look's, which its sheet carries).
   await evaluate(`select('1')`);
   const secondary = await evaluate(`getComputedStyle(document.getElementById('secondary')).color`);
   expect(secondary).not.toBe(await evaluate(`getComputedStyle(document.body).color`));
@@ -194,7 +195,7 @@ check('a list whose rows push is beside its detail on a wide window, and pushes 
   expect(await evaluate(`[shown('r1'), shown('r2'), box('r2'), document.getElementById('r2').getAttribute('data-exact-split'), document.getElementById('r1-bo').hasAttribute('data-exact-split-row'), back('r2'), off(), placeholder('p1')]`))
     .toEqual([true, true, [560, 0, 720, 800], 'detail', true, false, ['p2', 'r3'], null]);
   // A sheet stays a sheet over both, the list and the detail inert beneath it. In a wide window the look draws it as a
-  // card: 560 wide, a sheet's height (45rem), in the window's middle once it has slid up.
+  // card (LLP 1115.000 D4.8): 560 wide, a sheet's height (45rem), in the window's middle once it has slid up.
   await evaluate(`push('3', '/people/bo/edit')`);
   const sheet = await evaluate(`document.getElementById('r3').getAnimations().forEach(a => a.finish()); box('r3')`);
   expect([sheet[0], sheet[2], sheet[3], Math.abs(sheet[1] * 2 + sheet[3] - 800) <= 1]).toEqual([360, 560, 720, true]);
@@ -214,21 +215,21 @@ check('a list whose rows push is beside its detail on a wide window, and pushes 
   expect(await evaluate(`[shown('r1'), shown('r2'), box('r1')[2], document.getElementById('r1-bo').hasAttribute('data-exact-split-row')]`)).toEqual([true, true, 320, true]);
   // The other tab's rows do not write the router: the stack stays unsplit, with no placeholder.
   expect(await evaluate(`[document.getElementById('t1').hasAttribute('data-exact-split'), placeholder('p2')]`)).toEqual([false, null]);
-  // A row that is a link is followed from the document's capture phase (input-glue.js, router.js),
+  // A row that is a link (LLP 1115.000 D4.4) is followed from the document's capture phase (input-glue.js, router.js),
   // so its commit lands within the click, before a listener nearer the row would hear it: its row is marked all the same.
   await evaluate(`select('1'); document.addEventListener('click', e => { if (e.target.closest('#r1-ada')) push('2', '/people/ada'); }, true); document.getElementById('r1-ada').click()`);
   expect(await evaluate(`[shown('r2'), document.getElementById('r1-ada').hasAttribute('data-exact-split-row'), document.getElementById('r1-bo').hasAttribute('data-exact-split-row')]`)).toEqual([true, true, false]);
 }), 60000);
 
 check('the author\'s placeholder in the root route takes the detail pane while nothing is selected, and shows nowhere else', () => {
-  // As the lowerer writes it: `display: none` but where the split shows it.
+  // As the lowerer writes it: `display: none` but where the split shows it (LLP 1116.006 D2).
   const own = '<div navigationSplit="placeholder" id="own" style="display:none;gap:8px"><span id="own-text">Pick a person</span><button id="own-add">Add</button></div>';
   return inChrome(page(`<main id="nav" navigationKey="1" navigationBack="back" style="width:100%;height:100%;position:relative">${list('r1', 1, true, '', own)}${detail('r2', 2)}</main>`), async (evaluate, size) => {
     const hit = `(e => document.elementFromPoint(box(e)[0] + box(e)[2] / 2, box(e)[1] + box(e)[3] / 2)?.id)`;
     // Wide, nothing chosen: the author's box is the pane beside the list, its content centred and pressable; no host line.
-    // Known gap: the pane starts at 319, not 320, and so ends a pixel short of the window. The
-    // shell places it at the list column's `100%`, and the neutral look draws that column's divider as a 1 px border,
-    // so the column's own box is a pixel narrower. A detail is placed by the stack.
+    // OWED (QUEUE.md, the neutral look): the pane starts at 319, not 320, and so ends a pixel short of the window. The
+    // shell places it at the list column's `100%`, and the neutral look draws that column's divider as a 1 px border
+    // where LLP 1116 D1's drew a shadow, so the column's own box is a pixel narrower. A detail is placed by the stack.
     expect(await evaluate(`[box('r1'), box('own'), shown('own'), Math.round(box('own-text')[0] + box('own-text')[2] / 2), ${hit}('own-add'), placeholder('nav'), document.getElementById('nav').hasAttribute('data-exact-split-empty')]`))
       .toEqual([[0, 0, 320, 800], [319, 0, 960, 800], true, 799, 'own-add', null, false]);
     // A narrower wide window: the pane follows.
@@ -255,7 +256,7 @@ check('navigationSplit opts a stack out, or names the width of a list the rule d
   });
 }, 60000);
 
-// The navigation projection's inputs. These DOM fixtures test navigation.js, not
+// Stage 6d's projection inputs. These DOM fixtures test navigation.js, not
 // whether either compiler emits the facts; compiled-plan coverage is separate.
 const ruleStack = body => `<main id="nav" navigationKey="2" navigationBack="back" style="width:100%;height:100%;position:relative">
   <div id="r1" navigationKey="1" style="${abs}"><header><h1>People</h1></header>${body}</div>${detail('r2', 2)}</main>`;
@@ -375,7 +376,7 @@ check('the split and sidebar leave check nothing to advise', () => inChrome(page
   expect(await evaluate(`select('2'); advice()`)).toEqual([]);
 }), 60000);
 
-// Each route keeps its own scroll (mounted rows keep theirs), on a phone and through a
+// LLP 1116.005 D3: each route keeps its own scroll (LLP 1038 §7: mounted rows keep theirs), on a phone and through a
 // split. A route of `n` tall rows over its own scroller; `rows` writes the router, so its stack splits.
 const tall = (id, key, n, rows = false) => `<div navigationKey="${key}" id="${id}" style="${abs}"><header><h2>${id}</h2></header><div id="${id}-scroll" ${rows ? 'data-exact-list' : ''} style="flex:1 1 0%;min-height:0;overflow:auto">${
   Array.from({ length: n }, (_, i) => rows ? `<button data-exact-on="press" data-exact-router-press="true" style="display:flex;height:50px"><span data-exact-text>${i}</span>${chevron}</button>` : `<div style="height:50px">${i}</div>`).join('')}</div></div>`;

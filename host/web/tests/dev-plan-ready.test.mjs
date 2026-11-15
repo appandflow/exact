@@ -38,7 +38,7 @@ const free = () => new Promise(ok => { const s = createServer(); s.listen(0, '12
 // most), so its ready line is due while it is not listening yet. `GENERATED`, the classification it says as it
 // captures one, shows that the generation, not the bound, ended the wait: a case the bound ended would prove
 // nothing, so it fails instead. A warm run first (`warm`), so a cold build of the app's dev bin (minutes, after
-// a rebase) does not outlast the bound. theme-fixture's design server takes the app's .exact/tamber.lock:
+// a rebase) does not outlast the bound. theme-fixture's design server takes the app's .exact/forma.lock:
 // this checkout's turn on the fixture first, as design-tool-inspect's.
 const LOOPS = [
   { name: 'the JS dev loop', args: ['--app', 'caltrain'], delay: 3000 },

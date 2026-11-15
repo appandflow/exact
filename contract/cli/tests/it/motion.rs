@@ -1,4 +1,4 @@
-//! `@exact/motion`'s seam under the declared substitute:
+//! `@exact/motion`'s seam under the declared substitute (LLP 1133.013 §9):
 //! the batch and its runner-held cursor, the poll's floor, step tracks, the
 //! permission that starts granted, a tool's join, and a canvas input's
 //! samples on its grid. The package is the repository's own, installed
@@ -161,11 +161,12 @@ fn prefer(r: &mut Runner<Granted>, request: Json) {
     reply.unwrap_or_else(|e| panic!("{e}"));
 }
 
-/// A reader's first answer is the latest reading and no batch; each poll's
-/// answer carries every sample on its grid since the last one delivered, at
-/// most `history`, with what the bound left out counted; the cursor is the
-/// runner's, so a data-code reader's own grid and cursor are its own; a track's
-/// steps hold from their instants; a hidden page's gap reads `interrupted`.
+/// D5, D7, §9: a reader's first answer is the latest reading and no batch;
+/// each poll's answer carries every sample on its grid since the last one
+/// delivered, at most `history`, with what the bound left out counted; the
+/// cursor is the runner's, so a data-code reader's own grid and cursor are
+/// its own; a track's steps hold from their instants; a hidden page's gap
+/// reads `interrupted`.
 #[test]
 fn a_reader_s_batch_is_every_sample_since_its_last_delivered_answer() {
     let app = App::new("batch", APP);
@@ -270,10 +271,10 @@ fn a_reader_s_batch_is_every_sample_since_its_last_delivered_answer() {
     assert_eq!(samples[0]["timestamp"], 5600.0);
 }
 
-/// The permission starts granted, as iOS and Android grant without asking;
-/// under `prompt` a reader fails naming the request, and the request held under
-/// a ticket sets it; a tool's reader joins a stream only while the app runs
-/// one; a literal poll below the floor is refused at bake.
+/// D11, §9: the permission starts granted, as iOS and Android grant without
+/// asking; under `prompt` a reader fails naming the request, and the request
+/// held under a ticket sets it; a tool's reader joins a stream only while
+/// the app runs one; a literal poll below the floor is refused at bake.
 #[test]
 fn a_prompt_holds_the_request_and_a_tool_only_joins() {
     let app = App::new("prompt", APP);
@@ -318,8 +319,8 @@ fn a_prompt_holds_the_request_and_a_tool_only_joins() {
     );
 }
 
-/// A canvas input's samples, on its grid of the session clock, as the surface's
-/// input events; its end delivered once.
+/// D6, §9: a canvas input's samples, on its grid of the session clock, as
+/// the surface's input events; its end delivered once.
 #[test]
 fn a_canvas_input_takes_every_sample_on_its_grid() {
     let app = App::new("input", APP);
@@ -348,8 +349,8 @@ fn a_canvas_input_takes_every_sample_on_its_grid() {
     assert!(!r.surface_sensor_inputs());
 }
 
-/// Each reader's cursor is its own, whichever source it reads; letting go of
-/// the readers no resource holds keeps every other source's.
+/// D5: each reader's cursor is its own, whichever source it reads; letting
+/// go of the readers no resource holds keeps every other source's.
 #[test]
 fn each_source_s_readers_keep_their_cursors() {
     let src = APP.replace(
@@ -376,9 +377,9 @@ fn each_source_s_readers_keep_their_cursors() {
     }
 }
 
-/// A canvas input's lease, under the substitute and to a bound implementation:
-/// a canvas hidden pauses its input, which counts the gap; shown again by a
-/// tool's commit it stays paused; shown by the app's, it resumes. A bound
+/// D6's lease, under the substitute and to a bound implementation: a canvas
+/// hidden pauses its input, which counts the gap; shown again by a tool's
+/// commit it stays paused; shown by the app's, it resumes. A bound
 /// implementation is told each change with its commit's origin.
 #[test]
 fn a_canvas_input_is_leased_while_its_canvas_is_displayed() {

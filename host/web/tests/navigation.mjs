@@ -1,17 +1,19 @@
-// Real Chrome driver invoked by the web smoke.
+// @ref LLP 1038 D7/D11 — real Chrome driver invoked by the web smoke.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { cpSync, existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Cdp, open } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { chromium, quitBrowser } from '../../../scripts/agent-launch.mjs';
 import { serveStatic, serveBuildTree, readWebRequest } from '../serve.mjs';
 import { publishRoot } from '../../../scripts/deploy.mjs';
 import { DirectoryOrigin, appDocumentPath, sha256 } from '../../../scripts/origin.mjs';
+import { bundleHostModule } from '../../web-js/glue.mjs';
+const navigationModule = await bundleHostModule(process.cwd(), 'navigation.js');
 const dir = process.env.EXACT_ROUTER_TEST, dist = resolve(dir, 'dist');
-// `EXACT_ROUTER_TARGET=js` (host/web/tests/it/navigation.rs): the JS target,
-// each plan a JS build (the Caltrain carrier; the plans read no
+// `EXACT_ROUTER_TARGET=js` (host/web/tests/it/navigation.rs): the JS target
+// (LLP 1071), each plan a JS build (the Caltrain carrier; the plans read no
 // sources), its fixture a script ahead of the runtime; else the wasm host,
 // the plan substituted at its boot.
 const js = process.env.EXACT_ROUTER_TARGET === 'js';
@@ -22,15 +24,15 @@ const jsBuild = (plan, out) => {
   // (serve.mjs `buildTreeFile`), and the miss's, where the build wrote one.
   for (const name of ['index.html', 'shell.html', '404.html'].filter((name) => existsSync(`${out}/${name}`))) {
     const page = readFileSync(`${out}/${name}`, 'utf8');
-    writeFileSync(`${out}/${name}`, page.replace('<script type="module" src="./app.js"></script>', `<script>(${jsFixture})()</script><script type="module" src="./app.js"></script>`));
+    writeFileSync(`${out}/${name}`, page.replace('<script type="module" src="./app.js"></script>', `<script>(${jsFixture})(${plan === 'fragment.plan'})</script><script type="module" src="./app.js"></script>`));
   }
-  cpSync('host/web/navigation.js', out + '/navigation.js'); // the host-seam cases import it
+  writeFileSync(out + '/navigation.js', navigationModule); // the host-seam cases import it
   // A bare plan has no bake to copy `manifest.json` from; the link-file case needs a file there.
   writeFileSync(out + '/manifest.json', '{}\n');
 };
 if (js) jsBuild('app.plan', dist);
 else cpSync(process.env.EXACT_ROUTER_DIST, dist, { recursive: true });
-if (!js) for (const name of ['glue.js', 'navigation.js', 'motion-glue.js', 'collection-glue.js']) cpSync('host/web/' + name, dist + '/' + name);
+if (!js) for (const name of ['motion-glue.js', 'collection-glue.js']) cpSync('host/web/' + name, dist + '/' + name);
 const bytes = [...readFileSync(dir + '/app.plan')];
 if (!js) {
   const plan = Buffer.from(bytes), envelope = JSON.parse(readFileSync(dist + '/exact.json', 'utf8'));
@@ -41,15 +43,39 @@ if (!js) {
 const noNavigate = [...readFileSync(dir + '/no-navigate.plan')];
 const noNotfound = [...readFileSync(dir + '/no-notfound.plan')];
 const noRoot = [...readFileSync(dir + '/no-root.plan')];
+// The fixture changes the plan, keeping the carrier's module bytes, identity and grants.
+async function reloadFixture(plan, card) {
+  const envelopeURL = new URL('exact.json', document.baseURI);
+  const envelope = await fetch(envelopeURL).then(r => r.json());
+  const read = async entry => {
+    const response = await fetch(new URL(entry.url, envelopeURL));
+    if (!response.ok) throw new Error(`fixture module HTTP ${response.status}`);
+    return new Uint8Array(await response.arrayBuffer());
+  };
+  const paired = async (entries, field) => {
+    if (!entries) return null;
+    const [receipt, bytes] = await Promise.all([read(entries.receipt), read(entries[field])]);
+    const meta = JSON.parse(new TextDecoder().decode(receipt));
+    meta.plan = card;
+    return { receipt: new TextEncoder().encode(JSON.stringify(meta)), [field === 'web' ? 'script' : 'module']: bytes };
+  };
+  const [module, rust] = await Promise.all([paired(envelope.module, 'web'), paired(envelope.rust?.wasm, 'module')]);
+  return exact.reloadGeneration(new Uint8Array(plan), new Map(), () => true, module, rust);
+}
 // Only substitute the baked plan at the actual wasm's boot ABI. All
 // commits, keyed rows, control presses and journal lines are production.
-function fixture(plan) {
+function fixture(plan, blockDocument = false) {
+  if (blockDocument) {
+    // The replacement plan has no rendered checkpoint to adopt.
+    document.querySelector('script[type="application/vnd.exact.checkpoint"]')?.remove();
+    const image = new Image(); image.hidden = true; image.src = '/__test-document.svg'; document.documentElement.append(image);
+  }
   globalThis.fixtureBoot = crypto.randomUUID();
   globalThis.fixturePlan = plan;
   const agentURL = new URL(location.href); agentURL.searchParams.set('agent', '1');
   history.replaceState(null, '', agentURL);
   const instantiate = WebAssembly.instantiateStreaming;
-  let wrapped = false; // the app's own instantiation; its staged capabilities load as they are
+  let wrapped = false; // the app's own instantiation; its staged capabilities (LLP 1047.000) load as they are
   WebAssembly.instantiateStreaming = async (...args) => {
     if (wrapped) return instantiate(...args);
     wrapped = true;
@@ -77,7 +103,8 @@ function fixture(plan) {
 }
 // The JS target's fixture uses real agent query parameters, as the wasm
 // fixture does, and the same History recorders.
-function jsFixture() {
+function jsFixture(blockDocument = false) {
+  if (blockDocument) { const image = new Image(); image.hidden = true; image.src = '/__test-document.svg'; document.documentElement.append(image); }
   globalThis.fixtureBoot = crypto.randomUUID();
   const agentURL = new URL(location.href); agentURL.searchParams.set('agent', '1');
   history.replaceState(null, '', agentURL);
@@ -100,10 +127,19 @@ if (!js) {
 const published = resolve(dir, 'origin');
 await publishRoot({ origin: new DirectoryOrigin(published), row: {}, web: dist });
 let served = dist;
+const slowPictures = new Set();
+function releasePictures() {
+  for (const res of slowPictures) {
+    res.setHeader('content-type', 'image/svg+xml');
+    res.setHeader('cache-control', 'no-store');
+    res.end('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="180"><rect width="100" height="180"/></svg>');
+  }
+  slowPictures.clear();
+}
 const server = createServer((req, res) => {
   if (req.url === '/__test-mirror') { res.setHeader('content-type', 'text/html'); res.end('<main id="host"></main>'); return; }
   if (req.url === '/__test-guest') { res.setHeader('content-type', 'text/html'); res.end('<script>parent.postMessage("h","*")</script>'); return; }
-  if (req.url === '/__test-slow.png') { setTimeout(() => { res.setHeader('content-type', 'image/png'); res.setHeader('cache-control', 'no-store'); res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64')); }, 2500); return; } // a picture that keeps a fragment's hold (fragment.js)
+  if (['/__test-slow.png', '/__test-document.svg'].includes(req.url)) { slowPictures.add(res); res.on('close', () => slowPictures.delete(res)); return; }
   (js && served !== published ? serveBuildTree : serveStatic)(served, req, res);
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -127,6 +163,10 @@ try {
     const r = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
     if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
     return r.result.value;
+  };
+  const reload = async plan => {
+    const card = { file: 'app.plan', bytes: plan.length, sha256: sha256(Buffer.from(plan)) };
+    assert.equal(await evaluate(`(${reloadFixture})(${JSON.stringify(plan)}, ${JSON.stringify(card)})`), true, 'the paired fixture generation was accepted');
   };
   const until = async expression => {
     for (let n = 0; n < 300; n++) {
@@ -316,7 +356,7 @@ try {
     assert.equal((await state()).slots.blurPresses, 2, 'the retained live editor still delivers blur');
     rows.push({name:'focused route teardown',blurPresses:2,errors:consoleErrors.slice(beforeErrors),logs});
   });
-  // This plan has no strings table, so it names no language, and the running page keeps the one
+  // LLP 1115.000 D4.6: this plan has no strings table, so it names no language, and the running page keeps the one
   // its build wrote from the manifest (the wasm runtime's `language` op used to clear it).
   await run('the running page keeps the manifest\'s lang', async () => {
     await fresh();
@@ -326,7 +366,7 @@ try {
     const n = await fresh();
     await record('boot', '/', n, 1, 0);
     await tap('push-post'); await record('push post', '/post/42', n + 1, 2, 0);
-    // A push of the location shown is no new visit: no history entry.
+    // A push of the location shown is no new visit: no history entry (LLP 1038 `push`).
     await tap('push-post'); const again = await record('push of the top adds nothing', '/post/42', n + 1, 2, 0);
     assert.equal(again.calls.filter(c => c.name === 'pushState').length, 0, 'a same-URL push writes no history entry');
     await historyTap(-1); await until(`location.pathname==='/'`);
@@ -380,8 +420,8 @@ try {
     const looks = await evaluate(`[...document.querySelectorAll('[data-testid$="-${key}"]')].filter(el => el.localName === 'a')
       .map(el => { const s = getComputedStyle(el), p = getComputedStyle(el.parentElement); return [el.dataset.testid.replace('-${key}', ''), s.display, s.textDecorationLine, s.cursor, s.color === p.color]; })`);
     assert.deepEqual(looks.filter(([id]) => ['link-post', 'link-person'].includes(id)),
-      // An inline link run is LinkText; a block link of text is in the accent, not its parent's colour,
-      // and every link points.
+      // An inline link run is LinkText (LLP 1115); a block link of text is in the accent, not its parent's colour,
+      // and every link points (LLP 1116.000 D4).
       [['link-post', 'block', 'none', 'pointer', false], ['link-person', 'inline', 'none', 'pointer', false]]);
     // A same-origin path no pattern declares (a file) is the browser's: a new document.
     await tap('link-file'); await until(`location.pathname==='/manifest.json'`);
@@ -392,7 +432,7 @@ try {
     const pushed = await record('reload prelude', '/post/42', n + 1, 2, 0);
     // The replacement plan has no navigate handler: only the Back control
     // can accept the traversal and perform the app's Back-side effects.
-    await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(noNavigate)}))`);
+    await reload(noNavigate);
     const reloaded = await record('carried router after reload', '/post/42', n + 1, 2, 0);
     assert.deepEqual(reloaded.stamp, pushed.stamp);
     assert.equal(reloaded.calls.length, 0, 'a carried boot writes no History entry');
@@ -405,7 +445,7 @@ try {
     const freshBoot = await record('fresh document starts at index zero', '/post/42', m, 2, 0);
     assert.equal(freshBoot.stamp.exact, 0);
     assert.equal(freshBoot.calls.filter(c => c.name === 'pushState').length, 0);
-  }, 'an in-document plan swap (exact.reload) is the wasm runner\'s; the JS target compiles one plan');
+  }, 'an in-document plan swap (exact.reloadGeneration) is the wasm runner\'s; the JS target compiles one plan');
   await run('Forward whose handler pushes /other', async () => {
     const n = await fresh(); await tap('push-post'); await tap('push-person');
     await historyTap(-1); await until(`location.pathname==='/post/42'`);
@@ -460,8 +500,7 @@ try {
     await historyTap(-1); await until(`location.pathname==='/post/42'`);
     const back = await record('refused Back', '/post/42', n + 1, 2, 0, 'history: Back refused');
     assert.deepEqual(back.calls.filter(c => c.name === 'go').map(c => c.args[0]), [-1, 1]);
-    // One refusal. The fixture's three resources fail (it has no data), and say so in the same log whenever they
-    // settle: before this step's lines begin on a fast boot, among them on a slower one (a page that loads a face).
+    // One refusal.
     assert.equal(back.logs.lines.filter(l => l.includes('Back refused')).length, 1, back.logs.lines.join('\n'));
   });
   await run('Back from a route with no Back control follows navigate', async () => {
@@ -474,20 +513,20 @@ try {
   });
   await run('Back from a route with no Back control and no navigate handler is the runner\'s own back', async () => {
     const n = await fresh(); await tap('push-notifications');
-    await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(noNavigate)}))`);
+    await reload(noNavigate);
     await record('no-control, no-handler prelude', '/notifications', n + 1, 2, 0);
     await historyTap(-1); await until(`location.pathname==='/'`);
-    const back = await record('Back without a control or a handler', '/', n + 1, 1, 0, 'host back');
+    const back = await record('Back without a control or a handler (LLP 1115 D5)', '/', n + 1, 1, 0, 'host back');
     assert.equal(back.navigatePresses, 0);
     assert.deepEqual(back.calls.filter(c => c.name === 'go').map(c => c.args[0]), [-1], 'accepted where it landed: no restoring go');
     assert.equal(back.logs.lines.filter(l => l.includes('history:')).length, 0, 'no Back refused');
-  }, 'an in-document plan swap (exact.reload) is the wasm runner\'s; the JS target compiles one plan');
-  // On both targets: the handler-less plan is the JS target's own build, and the wasm page's swap.
+  }, 'an in-document plan swap (exact.reloadGeneration) is the wasm runner\'s; the JS target compiles one plan');
+  // LLP 1115.000 D4.3, on both targets: the handler-less plan is the JS target's own build, and the wasm page's swap.
   await run('a link to a route and the browser\'s Forward with no navigate handler are the runner\'s own go', async () => {
     if (js) { served = dir + '/no-navigate'; jsBuild('no-navigate.plan', served); }
     try {
       const n = await fresh();
-      if (!js) await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(noNavigate)}))`);
+      if (!js) await reload(noNavigate);
       const boot = await evaluate('fixtureBoot'), own = js ? null : 'host go'; // the JS runtime journals no commit
       await record('no-handler boot', '/', n, 1, 0);
       await tap('link-post'); await until(`location.pathname==='/post/42'`);
@@ -546,7 +585,7 @@ try {
     assert.equal(launched.calls.find(c => c.name === 'replaceState').args[2], url + '//evil.invalid/x?agent=1');
     assert.deepEqual(consoleLines, [], 'no browser exception for a double-slash notfound location');
   });
-  // On both targets: an app with no `notfound` route is given one and its screen ("Page not found", a way
+  // LLP 1116.009 D2, on both targets: an app with no `notfound` route is given one and its screen ("Page not found", a way
   // home), so a launch at a location no route matches keeps its URL and boots. The JS target builds the plan that declares
   // none; the wasm page launches the plan that does at the location, then swaps for one that does not, whose table (the
   // compiler's written `notfound`) still describes the carried stack.
@@ -555,7 +594,7 @@ try {
     try {
       const lines = consoleLines.length;
       const n = await fresh('/absent/path');
-      if (!js) await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(noNotfound)}))`);
+      if (!js) await reload(noNotfound);
       const kept = await record('unmatched launch', '/absent/path', n, 2, 0);
       assert.equal(kept.calls.filter(c => c.name === 'pushState').length, 0, 'the entry is replaced, not pushed');
       assert.equal(await evaluate(`document.querySelector('[data-testid="not-found-message"]')?.textContent`), 'There is no page at /absent/path.');
@@ -575,7 +614,7 @@ try {
     try {
       const lines = consoleLines.length;
       await fresh('/absent/path');
-      if (!js) await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(noRoot)}))`);
+      if (!js) await reload(noRoot);
       await until(`location.pathname === '/'`);
       const got = await evaluate(`(async()=>{const state=await exact.agent({op:'state'}); return {url:state.slots.nav.tabs[0].stack.at(-1).url, depth:state.slots.nav.tabs[0].stack.length, logs:(await exact.agent({op:'logs',since:0})).lines}})()`);
       assert.deepEqual([got.url, got.depth], ['/', 1]);
@@ -725,7 +764,7 @@ try {
       assert.equal((await session.state()).slots.backPresses, 1);
     } finally { await session.close(); }
   });
-  // A fragment's scroll, in a navigation root that scrolls: at launch; again by a link to the
+  // @ref LLP 1153 D5 — a fragment's scroll, in a navigation root that scrolls: at launch; again by a link to the
   // fragment shown, though the person scrolled since; never for a navigation a refused commit made, or one only
   // computed. Back to an entry whose router is the router shown puts back the place it had; a newer destination and the
   // app's own scrollIntoView win over the hold while a picture loads.
@@ -733,16 +772,29 @@ try {
     const original = js ? null : readFileSync(dist + '/index.html', 'utf8');
     if (js) { served = dir + '/fragment'; jsBuild('fragment.plan', served); }
     else writeFileSync(dist + '/index.html', readFileSync(process.env.EXACT_ROUTER_DIST + '/index.html', 'utf8').replace('<script type="module" src="./glue.js"></script>',
-      `<script>(${fixture})(${JSON.stringify([...readFileSync(dir + '/fragment.plan')])})</script><script type="module" src="./glue.js"></script>`));
+      `<script>(${fixture})(${JSON.stringify([...readFileSync(dir + '/fragment.plan')])}, true)</script><script type="module" src="./glue.js"></script>`));
     try {
       const port = () => evaluate(`document.querySelector('[data-testid="port"]').scrollTop`);
       const offset = id => evaluate(`(()=>{const p=document.querySelector('[data-testid="port"]'),e=document.getElementById('${id}');return Math.round(e.getBoundingClientRect().top-p.getBoundingClientRect().top+p.scrollTop);})()`);
       const centre = id => evaluate(`(()=>{const r=document.querySelector('[data-testid="${id}"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
-      const pause = ms => evaluate(`new Promise(r => setTimeout(r, ${ms}))`);
+      const frames = () => evaluate('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))');
       const press = async id => { const at = await centre(id); for (const type of ['mousePressed', 'mouseReleased']) await call('Input.dispatchMouseEvent', { type, button: 'left', clickCount: 1, ...at }); };
-      const wheel = async dy => { await call('Input.dispatchMouseEvent', { type: 'mouseWheel', deltaX: 0, deltaY: dy, ...await centre('port') }); await pause(400); };
+      const wheel = async dy => {
+        const destination = Math.max(0, await port() + dy);
+        await evaluate(`(globalThis.fixtureWheelEnded = false, document.querySelector('[data-testid="port"]').addEventListener('scrollend', () => { fixtureWheelEnded = true; }, { once: true }), true)`);
+        await call('Input.dispatchMouseEvent', { type: 'mouseWheel', deltaX: 0, deltaY: dy, ...await centre('port') });
+        await at(destination, 'the wheel reaches its destination');
+        await until('fixtureWheelEnded');
+      };
       const at = (to, why) => until(`Math.round(document.querySelector('[data-testid="port"]').scrollTop) === ${to}`).catch(async () => assert.fail(`${why}: the port is at ${await port()}, not ${to}`));
+      const landPicture = async () => {
+        assert.ok(slowPictures.size, 'the picture is still pending');
+        releasePictures();
+        await until('[...document.images].every(image => image.complete)');
+        await frames();
+      };
       const launch = async () => {
+        releasePictures();
         const before = await evaluate('globalThis.fixtureBoot ?? null');
         await call('Page.resetNavigationHistory');
         await call('Page.navigate', { url: 'about:blank' }); // else, at that URL, only a fragment's navigation
@@ -752,38 +804,60 @@ try {
         if (js) await evaluate(`(exact.agent = exact.agentSettled, true)`);
         const moves = await offset('moves');
         await at(moves, 'the launch at #moves');
+        await evaluate(`document.querySelector('[data-testid="port"]').style.overflowAnchor = 'none'`);
         return moves;
       };
-      const moves = await launch();
+      await launch();
+      await landPicture();
+      const moves = await offset('moves');
+      await at(moves, 'the fragment follows the picture\'s natural height');
+      await launch();
+      await press('to-other');
+      await landPicture();
+      await at(await offset('other'), 'a newer fragment replaces the picture hold');
+      await launch();
+      await wheel(-300);
+      const chosen = await port();
+      await landPicture();
+      assert.equal(await port(), chosen, 'the person cancels the picture hold');
+      await launch();
       await wheel(-300);
       const scrolled = await port();
       assert.ok(scrolled < moves, `the wheel scrolled: ${scrolled}`);
-      await press('refused'); await pause(300);
+      await press('refused'); await frames();
       assert.equal(await port(), scrolled, 'a navigation in a refused commit scrolls nothing');
-      await press('peek'); await pause(300);
+      await press('peek'); await frames();
       assert.equal(await port(), scrolled, 'a navigation only computed scrolls nothing');
       assert.equal((await state()).slots.peeked, 'moves');
-      await press('to-moves'); await at(moves, 'a link to the fragment shown, after the person scrolled');
+      const unloadedMoves = await offset('moves');
+      await press('to-moves'); await at(unloadedMoves, 'a link to the fragment shown, after the person scrolled');
       await wheel(-300);
       const kept = await port();
       await press('to-other'); await at(await offset('other'), '#other');
-      await press('to-moves'); await at(moves, '#moves again');
-      // Loaded: while its document loads, Chrome holds its own fragment's element in view after a traversal.
-      await until('[...document.images].every(image => image.complete)');
+      await press('to-moves'); await at(unloadedMoves, '#moves again');
+      await wheel(-200);
+      const forward = await port();
+      assert.notEqual(forward, unloadedMoves, 'the entry is left away from its fragment');
+      assert.notEqual(await evaluate('document.readyState'), 'complete', 'the traversal happens while the document loads');
       await evaluate('history.go(-2)');
       await at(kept, 'Back two entries, to #moves as it was left');
+      await evaluate('history.go(2)');
+      await at(forward, 'Forward two entries, to #moves as it was left');
+      await landPicture();
+      await at(forward, 'the traversed entry keeps its place when the picture lands');
       await launch();
       const start = await offset('first'); // the route's, below the bar
       await press('to-top'); await at(start, '#top');
-      await pause(3000);
+      await landPicture();
       assert.equal(await port(), start, 'the picture landed, and #top stands');
       await launch();
       await press('aim');
       const row = await offset('row-3');
       await at(row, "the app's scrollIntoView");
-      await pause(3000);
+      await landPicture();
       assert.equal(await port(), row, "the picture landed, and the app's place stands");
-    } finally { served = dist; if (original !== null) writeFileSync(dist + '/index.html', original); }
+      console.log(`fragment (${js ? 'JS' : 'wasm'}): launch, image alignment, cancellation and history passed`);
+    } finally { releasePictures(); served = dist; if (original !== null) writeFileSync(dist + '/index.html', original); }
   });
   await run('autofocus preserves existing focus, and a reload keeps it at its place', async () => {
     served = dist;
@@ -808,18 +882,19 @@ try {
     await evaluate(`(async()=>{await exact.agent({op:'clock',to:1000}); await exact.agent({op:'clock',to:2000});})()`);
     assert.equal(await first(), 'other');
     // The JS target compiles one plan: it has no carried reload to keep focus through.
-    if (js) { served = dist; skipped.push({ name: 'autofocus: a carried reload keeps focus at its place', why: 'an in-document plan swap (exact.reload) is the wasm runner\'s' }); return; }
-    // A carried reload is the same document: focus stays at
+    if (js) { served = dist; skipped.push({ name: 'autofocus: a carried reload keeps focus at its place', why: 'an in-document plan swap (exact.reloadGeneration) is the wasm runner\'s' }); return; }
+    // A carried reload is the same document (LLP 1035.000 D9): focus stays at
     // Other's place in the tree, and First's autofocus does not take it back.
-    await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(plan)}))`);
+    await reload(plan);
     assert.equal(await first(), 'other');
     assert.equal(await evaluate(`document.querySelector('[data-testid="first"]').hasAttribute('autofocus')`), false);
   });
 
 } finally {
   if (process.env.EXACT_ROUTER_EVIDENCE) { mkdirSync(process.env.EXACT_ROUTER_EVIDENCE, { recursive: true }); writeFileSync(process.env.EXACT_ROUTER_EVIDENCE + '/browser.json', JSON.stringify({ rows, failures, consoleLines }, null, 2)); }
-  process.kill(-child.pid, 'SIGKILL'); await exited;
-  server.close(); server.closeAllConnections();
+  try { await quitBrowser(child, cdp, exited); }
+  finally { server.close(); server.closeAllConnections(); }
+  rmSync(dir + '/chrome', { recursive: true, force: true });
 }
 assert.deepEqual(failures, []);
 console.log(`router browser${js ? ' (the JS target)' : ''}: all session-history and serving cases passed${js ? `; ${skipped.length} not the JS target's: ${skipped.map(s => s.name).join('; ')}` : ''}`);

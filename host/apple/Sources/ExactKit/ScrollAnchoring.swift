@@ -1,11 +1,11 @@
 // CSS Scroll Anchoring (https://drafts.csswg.org/css-scroll-anchoring/) for a
-// plain scroll container on the Apple hosts. `overflow-anchor:
+// plain scroll container on the Apple hosts (#138 X23d). `overflow-anchor:
 // auto` is CSS's default, so a browser keeps the visible content still when
 // a box above the port changes size or is inserted: it selects an anchor node
 // before layout and moves the scroll offset by the anchor's movement after.
-// The web gets it from the browser; a list is the runner's.
-// Here the presenter snapshots before each batch and restores after layout,
-// with the spec's selection, exclusions and suppression triggers.
+// The web gets it from the browser; a list is the runner's (LLP 1010 §6.6).
+// Here the presenter snapshots before each batch and restores after layout
+// (LLP 1001), with the spec's selection, exclusions and suppression triggers.
 // Not here: `overflow-anchor: none` (not a Contract property), find-in-page
 // priority candidates, and the inline axis.
 #if os(iOS) || os(tvOS)
@@ -46,7 +46,7 @@ enum ScrollAnchoring {
         min(max(top + after - before, minimum), max(minimum, maximum))
     }
 
-    /// The suppression triggers' properties (CSS Scroll Anchoring §2.4): a change to one on
+    /// The suppression triggers' properties (spec §2.4): a change to one on
     /// the anchor or a box between it and the scroller cancels the adjustment.
     static let layoutKeys: Set<String> = [
         "top", "left", "right", "bottom", "inset", "position_type",
@@ -61,7 +61,7 @@ enum ScrollAnchoring {
         /// Boxes whose layout properties changed.
         var layout: Set<UInt32> = []
         /// Boxes that became, or stopped being, out of flow. The spec suppresses
-        /// for one anywhere in the scroller (CSS Scroll Anchoring §2.4, "becomes or stops being
+        /// for one anywhere in the scroller (§2.4, "becomes or stops being
         /// absolutely positioned"), not only on the anchor's chain.
         var positioned: Set<UInt32> = []
         mutating func note(_ id: UInt32, from old: NodeStyle, to new: NodeStyle, popover: Bool) {
@@ -79,7 +79,7 @@ enum ScrollAnchoring {
         mutating func reset() { layout.removeAll(keepingCapacity: true); positioned.removeAll(keepingCapacity: true) }
     }
 
-    /// Excluded subtrees (CSS Scroll Anchoring §2.3): `display: none`, a fixed or sticky box,
+    /// Excluded subtrees (spec §2.3): `display: none`, a fixed or sticky box,
     /// and an absolute one whose containing block is outside the scroller.
     static func excluded(_ node: NodeView, scroller: NodeView) -> Bool {
         if node.style["display"]?.string == "none" { return true }

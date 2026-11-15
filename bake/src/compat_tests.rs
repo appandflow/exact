@@ -151,6 +151,29 @@ fn widget_gallery_labels_require_a_new_binary_cohort() {
         build(&watch).id,
         "watch families are generated Swift"
     );
+    let mut configured = manifest.clone();
+    configured.json["widgets"][0]["configuration"] = serde_json::json!({"title":"Card",
+        "parameters":[{"name":"rows","type":"enum","title":"Rows","values":[{"value":"one","title":"1"}]}]});
+    assert_ne!(
+        original.id,
+        build(&configured).id,
+        "a configuration is a generated intent"
+    );
+    let implicit = build(&configured).id;
+    configured.json["widgets"][0]["configuration"]["parameters"][0]["default"] =
+        serde_json::json!("one");
+    assert_eq!(
+        implicit,
+        build(&configured).id,
+        "an omitted default is normalized"
+    );
+    configured.json["widgets"][0]["configuration"]["parameters"][0]["values"][0]["title"] =
+        serde_json::json!("One row");
+    assert_ne!(
+        implicit,
+        build(&configured).id,
+        "the option's label is generated metadata"
+    );
     manifest.json["widgets"][0]["preview"] = serde_json::json!({"title":"new preview"});
     assert_eq!(
         original.id,
@@ -203,6 +226,7 @@ fn list_scroll_offset_requires_a_new_binary_cohort() {
             let shape = match *name {
                 "share" => "3",
                 "stopSounds" => "1",
+                "setSounds" => "5",
                 "playSounds" => "1:4|5|6",
                 "playSound" => "6",
                 "sendMIDI" => "3",
@@ -349,7 +373,7 @@ fn app(name: &str) -> PathBuf {
     std::fs::write(dir.join("data/src/lib.rs"), "pub struct App;\n").unwrap();
     std::fs::write(
         dir.join("data/Cargo.toml"),
-        "[package]\nname = \"app-data\"\n",
+        "[package]\nname = \"app-data\"\n\n[workspace]\n",
     )
     .unwrap();
     std::fs::write(
@@ -422,7 +446,7 @@ fn the_id_is_stable_and_moves_only_with_identity() {
     let first = id(&dir, "ios");
     assert_eq!(first.len(), 32, "{first}");
     assert_eq!(first, id(&dir, "ios"), "stable across computations");
-    // Policy is not identity.
+    // Policy is not identity (LLP 1030 D2).
     let manifest = std::fs::read_to_string(dir.join("app.json")).unwrap();
     std::fs::write(
         dir.join("app.json"),
@@ -432,7 +456,7 @@ fn the_id_is_stable_and_moves_only_with_identity() {
     assert_eq!(first, id(&dir, "ios"), "deploy.origin does not move it");
     // A platform is a cohort of its own.
     assert_ne!(first, id(&dir, "macos"), "platform moves it");
-    // An icon a plan may select is identity.
+    // An icon a plan may select is identity (D3a).
     let manifest = std::fs::read_to_string(dir.join("app.json")).unwrap();
     std::fs::write(
         dir.join("app.json"),
@@ -444,7 +468,7 @@ fn the_id_is_stable_and_moves_only_with_identity() {
     .unwrap();
     let with_icon = id(&dir, "ios");
     assert_ne!(first, with_icon, "an added icon moves it");
-    // Which GPU artifact owns a surface is identity; an
+    // Which GPU artifact owns a surface is identity (LLP 1009 D6); an
     // app with one artifact carries no key at all.
     let manifest = std::fs::read_to_string(dir.join("app.json")).unwrap();
     let m = Manifest::read(&dir).unwrap();
@@ -469,7 +493,7 @@ fn the_id_is_stable_and_moves_only_with_identity() {
     std::fs::write(dir.join("app.json"), &manifest).unwrap();
     // A TypeScript module runs on the binary's prelude: its runtime is
     // identity, so a bundle using `exactBodyFrom` never reaches a shell
-    // whose prelude would send an empty body.
+    // whose prelude would send an empty body (LLP 1108 D6 R2).
     let m = Manifest::read(&dir).unwrap();
     assert!(inputs(&m).get("typescriptRuntime").is_none());
     std::fs::write(dir.join("app.ts"), "export const appId = 'x';\n").unwrap();
@@ -479,6 +503,19 @@ fn the_id_is_stable_and_moves_only_with_identity() {
     std::fs::write(dir.join("data/src/lib.rs"), "pub struct App; // moved\n").unwrap();
     let moved = id(&dir, "ios");
     assert_ne!(with_icon, moved, "a data crate edit moves it");
+    // A target branch is accepted, and an edit to an arm this target never
+    // compiles moves its id all the same (LLP 1030 D3a, amended 2026-11-12).
+    let branch = |n: u32| {
+        format!("pub struct App;\n#[cfg(target_os = \"macos\")]\npub const N: u32 = {n};\n#[cfg(not(target_os = \"macos\"))]\npub const N: u32 = 0;\n")
+    };
+    std::fs::write(dir.join("data/src/lib.rs"), branch(7)).unwrap();
+    let mac_arm = id(&dir, "ios");
+    std::fs::write(dir.join("data/src/lib.rs"), branch(8)).unwrap();
+    assert_ne!(
+        mac_arm,
+        id(&dir, "ios"),
+        "an edit to the macOS arm moves the iOS id"
+    );
     // A `data/` of TypeScript modules is no crate: its edits are not identity.
     std::fs::remove_file(dir.join("data/Cargo.toml")).unwrap();
     let typescript = id(&dir, "ios");
@@ -550,8 +587,8 @@ fn shortcuts_move_a_native_binary_but_not_the_web() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-/// A faced tool's signature is compiled into the Apple and Android doors:
-/// a change to it moves those binaries' id, never the
+/// A faced tool's signature is compiled into the Apple and Android doors
+/// (LLP 1133.023 D8): a change to it moves those binaries' id, never the
 /// web's or tvOS's, and an unfaced tool moves none.
 #[test]
 fn a_faced_tools_signature_moves_the_binaries_with_its_door() {
@@ -645,7 +682,7 @@ fn the_inputs_name_every_field_and_an_undeclared_app_gets_defaults() {
         assert!(i.get(key).is_some(), "missing {key}: {i}");
     }
     assert_eq!(i["abi"]["c"], super::abi_version().unwrap());
-    // No `rust.module`: nothing to replace, so no executor.
+    // No `rust.module`: nothing to replace, so no executor (LLP 1047.001 D7).
     assert_eq!(i["rustMode"], "off");
     assert!(i["rustAbi"].is_null());
     assert!(i["rustTarget"].is_null());
@@ -665,7 +702,7 @@ fn the_inputs_name_every_field_and_an_undeclared_app_gets_defaults() {
     );
     assert_eq!(i["grantCeiling"], "net.fetch https://x/");
     assert!(c.to_json().starts_with("{\"id\":\""));
-    // Policy rides beside the id: the channel, its
+    // Policy rides beside the id (LLP 1030.000 D4): the channel, its
     // origin, and when a staged bundle applies — `next-launch` unsaid.
     assert!(
         c.to_json().contains(
@@ -688,7 +725,7 @@ fn the_inputs_name_every_field_and_an_undeclared_app_gets_defaults() {
 }
 #[test]
 fn an_executor_is_linked_only_for_a_named_module() {
-    // iOS defaults to the interpreter,
+    // LLP 1047.001 D7: iOS defaults to the interpreter (LLP 1029.000),
     // but only an app that names a module has anything for it to run.
     let dir = app("rust-module-gate");
     let mut manifest = Manifest::read(&dir).unwrap();
@@ -716,13 +753,35 @@ fn an_executor_is_linked_only_for_a_named_module() {
 
 #[test]
 fn rust_capability_receipts_bind_executor_abi_target_and_module() {
+    assert_eq!(super::RUST_ABI, 12);
     let dir = app("rust-capabilities");
     let mut manifest = Manifest::read(&dir).unwrap();
     let mut ids = Vec::new();
-    for (mode, target, executor) in [
-        ("native", Some("aarch64-apple-darwin"), Some("native-dylib")),
-        ("wasm", Some("wasm32-unknown-unknown"), Some("wasmi")),
-        ("off", None, None),
+    for (mode, target, executors, kinds) in [
+        (
+            "native",
+            Some("aarch64-apple-darwin"),
+            serde_json::json!(["native", "native-dylib"]),
+            serde_json::json!(["plan", "assets"]),
+        ),
+        (
+            "wasm",
+            Some("wasm32-unknown-unknown"),
+            serde_json::json!(["native", "wasmi"]),
+            serde_json::json!(["plan", "assets", "wasm"]),
+        ),
+        (
+            "tiered",
+            Some("aarch64-apple-darwin"),
+            serde_json::json!(["native", "native-dylib", "wasmi"]),
+            serde_json::json!(["plan", "assets", "wasm"]),
+        ),
+        (
+            "off",
+            None,
+            serde_json::json!(["native"]),
+            serde_json::json!(["plan", "assets"]),
+        ),
     ] {
         manifest.json["rust"] = serde_json::json!({"mode":mode,"module":{"package":"app-logic"}});
         let receipt = compatibility_with_trust(
@@ -744,11 +803,13 @@ fn rust_capability_receipts_bind_executor_abi_target_and_module() {
                 serde_json::json!(super::RUST_ABI)
             }
         );
-        let expected = executor.map_or_else(
-            || serde_json::json!(["native"]),
-            |e| serde_json::json!(["native", e]),
-        );
-        assert_eq!(receipt.inputs["executors"], expected);
+        assert_eq!(receipt.inputs["executors"], executors, "{mode}");
+        assert_eq!(receipt.inputs["store"]["acceptedKinds"], kinds, "{mode}");
+        if matches!(mode, "wasm" | "tiered") {
+            let mut old = receipt.inputs.clone();
+            old["store"]["acceptedKinds"] = serde_json::json!(["plan", "assets"]);
+            assert_ne!(receipt.id, super::compatibility_digest(&old), "{mode}");
+        }
         assert!(
             !ids.contains(&receipt.id),
             "executor capability changes cohort identity"
@@ -756,6 +817,69 @@ fn rust_capability_receipts_bind_executor_abi_target_and_module() {
         ids.push(receipt.id);
     }
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn swappable_receipts_name_wasmi_and_move_the_compatibility_id() {
+    use serde_json::json;
+    let dir = app("swappable-executor");
+    std::fs::create_dir_all(dir.join("apple/src")).unwrap();
+    std::fs::write(dir.join("apple/src/lib.rs"), "Swappable<App>\n").unwrap();
+    let mut manifest = Manifest::read(&dir).unwrap();
+    for (platform, target) in [
+        ("ios", "aarch64-apple-ios"),
+        ("macos", "aarch64-apple-darwin"),
+        ("linux", "x86_64-unknown-linux-gnu"),
+    ] {
+        let receipt =
+            compatibility_with_trust(&dir, platform, target, &manifest, Some(""), "development")
+                .unwrap();
+        let serialized: serde_json::Value = serde_json::from_str(&receipt.to_json()).unwrap();
+        assert_eq!(
+            serialized["inputs"]["executors"],
+            json!(["native", "wasmi"])
+        );
+        assert_eq!(
+            serialized["inputs"]["store"]["acceptedKinds"],
+            json!(["plan", "assets", "wasm"])
+        );
+        let mut old = receipt.inputs.clone();
+        old["executors"] = json!(["native", "wasmtime"]);
+        assert_ne!(receipt.id, super::compatibility_digest(&old), "{platform}");
+    }
+    std::fs::write(dir.join("app.ts"), "").unwrap();
+    let receipt = |manifest: &Manifest| {
+        compatibility_with_trust(
+            &dir,
+            "linux",
+            "x86_64-unknown-linux-gnu",
+            manifest,
+            Some(""),
+            "development",
+        )
+        .unwrap()
+    };
+    let mixed = receipt(&manifest);
+    assert_eq!(
+        mixed.inputs["executors"],
+        json!(["hermes", "native", "wasmi"])
+    );
+    assert_eq!(
+        mixed.inputs["store"]["acceptedKinds"],
+        json!(["plan", "assets", "bytecode", "wasm"])
+    );
+    manifest.json["deploy"]["store"] = json!({"linux":"0"});
+    assert_eq!(
+        receipt(&manifest).inputs["store"]["acceptedKinds"],
+        json!([])
+    );
+    std::fs::create_dir_all(dir.join("linux/src")).unwrap();
+    std::fs::write(dir.join("linux/src/lib.rs"), "pub struct App;\n").unwrap();
+    assert_eq!(
+        receipt(&manifest).inputs["executors"],
+        json!(["hermes", "native"])
+    );
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -802,7 +926,7 @@ fn web_receipts_name_the_linked_composition_and_refuse_an_unlinked_store() {
         let plain =
             compatibility_with_trust(&dir, "web", "wasm32", &manifest, None, "production").unwrap();
         assert_eq!(plain.inputs["store"]["L"], "0");
-        // No `rust.module`, so no Rust executor.
+        // No `rust.module`, so no Rust executor (LLP 1047.001 D7).
         assert_eq!(
             plain.inputs["executors"],
             serde_json::json!(["browser", "native"])
@@ -826,6 +950,66 @@ fn web_receipts_name_the_linked_composition_and_refuse_an_unlinked_store() {
         let error = compatibility_with_trust(&dir, "web", "wasm32", &manifest, None, "production")
             .unwrap_err();
         assert!(error.contains("web host links no updater"), "{error}");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// The APK links no update store (host/android/README.md), so its bake
+/// records none, whatever the Linux binary of the same app has, and
+/// production trust asks for no stream.
+#[test]
+fn the_android_bake_records_no_updater_and_refuses_one() {
+    let dir = app("android-store");
+    let mut manifest = Manifest::read(&dir).unwrap();
+    manifest.json["app"]["origin"] = serde_json::json!("https://updates.example");
+    let android = |m: &Manifest| {
+        compatibility_with_trust(
+            &dir,
+            "linux",
+            "aarch64-linux-android",
+            m,
+            None,
+            "production",
+        )
+    };
+    for store in [None, Some("0")] {
+        manifest.json["deploy"]["store"] = match store {
+            Some(store) => serde_json::json!({"linux":"A","android":store}),
+            None => serde_json::json!({"linux":"A"}),
+        };
+        let plain = android(&manifest).unwrap();
+        assert_eq!(plain.inputs["store"]["L"], "0");
+        assert!(plain.inputs["keys"].is_null());
+        assert!(plain.inputs["trust"].is_null());
+        assert!(plain.origin.is_none());
+    }
+    let linux =
+        compatibility_with_trust(&dir, "linux", "aarch64", &manifest, None, "development").unwrap();
+    assert_eq!(linux.inputs["store"]["L"], "A", "Linux keeps its store");
+    // No Rust executor either (LLP 1030.006 D1), though a Linux binary of the
+    // same app replaces its module.
+    manifest.json["rust"] = serde_json::json!({"module":{"package":"app-logic"}});
+    manifest.json["deploy"]["store"]["linux"] = serde_json::json!("0");
+    for trust in ["development", "production"] {
+        let linux =
+            compatibility_with_trust(&dir, "linux", "aarch64", &manifest, None, trust).unwrap();
+        assert_eq!(linux.inputs["rustMode"], "native", "{trust}");
+        let android = compatibility_with_trust(
+            &dir,
+            "linux",
+            "aarch64-linux-android",
+            &manifest,
+            None,
+            trust,
+        )
+        .unwrap();
+        assert_eq!(android.inputs["rustMode"], "off", "{trust}");
+        assert!(android.inputs["rustAbi"].is_null(), "{trust}");
+    }
+    for setting in [serde_json::json!("A"), serde_json::json!(0)] {
+        manifest.json["deploy"]["store"]["android"] = setting;
+        let error = android(&manifest).unwrap_err();
+        assert!(error.contains("Android host links no updater"), "{error}");
     }
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -895,12 +1079,29 @@ fn production_trust_requires_keys_and_has_a_distinct_cohort() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// A module needs the newest runtime whose option it names,
+/// LLP 1016.000 D10: a module needs the newest runtime whose option it names,
 /// so one that uses nothing newer goes to a binary whose prelude is older.
 #[test]
 fn a_bundle_needs_the_runtime_of_the_newest_option_it_names() {
-    use super::typescript_runtime_of as needs;
+    let needs = |bundle: &[u8]| super::typescript_runtime_of(bundle, "");
     assert_eq!(needs(b"export const answer = () => 'idle';"), 0);
+    assert_eq!(needs(b"fetch(u)"), 0);
+    assert_eq!(needs(b"fetch(u, {exactPrefetch: true})"), 13);
+    assert_eq!(
+        needs(b"fetch(u, {exactPrefetch: true, exactPreload: 'feed'})"),
+        13
+    );
+    assert_eq!(needs(b"fetch(u, {exactPreload: 'feed'})"), 13);
+    assert_eq!(
+        needs(b"fetch(u, {exactPreload: 'feed', cache: 'default'})"),
+        13
+    );
+    assert_eq!(needs(b"fetch(u, {redirect: 'manual'})"), 2);
+    assert_eq!(needs(b"fetch(u, {cache: 'no-store'})"), 11);
+    assert_eq!(
+        needs(b"fetch(u, {cache: 'default', exactIdleTimeout: n})"),
+        11
+    );
     assert_eq!(needs(b"fetch(u, {exactBodyFrom: p})"), 1);
     assert_eq!(needs(b"fetch(u, {exactBodyTo: p, exactBodyFrom: q})"), 4);
     assert_eq!(needs(b"fetch(u, {signal: AbortSignal.timeout(5e3)})"), 5);
@@ -908,25 +1109,62 @@ fn a_bundle_needs_the_runtime_of_the_newest_option_it_names() {
         needs(b"fetch(u, {method:\"POST\",exactUploadProgress:!0,exactStream:m})"),
         5
     );
-    // The file-lock operations.
+    // LLP 1133.007 D6a's operations.
     assert_eq!(
         needs(b"const l = await storage.fs.flock(p, {timeout: 0})"),
         6
     );
     assert_eq!(needs(b"(await fs.lstat(p)).isSymbolicLink"), 6);
-    assert_eq!(needs(b"return new Response(body, {status: 201})"), 7);
-    assert_eq!(needs(b"return new globalThis.Response(body)"), 7);
-    assert_eq!(needs(b"return Response.redirect(u, 303)"), 7);
+    assert_eq!(needs(b"return new Response(body, {status: 201})"), 8);
+    assert_eq!(needs(b"return new globalThis.Response(body)"), 8);
+    assert_eq!(needs(b"return Response.redirect(u, 303)"), 8);
     assert_eq!(needs(b"const copy = (await fetch(u)).clone()"), 7);
     assert_eq!(needs(b"const copy = r.clone.call(r)"), 7);
     assert_eq!(needs(b"const {clone: copy} = r; return copy.call(r)"), 7);
     assert_eq!(needs(b"return (await fetch(u)).statusText"), 7);
     assert_eq!(needs(b"if (r.bodyUsed) return"), 7);
     assert_eq!(needs(b"const c = structuredClone(v)"), 0);
+    assert_eq!(needs(b"return Response.json({a: 1})"), 8);
+    // LLP 1016.000 D11's idle timeout.
     assert_eq!(
-        needs(b"return Response.json({a: 1})"),
-        super::TYPESCRIPT_RUNTIME
+        needs(b"fetch(u, {exactStream: m, exactIdleTimeout: 6e4})"),
+        9
     );
+    assert_eq!(
+        needs(b"fetch(u, {exactStream: m, exactProtocols: names})"),
+        12
+    );
+    // LLP 1153.002: the bundle's launch module asks for the settings a launch may give.
+    assert_eq!(
+        needs(b"var exact = (function(exports) {\n__exact_launch_settings([\"API_BASE_URL\"]);"),
+        14
+    );
+    // A transaction's options are data: what decides 10 is the grant.
+    assert_eq!(needs(b"await db.transaction(m.commands, m.options)"), 0);
+    let with = |grants: &str| {
+        super::typescript_runtime_of(b"await db.transaction(m.commands, m.options)", grants)
+    };
+    assert_eq!(with("sqlite.open app:/data/a.db"), 10);
+    assert_eq!(with("fs.read app:/data\n  sqlite.open app:/data"), 10);
+    assert_eq!(with("# sqlite.open app:/data/a.db\nfs.read app:/data"), 0);
+    assert_eq!(with("fs.write app:/data/sqlite.open"), 0);
+}
+
+#[test]
+fn stream_bodies_require_a_runtime_that_reads_or_refuses_them() {
+    for bundle in [
+        "new Response(stream).arrayBuffer()",
+        "fetch(url, {method: 'POST', body: new ReadableStream(source)})",
+        "fetch(url, {method: 'POST', body: new CompressionStream('gzip').readable})",
+        "fetch(url, {method: 'POST', body: new DecompressionStream('gzip').readable})",
+        "fetch(url, {method: 'POST', body: new TransformStream().readable})",
+    ] {
+        assert_eq!(
+            super::typescript_runtime_of(bundle.as_bytes(), ""),
+            8,
+            "{bundle}"
+        );
+    }
 }
 
 /// A module client with a store pins its compiled module into the id:
@@ -945,6 +1183,7 @@ fn a_stored_module_client_pins_its_module_into_the_id() {
             None,
             None,
             module,
+            &serde_json::Value::Null,
         )
         .unwrap()
     };
@@ -984,4 +1223,111 @@ fn a_store_pins_the_compiled_module_and_its_hash_is_required_without_one_too() {
     manifest.json["deploy"] = serde_json::json!({"store": {"ios": "0"}});
     assert_eq!(stored_module(&meta, &manifest, "ios"), Ok(None));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Writes a crate named `name` at `dir` whose manifest ends with `deps`.
+fn krate(dir: &Path, name: &str, deps: &str) {
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(dir.join("src/lib.rs"), "pub const A: u8 = 1;\n").unwrap();
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n{deps}"),
+    )
+    .unwrap();
+}
+
+/// The binary links the path crates its data crate depends on: an edit to
+/// one moves the id, as an edit to `data/` does; a dev-dependency's does not.
+#[test]
+fn the_data_crates_path_dependencies_are_identity() {
+    let dir = app("path-deps");
+    let inputs = || {
+        let m = Manifest::read(&dir).unwrap();
+        compatibility_with_trust(
+            &dir,
+            "ios",
+            "aarch64-apple-ios",
+            &m,
+            Some(""),
+            "development",
+        )
+        .unwrap()
+        .inputs
+    };
+    assert!(inputs()["dataCrate"].get("crates").is_none());
+    let workspace = "[workspace]\nmembers = [\"data\"]\nresolver = \"2\"\n";
+    std::fs::write(dir.join("Cargo.toml"), workspace).unwrap();
+    krate(
+        &dir.join("data"),
+        "app-data",
+        "[dependencies]\nparse = { path = \"../parse\" }\n\
+         [dev-dependencies]\ntool = { path = \"../tool\" }\n",
+    );
+    let leaf = "[build-dependencies]\nleaf = { path = \"../leaf\" }\n";
+    krate(&dir.join("parse"), "parse", leaf);
+    krate(&dir.join("leaf"), "leaf", "");
+    krate(&dir.join("tool"), "tool", "");
+    let crates = inputs()["dataCrate"]["crates"].clone();
+    let names: Vec<&String> = crates.as_object().unwrap().keys().collect();
+    assert_eq!(
+        names,
+        ["leaf", "parse"],
+        "the closure, less dev-dependencies"
+    );
+    let first = id(&dir, "ios");
+    std::fs::write(dir.join("tool/src/lib.rs"), "pub const A: u8 = 2;\n").unwrap();
+    assert_eq!(first, id(&dir, "ios"), "a dev-dependency is not linked");
+    std::fs::write(dir.join("parse/src/lib.rs"), "pub const A: u8 = 2;\n").unwrap();
+    let parse = id(&dir, "ios");
+    assert_ne!(first, parse, "a path dependency's edit moves it");
+    std::fs::write(dir.join("leaf/src/lib.rs"), "pub const A: u8 = 2;\n").unwrap();
+    assert_ne!(parse, id(&dir, "ios"), "so does a transitive one's");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A path crate outside the app's workspace is no member of it, so the
+/// closure is read from Cargo's full graph.
+#[test]
+fn a_path_dependency_outside_the_workspace_is_identity() {
+    let root = app("outside-deps");
+    let dir = root.join("app");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::rename(root.join("app.json"), dir.join("app.json")).unwrap();
+    std::fs::remove_dir_all(root.join("data")).unwrap();
+    let workspace = "[workspace]\nmembers = [\"data\"]\nresolver = \"2\"\n";
+    std::fs::write(dir.join("Cargo.toml"), workspace).unwrap();
+    let shared = "[dependencies]\nshared = { path = \"../../shared\" }\n";
+    krate(&dir.join("data"), "app-data", shared);
+    krate(&root.join("shared"), "shared", "");
+    let first = id(&dir, "ios");
+    assert_eq!(first, id(&dir, "ios"), "stable across computations");
+    std::fs::write(root.join("shared/src/lib.rs"), "pub const A: u8 = 2;\n").unwrap();
+    assert_ne!(first, id(&dir, "ios"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// exact2's own crates stay out of the closure, since the id's other inputs
+/// name them; another app's crates are this app's code.
+#[test]
+fn the_closure_leaves_out_exact2s_own_crates() {
+    let apps = Path::new(env!("CARGO_MANIFEST_DIR")).join("../apps");
+    let names = |app: &str| -> Vec<String> {
+        super::path_crates(&apps.join(app).join("data"))
+            .unwrap()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect()
+    };
+    assert_eq!(names("markdown"), ["markdown-parse"]);
+    assert_eq!(
+        names("exact-live"),
+        [
+            "completion-storm-data",
+            "interaction-gallery-data",
+            "markdown-parse",
+            "markdown-stress-data",
+            "messages-stress-data"
+        ]
+    );
+    assert!(names("caltrain").is_empty());
 }

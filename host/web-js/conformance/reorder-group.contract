@@ -1,5 +1,5 @@
 // data: interaction-gallery
-// Synthetic conformance plan: dropping across lists. Three
+// Synthetic conformance plan: dropping across lists (LLP 1094 D12). Three
 // virtualized lists share a `reorderGroup` in a horizontal board, the last
 // empty. A card's grip lifts it; the host draws it as a ghost, and the list
 // under the ghost's centre opens a gap. The drop runs that list's

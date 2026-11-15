@@ -1,4 +1,4 @@
-// Bench's drives under the agent's substitute: the serial monitor (drives 1–3, 5–7) and the
+// LLP 1133.037 §12.2's Bench drives under the agent's substitute: the serial monitor (drives 1–3, 5–7) and the
 // DFU updater (drive 8). Drive 9 is the runner's test (a tool's open), Bench declaring no tool. Drive 4 needs the sample host's two sessions, 10 and 11 a pseudo-terminal or a Linux kernel
 // under a bound implementation, 12 a person with boards: none of them is here.
 //

@@ -1,4 +1,4 @@
-// The seam is public: two tests
+// The seam is public (LLP 1133.001 D8, LLP 1133.013 §13 stage 3): two tests
 // that need nothing an outside author lacks.
 //
 // - Out of the tree: this package, packed as a registry would carry it
@@ -7,11 +7,11 @@
 // - Replaced: a fixture implementation outside the tree, a direct dependency
 //   of the app, replaces the endorsed web implementation and answers a
 //   sampled source: each ask after the first carries, as `after`, the
-//   `sequence` of the reader's last answer.
+//   `sequence` of the reader's last answer (D12 item 1).
 //
 // Not here: a fixture implementation feeding a canvas through the context's
 // `surfaces.input`, since the fixture app has no canvas world; Beacons'
-// world is fed so on Apple and Android ("The canvas seam").
+// world is fed so on Apple and Android (LLP 1133.013 §13, "The canvas seam").
 //
 // usage: bun packages/motion/test/seams.mjs
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

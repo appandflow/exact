@@ -1,12 +1,12 @@
 //! A browser shell's frame commands by the Navigation API's and WebDriver
-//! BiDi's names: `navigate(id, url)`,
+//! BiDi's names (@ref LLP 1020.002 D3): `navigate(id, url)`,
 //! `traverseHistory(id, delta)`, `reload(id)` or `reload(id,
 //! ignoreCache=true)`, and `stopLoading(id)`, each by the iframe's `id`.
 //! Bare `reload()` stays the development host's reboot. And WebDriver
-//! BiDi's `captureScreenshot(id, path, clip=)`, whose `clip` is
+//! BiDi's `captureScreenshot(id, path, clip=)` (D7), whose `clip` is
 //! Geometry's `DOMRect` (or a `DOMRectReadOnly`, whose first four fields
 //! are the same) in the guest's CSS pixels. And Electron's `<webview>`
-//! `openDevTools(id)`.
+//! `openDevTools(id)` (D11).
 use super::{err, infer, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};
 

@@ -1,4 +1,4 @@
-//! The shell tool's process: the command runs in its own
+//! The shell tool's process (LLP 1101.001 P17): the command runs in its own
 //! process group, its output is read as it comes into a bounded buffer
 //! (the first 64 KiB and the last 16 KiB, the rest counted), and a cancel
 //! or a timeout kills the whole group. Readers run on their own threads;

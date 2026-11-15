@@ -1,5 +1,5 @@
 //! One live tick on a 10,000-row virtualized list costs what changed, not
-//! the list. The shape is the heavy list benchmark's: a
+//! the list (LLP 1053 §0 G8). The shape is the heavy list benchmark's: a
 //! source answers a mutation with the whole feed, one message inserted at the
 //! top and one replaced, every other record the previous answer's allocation.
 //! The runner keys only the rows whose allocation is new, and type-checks

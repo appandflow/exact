@@ -1,4 +1,4 @@
-// The seam is public: three tests
+// The seam is public (LLP 1133.001 D8, LLP 1133.008 stage 3): three tests
 // that need nothing an outside author lacks, in Chromium with its fake camera.
 //
 // - Out of the tree: both packages, packed as a registry would carry them
@@ -6,9 +6,9 @@
 //   build unchanged, the viewfinder included, and take a photo.
 // - Replaced: a fixture implementation of @exact/camera outside the tree, a
 //   direct dependency of the app, replaces the endorsed web implementation,
-//   its view included.
+//   its view included (LLP 1133.001 D4).
 // - A second consumer: a fixture package outside the tree reads a video
-//   track through the session's track table, so the
+//   track through the session's track table (LLP 1133.008 D8 item 3), so the
 //   track keeps its lease while the viewfinder is hidden, and lets it go
 //   when its reader goes.
 //

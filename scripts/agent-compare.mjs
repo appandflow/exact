@@ -1,4 +1,4 @@
-// `screenshot <png> compare <reference.png>` ("A screenshot compared with a reference"): the screen against a
+// `screenshot <png> compare <reference.png>` (LLP 1012, "A screenshot compared with a reference"): the screen against a
 // picture of the original app, in text, saying only what the pixels show. The regions are where the two pictures differ,
 // cell by cell, merged into boxes; each is named by the node under its centre, with the colours on each side where they
 // differ, and a hint where its content plainly sits elsewhere in the reference. A box whose edges both pictures show

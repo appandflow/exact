@@ -1,6 +1,6 @@
 //! The kv binding end-to-end with no engine: a real `Host`, the file store
-//! on a real disk, grants parsed from the manifest grammar. It runs in the
-//! no-engine build shape (`--no-default-features`).
+//! on a real disk, grants parsed from the manifest grammar. LLP 0070; the
+//! no-engine build shape is LLP 0068 §3 (`--no-default-features` runs this).
 
 use ibex2::grant::GrantSet;
 use ibex2::host::Host;

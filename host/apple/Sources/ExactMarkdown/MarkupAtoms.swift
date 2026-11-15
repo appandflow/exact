@@ -1,13 +1,13 @@
-// Inline atoms on Apple: the editor draws each
+// Inline atoms on Apple (LLP 1045.000 §4, §10 Q9): the editor draws each
 // atom's first code unit as U+FFFC carrying a new `NSTextAttachment` whose
 // picture is the pill (`image(for:…)`, sized by `attachmentBounds`, no
 // attachment view: AppKit keeps every view provider while the text view
-// lives), and the rest as word joiners; the reader draws an atom's
-// piece as its label on an inline box's background. The pill looks like the
-// platform's token: NSTokenField's on macOS, UISearchTextField's on iOS,
-// unless its face or its kind gives a colour, the face's first. It lays
+// lives, §5.1), and the rest as word joiners; the reader draws an atom's
+// piece as its icon and label on an inline box's background. The pill looks like the
+// platform's token: NSTokenField's on macOS, UISearchTextField's on iOS (D4),
+// unless its face or its kind gives a colour, the face's first (D4). It lays
 // out its icon and then its label in its line's direction, or in the one its
-// face pins.
+// face pins (D4).
 #if canImport(UIKit)
 import UIKit
 typealias AtomImage = UIImage
@@ -51,7 +51,7 @@ enum AtomPaint {
     /// A face's `color` or `backgroundColor` in the colour wire form the
     /// archive wrote (`face_paint`), as a bound text colour's channels are
     /// (`textChannels`): a colour in its own space keeps it, so
-    /// `TextEngine.color` draws it unclipped; nil where the
+    /// `TextEngine.color` draws it unclipped (LLP 1100 D2); nil where the
     /// kind's paint stands.
     static func face(_ value: Any?, _ atoms: MarkdownAtoms) -> [Double]? {
         batch(value)?.textChannels(dark: atoms.dark, contrast: atoms.contrast)
@@ -138,7 +138,7 @@ struct AtomRows {
 }
 
 /// The pill an editor atom draws: its picture, the attachment's only
-/// drawing, so nothing outlives a restyle.
+/// drawing, so nothing outlives a restyle (§5.1).
 final class AtomAttachment: NSTextAttachment {
     let atom: MarkupAtom
     init(_ atom: MarkupAtom) {
@@ -147,7 +147,7 @@ final class AtomAttachment: NSTextAttachment {
         allowsTextAttachmentView = false
     }
     required init?(coder: NSCoder) { fatalError("not coded") }
-    /// No view: TextKit draws the picture.
+    /// No view: TextKit draws the picture (§5.1).
     #if os(macOS)
     override func viewProvider(for parentView: NSView?, location: NSTextLocation, textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? { nil }
     #else
@@ -172,12 +172,7 @@ final class AtomAttachment: NSTextAttachment {
     private func icon(_ size: CGFloat) -> (image: AtomImage, tinted: Bool)? {
         guard !atom.icon.isEmpty else { return nil }
         if atom.icon.hasPrefix("symbol:sf/") {
-            let name = String(atom.icon.dropFirst("symbol:sf/".count))
-            #if os(macOS)
-            return NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: size, weight: .regular)).map { ($0, true) }
-            #else
-            return UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: size)).map { ($0, true) }
-            #endif
+            return AtomIcons.symbol(atom.icon, size: size).map { ($0, true) }
         }
         // Symbol roles name their glyph through the image node, which a face has none of.
         guard !atom.icon.hasPrefix("symbol:") else { return nil }
@@ -213,8 +208,8 @@ final class AtomAttachment: NSTextAttachment {
     }
 
     /// The label's width and padding, an icon's, a border's, no wider than
-    /// the line, and the font's height less a point at its ascender, so
-    /// the line keeps the height it has without the atom; a border's
+    /// the line (D4), and the font's height less a point at its ascender, so
+    /// the line keeps the height it has without the atom (§5.1); a border's
     /// top and bottom are drawn inside that.
     override func attachmentBounds(for attributes: [NSAttributedString.Key: Any], location: NSTextLocation, textContainer: NSTextContainer?,
                                    proposedLineFragment: CGRect, position: CGPoint) -> CGRect {
@@ -331,7 +326,7 @@ final class AtomAttachment: NSTextAttachment {
 }
 
 extension MarkupAtom {
-    /// Whether its pill lays out right to left: its face's direction,
+    /// Whether its pill lays out right to left (D4): its face's direction,
     /// else its line's, the base direction of the paragraph it is drawn in.
     func rightToLeft(in attributes: [NSAttributedString.Key: Any]) -> Bool {
         switch direction {

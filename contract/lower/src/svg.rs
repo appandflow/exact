@@ -1,7 +1,8 @@
-//! Inline SVG and CSS animations in Contract.
+//! Inline SVG and CSS animations in Contract (LLP 1055).
 //!
-//! The subset and where each attribute belongs, the content model,
-//! `keyframes` and the `animation` longhands, and what is refused, by name.
+//! @ref LLP 1055 D1 (the subset and where each attribute belongs), D3 (the
+//! content model), D5 (`keyframes` and the `animation` longhands), D12 (what
+//! is refused, by name)
 //!
 //! `keyframes Name` lowers to one plan row of CSS text; `animation` and its
 //! longhands lower to one `animation` row per node, composed here; an SVG
@@ -14,7 +15,7 @@ use exact_motion::animation::LONGHANDS;
 use exact_motion::{Animation, Animations, Keyframes, Property};
 use std::cell::Cell;
 
-/// The filter primitives and their children, each a
+/// The filter primitives and their children (LLP 1055.000 D14), each a
 /// `SvgFe` node whose `fe` prop is its tag.
 pub(crate) const FE: [&str; 24] = [
     "feBlend",
@@ -99,7 +100,7 @@ pub(crate) fn in_svg(inside: bool, parent_tag: Option<&str>) -> bool {
         )
 }
 
-/// What an SVG container may hold: a gradient holds
+/// What an SVG container may hold (LLP 1055.000 D7): a gradient holds
 /// `stop`s only, and a `stop` only sits in a gradient.
 fn holds(parent: &str, child: &str) -> bool {
     match parent {
@@ -131,8 +132,8 @@ fn holds(parent: &str, child: &str) -> bool {
     }
 }
 
-/// SVG length attributes CSS cannot set: props holding the authored text,
-/// so a number and `"50%"` are both accepted.
+/// SVG length attributes CSS cannot set: props holding the authored text
+/// (LLP 1055.000 D4), so a number and `"50%"` are both accepted.
 pub(crate) fn is_length_prop(attr: &str) -> bool {
     matches!(
         attr,
@@ -209,7 +210,7 @@ const FE_ATTRS: [&str; 47] = [
 /// Whether an attribute is an SVG element's own prop (`viewBox`, a
 /// gradient's units, a primitive's `in`, `mode`, `seed`, …), derived from
 /// this module's tables: meaningful only on SVG elements, so on a native
-/// module's tag it stays the module's prop.
+/// module's tag it stays the module's prop (LLP 1024 D8, LLP 1055.000).
 pub(crate) fn svg_only_prop(attr: &str) -> bool {
     (owners(attr).is_some() || is_length_prop(attr))
         && matches!(tags::attr(attr), Some(tags::AttrTarget::Prop(_)))
@@ -331,18 +332,20 @@ fn shared(attr: &str) -> bool {
     )
 }
 
-/// A named refusal for an SVG tag outside the subset.
+/// A named refusal for an SVG tag outside the subset (LLP 1055 D12).
 pub(crate) fn refused_tag(tag: &str) -> Option<&'static str> {
     Some(match tag {
-        "text" | "tspan" | "textPath" => {
-            "text inside `svg` is refused; put a `text` beside the `svg`"
+        "textPath" => {
+            "`textPath` (text on a path) is not in exact2's SVG yet \
+             (LLP 1055.000 §4, stage 11); use `text` with `x` and `y` inside `svg`, \
+             with `tspan` for runs"
         }
-        "image" | "feImage" => "not in Exact's SVG yet",
+        "feImage" => "not in exact2's SVG yet: LLP 1055.000 §4 builds it in a later stage",
         "hatch" | "hatchpath" | "mesh" | "meshgradient" | "solidcolor" => {
-            "refused: Chrome does not implement it"
+            "refused (LLP 1055.000 §7): Chrome does not implement it"
         }
         "animate" | "animateTransform" | "animateMotion" | "set" => {
-            "SMIL is refused: declare `keyframes` and set `animation`"
+            "SMIL is refused (LLP 1055 D12): declare `keyframes` and set `animation`"
         }
         _ => return None,
     })
@@ -353,6 +356,8 @@ impl Lowerer<'_> {
     /// the evaluator that will sample it.
     pub(crate) fn declare_keyframes(&mut self, file: &File) -> Vec<LowerError> {
         let mut errors = Vec::new();
+        // A keyframe takes any colour a row does (`values.rs` links them for rows).
+        exact_kernel::style::link_wide_colors();
         for decl in &file.keyframes {
             if self.keyframes.contains_key(&decl.name) {
                 errors.push(LowerError {
@@ -373,7 +378,7 @@ impl Lowerer<'_> {
                 css.push_str(&selectors.join(","));
                 css.push('{');
                 for a in &frame.attrs {
-                    // `border-color` is its four sides'.
+                    // `border-color` is its four sides' (LLP 1062 D9).
                     let sides = [
                         "border-top-color",
                         "border-right-color",
@@ -392,7 +397,7 @@ impl Lowerer<'_> {
                         ok = false;
                         errors.push(LowerError {
                             id: "lower-keyframe-property",
-                            message: format!("`{}` is spelled `{new}`", a.name),
+                            message: format!("`{}` is spelled `{new}` (LLP 1081)", a.name),
                             span: a.span,
                         });
                         continue;
@@ -402,7 +407,7 @@ impl Lowerer<'_> {
                         errors.push(LowerError {
                             id: "lower-keyframe-property",
                             message: format!(
-                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, cx, cy, x, y, rx, ry, color, background-color, border-color and its sides, -exact-tint-color, box-shadow, fill, stroke, font-weight, font-stretch, font-variation-settings and animation-timing-function",
+                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, cx, cy, x, y, rx, ry, color, background-color, border-color and its sides, -exact-tint-color, box-shadow, fill, stroke, font-weight, font-stretch, font-variation-settings and animation-timing-function (LLP 1055.000 D6, D15; LLP 1062 D9; LLP 1019 §13 D10)",
                                 a.name
                             ),
                             span: a.span,
@@ -410,7 +415,7 @@ impl Lowerer<'_> {
                         continue;
                     }
                     // A literal, or a palette function of literal arguments
-                    // folded to one.
+                    // folded to one (LLP 1062 D9).
                     let Some(value) = crate::keyframes::constant(&a.value, &file.fns) else {
                         ok = false;
                         errors.push(LowerError {
@@ -423,11 +428,11 @@ impl Lowerer<'_> {
                         });
                         continue;
                     };
-                    // A motion token the fold returned.
+                    // @ref LLP 1121 D3 — a motion token the fold returned.
                     let value =
                         crate::motion::folded(&a.name, &value, &crate::theme::motion_tokens())
                             .unwrap_or(value);
-                    // A keyframe value is checked as an
+                    // @ref LLP 1081 D2 — a keyframe value is checked as an
                     // attribute's is: an old spelling, and a bare role in a
                     // colour, are refused with their new names.
                     let rows = match crate::tags::attr(&a.name) {
@@ -447,7 +452,7 @@ impl Lowerer<'_> {
                         });
                         continue;
                     }
-                    // A design token is the colour it stands for.
+                    // A design token is the colour it stands for (LLP 1121 D3).
                     let value = match colour.then(|| crate::keyframes::tokens(&value, &self.theme))
                     {
                         None => value,
@@ -463,7 +468,7 @@ impl Lowerer<'_> {
                         }
                     };
                     let hint = crate::style_names::renamed_token(&value, rows)
-                        .map(|(old, new)| format!("`{old}` is spelled `{new}`"))
+                        .map(|(old, new)| format!("`{old}` is spelled `{new}` (LLP 1081)"))
                         .or_else(|| {
                             colour
                                 .then(|| crate::edits::role_hint(&value, true))
@@ -498,18 +503,7 @@ impl Lowerer<'_> {
                 }
                 Err(e) => errors.push(LowerError {
                     id: "lower-keyframes",
-                    message: match e {
-                        // The axes interpolate one by one.
-                        exact_motion::ParseError::InvalidAnimation(
-                            exact_motion::AnimationError::NotAnimatable(
-                                Property::FontVariationSettings,
-                            ),
-                        ) => format!(
-                            "`keyframes {}`: every keyframe that sets `font-variation-settings` names the same axes, which interpolate one by one",
-                            decl.name
-                        ),
-                        e => format!("`keyframes {}`: {e:?}", decl.name),
-                    },
+                    message: format!("`keyframes {}`: {e}", decl.name),
                     span: decl.span,
                 }),
             }
@@ -540,107 +534,91 @@ impl Lowerer<'_> {
     }
 
     fn check_animation_names(&self, tag: &str, value: &Expr) -> Result<(), LowerError> {
-        match value {
-            Expr::Str(text, span) => {
-                let Ok(list) = Animations::parse(text) else {
-                    return Ok(()); // the row's own check names the grammar
+        each_literal(value, &mut |text, span| {
+            let Ok(list) = Animations::parse(text) else {
+                return Ok(()); // the row's own check names the grammar
+            };
+            for a in &list.0 {
+                let Some(properties) = self.keyframes.get(&a.name) else {
+                    return err(
+                        "lower-animation-name",
+                        format!(
+                            "`animation` names `{}`, and no `keyframes {}` is declared",
+                            a.name, a.name
+                        ),
+                        span,
+                    );
                 };
-                for a in &list.0 {
-                    let Some(properties) = self.keyframes.get(&a.name) else {
-                        return err(
-                            "lower-animation-name",
-                            format!(
-                                "`animation` names `{}`, and no `keyframes {}` is declared",
-                                a.name, a.name
-                            ),
-                            *span,
-                        );
-                    };
-                    // An SVG element's transform animates as CSS says;
-                    // `r` is a circle's alone.
-                    if properties.contains(&Property::R)
-                        && !matches!(tag, "circle")
-                        && is_element(tag)
-                    {
-                        return err(
-                            "lower-animation-target",
-                            format!(
-                                "`keyframes {}` animates `r`, which only a `circle` has",
-                                a.name
-                            ),
-                            *span,
-                        );
-                    }
+                // An SVG element's transform animates as CSS says (LLP
+                // 1055.000 D5); `r` is a circle's alone.
+                if properties.contains(&Property::R) && !matches!(tag, "circle") && is_element(tag)
+                {
+                    return err(
+                        "lower-animation-target",
+                        format!(
+                            "`keyframes {}` animates `r`, which only a `circle` has",
+                            a.name
+                        ),
+                        span,
+                    );
                 }
-                Ok(())
             }
-            Expr::Ternary(_, yes, no, _) => {
-                self.check_animation_names(tag, yes)?;
-                self.check_animation_names(tag, no)
-            }
-            _ => Ok(()),
-        }
+            Ok(())
+        })
     }
 
-    /// A timeline-bound animation animates paint rows only: what a
-    /// compositor applies (opacity and the transform rows) or a
-    /// paint pass repaints (the colours and `box-shadow`). A
+    /// A timeline-bound animation animates paint rows only (LLP 1057.003
+    /// Q1): what a compositor applies (opacity and the transform rows) or a
+    /// paint pass repaints (the colours and `box-shadow`, LLP 1062 D2). A
     /// layout or geometry row would lay the page out in every frame the
     /// source moves, which v1 does not take. A timeline spans the whole
     /// animation, so an endless one is refused too: CSS would show its end
     /// at every position, and the hosts hold its start.
     fn check_timeline_rows(&self, value: &Expr) -> Result<(), LowerError> {
-        match value {
-            Expr::Str(text, span) => {
-                let Ok(list) = Animations::parse(text) else {
-                    return Ok(());
-                };
-                for a in &list.0 {
-                    if a.iterations.is_infinite() {
-                        return err(
-                            "lower-timeline-endless",
-                            format!(
-                                "`{}` repeats forever, and this `animation` follows an `animation-timeline`: a timeline spans an animation's whole length, so it must end",
-                                a.name
-                            ),
-                            *span,
-                        );
-                    }
-                    let unpainted = self.keyframes.get(&a.name).and_then(|properties| {
-                        properties.iter().copied().find(|p| {
-                            !matches!(
-                                p,
-                                Property::Opacity
-                                    | Property::Translate
-                                    | Property::Scale
-                                    | Property::Rotate
-                            ) && !Property::PAINT.contains(p)
-                        })
-                    });
-                    if let Some(p) = unpainted {
-                        return err(
-                            "lower-timeline-row",
-                            format!(
-                                "`keyframes {}` animates `{}`, and this `animation` follows an `animation-timeline`: a timeline drives paint rows only (opacity, translate, scale, rotate, the colours, box-shadow), never layout or geometry",
-                                a.name,
-                                p.name()
-                            ),
-                            *span,
-                        );
-                    }
+        each_literal(value, &mut |text, span| {
+            let Ok(list) = Animations::parse(text) else {
+                return Ok(());
+            };
+            for a in &list.0 {
+                if a.iterations.is_infinite() {
+                    return err(
+                        "lower-timeline-endless",
+                        format!(
+                            "`{}` repeats forever, and this `animation` follows an `animation-timeline`: a timeline spans an animation's whole length, so it must end (LLP 1057.003)",
+                            a.name
+                        ),
+                        span,
+                    );
                 }
-                Ok(())
+                let unpainted = self.keyframes.get(&a.name).and_then(|properties| {
+                    properties.iter().copied().find(|p| {
+                        !matches!(
+                            p,
+                            Property::Opacity
+                                | Property::Translate
+                                | Property::Scale
+                                | Property::Rotate
+                        ) && !Property::PAINT.contains(p)
+                    })
+                });
+                if let Some(p) = unpainted {
+                    return err(
+                        "lower-timeline-row",
+                        format!(
+                            "`keyframes {}` animates `{}`, and this `animation` follows an `animation-timeline`: a timeline drives paint rows only (opacity, translate, scale, rotate, the colours, box-shadow), never layout or geometry (LLP 1057.003 Q1)",
+                            a.name,
+                            p.name()
+                        ),
+                        span,
+                    );
+                }
             }
-            Expr::Ternary(_, yes, no, _) => {
-                self.check_timeline_rows(yes)?;
-                self.check_timeline_rows(no)
-            }
-            _ => Ok(()),
-        }
+            Ok(())
+        })
     }
 
-    /// `animation` and its longhands as one `animation` attribute, or `None`
-    /// when no longhand is set. A longhand overrides the
+    /// `animation` and its longhands as one `animation` attribute (LLP 1055
+    /// D5), or `None` when no longhand is set. A longhand overrides the
     /// shorthand's part whatever the order (a Contract rule; CSS goes by
     /// declaration order). Literal lists follow CSS: the names set the count
     /// and other lists repeat to it. A computed part makes one animation.
@@ -687,7 +665,7 @@ impl Lowerer<'_> {
         };
         let base: Vec<Animation> = match short {
             Some(s) if literal(&s.value) => Animations::parse(&text(&s.value))
-                .map_err(|e| bad(s.span, format!("`animation`: {e:?}")))?
+                .map_err(|e| bad(s.span, format!("`animation`: {e}")))?
                 .0,
             Some(s) => {
                 return Err(bad(
@@ -718,7 +696,7 @@ impl Lowerer<'_> {
                 for (i, entry) in list.iter_mut().enumerate() {
                     entry
                         .set_longhand(&a.name, &items[i % items.len()])
-                        .map_err(|e| bad(a.span, format!("`{}`: {e:?}", a.name)))?;
+                        .map_err(|e| bad(a.span, format!("`{}`: {e}", a.name)))?;
                 }
             }
             list.retain(|a| a.name != "none");
@@ -726,6 +704,12 @@ impl Lowerer<'_> {
         } else {
             // One animation, its parts in shorthand order; a literal list
             // cannot be combined with a computed part.
+            if let Some(s) = short.filter(|_| base.len() > 1) {
+                return Err(bad(
+                    s.span,
+                    "`animation` is a list, and another part is computed: a computed animation is one animation".into(),
+                ));
+            }
             let defaults = base.into_iter().next().unwrap_or_default();
             let mut parts = Vec::new();
             for (i, name) in LONGHANDS.iter().enumerate() {
@@ -737,7 +721,10 @@ impl Lowerer<'_> {
                         return Err(bad(a.span, format!("`{}` is a list, and another part is computed: a computed animation is one animation", a.name)))
                     }
                     Some(a) if literal(&a.value) => parts.push(TemplatePart::Text(text(&a.value))),
-                    Some(a) => parts.push(TemplatePart::Expr(a.value.clone())),
+                    // A class choice's arm that does not set the longhand is
+                    // `none` (class.rs): it is the longhand's initial value
+                    // here, as the shorthand writes it, not text to format.
+                    Some(a) => parts.push(TemplatePart::Expr(unset_as(&a.value, &default_part(&defaults, i)))),
                     None => parts.push(TemplatePart::Text(default_part(&defaults, i))),
                 }
             }
@@ -755,6 +742,21 @@ impl Lowerer<'_> {
             written: longs.iter().chain(short.iter()).any(|a| a.written),
         });
         Ok(Some(out))
+    }
+}
+
+/// `value` with each `none` among its choice's arms, at any depth, read as
+/// `initial`: a class choice unsets on one side the rows the other sets.
+fn unset_as(value: &Expr, initial: &str) -> Expr {
+    match value {
+        Expr::None(span) => Expr::Str(initial.to_string(), *span),
+        Expr::Ternary(cond, yes, no, span) => Expr::Ternary(
+            cond.clone(),
+            Box::new(unset_as(yes, initial)),
+            Box::new(unset_as(no, initial)),
+            *span,
+        ),
+        other => other.clone(),
     }
 }
 
@@ -782,8 +784,8 @@ pub(crate) fn check_svg_content(
     parent_tag: Option<&str>,
     span: Span,
 ) -> Result<(), LowerError> {
-    // A nested `svg` is an SVG element (a new viewport),
-    // and so is `text` inside one.
+    // A nested `svg` is an SVG element (a new viewport, LLP 1055.000 D4),
+    // and so is `text` inside one (D11).
     let element = is_element(tag) || (matches!(tag, "svg" | "text") && in_svg);
     if let Some(parent) = parent_tag.filter(|_| in_svg) {
         if !holds(parent, tag) {
@@ -822,26 +824,26 @@ fn check_svg_attrs_with(
     let element = is_element(tag) || (matches!(tag, "svg" | "text") && in_svg);
     for a in attrs {
         // A module tag's own prop named like an SVG attribute (`fx`)
-        // is the module's.
+        // is the module's (LLP 1024 D1).
         if crate::native::leftover(tag, a) {
             continue;
         }
-        // A `clipPath` by reference clips SVG elements;
+        // A `clipPath` by reference clips SVG elements (LLP 1055.000 D10);
         // a box's `clip-path` is a path.
         if matches!(tag, "text" | "tspan") && element && a.name == "rotate" {
             return err(
                 "lower-svg-attr",
-                "per-glyph `rotate` on SVG text is a later stage; rotate the `text` with `transform`",
+                "per-glyph `rotate` on SVG text is a later stage (LLP 1055.000 §4); rotate the `text` with `transform`",
                 a.span,
             );
         }
-        // Blending is SVG elements' so far: a
+        // @ref LLP 1055.000 D19 — blending is SVG elements' so far: a
         // native box would draw it unblended.
         if matches!(a.name.as_str(), "mix-blend-mode" | "isolation") && !element {
             return err(
                 "lower-attr-tag",
                 format!(
-                    "`{}` applies to SVG elements; boxes do not blend yet",
+                    "`{}` applies to SVG elements (LLP 1055.000 D19); boxes do not blend yet",
                     a.name
                 ),
                 a.span,
@@ -871,7 +873,7 @@ fn check_svg_attrs_with(
             }
         } else if element
             && !shared(&a.name)
-            // An element that renders handles
+            // @ref LLP 1055.000 D17 — an element that renders handles
             // events: the host hits it by `pointer-events`.
             && !(matches!(tags::attr(&a.name), Some(tags::AttrTarget::Handler("press")))
                 && !matches!(
@@ -901,12 +903,12 @@ fn check_svg_attrs_with(
                 tags::attr(&a.name),
                 Some(tags::AttrTarget::Handler("press"))
             ) {
-                "a definition handles no events: it renders only where it is referenced"
+                "a definition handles no events: it renders only where it is referenced (LLP 1055.000 D17)"
             } else if matches!(
                 tags::attr_valued(&a.name, &a.value),
                 Some(tags::AttrTarget::Handler(_))
             ) {
-                "an SVG element takes `press` so far; its other handlers are a later stage"
+                "an SVG element takes `press` so far; its other handlers are a later stage (LLP 1055.000 D17)"
             } else {
                 "it does not apply to an SVG element"
             };
@@ -935,7 +937,7 @@ fn check_svg_attrs_with(
 
 /// Whether a node's animations follow a named timeline: any
 /// `animation-timeline` but a literal `auto` or a clock timeline, which
-/// keeps them on the clock.
+/// keeps them on the clock (LLP 1055.002).
 fn timeline_bound(attrs: &[Attr]) -> bool {
     attrs.iter().any(|a| {
         a.name == "animation-timeline"
@@ -944,24 +946,82 @@ fn timeline_bound(attrs: &[Attr]) -> bool {
     })
 }
 
-/// An `-exact-exit-animation` must end: its node is removed when it
+/// An `-exact-exit-animation` must end (LLP 1063 D2): its node is removed when it
 /// does, so an `infinite` or `paused` literal is refused here.
 fn exit_ends(value: &Expr) -> Result<(), LowerError> {
-    match value {
-        Expr::Str(text, span) => match Animations::parse(text) {
-            Ok(list) if list.validate_ending().is_err() => err(
-                "lower-exit-endless",
-                "an `-exact-exit-animation` must end: its node is removed when it does, so it cannot be `infinite` or `paused`",
-                *span,
-            ),
-            _ => Ok(()),
-        },
-        Expr::Ternary(_, yes, no, _) => {
-            exit_ends(yes)?;
-            exit_ends(no)
-        }
+    each_literal(value, &mut |text, span| {
+        match Animations::parse(text) {
+        Ok(list) if list.validate_ending().is_err() => err(
+            "lower-exit-endless",
+            "an `-exact-exit-animation` must end: its node is removed when it does, so it cannot be `infinite` or `paused`",
+            span,
+        ),
         _ => Ok(()),
     }
+    })
+}
+
+/// Each string literal `value` can be: through a ternary's or a `match`'s
+/// arms, a type ascription, and a `let`'s body, where a read of the bound
+/// name is its value. Like the length checks, the visits are bounded, as
+/// shared derives can expand exponentially; past the bound the rest is the
+/// runtime's.
+fn each_literal(
+    value: &Expr,
+    check: &mut dyn FnMut(&str, Span) -> Result<(), LowerError>,
+) -> Result<(), LowerError> {
+    /// `bindings`: each `let` name in scope with its value; `None` for a
+    /// `match` arm's binding, which shadows it.
+    fn visit<'a>(
+        value: &'a Expr,
+        bindings: &mut Vec<(&'a str, Option<&'a Expr>)>,
+        budget: &mut usize,
+        check: &mut dyn FnMut(&str, Span) -> Result<(), LowerError>,
+    ) -> Result<(), LowerError> {
+        if *budget == 0 {
+            return Ok(());
+        }
+        *budget -= 1;
+        match value {
+            Expr::Str(text, span) => check(text, *span),
+            Expr::Ternary(_, yes, no, _) => {
+                visit(yes, bindings, budget, check)?;
+                visit(no, bindings, budget, check)
+            }
+            Expr::Match {
+                var, some, none, ..
+            } => {
+                bindings.push((var, None));
+                let some = visit(some, bindings, budget, check);
+                bindings.pop();
+                some?;
+                visit(none, bindings, budget, check)
+            }
+            Expr::Typed(inner, ..) => visit(inner, bindings, budget, check),
+            Expr::Let {
+                name,
+                value: bound,
+                body,
+                ..
+            } => {
+                bindings.push((name, Some(bound)));
+                let body = visit(body, bindings, budget, check);
+                bindings.pop();
+                body
+            }
+            Expr::Ident(name, _) => {
+                let Some(i) = bindings.iter().rposition(|(bound, _)| bound == name) else {
+                    return Ok(());
+                };
+                let Some(bound) = bindings[i].1 else {
+                    return Ok(());
+                };
+                visit(bound, &mut bindings[..i].to_vec(), budget, check)
+            }
+            _ => Ok(()),
+        }
+    }
+    visit(value, &mut Vec::new(), &mut 4096, check)
 }
 
 // These props bypass CSS length resolution. NUL represents only unknown text;
@@ -1113,18 +1173,16 @@ fn check_length_choices(
 fn check_length_text(name: &str, text: &str, span: Span) -> Result<(), LowerError> {
     use exact_kernel::svg::Length;
 
-    let keywords: &[&str] = match name {
-        "refX" => &["left", "center", "right"],
-        "refY" => &["top", "center", "bottom"],
-        _ => &[],
-    };
+    let keywords = exact_kernel::PropId::from_name(name)
+        .and_then(exact_kernel::svg::length::AttributeLength::of)
+        .map_or(&[][..], |grammar| grammar.keywords);
     if keywords.contains(&text.trim_matches(|c: char| c == '\0' || c.is_whitespace())) {
         return Ok(());
     }
     let refuse = |value: &str| {
         err(
             "lower-svg-length",
-            format!("`{value}` on SVG `{name}` is refused: use user units (unitless), px, in, cm, mm, pt, pc or %"),
+            format!("`{value}` on SVG `{name}` is refused (LLP 1055.000 D4): use user units (unitless), px, in, cm, mm, pt, pc or %"),
             span,
         )
     };
@@ -1176,12 +1234,12 @@ fn check_length_text(name: &str, text: &str, span: Span) -> Result<(), LowerErro
     Ok(())
 }
 
-/// SVG length props take text: a number literal becomes
+/// SVG length props take text (LLP 1055.000 D4): a number literal becomes
 /// its text and any other expression is interpolated, so `x1=10`,
 /// `x1="50%"` and `x1=gridX` all lower. `None` when nothing changes.
 pub(crate) fn coerce_lengths(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
     // Only an SVG element's attributes are SVG lengths: on a box or a
-    // native module's tag a same-named attribute is left as
+    // native module's tag (LLP 1024 D8) a same-named attribute is left as
     // written (`mode=` on `exact-fixture` is the module's, not feBlend's).
     if !(is_element(tag) || tag == "svg" || (tag == "text" && in_svg)) {
         return None;
@@ -1191,9 +1249,9 @@ pub(crate) fn coerce_lengths(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<
 
 fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
     // SVG text's `x`, `y`, `dx`, `dy` are position lists, not geometry
-    // rows: they lower to their own props.
+    // rows (LLP 1055.000 D11): they lower to their own props.
     let text = tag == "tspan" || (tag == "text" && in_svg);
-    // A primitive's `dx`, `dy`, `scale` and
+    // @ref LLP 1055.000 D14 — a primitive's `dx`, `dy`, `scale` and
     // `order`, and a light's `x`, `y`, `z`, are props: the plain names are
     // rows.
     if FE.contains(&tag) {
@@ -1206,7 +1264,7 @@ fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
                     "dy" => "feDy",
                     "scale" => "feScale",
                     "radius" => "feRadius",
-                    // CSS `order` is a flex or grid item's.
+                    // CSS `order` is a flex or grid item's (feed F19).
                     "order" => "feOrder",
                     "x" if light => "lightX",
                     "y" if light => "lightY",
@@ -1307,5 +1365,15 @@ fn default_part(a: &Animation, index: usize) -> String {
         5 => a.direction.name().into(),
         6 => a.fill.name().into(),
         _ => if a.paused { "paused" } else { "running" }.into(),
+    }
+}
+
+/// The motion grammar's own sentence for a literal `animation` it refuses.
+pub(crate) fn animation_reason(e: &exact_kernel::StyleValueError, value: &Expr) -> Option<String> {
+    match (e, value) {
+        (exact_kernel::StyleValueError::BadAnimation { .. }, Expr::Str(t, _)) => {
+            Animations::parse(t).err().map(|e| e.to_string())
+        }
+        _ => None,
     }
 }

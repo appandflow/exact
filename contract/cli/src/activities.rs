@@ -1,4 +1,4 @@
-//! Validate nested facts even when the baked list is empty.
+//! @ref LLP 1126.001 WP9 — validate nested facts even when the baked list is empty.
 use super::BakeError;
 use exact_plan::{Plan, TypeKind, TypesId};
 

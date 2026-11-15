@@ -1,4 +1,4 @@
-// The app's accent on UIKit ("There is no accent role"): the
+// The app's accent on UIKit (LLP 1095, "There is no accent role"): the
 // root's `accent-color` is its window's tint, as an app's AccentColor asset
 // is, so every view, sheet, alert and bar inherits it, and the accent Exact
 // resolves itself (`SystemColor.appTint`) is it. With no root accent the
@@ -81,7 +81,7 @@ final class AppAccent {
         guard row?.key != said else { return }
         said = row?.key
         // Each appearance, contrast and level, in its own colour space and
-        // unclipped, as UIKit's own dynamic colours answer the traits
+        // unclipped (LLP 1100 D2), as UIKit's own dynamic colours answer the traits
         tint = row.map { row in
             let made = (0..<8).map { i in row.cgColor(dark: i & 4 != 0, contrast: i & 2 != 0, elevated: i & 1 != 0).map(UIColor.init(cgColor:)) }
             return UIColor { traits in

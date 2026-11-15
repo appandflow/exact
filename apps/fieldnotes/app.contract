@@ -3,7 +3,7 @@ use pedometerStatus, requestPedometerPermission, PedometerStatus from "@exact/pe
 use altimeterStatus, requestAltimeterPermission, AltimeterStatus from "@exact/altimeter"
 
 // What another app shares to Fieldnotes arrives at `/share` (app.json's
-// share_target): its text in the location, its files by token.
+// share_target, LLP 1133.024): its text in the location, its files by token.
 routes nav
   home "/"
     share "/share"
@@ -73,7 +73,7 @@ shape Session
 // to `Session` is reset here, or the app does not compile.
 fn nextSession(noteId: string, ended: Session): Session = Session(noteId=noteId, savedId="", draft=none, original=none, version=ended.version + 1, confirmDelete=false)
 
-// No pointer is a TV's remote, whose focus ring is drawn
+// @ref LLP 1039 — no pointer is a TV's remote, whose focus ring is drawn
 // outside the focused note: the list leaves room for it.
 shape Viewport
   pointer: string
@@ -81,7 +81,7 @@ shape Time
   epochAtZero: number
   utcOffset: number
 // A walk's figures (app.ts `walk`): each read only while a walk lasts, and
-// saved nowhere. `counted` and `climbed` are false where
+// saved nowhere (LLP 1133.026 §12). `counted` and `climbed` are false where
 // the platform refused the figure; `distance` is -1 where it measured none.
 shape Walk
   steps: number
@@ -125,7 +125,7 @@ component Fieldnotes
   derive dirty = fields != reference
   derive busy = pending(saved) or pending(status) or pending(library) or pending(opened)
   derive backupText = match status { case some(s) => s.backupText, case none => "" }
-  // The share sheet, where the host has one.
+  // The share sheet, where the host has one (LLP 1069.003 D5).
   resource page = exactPage() as shape Page
   resource viewport = exactViewport() as shape Viewport
   derive tv = viewport.pointer == "none"
@@ -201,11 +201,11 @@ component Fieldnotes
     confirmRestore = true
   action chooseImport
     showPicker("import-file")
-  // Export is a copy the host makes of the saved backup.
+  // Export is a copy the host makes of the saved backup (LLP 1069.010 D3).
   action exportBackup
     exportNote = ""
     saveFile("export-file", "app:/data/backups/fieldnotes.json", "fieldnotes.json")
-  // The saved backup as a file in the share sheet.
+  // The saved backup as a file in the share sheet (LLP 1125 D12).
   action shareBackup
     share(title="Fieldnotes backup", files=["app:/data/backups/fieldnotes.json"])
   action exported(name)

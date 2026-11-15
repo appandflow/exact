@@ -1,5 +1,5 @@
 {
- "//": "Trial sequences recorded from a verbatim copy of social-app src/lib/media/image/compress.ts (its loop, with renderImage replaced by `model`, the encoded size of a w x h image at quality q). Every host`s search must make these trials.",
+ "//": "Trial sequences recorded from a verbatim copy of social-app src/lib/media/image/compress.ts (its loop, with renderImage replaced by `model`, the encoded size of a w x h image at quality q). LLP 1069.002 A1.2/A1.7: every host`s search must make these trials.",
  "cases": [
   {"name":"flat","width":3000,"height":2000,"maxDimension":4000,"maxBytes":70000,"model":"q*1000","trials":[[3000,2000,51],[3000,2000,76],[3000,2000,64],[3000,2000,70],[3000,2000,73],[3000,2000,72],[3000,2000,71]],"result":{"width":3000,"height":2000,"size":70000}},
   {"name":"shrinks","width":6000,"height":4000,"maxDimension":4000,"maxBytes":1600000,"model":"floor(w*h/4)+q*1000","trials":[[4000,2666,51],[4000,2666,26],[3200,2133,51],[3200,2133,26],[2560,1706,51],[2560,1706,76],[2560,1706,89],[2560,1706,95],[2560,1706,98],[2560,1706,100]],"result":{"width":2560,"height":1706,"size":1191840}},

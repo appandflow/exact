@@ -1,5 +1,5 @@
-//! `if`/`else` and `match` as statements in an action, proven on the runner:
-//! a construct exists at both ends.
+//! LLP 1017 P2: `if`/`else` and `match` as statements in an action, proven
+//! on the runner (LLP 1004 D6: a construct exists at both ends).
 
 use exact_kernel::Kernel;
 use exact_plan::Value;
@@ -70,7 +70,7 @@ fn a_key_action_prevents_its_default_by_a_command_without_arguments() {
     assert!(r.take_commands().iter().any(|c| c.name == "preventDefault"));
     let e = contract::compile(&src("preventDefault(1)")).unwrap_err();
     assert!(e.to_string().contains("takes no arguments"), "{e}");
-    // Its sibling keeps the key from the ancestors' handlers.
+    // Its sibling keeps the key from the ancestors' handlers (files diary F8).
     contract::compile(&src("stopPropagation()")).unwrap();
     let e = contract::compile(&src("stopPropagation(1)")).unwrap_err();
     assert_eq!(e.id, "type-stop-propagation");

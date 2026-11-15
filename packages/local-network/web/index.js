@@ -1,9 +1,9 @@
-// @exact/local-network on the web: the web has no DNS-SD,
+// @exact/local-network on the web (LLP 1133.036 D18): the web has no DNS-SD,
 // so `available` is false and a browse or a resolve fails
 // `NotSupportedError`. The state is the browser's Local Network Access
 // permission: `local-network`, else `local-network-access`, the one name
 // Chrome asked before 145 split it; a browser that answers neither reads
-// `unknown`. A typed address is reached with `fetch` under the
+// `unknown` (D8). A typed address is reached with `fetch` under the
 // `local-network` grant source, which the page runtime admits.
 
 const NAMES = ['local-network', 'local-network-access'];

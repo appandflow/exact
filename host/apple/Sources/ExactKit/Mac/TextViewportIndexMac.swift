@@ -3,8 +3,8 @@ import AppKit
 
 /// Paragraph geometry in each scroll document's own coordinates. A scroll
 /// changes the query rectangle, never the index. Layout/structure changes
-/// discard it. Selection and copy keep their complete document order. It
-/// serves long documents under native scrolling.
+/// discard it. Selection and copy keep their complete document order.
+/// @ref LLP 1033 (long documents), LLP 1010 (native scrolling)
 struct TextViewportIndex {
     private struct Entry {
         let node: NodeView

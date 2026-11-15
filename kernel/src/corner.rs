@@ -1,5 +1,5 @@
-//! CSS `corner-shape` (CSS Borders 4) and `-exact-continuous`, Apple's
-//! continuous corner curve.
+//! CSS `corner-shape` (CSS Borders 4) and `-exact-continuous` (LLP 1077 D1,
+//! spelled `-exact-` by LLP 1081 D2).
 //!
 //! Each corner is a superellipse parameter K, as CSS defines the keywords:
 //! `round` 1, `squircle` 2, `bevel` 0, `scoop` -1, `square` ∞, `notch` -∞.
@@ -10,6 +10,15 @@
 //! Apple's curve with [`APPLE_ON_THE_WEB`].
 
 use crate::svg::{Path, Seg};
+
+#[cfg(target_arch = "wasm32")]
+static LINKED: std::sync::OnceLock<fn(&str) -> Option<CornerShape>> = std::sync::OnceLock::new();
+
+/// Link the corner grammar on wasm (LLP 1047 D2). Native hosts parse directly.
+pub fn link() {
+    #[cfg(target_arch = "wasm32")]
+    let _ = LINKED.set(|css| CornerShape::check(css).ok());
+}
 
 /// One corner's shape.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -33,7 +42,7 @@ impl Default for CornerShape {
     }
 }
 
-/// The keywords, each with its kind: CSS's, as values of K,
+/// The keywords, each with its kind (LLP 1081 D8): CSS's, as values of K,
 /// and the one Exact adds.
 pub const KEYWORDS: [(&str, Corner, &str); 7] = [
     ("round", Corner::Superellipse(1.0), "css CSS Borders 4"),
@@ -50,7 +59,11 @@ pub const KEYWORDS: [(&str, Corner, &str); 7] = [
         Corner::Superellipse(f32::NEG_INFINITY),
         "css CSS Borders 4",
     ),
-    ("-exact-continuous", Corner::AppleContinuous, "exact"),
+    (
+        "-exact-continuous",
+        Corner::AppleContinuous,
+        "exact LLP 1077",
+    ),
 ];
 
 /// Apple's curve reaches this many radii along each side from the corner.
@@ -58,12 +71,15 @@ pub const APPLE_EXTENT: f32 = 1.528_664_8;
 
 /// The web's stand-in for `-exact-continuous`: `superellipse(K)` with the
 /// radius scaled. The worst distance from Apple's curve is 3% of the radius
-/// (0.5 pt at 16 pt).
+/// (0.5 pt at 16 pt), declared in LLP 1001.
 pub const APPLE_ON_THE_WEB: (f32, f32) = (1.6, 1.52);
 
 impl CornerShape {
     /// The row's parse, as every codec's: `None` for anything not drawn.
     pub fn parse(css: &str) -> Option<Self> {
+        #[cfg(target_arch = "wasm32")]
+        return LINKED.get().and_then(|parse| parse(css));
+        #[cfg(not(target_arch = "wasm32"))]
         Self::check(css).ok()
     }
 
@@ -139,7 +155,7 @@ fn corner(word: &str) -> Result<Corner, &'static str> {
         "-infinity" => f32::NEG_INFINITY,
         // Through exact-num, never `str::parse`: std's float reader (its
         // tables) would ride every web core, since every style write can
-        // reach this check (core crates read numbers through it).
+        // reach this check (QUEUE: core crates read numbers through it).
         n => exact_num::parse_f32(n)
             .ok()
             .filter(|k| k.is_finite())

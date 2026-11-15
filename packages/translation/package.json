@@ -2,7 +2,7 @@
   "name": "@exact/translation",
   "version": "1.0.0",
   "private": true,
-  "description": "Translation and language identification on the device, by the Translator and Language Detector APIs' names.",
+  "description": "Translation and language identification on the device, by the Translator and Language Detector APIs' names (LLP 1133.027).",
   "exports": {
     ".": "./exact.json",
     "./apple": "./apple/exact.json",

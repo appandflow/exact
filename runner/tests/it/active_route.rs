@@ -1,4 +1,4 @@
-//! A testId on two mounted routes resolves on the selected one:
+//! A testId on two mounted routes resolves on the selected one (LLP 1012):
 //! the screens a stack keeps under its top are flagged `inactive` in `tree`,
 //! and a covered copy is the target only when no active screen carries it.
 use exact_kernel::Kernel;
@@ -75,7 +75,7 @@ fn a_test_id_resolves_on_the_selected_route_and_covered_screens_are_flagged() {
     let thread = by_test_id(&tree, "route-thread");
     assert_eq!(field(home, "inactive"), "true");
     assert!(!thread.contains("\"inactive\""), "{thread}");
-    // And not shown, which `hidden` says, to its last node.
+    // LLP 1153 D8: and not shown, which `hidden` says, to its last node.
     assert_eq!(field(home, "hidden"), "true");
     assert_eq!(field(by_test_id(&tree, "only-home"), "hidden"), "true");
     assert!(!thread.contains("\"hidden\""), "{thread}");
@@ -109,7 +109,7 @@ fn a_test_id_resolves_on_the_selected_route_and_covered_screens_are_flagged() {
     );
 }
 
-/// A screen a sheet covers stays shown beneath it, so it is
+/// LLP 1153 D8: a screen a sheet covers stays shown beneath it, so it is
 /// `inactive` and not `hidden`; the sheet's own nodes are neither.
 #[test]
 fn a_screen_a_sheet_covers_is_inactive_and_not_hidden() {
@@ -144,7 +144,7 @@ component App
     );
 }
 
-/// With tabs each tabpanel is a stack, and
+/// shop F16: with tabs (LLP 1075.003 §3.7) each tabpanel is a stack, and
 /// every screen of a tab that is not selected is inactive too: its top
 /// screen's copy of a testId is never the target while the selected tab's
 /// carries it.

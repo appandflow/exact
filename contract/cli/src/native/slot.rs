@@ -1,9 +1,9 @@
-//! The data module's native slot filled from a package:
+//! The data module's native slot filled from a package (LLP 1154 D2, D3):
 //! the one direct dependency whose `exact.json`, at the package's root,
 //! declares `"native": {"rust": <root file>, "class": <type>, …}`. The
 //! root file is the declaration whatever `exports` "." names, which for
-//! such a package is its TypeScript driver; a package's view
-//! module is found through `exports` (`package_views.rs`). The bake joins
+//! such a package is its TypeScript driver; a module in LLP 1133.001's
+//! sense is found through `exports` (`package_views.rs`). The bake joins
 //! the shim's root to the app's crate by a `#[path]` module, as
 //! `packages.rs` joins a composed implementation, and writes the factory
 //! `with_native` takes; its library is linked by `native.library` and

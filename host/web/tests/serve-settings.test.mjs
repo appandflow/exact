@@ -1,4 +1,4 @@
-// serve.mjs serves a build as this environment's settings make it: a setting the environment changes is
+// serve.mjs serves a build as this environment's settings make it (LLP 1153 D4): a setting the environment changes is
 // built again, on the build's own target, when the app's sources are beside the build, and refused, naming both
 // values, when they are not.
 import { afterAll, test, expect } from 'bun:test';

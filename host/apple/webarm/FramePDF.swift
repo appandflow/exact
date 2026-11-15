@@ -1,4 +1,4 @@
-// A local PDF in a frame is PDFKit's `PDFView`: an
+// A local PDF in a frame is PDFKit's `PDFView` (@ref LLP 1020.002 D10): an
 // unpartitioned, unsandboxed `iframe` whose `src` is an `app:/` file or an
 // asset. A partitioned, sandboxed or remote PDF stays WebKit's viewer.
 import Foundation
@@ -101,7 +101,8 @@ final class FramePDF: NSObject, PDFViewDelegate {
 
     /// A link in the document is the frame's to decide, not `PDFView`'s
     /// default, which opens the URL: an http(s) link is a `foreground-tab`
-    /// for `newwindow=`, another app's scheme the platform's confirmation.
+    /// for `newwindow=`, another app's scheme the platform's confirmation
+    /// (D5).
     func pdfViewWillClick(onLink sender: PDFView, with url: URL) {
         guard let arm, !arm.invalidated else { return }
         let log = { (message: String) in FileHandle.standardError.write(Data("exact: iframe \(arm.id): \(message)\n".utf8)) }

@@ -1,4 +1,4 @@
-//! The development client's two local entries: the
+//! The development client's two local entries (LLP 1030.000 §7): the
 //! opening link — admitted only for the dev server a build was made against,
 //! with that build's random token — and the local plan/module pair.
 
@@ -21,7 +21,7 @@ fn bun(script: &str) -> String {
 }
 
 #[test]
-#[ignore = "launches Bun; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
 fn development_opening_metadata_is_app_specific_and_opt_in() {
     bun(r#"
 import assert from 'node:assert/strict';
@@ -76,7 +76,7 @@ assert.ok(html.includes('cannot detect whether a client is installed'));
 
 #[cfg(target_os = "macos")]
 #[test]
-#[ignore = "launches Bun and the Swift compiler; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: launches Bun and the Swift compiler; bun scripts/async.mjs runs it"]
 fn swift_development_link_admits_only_its_dev_server_and_token() {
     // What build.mjs bakes and the link a dev server offers for that build,
     // read here exactly as a development bundle's Info.plist is.
@@ -175,7 +175,7 @@ precondition(!ExactDevelopmentLink.claims(link("https://x.test/", token)) && !Ex
 
 #[cfg(target_os = "macos")]
 #[test]
-#[ignore = "launches the Swift compiler; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: launches the Swift compiler; bun scripts/async.mjs runs it"]
 fn local_development_plan_loads_the_pair_and_retries_partial_writes() {
     let source = include_str!("../../Sources/ExactKit/PlanURL.swift")
         .split("/// Explicit development-only opening action")
@@ -189,6 +189,7 @@ public final class ExactApp {
     var mode = "wasm"
     var rustPolicy: (mode: String, target: String) { (mode, "test-target") }
     var plain = 0
+    var generationPending = false
     var generations: [ExactGeneration] = []
     func apply(_ bytes: Data, label: String) -> Bool { plain += 1; return true }
     func applyGeneration(_ g: ExactGeneration, label: String, commit: () -> Bool) -> Bool {
@@ -214,7 +215,7 @@ precondition(partial != bare && candidate.hasModule)
 precondition(!candidate.apply(to: app) && app.plain == 1 && app.generations.isEmpty)
 precondition(candidate.installInitial(on: app)?.hasPrefix("local generation refused") == true && app.initial == nil)
 try write("app.hbc", "bytecode")
-// The pair as the launch generation: installed whole, never applied over a running plan.
+// The pair as the launch generation (LLP 1116.003): installed whole, never applied over a running plan.
 precondition(candidate.installInitial(on: app) == nil && app.initial?.module.bytecode == Data("bytecode".utf8) && app.generations.isEmpty)
 precondition(candidate.revision != partial && candidate.apply(to: app))
 let pair = app.generations.last!
@@ -265,7 +266,7 @@ app.mode = "off"; precondition(candidate.apply(to: app) && app.generations.last!
 }
 
 #[test]
-#[ignore = "launches Bun; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
 fn a_build_is_stamped_with_its_time_commits_and_kind() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
@@ -281,7 +282,7 @@ fn a_build_is_stamped_with_its_time_commits_and_kind() {
 }
 
 #[test]
-#[ignore = "launches Bun; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
 fn a_production_build_compiles_no_inspect_mode() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))

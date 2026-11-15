@@ -1,4 +1,4 @@
-// parseNumber: `trim`'s whitespace around an optional sign,
+// parseNumber (LLP 1102 §3.1): `trim`'s whitespace around an optional sign,
 // digits with an optional fraction or a fraction alone, an optional
 // exponent; the nearest double, or none for any other text, past the
 // largest finite, or a nonzero numeral that rounds to zero. `-0` is -0.

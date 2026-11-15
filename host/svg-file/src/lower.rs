@@ -1,4 +1,4 @@
-//! The document's elements as the kernel's SVG nodes:
+//! The document's elements as the kernel's SVG nodes (LLP 1011.001 D2):
 //! each tag the compiler lowers an inline `svg` tag to, each attribute the
 //! row or prop the compiler gives the same attribute (`contract/lower`'s
 //! tag and attribute tables, mirrored here for the file's names), the
@@ -10,8 +10,9 @@ use crate::css;
 use crate::xml::Event;
 use crate::{Document, Error, Natural};
 use exact_kernel::{NodeType, Op, PropId, PropKind, PropValue, StyleId, StyleProps, StyleValue};
+use std::collections::HashMap;
 
-/// Elements past this count are a file no picture needs.
+/// Elements past this count are a file no picture needs (D2's bound).
 pub const MAX_ELEMENTS: usize = 50_000;
 /// Nesting past this depth is a file no picture needs.
 pub const MAX_DEPTH: usize = 256;
@@ -25,6 +26,8 @@ pub fn lower(events: Vec<Event>) -> Result<Document, Error> {
         rules: Vec::new(),
         elements: 0,
         text: false,
+        fonts: Vec::new(),
+        font_ids: HashMap::new(),
     };
     // The sheet applies to every element, those before it too: read the
     // whole document's `style` elements first.
@@ -46,7 +49,7 @@ pub fn lower(events: Vec<Event>) -> Result<Document, Error> {
                     ));
                 }
                 let natural = Natural::read(attrs);
-                let id = l.element(&events, &mut i, None, 0)?;
+                let (id, _) = l.element(&events, &mut i, None, 0, 400)?;
                 root = Some((id, natural));
             }
             Event::End { line, .. } => return Err(Error::at(*line, "an end tag at the root")),
@@ -74,6 +77,7 @@ pub fn lower(events: Vec<Event>) -> Result<Document, Error> {
         natural,
         warnings: l.warnings,
         text: l.text,
+        fonts: l.fonts,
     })
 }
 
@@ -94,6 +98,8 @@ struct Lowerer {
     rules: Vec<css::Rule>,
     elements: usize,
     text: bool,
+    fonts: Vec<Vec<(bool, String)>>,
+    font_ids: HashMap<Vec<(bool, String)>, u16>,
 }
 
 /// The node type an element lowers to; `None` for one that is skipped
@@ -130,7 +136,7 @@ fn node_type(tag: &str, nested_svg: bool) -> Result<NodeType, Option<&'static st
         "script" => return Err(Some("does not run in an image")),
         "animate" | "animateTransform" | "animateMotion" | "set" | "mpath" | "discard" => {
             return Err(Some(
-                "animation inside an image is ignored: the still values draw",
+                "animation inside an image is ignored (LLP 1011.001 §3): the still values draw",
             ))
         }
         "image" => {
@@ -138,7 +144,11 @@ fn node_type(tag: &str, nested_svg: bool) -> Result<NodeType, Option<&'static st
                 "is dropped from an SVG image (an external reference): the file still draws",
             ))
         }
-        "foreignObject" => return Err(Some("`foreignObject` renders on the web only")),
+        "foreignObject" => {
+            return Err(Some(
+                "`foreignObject` renders on the web only (LLP 1055.000 D13)",
+            ))
+        }
         "textPath" => {
             return Err(Some(
                 "`textPath` in an SVG image is not read yet: its text is dropped",
@@ -199,14 +209,15 @@ impl Lowerer {
     }
 
     /// Lower the element whose start event is at `*i`, leaving `*i` past
-    /// its end; its node id.
+    /// its end; its node id and whether its conditions pass.
     fn element(
         &mut self,
         events: &[Event],
         i: &mut usize,
         parent: Option<&str>,
         depth: usize,
-    ) -> Result<u32, Error> {
+        inherited_weight: u16,
+    ) -> Result<(u32, bool), Error> {
         let Event::Start {
             name,
             attrs,
@@ -238,18 +249,55 @@ impl Lowerer {
                     self.warnings.push(format!("line {line}: `<{name}>` {why}"));
                 }
                 Self::skip(events, i);
-                return Ok(0);
+                return Ok((0, false));
             }
         };
+        // No user languages reach this loader, so `systemLanguage` cannot match.
+        let conditional = matches!(
+            node_type,
+            NodeType::Svg
+                | NodeType::SvgViewport
+                | NodeType::SvgGroup
+                | NodeType::SvgPath
+                | NodeType::SvgPolyline
+                | NodeType::SvgPolygon
+                | NodeType::SvgCircle
+                | NodeType::SvgEllipse
+                | NodeType::SvgLine
+                | NodeType::SvgRect
+                | NodeType::SvgText
+                | NodeType::SvgTSpan
+                | NodeType::SvgDefs
+                | NodeType::SvgUse
+                | NodeType::SvgMask
+                | NodeType::SvgPattern
+                | NodeType::SvgSymbol
+        );
+        let excluded = conditional
+            && attrs
+                .iter()
+                .any(|(name, _)| matches!(name.as_str(), "requiredExtensions" | "systemLanguage"));
         let id = self.next;
         self.next += 1;
+        // Keep excluded subtrees as definitions so their descendants remain
+        // reference targets without inheriting the ancestor's condition.
+        let node_type = if excluded && parent.is_some() {
+            NodeType::SvgDefs
+        } else {
+            node_type
+        };
         self.ops.push(Op::CreateView { id, node_type });
+        if excluded && parent.is_none() {
+            // Nothing in this image can draw, but its natural size still applies.
+            Self::skip(events, i);
+            return Ok((id, false));
+        }
         if tag == "text" || tag == "tspan" {
             self.text = true;
         }
         let in_text = tag == "text" || tag == "tspan";
         let is_fe = tag.starts_with("fe");
-        self.attributes(id, &tag, attrs, in_text, is_fe);
+        let weight = self.attributes(id, &tag, attrs, inherited_weight);
         if is_fe {
             self.ops.push(Op::SetProp {
                 id,
@@ -278,40 +326,63 @@ impl Lowerer {
                     }
                     Event::Start { attrs, .. } => {
                         // `switch`: the first child whose conditions pass
-                        // draws; the rest are not read (SVG 2 §5.8).
+                        // draws (SVG 2 §5.6). Feature requirements cannot be
+                        // evaluated here, so they select the fallback.
                         if switched
-                            && (taken
-                                || attrs.iter().any(|(k, _)| {
-                                    k == "requiredExtensions" || k == "requiredFeatures"
-                                }))
+                            && (taken || attrs.iter().any(|(name, _)| name == "requiredFeatures"))
                         {
                             Self::skip(events, i);
                             continue;
                         }
-                        let child = self.element(events, i, Some(&tag), depth + 1)?;
+                        if !text.is_empty() {
+                            children.push(self.text_child(std::mem::take(&mut text), *line)?);
+                        }
+                        let (child, passes) =
+                            self.element(events, i, Some(&tag), depth + 1, weight)?;
                         if child != 0 {
                             children.push(child);
-                            taken = true;
+                            taken |= passes;
                         }
                     }
                 }
             }
         }
-        if in_text {
-            // Character data as the compiler's positional text; a run of white space collapses, as
-            // the default `xml:space` collapses it.
-            let collapsed: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-            if !collapsed.is_empty() {
+        if !text.is_empty() {
+            if children.is_empty() {
                 self.ops.push(Op::SetProp {
                     id,
-                    prop: PropId::from_name("text").expect("the kernel has the text prop"),
-                    value: PropValue::Str(collapsed.as_str().into()),
+                    prop: PropId::Text,
+                    value: PropValue::Str(text.into()),
                 });
+            } else {
+                children.push(self.text_child(text, *line)?);
             }
         }
         if !children.is_empty() {
             self.ops.push(Op::SetChildren { id, children });
         }
+        Ok((id, !excluded))
+    }
+
+    fn text_child(&mut self, text: String, line: usize) -> Result<u32, Error> {
+        self.elements += 1;
+        if self.elements > MAX_ELEMENTS {
+            return Err(Error::at(
+                line,
+                format!("more than {MAX_ELEMENTS} elements"),
+            ));
+        }
+        let id = self.next;
+        self.next += 1;
+        self.ops.push(Op::CreateView {
+            id,
+            node_type: NodeType::SvgTSpan,
+        });
+        self.ops.push(Op::SetProp {
+            id,
+            prop: PropId::Text,
+            value: PropValue::Str(text.into()),
+        });
         Ok(id)
     }
 
@@ -322,9 +393,8 @@ impl Lowerer {
         id: u32,
         tag: &str,
         attrs: &[(String, String)],
-        in_text: bool,
-        is_fe: bool,
-    ) {
+        inherited_weight: u16,
+    ) -> u16 {
         let mut merged: Vec<(String, String)> = Vec::new();
         let mut put = |name: String, value: String| {
             if let Some(slot) = merged.iter_mut().find(|(n, _)| *n == name) {
@@ -373,7 +443,46 @@ impl Lowerer {
         let mut patch = StyleProps::default();
         let mut styled = false;
         for (name, value) in merged {
-            match self.attribute(tag, &name, &value, in_text, is_fe) {
+            if name == "font-weight" {
+                let keyword = value.trim().to_ascii_lowercase();
+                if matches!(keyword.as_str(), "bolder" | "lighter") {
+                    self.ops.push(Op::SetProp {
+                        id,
+                        prop: PropId::SvgRelativeFontWeight,
+                        value: PropValue::Str(keyword.into()),
+                    });
+                }
+            }
+            let value = crate::values::presentation(&name, &value, inherited_weight);
+            if name == "font-family" {
+                if let Some(family) = crate::values::families(&value) {
+                    let index = *self.font_ids.entry(family.clone()).or_insert_with(|| {
+                        let index = (self.fonts.len() + 8) as u16;
+                        self.fonts.push(family);
+                        index
+                    });
+                    let _ = patch
+                        .set_dynamic(StyleId::FontFamily, &StyleValue::Number(f64::from(index)));
+                    styled = true;
+                    continue;
+                }
+                if !StyleValue::text_unsets(&value, StyleId::FontFamily)
+                    && !value.eq_ignore_ascii_case("initial")
+                {
+                    self.warnings.push(format!(
+                        "`font-family=\"{}\"` on `<{tag}>` is not a font family list",
+                        clip(&StyleValue::Text(value.clone()))
+                    ));
+                    continue;
+                }
+            }
+            match self.attribute(
+                tag,
+                &name,
+                &value,
+                matches!(tag, "text" | "tspan"),
+                tag.starts_with("fe"),
+            ) {
                 Attr::Prop(prop, value) => self.ops.push(Op::SetProp { id, prop, value }),
                 Attr::Style(row, value) => match patch.set_dynamic(row, &value) {
                     Ok(()) => styled = true,
@@ -398,6 +507,9 @@ impl Lowerer {
                     )),
                 },
                 Attr::Ignored => {}
+                Attr::ExternalReference => self.warnings.push(format!(
+                    "`{name}` on `<{tag}>` is an external reference and is dropped from an SVG image"
+                )),
                 Attr::Unknown => self.warnings.push(format!(
                     "`{name}` on `<{tag}>` is not an attribute this host draws"
                 )),
@@ -414,12 +526,18 @@ impl Lowerer {
             }
             styled = true;
         }
+        let weight = if patch.mask.has(StyleId::FontWeight) {
+            patch.font_weight
+        } else {
+            inherited_weight
+        };
         if styled {
             self.ops.push(Op::SetStyle {
                 id,
                 patch: Box::new(patch),
             });
         }
+        weight
     }
 
     /// One attribute as the kernel takes it.
@@ -479,8 +597,10 @@ impl Lowerer {
                     PropId::from_name("href").expect("href"),
                     PropValue::Str(value.into()),
                 )
-            } else {
+            } else if value.is_empty() {
                 Attr::Ignored
+            } else {
+                Attr::ExternalReference
             };
         }
         if let Some(prop) = PropId::from_name(name) {
@@ -533,6 +653,7 @@ enum Attr {
     Prop(PropId, PropValue),
     Style(StyleId, StyleValue<'static>),
     Ignored,
+    ExternalReference,
     Unknown,
 }
 
@@ -551,9 +672,10 @@ fn clip(value: &StyleValue<'_>) -> String {
         StyleValue::Auto => "auto".into(),
         StyleValue::Vec2(a, b) => format!("{a} {b}"),
     };
-    if text.len() > 40 {
-        format!("{}…", &text[..40])
-    } else {
-        text
+    // By characters: a byte slice inside one (a CJK family name) panicked,
+    // and the release profile aborts on a panic.
+    match text.char_indices().nth(40) {
+        Some((at, _)) => format!("{}…", &text[..at]),
+        None => text,
     }
 }

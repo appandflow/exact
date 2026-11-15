@@ -1,13 +1,14 @@
-//! Native modules: a hyphenated tag is a custom element. It
-//! lowers to a `NativeView` whose module name is the tag and whose leftover
-//! attributes are one JSON object, replaced whole on change.
+//! Native modules (LLP 1024 D1): a hyphenated tag is a custom element. It
+//! lowers to a `NativeView` whose module name is the tag and whose props
+//! are one JSON object, replaced whole on change. A package view admits
+//! only declared props and events beyond its box's attributes and handlers.
 //!
-//! The rules: HTML's potential-custom-element-name, lowercase only,
+//! @ref LLP 1024 D1 (HTML's potential-custom-element-name, lowercase only,
 //! the SVG/MathML reserved names refused; a fixed `display: block` row; the
 //! known attribute table binds first and its renamed spellings stay refused;
 //! an SVG element's own props, `svg::svg_only_prop`, stay the module's; a
 //! known name the leaf box never uses, a text row or a form control's, is
-//! refused by name rather than bound to nothing, `refused`.
+//! refused by name rather than bound to nothing, `refused`)
 
 use crate::tags::{self, Tag};
 use crate::{err, LowerError, Lowerer};
@@ -57,7 +58,7 @@ pub(crate) fn tag(name: &str) -> Option<Tag> {
 /// Whether an attribute on a module tag is a leftover: a module prop, not a
 /// row of the table. A renamed spelling (`fontSize`) is still refused with
 /// its CSS name, `class` is the style mechanism, and a `data-` word is the
-/// element's dataset, as a custom element's is.
+/// element's dataset, as a custom element's is (LLP 1075.003 §3.3).
 pub(crate) fn leftover(tag: &str, a: &Attr) -> bool {
     is_module_tag(tag)
         && a.name != "class"
@@ -66,20 +67,43 @@ pub(crate) fn leftover(tag: &str, a: &Attr) -> bool {
         && tags::renamed(&a.name).is_none()
 }
 
+/// Whether `a`, written on module tag `tag`, is a prop the tag's package
+/// declares for its view: the module's even where the table names it too
+/// (`exact-camera` declares `object-fit`, which its viewfinders read, LLP
+/// 1133.008 D2). Only where written on the tag: a class's rows are its
+/// box's style. A renamed spelling is refused whatever is declared.
+pub(crate) fn declared(tag: &str, a: &Attr) -> bool {
+    is_module_tag(tag)
+        && a.name != "class"
+        && crate::dataset::word(&a.name).is_none()
+        && tags::renamed(&a.name).is_none()
+        && crate::native_typed::declares_prop(tag, &a.name)
+}
+
+/// `attrs`, written on module tag `tag`, split into the declared props
+/// ([`declared`]) and the rest, which lower as any module tag's do; `None`
+/// when there are no declared props among them.
+pub(crate) fn split_declared(tag: &str, attrs: &[Attr]) -> Option<(Vec<Attr>, Vec<Attr>)> {
+    attrs
+        .iter()
+        .any(|a| declared(tag, a))
+        .then(|| attrs.iter().cloned().partition(|a| declared(tag, a)))
+}
+
 /// A known attribute a module tag cannot use, refused by name. The table
-/// binds before the module, so a known word on a module tag
+/// binds before the module (LLP 1024 D1), so a known word on a module tag
 /// binds to its box, and the box uses only what any leaf box uses: layout,
 /// box and paint rows, the handlers, `testId`, `id`, `role`, ARIA,
 /// `disabled` and `inert` (the module's interaction suppression reads them),
 /// and `tabindex`
-/// — an allow-list (`command` would set a host
+/// — an allow-list (@ref LLP 1088 D7.2, paint F7: `command` set a host
 /// command the module never saw). Every other known word is refused, naming
 /// what it is: a text row (`color`), a form control's row (`appearance`)
 /// or prop (`value`), or another element's attribute (`command`, `href`).
 /// `class` and `data-*` never reach here, and an SVG element's own props
 /// (`svg_only_prop`, `mode`) stay the module's.
 pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
-    if !is_module_tag(tag) || leftover(tag, a) {
+    if !is_module_tag(tag) || leftover(tag, a) || declared(tag, a) {
         return None;
     }
     let what = match tags::attr(&a.name)? {
@@ -118,7 +142,7 @@ pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
     Some(LowerError {
         id: "lower-native-attr",
         message: format!(
-            "`{}` on `{tag}` is {what}, which a native module's box never uses; a known attribute binds to the box, not the module, so give the module prop another name",
+            "`{}` on `{tag}` is {what}, which a native module's box never uses; a known attribute binds to the box, not the module (LLP 1024 D1), so give the module prop another name",
             a.name
         ),
         span: a.span,
@@ -138,7 +162,7 @@ pub(crate) fn name_the_fix(n: &Node, mut e: LowerError) -> LowerError {
         && attrs.iter().any(|a| a.span == e.span)
     {
         e.message.push_str(&format!(
-            "; on `{tag}` a name Contract knows binds to the box, not the module, so give the module prop another name"
+            "; on `{tag}` a name Contract knows binds to the box, not the module (LLP 1024 D1), so give the module prop another name"
         ));
     }
     e
@@ -153,7 +177,7 @@ const MODULE_EVENTS: [&str; 9] = [
     "press", "change", "hover", "focus", "blur", "key", "submit", "load", "message",
 ];
 
-/// The form-control props a module's box has
+/// The form-control props (LLP 1069.001, LLP 1069.002) a module's box has
 /// no use for. `checked` is refused on every tag but `input` before this
 /// runs (`controls::control`); it is listed so the set reads whole.
 const CONTROL_PROPS: [&str; 20] = [
@@ -182,6 +206,13 @@ const CONTROL_PROPS: [&str; 20] = [
 /// Every module tag the file's views name, with where: the driver checks
 /// them against the app's roster (`bake-unknown-module`).
 pub fn module_tags(file: &File) -> Vec<(String, Span)> {
+    file.components
+        .iter()
+        .flat_map(|c| module_tags_in(&c.view))
+        .collect()
+}
+
+pub(crate) fn module_tags_in(nodes: &[Node]) -> Vec<(String, Span)> {
     fn walk(nodes: &[Node], out: &mut Vec<(String, Span)>) {
         for n in nodes {
             match n {
@@ -196,35 +227,26 @@ pub fn module_tags(file: &File) -> Vec<(String, Span)> {
                     }
                     walk(children, out);
                 }
-                Node::Use { children, .. } => walk(children, out),
-                Node::When {
-                    then, otherwise, ..
-                } => {
-                    walk(then, out);
-                    walk(otherwise, out);
+                node => {
+                    for list in node.child_lists() {
+                        walk(list, out);
+                    }
                 }
-                Node::Each { body, .. } => walk(body, out),
-                Node::Match { some, none, .. } => {
-                    walk(&some.1, out);
-                    walk(none, out);
-                }
-                Node::Children { .. } => {}
             }
         }
     }
     let mut out = Vec::new();
-    for c in &file.components {
-        walk(&c.view, &mut out);
-    }
+    walk(nodes, &mut out);
     out
 }
 
 impl Lowerer<'_> {
-    /// A module node's two props: its name, and its leftover attributes as
-    /// one object — keys sorted, the last binding of a key winning, each
-    /// value a string, number or bool (or an option of one, absent when
-    /// none), evaluated with the node's bindings. A package view's record
-    /// or list prop, and its declared events, are `native_typed.rs`'s.
+    /// A module node's name and props object: keys sorted, the last binding
+    /// of a key winning, scalar values carried as strings (absent when
+    /// none), evaluated with the node's bindings. App modules accept leftover
+    /// attributes; package views refuse undeclared leftovers before writing
+    /// them into the object. `native_typed.rs` handles record and list schemas
+    /// and declared events.
     pub(crate) fn native_bindings(
         &mut self,
         tag: &str,
@@ -244,11 +266,23 @@ impl Lowerer<'_> {
             module,
             crate::IMPLIED,
         ));
-        let view = crate::native_typed::declared(tag).unwrap_or_default();
+        let declared = crate::native_typed::declared(tag);
+        let is_package_view = declared.is_some();
+        let view = declared.unwrap_or_default();
         let mut keyed: std::collections::BTreeMap<&str, &Attr> = Default::default();
         for a in leftovers {
             match view.events.get(&a.name) {
                 Some(args) => self.view_event(tag, args, a, handlers)?,
+                None if is_package_view && !view.props.contains_key(&a.name) => {
+                    return err(
+                        "lower-native-attr",
+                        format!(
+                            "`{}` on `{tag}` is not declared by its package as a prop or event",
+                            a.name
+                        ),
+                        a.span,
+                    );
+                }
                 None => {
                     keyed.insert(a.name.as_str(), a);
                 }
@@ -325,7 +359,7 @@ impl Lowerer<'_> {
 mod tests {
     use super::is_module_tag;
 
-    /// SVG elements' own props (the filter primitives among them)
+    /// SVG elements' own props (LLP 1055.000's filter primitives among them)
     /// stay a module's props; rows still bind first.
     #[test]
     fn svg_element_props_stay_a_modules_on_its_tag() {

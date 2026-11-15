@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { analyze, select, tokens } from './page-style.mjs';
 
-// The same sheet and documents as page_style.rs's test: the two renderers select alike.
+// The same sheet and documents as page_style.rs's test: the two renderers select alike (LLP 1048.007 D4).
 const CSS = ':root{--a:red;--b:var(--a);--c:blue;--d:green}p{color:var(--b)}@media (hover:hover){:where(html:not([data-x])){button:hover{color:var(--c)}dialog{color:red}}}.c9{x:1}';
 
 test('a page keeps the rules its markup can meet, and the custom properties they read', () => {

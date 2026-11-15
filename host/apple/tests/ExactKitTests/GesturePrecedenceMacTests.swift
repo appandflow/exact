@@ -4,10 +4,10 @@ import XCTest
 @testable import ExactKit
 @testable import ExactDrag
 
-/// Gesture precedence on AppKit's own mouse methods: candidates innermost first,
+/// LLP 1057.001 §1 on AppKit's own mouse methods: candidates innermost first,
 /// then reorder > transform > height > pan > swipe; the web's `dblclick` order.
 final class GesturePrecedenceMacTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactDrag.install() }
+    override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     private var window: NSWindow?
     override func tearDown() { window?.close(); window = nil }
 
@@ -38,7 +38,7 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertEqual(MouseChain.ordered([nil, nil, nil, nil, nil]), [])
     }
 
-    /// The button down on a child reaches the nearest node
+    /// LLP 1005 §3: the button down on a child reaches the nearest node
     /// hearing `pointerdown`/`pointerup`, down before the press, up when it
     /// lifts, as the web's order has it.
     func testPointerDownAndUpReachTheNearestPointerNodeAroundThePress() {
@@ -59,7 +59,7 @@ final class GesturePrecedenceMacTests: XCTestCase {
         let child = p.views[2]!
         child.mouseDown(with: event(.leftMouseDown, child))
         XCTAssertEqual(log, ["down 1"], "before any press")
-        // The held pointer's drag is the node's move,
+        // LLP 1056 §3 stage 3: the held pointer's drag is the node's move,
         // its point from the node's content box (the child's middle, 35 in).
         child.mouseDragged(with: event(.leftMouseDragged, child, down: 5, right: 10))
         XCTAssertEqual(log, ["down 1", "move 1"])
@@ -71,10 +71,10 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertNil(p.pointerHeld)
     }
 
-    /// `stopPropagation()` ends one dispatch and nothing else: a down
-    /// stopped in the middle never reaches the root, yet its up does
-    /// and the pad keeps the drags; a stopped wheel never reaches the
-    /// root and still scrolls.
+    /// `stopPropagation()` ends one dispatch and nothing else (decided under
+    /// Charlie's delegation, 2026-10-15): a down stopped in the middle never
+    /// reaches the root, yet its up does and the pad keeps the drags; a
+    /// stopped wheel never reaches the root and still scrolls.
     func testAStopEndsOneDispatchAndNothingElse() {
         let p = host([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup", "wheel"]],
@@ -109,9 +109,9 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertFalse(p.propagationStopped)
     }
 
-    /// The down and the up bubble, innermost first:
+    /// The down and the up bubble, innermost first (Charlie, 2026-10-15):
     /// a box hearing only `pointermove` holds the drags and takes nothing
-    /// from its ancestors' down and up. The up still
+    /// from its ancestors' down and up (#20261010, X71). The up still
     /// reaches an ancestor after the held node is destroyed under the hold.
     func testPointerDownAndUpBubbleWhileTheInnermostHoldsTheMoves() {
         let p = host([
@@ -269,11 +269,12 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertFalse(child.isDescendant(of: old))
     }
 
-    /// A click after a thread app's "Archive thread" or a thread's Delete
-    /// confirm: a context menu took a right-click's up, so the hold lasts,
-    /// and a batch removes and frees the row it went down on. The view
-    /// pressed goes with its row rather than staying a subview of a freed
-    /// one, and the next click's up ends the hold without reaching it.
+    /// The T3 Code clone's crash on a click after "Archive thread" or a
+    /// thread's Delete confirm (realinput-1011c G4-14, LSF-6): a context
+    /// menu took a right-click's up, so the hold lasts, and a batch removes
+    /// and frees the row it went down on. The view pressed goes with its
+    /// row rather than staying a subview of a freed one, and the next click's
+    /// up ends the hold without reaching it.
     func testARowFreedUnderAHoldTakesThePressedViewWithIt() throws {
         var p: Presenter!
         weak var row: NodeView?
@@ -315,10 +316,10 @@ final class GesturePrecedenceMacTests: XCTestCase {
     }
 
     /// The T3 Code clone's crash on a click on Settings while a panel held
-    /// the pointer: a batch between the down and the up replaces the
-    /// button's panel. AppKit sends that up to no view, the one pressed
-    /// having left the window, so the hold lasts, and the next click, on
-    /// the new button, ends it at its up.
+    /// the pointer (realinput-1011c R11-X79, R11-X51): a batch between the
+    /// down and the up replaces the button's panel. AppKit sends that up to
+    /// no view, the one pressed having left the window, so the hold lasts,
+    /// and the next click, on the new button, ends it at its up.
     func testAPanelReplacedUnderAClickTakesThePressedViewWithIt() throws {
         var p: Presenter!
         weak var panel: NodeView?
@@ -367,7 +368,7 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertNil(p.pointerSource)
     }
 
-    /// A held node's release clears the hold. The view the button
+    /// LLP 1005: a held node's release clears the hold. The view the button
     /// went down on goes with the button even so, and a resting pointer's
     /// hover follows the layout again, as it does after any up.
     func testTheButtonLetsThePressedViewGoAfterTheHeldNodeLeft() throws {
@@ -394,9 +395,9 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertEqual(log, ["down 1"])
     }
 
-    /// A free pointer's moves are one a display frame, the
-    /// latest, as the web host sends them; a pending one goes before a down.
-    /// AppKit can report several `mouseMoved` a frame.
+    /// LLP 1056 §3: a free pointer's moves are one a display frame, the
+    /// latest, as the web host sends them; a pending one goes before a down
+    /// (Grok's batch 2 review). AppKit can report several `mouseMoved` a frame.
     func testFreeMovesAreOneAFrameAndGoBeforeADown() {
         let p = host([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointermove"]],
@@ -420,7 +421,7 @@ final class GesturePrecedenceMacTests: XCTestCase {
     }
 
     /// Two `pointermove` nodes crossed in one frame each hear their own
-    /// last move.
+    /// last move (Grok's batch 2 delta review).
     func testEachNodeCrossedInAFrameHearsItsLastMove() {
         let p = host([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["pointermove"]],
@@ -443,7 +444,7 @@ final class GesturePrecedenceMacTests: XCTestCase {
     }
 
     /// A presenter released with a move pending leaves no display link
-    /// running.
+    /// running (Grok's batch 2 delta review).
     func testAReleasedPresenterStopsItsHoverLink() {
         weak var link: CADisplayLink?
         autoreleasepool {
@@ -592,7 +593,7 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertEqual(log, ["pan 10.0"], "a pan that begins cancels the press")
     }
 
-    /// Rule 3 for a `pan`: a press between keeps the contact only
+    /// Rule 3 for a `pan` (kanban F6): a press between keeps the contact only
     /// within the slop — a drag that starts on a card's button pans the card,
     /// and a tap on the button still presses it.
     func testAnAncestorPanTakesADragThatStartsOnAButton() {

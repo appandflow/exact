@@ -1,8 +1,8 @@
-// Copied from exact2's apps/map-demo (an app-owned module: modules live in the
-// app's directory), with reuse. Added for the xheavy feed: `interactive="false"`
+// Copied from exact2's apps/map-demo (an app-owned module, LLP 1024 §3: modules live in the
+// app's directory), with reuse (LLP 1068 §4.8). Added for the xheavy feed: `interactive="false"`
 // turns every gesture off (SPEC 7: "all interaction disabled").
 //
-// `<native-map>` on Apple hosts: MKMapView, the platform's own
+// `<native-map>` on Apple hosts (LLP 1024): MKMapView, the platform's own
 // map and gestures. Props: latitude, longitude, span (degrees of latitude in
 // view), pins (`id|lat|lon|title;…`), selected (an id). Events: `change`
 // with the id of a pin the person selected on the map. A `selected` prop
@@ -10,7 +10,7 @@
 // host's ordinary capture cannot see, so the tag answers snapshots
 // (MKMapSnapshotter, the pins drawn on top).
 //
-// The tag opts into reuse in a list: creating an MKMapView
+// The tag opts into reuse in a list (LLP 1068 §4.8): creating an MKMapView
 // costs 20–47 ms of main thread and its churn retains memory, so a retired
 // row's map is reset and lent to the next map row. The reset leaves nothing
 // a new map would not have — no pins, selection, camera, map type, user
@@ -56,7 +56,7 @@ final class NativeMap: ExactNativeInstance {
     private let delegate = MapDelegate()
     private var props: [String: String] = [:]
     private var applying = false
-    /// Reset for reuse: the next props are a first mount.
+    /// Reset for reuse: the next props are a first mount (LLP 1068 §4.8).
     private var fresh = false
     private var awaiting = 0
     /// The last row's region, kept through a reset: a reuse for the same place

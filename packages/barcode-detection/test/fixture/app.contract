@@ -1,5 +1,5 @@
-// The vision and translation packages' conformance fixture:
-// @exact/barcode-detection, @exact/text-detection and
+// The vision and translation packages' conformance fixture (LLP 1133.001 D7,
+// LLP 1133.027 §9): @exact/barcode-detection, @exact/text-detection and
 // @exact/translation read and sent as an app would, each answer shown by
 // testId for the suites. An image comes in through the file input, as a
 // person's pick does; a live scan reads the back camera the viewfinder shows,

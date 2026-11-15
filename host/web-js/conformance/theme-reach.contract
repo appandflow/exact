@@ -1,4 +1,4 @@
-// Synthetic conformance plan: the theme's reach on the web. The theme
+// Synthetic conformance plan: LLP 1095 D4's reach on the web. The theme
 // replaces the page's colour and ground (CanvasText, Canvas), the accent,
 // and a separator; unsaid text, a rule, an accent-coloured control and an
 // authored accent-color below (which wins for its subtree) read them on

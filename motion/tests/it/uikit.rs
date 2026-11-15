@@ -1,8 +1,8 @@
-//! UIKit's springs against what UIKit did: every
+//! UIKit's springs against what UIKit did (LLP 1099 §4, §8.1–§8.2): every
 //! measured call in `motion/tests/fixtures/uikit-springs/ios-27.0.txt`, the
 //! probe's report from the iOS 27.0 simulator.
 //!
-//! The mapping and the renderer are tested apart: the curve
+//! The mapping (D2, D3) and the renderer (D4) are tested apart: the curve
 //! tests feed Core Animation's measured coefficients and end times, so a
 //! mapping miss cannot hide a renderer error or the reverse.
 
@@ -121,7 +121,7 @@ fn the_zero_velocity_closed_form_matches_every_call() {
 
 /// Every (ζ, u) where the reconstruction does not pick UIKit's root: the
 /// procedure's W, bit for bit, and whether it validates as a root. All lie in
-/// the band. Pinned so that any change to the procedure, or
+/// the band (LLP 1099 §4.3). Pinned so that any change to the procedure, or
 /// another root that happens to keep the totals, fails here.
 const MISSES: &[(f64, f64, f64, bool)] = &[
     (0.05, 0.05, 5.0, false),
@@ -256,9 +256,9 @@ fn the_reconstruction_matches_uikit_outside_the_band() {
             (1.0, v, Some(d), Branch::Textbook)
         );
     }
-    // 9,510 calls: A, B and C (2,496) and the W sweep (7,014). A, W and the U
-    // rows alone give 100 misses and 27 refusals; here B and C add one miss,
-    // refused, at ζ 1 and u 5, and the U rows are left out.
+    // 9,510 calls: A, B and C (2,496) and the W sweep (7,014). The LLP's §4.3
+    // counts A, W and the U rows (100 misses, 27 refusals); here B and C add
+    // one miss, refused, at ζ 1 and u 5, and the U rows are left out.
     assert_eq!((matched, missed, refused), (9410, 100, 28));
 }
 
@@ -391,7 +391,7 @@ fn the_response_form_and_the_edges_of_the_domain() {
         (1.0, None, Branch::Textbook)
     );
     // Above critical the response form clamps, as Core Animation does for
-    // the timing parameters a messaging app's helper feeds it.
+    // the timing parameters Signal's helper feeds it.
     assert_eq!(
         uikit::response(0.25, 1.5, 0.0),
         uikit::response(0.25, 1.0, 0.0)
@@ -432,7 +432,7 @@ fn a_critical_spring_on_the_overdamped_branch_is_critical() {
     assert!((p - (1.0 - 2.0 * (-1.0f64).exp())).abs() < 1e-9, "{p}");
 }
 
-/// The textbook branch is exact2's physics at every ζ: an
+/// The textbook branch is exact2's physics at every ζ (LLP 1099 D4): an
 /// overdamped spring is neither clamped nor paired as Core Animation's
 /// overdamped branch would.
 #[test]

@@ -1,38 +1,42 @@
-// @exact/pedometer on Apple: Core Motion's
+// @exact/pedometer on Apple (LLP 1133.026 D12, D15, D16, D17): Core Motion's
 // `CMPedometer`, answered in the interface's shapes. Under the agent the
 // runner's declared substitute answers and nothing here runs; a bound run
 // (`--bind pedometer`) reaches it on a simulator made for the drive.
 //
-// - A reader group is a `start`: its boundary is fixed at its first
+// - A reader group is a `start` (D12): its boundary is fixed at its first
 //   ask, the later of `start` and seven days before then, since Core Motion
 //   keeps only the past seven days. The oldest group takes the module's one
 //   update stream (`startUpdates(from:)`); any other group is answered by a
 //   query from its boundary to now. `since` is the answering data's
 //   `startDate`, which follows Core Motion if it moves.
-// - `CMPedometer` has no request call: the first query prompts. The
+// - `CMPedometer` has no request call: the first query prompts (D12). The
 //   request queries the last second while `notDetermined` and answers the
 //   status its handler leaves.
 // - A reader never starts updates while the state is `prompt` or `denied`.
 // - Delivery stops while the app is suspended and the next update is
 //   cumulative again, so nothing stops here in the background, and a poll
-//   while hidden answers the count held.
-// - Tier 3: `PedometerModule.hatch` is given the pedometer once, before
+//   while hidden answers the count held (D12).
+// - Tier 3 (D17): `PedometerModule.hatch` is given the pedometer once, before
 //   its first start; `forward` hears every update the module receives.
-// - The Mac answers `available` false: Core Motion's step counting is
+// - The Mac answers `available` false (D21): Core Motion's step counting is
 //   the iPhone's.
 import CoreMotion
 import ExactPackage
 import Foundation
 
+func pedometerBoundary(start: Double?) -> Date {
+    let asked = Date().timeIntervalSince1970 * 1000
+    // Core Motion keeps only the past seven days (D12).
+    let kept = 7 * 86_400_000.0
+    return Date(timeIntervalSince1970: max(start ?? asked, asked - kept) / 1000)
+}
+
 #if os(iOS)
 public final class PedometerModule: ExactPackage {
-    /// The app's access hatch: given the pedometer once, before its first start.
+    /// The app's access hatch (D17): given the pedometer once, before its first start.
     public static var hatch: ((CMPedometer) -> Void)?
     /// Every update the module receives, on the main queue, after the module's own handling.
     public static var forward: ((CMPedometerData) -> Void)?
-
-    /// What Core Motion keeps: "only the past seven days".
-    private static let kept = 7 * 86_400_000.0
 
     private final class Group {
         let boundary: Date
@@ -57,7 +61,7 @@ public final class PedometerModule: ExactPackage {
 
     public func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void) {
         DispatchQueue.main.async { [self] in
-            // Under the agent the declared substitute answers; nothing here may reach Core Motion.
+            // Under the agent the declared substitute answers; nothing here may reach Core Motion (D23 item 1).
             guard !context.agent else { return reply(["error": "NotSupportedError"]) }
             switch name {
             case "pedometerStatus": reply(status())
@@ -82,7 +86,7 @@ public final class PedometerModule: ExactPackage {
         }
     }
 
-    /// The table: `notDetermined` is `prompt`, `restricted` and `denied` are `denied`.
+    /// D15's table: `notDetermined` is `prompt`, `restricted` and `denied` are `denied`.
     static func state(_ s: CMAuthorizationStatus) -> String {
         switch s {
         case .notDetermined: return "prompt"
@@ -131,8 +135,7 @@ public final class PedometerModule: ExactPackage {
         if let g = groups[key] {
             group = g
         } else {
-            let asked = context.now()
-            group = Group(boundary: Date(timeIntervalSince1970: max(start ?? asked, asked - Self.kept) / 1000))
+            group = Group(boundary: pedometerBoundary(start: start))
             groups[key] = group
             if streaming == nil { stream(key, group) }
         }

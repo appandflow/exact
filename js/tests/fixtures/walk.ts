@@ -1,5 +1,5 @@
-// A walk over `n` items of work, the shape of a large response's parse:
-// `walk(n, every)` awaits `scheduler.yield()` every
+// A walk over `n` items of work, the shape of a large response's parse
+// (LLP 1141.001 D10): `walk(n, every)` awaits `scheduler.yield()` every
 // `every` items, or never for 0, and answers the walk's checksum and how
 // many times it yielded, as "sum/yields". `sharedA` and `sharedB` answer one
 // walk between them, which the first to ask starts.

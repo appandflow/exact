@@ -1,4 +1,4 @@
-//! Delivery baking: the compatibility id
+//! Delivery baking (LLP 1030 D3a, D8; 1030.000 D4, D7): the compatibility id
 //! a build writes beside its plan, and the embedded receipt it checks against
 //! the publisher's. Build-side only: app build scripts, `js/bake` and the dev
 //! server link it. The compiler (`contract`) and the runtimes do not, so they
@@ -9,10 +9,13 @@
 #![deny(missing_docs)]
 
 mod atom_faces;
+mod channels;
 pub mod colors;
 pub mod compat;
+pub mod host;
 mod icon_rules;
 mod link;
+mod preload;
 mod reach;
 mod receipt;
 mod widgets;

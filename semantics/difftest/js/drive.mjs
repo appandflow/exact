@@ -1,5 +1,5 @@
 // The web JS target's half of a differential run (`difftest --js`): each
-// case's program compiled by `exact-web-js` (host/web-js), the
+// case's program compiled by `exact-web-js` (host/web-js, LLP 1071), the
 // module bundled with its runtime and run headless under Bun, in a fresh VM
 // context per case over the render DOM (host/web-js/dom.js) given event
 // listeners, its data sources answered synchronously from the runner's
@@ -19,7 +19,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { createDocument } from '../../../host/web-js/dom.js';
-import { driverRuntime, localImports } from '../../../host/web-js/glue.mjs';
+import { bundleHostModule, driverRuntime, localImports } from '../../../host/web-js/glue.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../../..');
@@ -76,25 +76,78 @@ Object.assign(ElementProto, {
   closest() { return null; }, focus() {}, blur() {}, click() {}, scrollTo() {},
   contains(n) { for (; n; n = n.parentNode) if (n === this) return true; return false; },
 });
+// A `<style>`'s sheet, as much as lower.js's arms sheet uses: each rule one nested
+// rule's declarations, kept unread, since a drive observes no style.
+const Declarations = probe.createElement('i').style.constructor;
+Object.defineProperty(ElementProto, 'sheet', {
+  get() {
+    if (this.localName !== 'style') return undefined;
+    return this.$sheet ??= {
+      cssRules: [],
+      insertRule(_, at) { this.cssRules.splice(at, 0, { cssRules: [{ style: new Declarations() }] }); return at; },
+      deleteRule(at) { this.cssRules.splice(at, 1); },
+    };
+  },
+  configurable: true,
+});
 // A date, time or datetime-local input holds HTML's value format, within its
-// `min` and `max`, or nothing (runner/src/runner/control.rs).
-const DATE = '\\d{4,}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])', TIME = '([01]\\d|2[0-3]):[0-5]\\d(:[0-5]\\d(\\.\\d{1,3})?)?';
-const FORMATS = { date: new RegExp(`^${DATE}$`), time: new RegExp(`^${TIME}$`), 'datetime-local': new RegExp(`^${DATE}T${TIME}$`) };
+// `min` and `max` compared as the times they name, or nothing: the runner's
+// checks (runner/src/runner/control.rs `control_payload`) on the kernel's
+// parse (kernel/src/control.rs `date_value`), in milliseconds as a BigInt.
+const twoDigits = (s, below) => /^\d\d$/.test(s) && Number(s) < below ? BigInt(s) : null;
+function dateValue(s) {
+  const m = /^(\d{4,})-(\d\d)-(\d\d)$/.exec(s);
+  // The year is a u32 there, and never 0.
+  if (!m || Number(m[1]) > 0xffffffff || Number(m[1]) === 0) return null;
+  const y = BigInt(m[1]), month = Number(m[2]), day = Number(m[3]);
+  const leap = y % 4n === 0n && (y % 100n !== 0n || y % 400n === 0n);
+  const lengths = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (month < 1 || month > 12 || day < 1 || day > lengths[month - 1]) return null;
+  const years = y - 1n, before = lengths.slice(0, month - 1).reduce((a, b) => a + b, 0) + day - 1;
+  // 719162 days precede 1970-01-01 in the proleptic Gregorian calendar.
+  return (365n * years + years / 4n - years / 100n + years / 400n + BigInt(before) - 719162n) * 86400000n;
+}
+function timeValue(s) {
+  const [hh, mm, sec, ...rest] = s.split(':');
+  const h = twoDigits(hh, 24), m = mm === undefined ? null : twoDigits(mm, 60);
+  if (h === null || m === null || rest.length) return null;
+  let seconds = 0n;
+  if (sec !== undefined) {
+    const dot = sec.indexOf('.'), whole = twoDigits(dot < 0 ? sec : sec.slice(0, dot), 60), fraction = dot < 0 ? '' : sec.slice(dot + 1);
+    if (whole === null || (dot >= 0 && !/^\d{1,3}$/.test(fraction))) return null;
+    seconds = whole * 1000n + BigInt((fraction || '0').padEnd(3, '0'));
+  }
+  return (h * 60n + m) * 60000n + seconds;
+}
+const VALUES = {
+  date: dateValue,
+  time: timeValue,
+  'datetime-local': s => { const at = s.search(/[T ]/); if (at < 0) return null; const d = dateValue(s.slice(0, at)), t = timeValue(s.slice(at + 1)); return d === null || t === null ? null : d + t; },
+};
 function datetime(e, text) {
-  const f = e.localName === 'input' && FORMATS[e.type];
-  if (!f || text === '') return true;
-  if (!f.test(text)) return false;
-  const bound = k => { const b = e.getAttribute(k); return b && f.test(b) ? b : null; };
-  return !(bound('min') && text < bound('min')) && !(bound('max') && text > bound('max'));
+  const kind = e.localName === 'input' && e.type.toLowerCase(), value = VALUES[kind];
+  if (!value || text === '') return true;
+  const n = value(text);
+  if (n === null) return false;
+  const bound = k => { const b = e.getAttribute(k); return b == null ? null : value(b); };
+  const lo = bound('min'), hi = bound('max');
+  // HTML's time domain wraps at midnight.
+  if (kind === 'time' && lo !== null && hi !== null && lo > hi) return !(n < lo && n > hi);
+  return !(lo !== null && n < lo) && !(hi !== null && n > hi);
 }
 const fire = (e, type) => { for (const f of [...(e.$listeners?.[type] ?? [])]) f({ type, target: e, currentTarget: e, composedPath() { const path = []; for (let n = e; n; n = n.parentNode) path.push(n); return path; }, stopPropagation() {}, preventDefault() {}, key: '' }); };
 
 // ---------------------------------------------------------------- the runtime
 // Every file the bundle may reach, as host/web-js/build.mjs lays them out.
-function runtime(dir) {
+async function runtime(dir) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
-  for (const f of driverRuntime(root)) cpSync(resolve(root, f), resolve(dir, basename(f)));
+  for (const f of driverRuntime(root)) {
+    if (f.startsWith('host/web/navigation/') || ['host/web/navigation.js', 'host/web/grant-admission.js'].includes(f)) continue;
+    cpSync(resolve(root, f), resolve(dir, basename(f)));
+  }
+  writeFileSync(resolve(dir, 'navigation.js'), await bundleHostModule(root, 'navigation.js', { grants: true }));
+  writeFileSync(resolve(dir, 'grant-admission.js'), await bundleHostModule(root, 'grant-admission.js'));
   // `sin` and `cos` answer the runner's bits (`trig` below), not `Math`'s.
   const roster = resolve(dir, 'roster.js'), engine = 'export const x_sin = Math.sin, x_cos = Math.cos;';
   const text = readFileSync(roster, 'utf8');
@@ -125,8 +178,16 @@ async function build(compiler, dir, file) {
   for (const f of ['app.js', 'names.js']) rmSync(resolve(dir, f), { force: true });
   const c = spawnSync(compiler, ['js', file, '-o', dir], { encoding: 'utf8' });
   if (c.status !== 0) return { outside: (c.stderr || c.stdout || `exit ${c.status}`).trim() };
+  // Each native extension's chunk, which the module's loaders import: here
+  // without a web implementation, as build.mjs writes one that has none.
+  const modules = resolve(dir, 'modules.flag');
+  for (const extension of existsSync(modules) ? Object.keys(JSON.parse(readFileSync(modules, 'utf8')).extensions) : []) {
+    writeFileSync(resolve(dir, `ext-${extension}.js`), 'export const implementation = null;\n');
+  }
   entry(dir);
-  const r = await Bun.build({ entrypoints: [resolve(dir, 'entry.js')], format: 'iife', target: 'browser', define: { 'import.meta.url': '"http://difftest.invalid/app.js"' } });
+  // A failed bundle throws an AggregateError whose message is only "Bundle failed": its causes are its `errors`.
+  const r = await Bun.build({ entrypoints: [resolve(dir, 'entry.js')], format: 'iife', target: 'browser', define: { 'import.meta.url': '"http://difftest.invalid/app.js"' } })
+    .catch(e => { throw new Error((e.errors ?? [e]).map(String).join('\n')); });
   if (!r.success) throw new Error(r.logs.map(String).join('\n'));
   return { code: await r.outputs[0].text() };
 }
@@ -134,7 +195,7 @@ async function build(compiler, dir, file) {
 // ---------------------------------------------------------------- one case
 async function drive(code, c, hostSources) {
   const document = createDocument();
-  // The page's storage: the device's store at launch, which
+  // The page's storage: the device's store at launch (LLP 1116 D5), which
   // persist.js reads as a slot is made and writes after each commit.
   const kept = new Map(Object.entries(c.stored ?? {}));
   const localStorage = {
@@ -148,7 +209,7 @@ async function drive(code, c, hostSources) {
     addEventListener() {}, removeEventListener() {}, navigator: {},
     matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
-    setTimeout, clearTimeout, queueMicrotask, performance, console: quiet, fetch: () => Promise.reject(new Error('no network in a drive')), URL, URLSearchParams, TextEncoder, TextDecoder,
+    setTimeout, clearTimeout, queueMicrotask, performance, structuredClone, console: quiet, fetch: () => Promise.reject(new Error('no network in a drive')), URL, URLSearchParams, TextEncoder, TextDecoder,
     Event: class {}, CustomEvent: class {},
     // No browser layout runs here; symbol projection's observer has nothing to report.
     MutationObserver: class { observe() {} disconnect() {} },
@@ -158,7 +219,7 @@ async function drive(code, c, hostSources) {
   });
   ctx.globalThis = ctx; ctx.self = ctx; ctx.window = ctx;
   // The JS target's `sin` and `cos` are the engine's `Math.sin` and
-  // `Math.cos`, held to the runner's libm by value, not by bits.
+  // `Math.cos`, held to the runner's libm by value, not by bits (LLP 1003 §7).
   // Here they answer the runner's bits for each input the harness computed
   // (`c.trig`, by `sin:`/`cos:` and the input's bits); an input it has not
   // computed yet is asked for (`asked`) and the case is driven again.
@@ -194,9 +255,15 @@ async function drive(code, c, hostSources) {
   let commands = [];
   const record = name => (...args) => { commands.push(`command ${name}${args.map(a => ' ' + untyped(a)).join('')}`); };
   for (const k of Object.keys(Hosts)) Hosts[k] = record(k);
-  // `setMode` is the runtime's own, as the runner's: no host is
+  // `setMode` is the runtime's own, as the runner's (LLP 1121 D5): no host is
   // told, and the window's mode selects presentation, which no line shows.
   Hosts.setMode = () => {};
+  // So is the row form of `scrollIntoView`, seven arguments (list.js; LLP
+  // 1070.000 §12–13); an element's, four, is a host's (`hostCommands` in the
+  // Lean semantics).
+  const rowScroll = (name, args) => name === 'scrollIntoView' && args.length === 7;
+  const toldScroll = record('scrollIntoView');
+  Hosts.scrollIntoView = (...args) => { if (!rowScroll('scrollIntoView', args)) toldScroll(...args); };
   // The voice table's commands are the runtime's own (rt.js `Sounds.own`): they reach `Sounds.apply`
   // with the commit's whole command list, in order, not `Hosts`. Record the list as the runner does:
   // the host commands just recorded from it are replaced by the whole of it.
@@ -204,8 +271,8 @@ async function drive(code, c, hostSources) {
   Object.defineProperty(Sounds, 'apply', {
     configurable: true,
     get: () => cmds => {
-      // `setMode` was never recorded (above), and the runner tells no host of it.
-      const shown = cmds.filter(([name]) => name !== 'setMode');
+      // `setMode` and a row's `scrollIntoView` were never recorded (above), and the runner tells no host of them.
+      const shown = cmds.filter(([name, args]) => name !== 'setMode' && !rowScroll(name, args));
       if (shown.some(([name]) => Sounds.own.has(name))) {
         const hosts = shown.filter(([name]) => !Sounds.own.has(name)).length;
         commands.splice(commands.length - hosts, hosts, ...shown.map(([name, args]) => `command ${name}${args.map(a => ' ' + untyped(a)).join('')}`));
@@ -214,7 +281,11 @@ async function drive(code, c, hostSources) {
     },
     set: f => { applySounds = f; },
   });
-  Object.setPrototypeOf(Hosts, new Proxy({}, { get: (_, name) => typeof name === 'string' ? record(name) : undefined }));
+  Object.setPrototypeOf(Hosts, new Proxy({}, {
+    get: (_, name) => typeof name === 'string' ? record(name) : undefined,
+    // Commands linked at boot must keep the recorder instead of running their host effects.
+    set: () => true,
+  }));
 
   const out = ['== boot'];
   const mark = () => journal.start + journal.length;
@@ -254,14 +325,15 @@ async function drive(code, c, hostSources) {
     names.forEach((group, g) => {
       if (g === 1) storeLines(); // after the slots, as observe.rs writes them
       group.forEach((name, i) => {
-        // The locale slot (`#locale`) is no root slot the runner shows.
+        // The locale and format slots (`#locale`, `#format`) are no root slots
+        // the runner shows.
         if (name.startsWith('#')) return;
         let v;
         try { v = state[g][i](); } catch (e) { notes.push(`# js: ${['slot', 'derive', 'resource'][g]} ${name}: ${e.message}`); return; }
         out.push(`${['slot', 'derive', 'resource'][g]} ${name} ${typed(v, types[g][i])}`);
       });
     });
-    // Each queue's waiting sends, in declaration order, as observe.rs writes them.
+    // Each queue's waiting sends (LLP 1092 D12), in declaration order, as observe.rs writes them.
     for (const m of Mutations) if (m.queue) out.push(`queued ${m.name} ${m.wait?.length ?? 0}`);
     out.push(...commands); commands = [];
     walk(root, e => {
@@ -293,10 +365,16 @@ async function drive(code, c, hostSources) {
       const e = find(id);
       // What a browser can deliver, as the runner holds a host to it
       // (runner/src/runner/control.rs): a select reports one of its enabled
-      // options, a checkbox or a radio no text.
+      // options, a checkbox no text, and a radio its own value: its `value`
+      // attribute, else "on" (HTML, "the input element"). An option's value
+      // is its `value` attribute, else its text with HTML's ASCII whitespace
+      // stripped and collapsed (HTML, "the option element"; kernel
+      // `option_label`): a nonbreaking space stays.
       const options = e?.localName === 'select' ? e.getElementsByTagName('option') : null;
-      const deliverable = e && e.type !== 'checkbox' && e.type !== 'radio' && datetime(e, text)
-        && (!options || options.some(o => !o.hasAttribute('disabled') && (o.getAttribute('value') ?? o.textContent) === text));
+      const optionValue = o => o.getAttribute('value') ?? o.textContent.split(/[\t\n\f\r ]+/).filter(Boolean).join(' ');
+      const kind = e?.type.toLowerCase();
+      const deliverable = e && kind !== 'checkbox' && (kind !== 'radio' || text === (e.getAttribute('value') ?? 'on')) && datetime(e, text)
+        && (!options || options.some(o => !o.hasAttribute('disabled') && optionValue(o) === text));
       const event = e?.$listeners?.input?.length ? 'input' : 'change';
       if (!deliverable || !e.$listeners?.[event]?.length) refused = true; else { e.value = text; fire(e, event); }
     } else if (ev.land) {
@@ -322,7 +400,7 @@ async function drive(code, c, hostSources) {
 process.on('unhandledRejection', () => {});
 const quiet = process.env.DIFFTEST_JS_DEBUG ? console : { ...console, error() {}, warn() {} };
 const batch = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-runtime(batch.work);
+await runtime(batch.work);
 for (const c of batch.cases) {
   let result;
   try {

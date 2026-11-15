@@ -1,8 +1,8 @@
-// A live filter picture's chain in Metal (iOS):
+// @ref LLP 1055.000 D14 — a live filter picture's chain in Metal (iOS):
 // `SvgFilterMetal`'s kernels. Compiled at build (`host/apple/build.mjs`,
 // `xcrun metal`) into `ExactSvgFilter.metallib` beside the app's
 // executable: compiled from source at run time, the library cost the first
-// launch after an install 113–264 ms inside the commit that first shows a filter.
+// launch after an install 113–264 ms inside the commit that shows F3.
 #include <metal_stdlib>
 using namespace metal;
 kernel void colorMatrix(texture2d<float, access::read> src [[texture(0)]], texture2d<float, access::write> dst [[texture(1)]],

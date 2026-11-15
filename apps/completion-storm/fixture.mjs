@@ -3,14 +3,14 @@
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
-import { readStaticFileAsync, serveStatic } from '../../host/web/serve.mjs';
+import { jsTargetBuild, readStaticFileAsync, serveBuildTree, serveStatic } from '../../host/web/serve.mjs';
 
 export async function createFixture({port=4319, controlPort=4320, maxWaves=8, maxHeld=512, holdMs=30_000,
   dist=resolve(import.meta.dir, 'target/dist')} = {}) {
   const waves = new Map();
   let nextWave = 1, received = 0, issued = 0, rejected = 0, abandoned = 0;
   const headers = {'access-control-allow-origin':'*', 'access-control-allow-methods':'GET, POST, OPTIONS', 'access-control-allow-headers':'cache-control, content-type, last-event-id', 'cache-control':'no-store'};
-  // A wave's progress as server-sent events: every change is
+  // A wave's progress as server-sent events (LLP 1016.000): every change is
   // one log entry with a sequence number, sent as one event carrying the
   // wave's counts and the entries since the reader's cursor. A reader that
   // reconnects with Last-Event-ID gets every entry after it in one event,
@@ -22,7 +22,7 @@ export async function createFixture({port=4319, controlPort=4320, maxWaves=8, ma
     events.sent++;
     res.write(`id: ${wave.log.length}\ndata: ${JSON.stringify({...counts(wave), entries})}\n\n`);
   };
-  // The same progress over a WebSocket, in Jetstream's
+  // The same progress over a WebSocket (LLP 1069.004 slice 3), in Jetstream's
   // shape: `/api/frames?wave=N[&cursor=K]` sends one text frame per change
   // with the counts, the newest sequence as `cursor`, and the entries after
   // the reader's cursor; a reconnect with `cursor` gets every entry after it.
@@ -160,7 +160,8 @@ export async function createFixture({port=4319, controlPort=4320, maxWaves=8, ma
     }
     if (url.pathname.startsWith('/api/')) return reject(res,404,'Unknown control endpoint or method');
     if (dist===null) { res.writeHead(404,headers); res.end('API-only fixture'); return; }
-    serveStatic(dist,req,res);
+    if (jsTargetBuild(dist)) serveBuildTree(dist,req,res);
+    else serveStatic(dist,req,res);
   });
   controlServer.on('upgrade', (req, socket) => {
     const url=new URL(req.url, 'http://fixture'), key=req.headers['sec-websocket-key'];

@@ -1,4 +1,5 @@
-// `orientationlock` on the web, orientationlock-glue.js
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// `orientationlock` on the web (LLP 1133.029 D3, D7), orientationlock-glue.js
 // in a real browser over a stand-in `screen.orientation` that records what it
 // is asked: the counted holders follow the runner's three rules
 // (runner/src/orientation_tests.rs) over the DOM navigation.js projects; the
@@ -8,13 +9,13 @@
 // DOMException name. The JS target's orientationlock.js journals a bad word
 // as the runner does.
 import { test, expect, beforeAll, afterAll } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 

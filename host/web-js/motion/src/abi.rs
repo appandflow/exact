@@ -64,10 +64,18 @@ pub extern "C" fn m_observe(
     scale: f64,
     rotate: f64,
     opacity: f64,
+    supplied: u32,
+    vx: f64,
+    vy: f64,
     now: f64,
 ) -> u32 {
     state()
-        .observe(node as u64, [x, y, px, py, scale, rotate, opacity], now)
+        .observe(
+            node as u64,
+            [x, y, px, py, scale, rotate, opacity],
+            (supplied != 0).then(|| Value::new(vx, vy)),
+            now,
+        )
         .is_ok() as u32
 }
 
@@ -195,7 +203,7 @@ pub extern "C" fn m_settle() -> f64 {
     state().settle_time().unwrap_or(-1.0)
 }
 
-/// exact2's gesture thresholds: knee, resistance, edge, slop.
+/// exact2's gesture thresholds (LLP 1057.001 §3): knee, resistance, edge, slop.
 #[no_mangle]
 pub extern "C" fn m_gesture(i: u32) -> f64 {
     exact_motion::gesture::CONSTANTS
@@ -204,7 +212,7 @@ pub extern "C" fn m_gesture(i: u32) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// A pan's pointer sample.
+/// A pan's pointer sample (LLP 1057 §10.6).
 #[no_mangle]
 pub extern "C" fn m_pan_sample(view: u32, first: u32, x: f64, y: f64, ms: f64) {
     state().pan_sample(view, first != 0, x, y, ms);

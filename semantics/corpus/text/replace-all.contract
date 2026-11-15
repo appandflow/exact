@@ -1,4 +1,4 @@
-// `replaceAll` is JavaScript's with a string pattern: every
+// `replaceAll` is JavaScript's with a string pattern (LLP 1088 D2): every
 // match left to right, none overlapping; `GetSubstitution`'s `$$`, `$&`,
 // `` $` `` and `$'`, `$1` literal; an empty pattern at every code-unit
 // boundary, splitting a pair whose halves rejoin when nothing goes between.

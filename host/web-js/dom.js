@@ -5,7 +5,8 @@
 // boolean attributes). Region anchors (comments) are not written: adoption
 // inserts its own.
 const VOID = new Set(['img', 'input', 'br', 'hr', 'meta', 'link', 'source', 'area', 'col', 'embed', 'wbr']);
-const esc = (s, attr) => String(s).replace(attr ? /[&"\r]/g : /[&<>\r]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\r': '&#13;' })[c]);
+// An attribute value's `<` and `>` are references too, as HTML's serializer and document.rs `escape` write them.
+const esc = (s, attr) => String(s).replace(attr ? /[&"<>\r]/g : /[&<>\r]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\r': '&#13;' })[c]);
 
 let Trees = 0;
 class Node {
@@ -77,10 +78,11 @@ class Element extends Node {
   get children() { return this.childNodes.filter(c => c.nodeType === 1); }
   get nextElementSibling() { let n = this.nextSibling; while (n && n.nodeType !== 1) n = n.nextSibling; return n; }
   get tagName() { return this.localName.toUpperCase(); }
-  setAttribute(k, v) { this.attrs.set(k, String(v)); }
-  getAttribute(k) { return this.attrs.get(k) ?? null; }
-  hasAttribute(k) { return this.attrs.has(k); }
-  removeAttribute(k) { this.attrs.delete(k); }
+  // The `style` attribute is the inline style map, which `html` writes.
+  setAttribute(k, v) { if (k === 'style') this.style.cssText = String(v); else this.attrs.set(k, String(v)); }
+  getAttribute(k) { return k === 'style' ? this.style.cssText || null : this.attrs.get(k) ?? null; }
+  hasAttribute(k) { return k === 'style' ? !!this.style.cssText : this.attrs.has(k); }
+  removeAttribute(k) { if (k === 'style') this.style.cssText = ''; else this.attrs.delete(k); }
   toggleAttribute(k, on) { if (on) this.attrs.set(k, ''); else this.attrs.delete(k); }
   get childElementCount() { return this.childNodes.filter(c => c.nodeType === 1).length; }
   get firstElementChild() { return this.childNodes.find(c => c.nodeType === 1) ?? null; }
@@ -97,10 +99,24 @@ class Element extends Node {
       });
     });
   }
-  get value() { return this.localName === 'textarea' ? this.textContent : this.getAttribute('value') ?? ''; }
+  get value() {
+    if (this.localName === 'select') {
+      const options = this.options;
+      return (options.find(o => o.hasAttribute('selected')) ?? options.find(o => !o.hasAttribute('disabled')))?.value ?? '';
+    }
+    if (this.localName === 'option') return this.getAttribute('value') ?? this.textContent.replace(/[\t\n\f\r ]+/g, ' ').replace(/^ | $/g, '');
+    return this.localName === 'textarea' ? this.textContent : this.getAttribute('value') ?? '';
+  }
   get options() { return this.childNodes.filter(c => c.localName === 'option'); }
   // A select's value is the option that carries it, `selected` (document.rs).
-  set value(v) { if (this.localName === 'select') for (const o of this.childNodes) o.toggleAttribute?.('selected', o.getAttribute('value') === v); else if (this.localName === 'textarea') this.textContent = v; else if (v === '') this.removeAttribute('value'); else this.setAttribute('value', v); }
+  set value(v) {
+    if (this.localName === 'select') {
+      const options = this.options, selected = options.find(o => o.value === String(v));
+      for (const o of options) o.toggleAttribute('selected', o === selected);
+    } else if (this.localName === 'textarea') this.textContent = v;
+    else if (v === '' && this.localName !== 'option') this.removeAttribute('value');
+    else this.setAttribute('value', v);
+  }
   set checked(v) { this.toggleAttribute('checked', !!v); }
   get checked() { return this.hasAttribute('checked'); }
   set muted(v) {} pause() {} play() { return Promise.resolve(); }
@@ -108,6 +124,15 @@ class Element extends Node {
   // Read only (symbols.js `tinted`): the class attribute's names.
   get classList() { const names = (this.getAttribute('class') ?? '').split(/\s+/).filter(Boolean); return Object.assign(names, { contains: c => names.includes(c) }); }
   set href(v) { this.setAttribute('href', v); }
+  // Reflected as a browser reflects it, so an icon symbols.js draws from its file is written with the file (element.rs).
+  set src(v) { this.setAttribute('src', v); }
+  // Reflected as a browser reflects it, so a link renderMarkup sends out of the app is written with it.
+  get target() { return this.getAttribute('target') ?? ''; }
+  set target(v) { this.setAttribute('target', v); }
+  get rel() { return this.getAttribute('rel') ?? ''; }
+  set rel(v) { this.setAttribute('rel', v); }
+  get alt() { return this.getAttribute('alt') ?? ''; }
+  set alt(v) { this.setAttribute('alt', v); }
   html(inheritedFont = 16) {
     // Symbol images need a real natural size before adoption: the element's
     // font size, from its static class or live inline row, else inherited.
@@ -115,13 +140,13 @@ class Element extends Node {
     for (const cls of (this.getAttribute('class') ?? '').split(/\s+/)) if (this.fonts?.has(cls)) font = fontPx(this.fonts.get(cls), inheritedFont);
     const ownFont = this.style.getPropertyValue('font-size');
     if (ownFont !== '') font = fontPx(ownFont, inheritedFont);
-    // (An icon's file, `data-symbol-file`, is shown as written.)
+    // (An icon's file, `data-symbol-file`, is shown as written: LLP 1121 D10.)
     if (this.localName === 'img' && this.hasAttribute('data-symbol-source') && !this.hasAttribute('data-symbol-file')) this.setAttribute('src', `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${font}' height='${font}'/%3E`);
     // A head is the page's <head>, never an element in the root (as document.rs).
     if (this.localName === 'template') return '';
     let out = `<${this.localName}`;
     const style = this.style.cssText;
-    for (const [k, v] of this.attrs) if (k !== 'style') out += v === '' ? ` ${k}` : ` ${k}="${esc(v, true)}"`;
+    for (const [k, v] of this.attrs) out += v === '' ? ` ${k}` : ` ${k}="${esc(v, true)}"`;
     if (style) out += ` style="${esc(style, true)}"`;
     out += '>';
     if (VOID.has(this.localName)) return out;
@@ -138,13 +163,45 @@ const fontPx = (value, inherited) => {
   return Number(m[1]) * (unit === 'em' ? inherited : unit === 'rem' ? 16 : 1);
 };
 
+// The hero `<img>`'s priority, which its preload carries too (document_before.rs `HeroImage::PRIORITY`).
+const HERO_PRIORITY = 'high';
+// The `visibility` values an element can set; any other (`unset`, `inherit`) takes its parent's.
+const VISIBILITIES = new Set(['visible', 'hidden', 'collapse']);
+
 /** A document for one render: `#exact-root` in a body, a head for metas. */
 export function createDocument(shell = '') {
-  const fonts = new Map();
+  // The shell's classes that set a font size, `display: none`, and a visibility (a static style is a class: emit.rs).
+  const fonts = new Map(), displays = new Map(), visibilities = new Map();
   for (const rule of shell.matchAll(/\.([\w-]+)\{([^}]+)\}/g)) {
     const size = /(?:^|;)font-size:([^;]+)(?:;|$)/.exec(rule[2]);
     if (size) fonts.set(rule[1], size[1]);
+    if (/(?:^|;)display:none(?:;|$)/.test(rule[2])) displays.set(rule[1], 'none');
+    const visibility = /(?:^|;)visibility:(visible|hidden|collapse)(?:;|$)/.exec(rule[2]);
+    if (visibility) visibilities.set(rule[1], visibility[1]);
   }
+  // `el`'s own value for `property`: its inline value, else its class's in `byClass` (a rendered element's one class
+  // is its static style's: tree.js).
+  const own = (el, property, byClass) => el.style.getPropertyValue(property) || byClass.get(el.getAttribute('class')) || '';
+  /** The page's hero in `el`'s subtree: its first shown image with a source, as document_before.rs `Before::scan` finds
+   * it. `null` when that image is lazy, which a row's is (LLP 1048.007 D5): the page opens with a list and has no
+   * hero; `undefined` when the subtree has no such image. A head (`template`), a popover or dialog (closed until a
+   * script opens it), a covered subtree (a route the stack covers is `inert`) and one with `display: none` hold none.
+   * `inherited` is the parent's `visibility`, which CSS inherits: a descendant may set it back to `visible`, and
+   * `unset` or `inherit` (a bound blank writes `unset`: tree.js) takes the parent's, as the kernel clears the row for
+   * them. A symbol (`data-symbol-source`) is an icon, no hero. */
+  const heroIn = (el, inherited = 'visible') => {
+    if (el.localName === 'template' || el.localName === 'dialog' || el.hasAttribute('popover') || el.hasAttribute('inert')
+      || own(el, 'display', displays) === 'none') return undefined;
+    const declared = own(el, 'visibility', visibilities);
+    const visibility = VISIBILITIES.has(declared) ? declared : inherited;
+    if (el.localName === 'img') {
+      const src = el.getAttribute('src') ?? '';
+      if (visibility !== 'visible' || !src || src.startsWith('data:') || el.hasAttribute('data-symbol-source')) return undefined;
+      return el.getAttribute('loading') === 'lazy' ? null : el;
+    }
+    for (const child of el.childNodes) if (child.nodeType === 1) { const hero = heroIn(child, visibility); if (hero !== undefined) return hero; }
+    return undefined;
+  };
   const doc = new Node(9);
   const root = new Element('div'); root.setAttribute('id', 'exact-root');
   const head = new Element('head'); const body = new Element('body');
@@ -153,10 +210,22 @@ export function createDocument(shell = '') {
     title: '', head, body, documentElement: body, styleSheets: [], // symbols.js reads a tint from the stylesheets: a render has none
     createElement: t => new Element(t, fonts), createElementNS: (_, t) => new Element(t, fonts),
     createTextNode: t => new Text(t), createComment: () => new Comment(), createDocumentFragment: () => new Fragment(),
-    getElementById: id => (id === 'exact-root' ? root : id ? root.getElementsByTagName('*').find(e => e.getAttribute('id') === id) ?? null : null), // navigation.js `opensPopover` names a popover
+    getElementById: id => (id === 'exact-root' ? root : id ? root.getElementsByTagName('*').find(e => e.getAttribute('id') === id) ?? null : null), // navigation.js `opens` names a popover or dialog
     querySelector: sel => (/meta\[name="description"\]/.test(sel) ? head.childNodes.find(m => m.getAttribute?.('name') === 'description') ?? null : null),
     querySelectorAll: () => [],
     root, rootHTML: () => root.childNodes.map(c => c.html()).join(''),
+    /** Marks the hero `<img>` (`heroIn`) at high priority, first among its attributes as document.rs writes it, and
+     * returns its preload, which makes the `<img>`'s request: its URL, `crossorigin` and priority, as
+     * `HeroImage::preload` writes them. A page's likely largest paint is fetched early, as web.dev's LCP guidance has
+     * a hero image. '' when the page has none. Call it before `rootHTML`, which writes the mark. */
+    heroPreload: () => {
+      const hero = heroIn(root);
+      if (!hero) return '';
+      hero.attrs = new Map([['fetchpriority', HERO_PRIORITY], ...hero.attrs]);
+      const crossorigin = hero.getAttribute('crossorigin');
+      return `<link rel="preload" as="image" href="${esc(hero.getAttribute('src'), true)}"`
+        + `${crossorigin === null ? '' : ` crossorigin="${esc(crossorigin, true)}"`} fetchpriority="${HERO_PRIORITY}">`;
+    },
   });
   return doc;
 }

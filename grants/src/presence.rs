@@ -1,4 +1,4 @@
-//! A `secret.keep` line's presence policy: the words
+//! A `secret.keep` line's presence policy (LLP 1133.010 D4, D10): the words
 //! after the name that make the platform's keystore release the value only
 //! after the person's check.
 //!
@@ -11,10 +11,10 @@
 //! secret; the policy is read by the runner and the hosts that keep it.
 
 /// The runner's own prefix for a presence name's occupancy and the host's
-/// record of a move: no grant may name it.
+/// record of a move (LLP 1133.010 D4): no grant may name it.
 pub const PRESENCE_PREFIX: &str = "exact.presence.";
 
-/// Which check releases the value.
+/// Which check releases the value (D4's table).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Policy {
     /// Biometry or the device credential; survives a change of enrolment.
@@ -57,7 +57,7 @@ impl Policy {
     }
 }
 
-/// The platform words a presence line may carry after its policy.
+/// The platform words a presence line may carry after its policy (D10).
 pub const PLATFORM_WORDS: [&str; 5] = [
     "apple.accessible=whenPasscodeSetThisDeviceOnly",
     "apple.accessible=whenUnlockedThisDeviceOnly",

@@ -1,20 +1,21 @@
-//! What an Apple archive links.
+//! What a native artifact links (LLP 1047.001 D2, D3; LLP 1047 D8).
 //!
-//! On native the linked set is a compatibility input, and the manifest may
-//! link capabilities ahead of any plan that uses them. One composition
-//! drives Rust, Swift, admission and compatibility.
+//! @ref LLP 1047 D8 (on native the linked set is a compatibility input; the
+//! manifest may link capabilities ahead of any plan that uses them)
+//! @ref LLP 1047.001 D2 (one composition drives Rust, Swift, admission and
+//! compatibility)
 
 use crate::compat::{compatibility_digest, Compat};
 use exact_runner::{Capability, Uses};
 
-/// Name what an Apple archive links into `compat`'s inputs (`linked`), from
+/// Name what a native artifact links into `compat`'s inputs (`linked`), from
 /// the plan its build script baked into `out`, before the id is taken and
 /// everything that binds it (the GPU module's card, the receipts) is written.
 ///
-/// A production build (`host/apple/build.mjs` says `EXACT_APPLE_LINK=plan`)
-/// links what the plan uses and what the manifest's `link` names ahead of
-/// use; every other build, and a build `build.mjs` does not drive, links
-/// every capability. A bundle whose plan uses a capability
+/// Production links what the plan uses, what its grants allow, and the
+/// manifest's `link` ahead of use. Development and unknown grants link
+/// every capability (LLP 1047.001 D6). `EXACT_APPLE_LINK` selects `plan`
+/// or `all` explicitly, as Apple's build does. A bundle needing a capability
 /// this binary lacks is then another compatibility id: a binary change.
 pub(crate) fn name_into(
     compat: &mut Compat,
@@ -22,27 +23,21 @@ pub(crate) fn name_into(
     out: &std::path::Path,
 ) -> Result<(), String> {
     println!("cargo:rerun-if-env-changed=EXACT_APPLE_LINK");
-    let uses = if std::env::var("EXACT_APPLE_LINK").is_ok_and(|v| v == "plan") {
+    let by_plan = std::env::var("EXACT_APPLE_LINK").map_or_else(
+        |_| std::env::var("EXACT_UPDATE_TRUST").is_ok_and(|v| v == "production"),
+        |v| v == "plan",
+    );
+    let ceiling = compat.inputs["grantCeiling"].as_str();
+    let uses = if by_plan && ceiling.is_some() {
         let bytes = std::fs::read(out.join("app.plan")).map_err(|e| {
             format!("the app bake must write OUT_DIR/app.plan before compatibility_id: {e}")
         })?;
         let plan = exact_plan::Plan::decode(&bytes)
             .map_err(|e| format!("the baked plan is invalid: {e:?}"))?;
-        // The app's I/O grants link the host's I/O, and its `auth.session`
-        // grant the sign-in sheet, whatever the plan says: a data source's
-        // requests are the source's, not the plan's.
-        let ceiling = compat.inputs["grantCeiling"].as_str().unwrap_or("");
-        let granted = [
-            (Capability::Io, !exact_runner::io_grants(ceiling).is_empty()),
-            (Capability::AuthSession, auth_granted(ceiling)),
-        ];
-        let uses = ahead(manifest)?
-            .into_iter()
-            .fold(exact_runner::uses(&plan), Uses::with);
-        granted
-            .into_iter()
-            .filter_map(|(capability, granted)| granted.then_some(capability))
-            .fold(uses, Uses::with)
+        ahead(manifest)?.into_iter().fold(
+            exact_runner::uses(&plan).with_grants(ceiling.unwrap_or("")),
+            Uses::with,
+        )
     } else {
         Capability::ALL.into_iter().fold(Uses::NONE, Uses::with)
     };
@@ -50,14 +45,6 @@ pub(crate) fn name_into(
     compat.inputs["linked"] = serde_json::json!(names);
     compat.id = compatibility_digest(&compat.inputs);
     Ok(())
-}
-
-/// Whether a grant ceiling names `auth.session`: what
-/// links the sign-in sheet.
-pub fn auth_granted(ceiling: &str) -> bool {
-    ceiling
-        .lines()
-        .any(|line| line.split_whitespace().next() == Some("auth.session"))
 }
 
 /// The Apple entry's text for what `compat` says the archive links
@@ -74,7 +61,7 @@ pub fn apple_link(compat: &Compat, host: &str) -> String {
 }
 
 /// The manifest's `link`: capabilities by name, linked before any plan uses
-/// them, so a later bundle may.
+/// them, so a later bundle may (LLP 1047 D8).
 pub fn ahead(manifest: &contract::Manifest) -> Result<Vec<Capability>, String> {
     let Some(link) = manifest.json.get("link") else {
         return Ok(Vec::new());
@@ -211,25 +198,20 @@ mod tests {
         assert!(ahead(&manifest(serde_json::json!({}))).unwrap().is_empty());
         assert_eq!(
             ahead(&manifest(
-                serde_json::json!({"link": ["markdown", "grouped_lists"]})
+                serde_json::json!({"link": ["markdown", "grouped_lists", "presence"]})
             ))
             .unwrap(),
-            vec![Capability::Markdown, Capability::GroupedLists]
+            vec![
+                Capability::Markdown,
+                Capability::GroupedLists,
+                Capability::Presence
+            ]
         );
         let refused = ahead(&manifest(serde_json::json!({"link": ["markdwon"]}))).unwrap_err();
         assert!(
             refused.contains("markdwon") && refused.contains("markdown"),
             "{refused}"
         );
-    }
-
-    #[test]
-    fn an_auth_session_grant_links_the_sign_in_sheet() {
-        assert!(super::auth_granted(
-            "net.fetch https://a.test/\nauth.session https://bsky.social"
-        ));
-        assert!(!super::auth_granted("auth.callback social.exact.x:/oauth"));
-        assert!(!super::auth_granted(""));
     }
 
     /// The manifest schema's `link` names are the roster's, in its order.

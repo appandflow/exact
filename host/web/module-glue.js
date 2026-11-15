@@ -1,13 +1,13 @@
-// A private browser realm per data-module incarnation.
-// Trusted app code, NOT a security sandbox. No page or
+// A private browser realm per data-module incarnation. @ref LLP 1027 D6;
+// LLP 1027.000 D3. Trusted app code, NOT a security sandbox. No page or
 // guest builtin is patched. Loaded only after the page's first pixel.
 import { bindAnswerStorage, createStorage, finishLetGo } from './storage.js';
-import { agentSeed, agentStream, keyStore, storageKey } from './storage-environment.js';
+import { agentSeed, agentStream, keyStore, refuseCodeFromStrings, storageKey } from './storage-environment.js';
 import { admitsNetwork, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
 import { faultMatches } from './faults.js';
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-// A presence name's occupancy in the call's snapshot: the door's op 18 (a value is kept), 19
+// A presence name's occupancy in the call's snapshot (LLP 1133.010 D5): the door's op 18 (a value is kept), 19
 // (locked or pending), 20 (this device keeps locked secrets, which a browser never does), never a value.
 const presenceRead = (store, op, name) => {
   const said = store.get(`exact.presence.${name}`);
@@ -58,10 +58,10 @@ const earlyKey = (url, headers) => `GET ${url} ${JSON.stringify(headers ?? [])}`
 // The runner's normalized set is the only authority this early request reads.
 export function fetchEarly(request, grants) {
   try { new URL(request.url); } catch { return null; } // a relative (asset) URL is the host's own
-  // A GET a driver fault will fail is not started early: the request fails it, counted once.
+  // A GET a driver fault will fail is not started early: the request fails it, counted once (LLP 1103 D1).
   // A GET that does not follow redirects is never sent early, nor one a tool, a wake or the device asked,
-  // which `request` checks against the local network's rule first.
-  if ((request.origin ?? 'app') !== 'app' || grantError(grants) || request.method !== 'GET' || (request.redirect ?? 'follow') !== 'follow' || request.body || request.body_base64 != null || !admitsNetwork(grants, request.url, 'fetch') || faultMatches(request.url)) return null;
+  // which `request` checks against the local network's rule first (LLP 1133.036 D6).
+  if ((request.origin ?? 'app') !== 'app' || grantError(grants) || request.method !== 'GET' || (request.redirect ?? 'follow') !== 'follow' || (request.cache ?? 'default') !== 'default' || request.body || request.body_base64 != null || !admitsNetwork(grants, request.url, 'fetch') || faultMatches(request.url)) return null;
   const key = earlyKey(request.url, request.headers), controller = new AbortController();
   const entry = { controller, response: fetch(request.url, { method: 'GET', headers: request.headers, redirect: 'follow', cache: 'default', signal: controller.signal }) };
   entry.response.catch(() => {});
@@ -93,9 +93,8 @@ export async function baked() {
   return { receipt: artifact(0), script: artifact(1) };
 }
 export async function prepare(payload, admitted, id = nextId++) {
-  const ceiling = new Set(admitted.grants.split('\n').map(s=>s.trim()).filter(Boolean));
   const meta = JSON.parse(decoder.decode(payload.receipt));
-  if (meta.version !== 1 || (meta.abi !== 1 && meta.abi !== 2) || meta.appId !== admitted.appId || typeof meta.grants !== 'string' || meta.grants.split('\n').map(s=>s.trim()).filter(Boolean).some(s=>!ceiling.has(s))
+  if (meta.version !== 1 || (meta.abi !== 1 && meta.abi !== 2) || meta.appId !== admitted.appId || typeof meta.grants !== 'string'
       || meta.web?.file !== 'app.js' || meta.web.bytes !== payload.script.length || meta.web.sha256 !== await hash(payload.script)
       || !/^[0-9a-f]{64}$/.test(meta.module?.sha256)) throw new Error('module integrity, ABI, identity, or grants mismatch');
   const childGrantSet = scopedGrantSet(admitted.grantSet, meta.grants);
@@ -112,7 +111,7 @@ export async function prepare(payload, admitted, id = nextId++) {
   let context = null, initializationError = null, disposed = false, tail = Promise.resolve();
   const seed = agentSeed(), stream = seed === null ? null : agentStream(seed, 'typescript');
   let storage;
-  // The module's journal: the runtime's own lines (a failed
+  // The module's journal (LLP 1097 D8): the runtime's own lines (a failed
   // storage operation, an unhandled rejection) and its `console`, which the
   // runner writes to `logs` as it does on every host.
   const journal = [];
@@ -137,29 +136,29 @@ export async function prepare(payload, admitted, id = nextId++) {
     if (op === 16) { const t = Number(name), m = requestMaps.get(t); requestMaps.delete(t); m?.delete(t); return; }
     // The runner's clock as the turn was dispatched: when a timer armed now is due; none outside a turn.
     if (op === 21) return context?.clock === undefined ? undefined : String(context.clock);
-    // The prelude asks at load whether this host has a local listener: a page never does.
+    // The prelude asks at load whether this host has a local listener (LLP 1133.005): a page never does.
     if (op === 12 && name === 'listen') return '';
     if (!context) throw new Error('host call outside an answer');
     if (op === 6) {
     // A page module answers `native.later` on the page; nothing here can answer at once.
     if (name === 'kind' || name === 'available') return admitted.native ? 'native' : '';
-    // A topic the page module announces asks this answer again.
+    // A topic the page module announces asks this answer again (LLP 1016.002).
     if (name === 'watch') { context.topics.push(String(value)); return; }
     if (name === 'later') return admitted.native ? 'later' : '';
     throw new Error('the browser answers no native call at once; use native.later');
   }
     if (op === 1) {
-      // A stream is the page's to open, never fetched early.
+      // A stream is the page's to open (LLP 1016.000), never fetched early.
       const request = JSON.parse(value), drop = request.stream ? null : fetchEarly(request, admitted.grantSet);
       context.requests.set(Number(name), request); requestMaps.set(Number(name), context.requests); if (drop) context.early.set(Number(name), drop); return;
     }
     if (op === 2) { context.reads.push(name); return context.store.get(name); }
     if (op === 5) { context.externalRead = true; return; }
-    // A draw of secure randomness: a device read the runner counts.
+    // A draw of secure randomness: a device read the runner counts (LLP 1069.005 D2).
     if (op === 8) { context.entropy = true; return; }
-    // Under the agent, the realm's repeatable random bytes.
+    // Under the agent, the realm's repeatable random bytes (LLP 1069.005 D2b).
     if (op === 11) return stream ? hex(stream(Number(value))) : undefined;
-    // `authCallback()`: this page's callback page, a device fact.
+    // `authCallback()`: this page's callback page, a device fact (LLP 1069.006 D2).
     if (op === 12) { if (name !== 'callback') return; context.externalRead = true; return `${location.origin}/.exact/auth/callback`; }
     if (op >= 18 && op <= 20) { context.externalRead = true; return presenceRead(context.store, op, name); }
     if (!context.grants.has(name) || name.startsWith('exact.kept.')) return `secret ${name} is not granted`;
@@ -174,14 +173,15 @@ export async function prepare(payload, admitted, id = nextId++) {
     // Disable accidental browser I/O before the module captures globals: a
     // function, so `new WebSocket(url)` refuses by name too, as the JS target's
     // ts-fetch.js does. The prelude refuses the clock and every timer but an
-    // answer's own (binary.js `timers`), by name, as Hermes does.
+    // answer's own (time.js `timers`), by name, as Hermes does.
     for (const key of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
       Object.defineProperty(win, key, { value: function () { throw new Error(`${key} is unavailable in data sources`); }, configurable: false });
     }
+    refuseCodeFromStrings(win);
     // A LAN dev page has no `crypto.subtle`: the realm's SHA-256 digest is
-    // the dev protocol's, as module integrity's is.
+    // the dev protocol's, as module integrity's is (LLP 1069.005 D1).
     if (!win.crypto.subtle && globalThis.exact.moduleDigest) win.__exact_digest = bytes => globalThis.exact.moduleDigest(bytes);
-    // Kept keys: the CryptoKeyPair in this realm's IndexedDB.
+    // Kept keys (LLP 1069.005 D1b): the CryptoKeyPair in this realm's IndexedDB.
     win.__exact_keys = keyStore(storageKey(admitted.appId), win.indexedDB);
     for (const source of [helpers, before, decoder.decode(payload.script)]) {
       const script = win.document.createElement('script'); script.textContent = source; win.document.head.append(script);
@@ -190,7 +190,7 @@ export async function prepare(payload, admitted, id = nextId++) {
         win.__exact_storage = storage.capability;
         win.__exact_install_storage();
         // The page's own realm: storage an answer did not await finishes
-        // after it, as the background's. A worker realm
+        // after it, as the background's (LLP 1097 D6, D7). A worker realm
         // (module-worker.js) never sets it.
         win.__exact_main_thread?.();
       }
@@ -200,9 +200,9 @@ export async function prepare(payload, admitted, id = nextId++) {
     const overlayAtLoad = win.__exact_has_overlay() === '1';
     const pending = new Map(), streams = new Map();
     // The runner's target first: two targets asking one source with equal
-    // arguments are two calls.
+    // arguments are two calls (LLP 1027 D1a).
     const key = r => JSON.stringify([r.target ?? null,r.source,r.args]);
-    // The background: the owner its storage completions
+    // The background (LLP 1097 D7): the owner its storage completions
     // land on, and the answers parked until a background delivery may
     // settle what they await.
     const backgroundOwner = {};
@@ -240,7 +240,7 @@ export async function prepare(payload, admitted, id = nextId++) {
         result.request = context.requests.get(answer.ticket);
         if (!result.request) throw new Error('module awaits a fetch it never made');
         context.requests.delete(answer.ticket);
-        // A stream's call is mapped per message, never resumed.
+        // A stream's call is mapped per message, never resumed (LLP 1016.000).
         if (result.request.stream) streams.set(key(request), {call:answer.call,owner:context.owner});
         else pending.set(key(request), {call:answer.call,ticket:answer.ticket,requests:context.requests,owner:context.owner});
       }
@@ -252,7 +252,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     // realm's turn until its value is ready. One waiting with the module (its
     // operation queued behind the background's, or a promise the background
     // will settle) parks and lets the turn go; a background delivery asks it
-    // again.
+    // again (LLP 1097 D7).
     const proceed = async (answer, request, done) => {
       for (;;) {
         // A `scheduler.yield()`: its yields resolve in a task of their own.
@@ -286,7 +286,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     // after a background delivery, and after any answer's own, which lands
     // the operation in flight and issues the next, perhaps a parked answer's
     // or a let-go chain's (prelude.js `settle`: "asked again after each
-    // delivery"). Until a pass delivers nothing: one delivery can make
+    // delivery", D3). Until a pass delivers nothing: one delivery can make
     // another owner's operation the head. Each pass that goes on delivered
     // one, and there are as many as operations, so it ends.
     const resettle = async () => {
@@ -345,7 +345,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     const defer = request => {
       const token = nextTurn++;
       // `request.store` is replaced at dispatch, on the runner's thread,
-      // with the store as committed then (change 1).
+      // with the store as committed then (LLP 1027.002 D3, change 1).
       turns.set(token, {id, request, run: () => {
         const run = tail.then(async () => {
           if (disposed) throw new Error('module environment disposed');
@@ -373,7 +373,7 @@ export async function prepare(payload, admitted, id = nextId++) {
       return {continuation:token};
     };
     const realm = { frame, meta, grantSet: childGrantSet, id, placement: 'main',
-      // The background's state, for the runner's poll.
+      // The background's state, for the runner's poll (LLP 1097 D5, D8).
       background: () => JSON.parse(win.__exact_background()),
       // A background round: a turn the host runs under the runner's ticket.
       backgroundRound() {
@@ -385,8 +385,8 @@ export async function prepare(payload, admitted, id = nextId++) {
       // The fetches the app aborted (door 23), in any turn, a background round's or a mapper's included: the
       // runner asks after each of its turns, so none rides a result it may discard.
       aborted: () => aborted.splice(0),
-      // Canvas 2D: a draw awaits nothing, so it runs now.
-      // Text is measured and images answered on the page.
+      // Canvas 2D (LLP 1056 D1): a draw awaits nothing, so it runs now.
+      // Text is measured and images answered on the page (LLP 1056 D8, D9).
       draw: request => { const h = globalThis.exact?.canvas2dHost; return JSON.parse(win.__exact_draw(request, h?.measure, h?.image)); },
       // An overlay shows writes over an answer; it awaits nothing, so it runs in this turn.
       overlay: request => JSON.parse(win.__exact_overlay(request.source, JSON.stringify(request.args), JSON.stringify({ answer: request.answer, writes: request.writes }))),
@@ -399,7 +399,7 @@ export async function prepare(payload, admitted, id = nextId++) {
         return defer(request);
       },
       // One message of a stream, or its end: the source's `exactStream`
-      // maps it now, in this call — a mapper never awaits.
+      // maps it now, in this call — a mapper never awaits (LLP 1016.000 D1).
       message(request) {
         if (disposed) return { error: 'module environment disposed' };
         const k = key(request), open = streams.get(k);
@@ -411,7 +411,7 @@ export async function prepare(payload, admitted, id = nextId++) {
           return finish(answer, request);
         } catch (error) { context = null; return { error: String(error?.message ?? error) }; }
       },
-      // The runner let go of every targeted call not in flight:
+      // The runner let go of every targeted call not in flight (LLP 1016 D5):
       // drop it, its storage owner, and its call in the prelude.
       forget(inFlight) {
         const keep = new Set(inFlight.map(key));
@@ -443,7 +443,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     realms.set(id, realm); return realm;
   } catch (error) { storage?.dispose(); frame.remove(); throw error; }
 }
-// The module's realm on a dedicated Worker: the prelude,
+// The module's realm on a dedicated Worker (LLP 1027.002 D2): the prelude,
 // storage capability and turn discipline of the iframe realm, off the
 // page's main thread (module-worker.js). Same interface as the iframe realm.
 async function prepareWorker(payload, admitted, id, before, meta, helpers) {
@@ -453,8 +453,8 @@ async function prepareWorker(payload, admitted, id, before, meta, helpers) {
   const fail = message => { forgetSecretTurns(id); for (const w of waiting.values()) w.reject(new Error(message)); waiting.clear(); };
   worker.onmessage = ({ data }) => {
     if (data.op === 'aborted') { aborted.push(data.ticket); globalThis.exact?.abortWake?.(); return; }
-    // The worker's SHA-256 on a LAN dev page, which has no `crypto.subtle`:
-    // the dev protocol's, here on the page.
+    // The worker's SHA-256 on a LAN dev page, which has no `crypto.subtle`
+    // (LLP 1069.005 D1): the dev protocol's, here on the page.
     if (data.op === 'digest') {
       Promise.resolve().then(() => globalThis.exact.moduleDigest(data.bytes)).then(hex => worker.postMessage({ op: 'digest', id: data.id, hex }),
         error => worker.postMessage({ op: 'digest', id: data.id, error: String(error?.message ?? error) }));
@@ -469,8 +469,10 @@ async function prepareWorker(payload, admitted, id, before, meta, helpers) {
   const ready = new Promise((resolve, reject) => waiting.set(0, { resolve, reject }));
   worker.postMessage({ op: 'init', token: 0, binary: helpers, prelude: before, script: decoder.decode(payload.script), admitted,
     storage: storageKey(admitted.appId), pageDigest: !!globalThis.exact.moduleDigest, seed: agentSeed() });
-  try { await ready; } catch (error) { worker.terminate(); throw error; }
+  let overlayAtLoad;
+  try { overlayAtLoad = (await ready).hasOverlay; } catch (error) { worker.terminate(); throw error; }
   const realm = { frame: null, meta, grantSet: admitted.grantSet, id, placement: 'worker',
+    hasOverlay: () => overlayAtLoad,
     aborted: () => aborted.splice(0),
     forget(inFlight) {
       forgetSecretTurns(id, new Set(inFlight.map(workerKey)));
@@ -520,20 +522,19 @@ export function call(request) {
     return { ok: true };
   }
   if (request.op === 'forget') { realm.forget(request.inFlight ?? []); return { ok: true }; }
-  // Background work: the page's realm has it; a worker's
+  // Background work (LLP 1097 D5, D8): the page's realm has it; a worker's
   // answers wait for their storage and it has none.
   if (request.op === 'background') return realm.background ? realm.background() : { head: false };
   if (request.op === 'background-round') return realm.backgroundRound ? realm.backgroundRound() : { error: 'no background work in a worker-placed module' };
   if (request.op === 'journal') return { lines: realm.journal ? realm.journal() : [] };
   if (request.op === 'aborted') return { tickets: realm.aborted ? realm.aborted() : [] };
   if (request.op === 'draw') return realm.draw ? realm.draw(request.request) : { error: 'a worker-placed module does not draw Canvas 2D yet' };
-  // A worker realm can't say synchronously: it answers yes, and its overlay's `{tag:4, worker}` tells why the writes wait.
-  if (request.op === 'has-overlay') return { has: realm.hasOverlay ? realm.hasOverlay() : true };
+  if (request.op === 'has-overlay') return { has: realm.hasOverlay() };
   if (request.op === 'overlay') return realm.overlay ? realm.overlay(request) : { tag: 4, worker: true };
   if (request.op === 'retire') { realm.retire?.(request.retired); return { ok: true }; }
   if (request.op === 'answer' || request.op === 'resume') return realm.invoke(request);
   // A worker realm answers only through turns; a stream's mapper runs now.
-  if (request.op === 'message') return realm.message ? realm.message(request) : { error: 'a worker-placed module does not stream yet' };
+  if (request.op === 'message') return realm.message ? realm.message(request) : { error: 'a worker-placed module does not stream yet (LLP 1069.004)' };
   return { error: 'unknown browser module operation' };
 }
 // Lock waits run outside either realm's tail, so a holder's HTTP continuation can still enter it.

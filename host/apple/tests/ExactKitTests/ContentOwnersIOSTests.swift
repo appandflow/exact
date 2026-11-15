@@ -3,12 +3,12 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// Every route is a content owner. Its root is laid out in its
-/// controller's view, its host block, and the runner is
+/// LLP 1123 D2: every route is a content owner. Its root is laid out in its
+/// controller's view, its host block (LLP 1115.002 D8.2), and the runner is
 /// told where each route a window shows is: a presented one as a top-layer
 /// box, as a dialog is, and any other by its placement in its parent, so
 /// that it keeps its place among its siblings. A sheet mounts only its own
-/// navigation; the document, the session's one viewport, stays in the
+/// navigation; the document, the session's one viewport (D1), stays in the
 /// session's view at its own size.
 final class ContentOwnersIOSTests: XCTestCase {
     func testAScreenKeepsItsMountAndFocusWhenABackendChanges() throws {
@@ -333,37 +333,69 @@ final class ContentOwnersIOSTests: XCTestCase {
         let p = session.presenter, navigation = try XCTUnwrap(route.navigationController)
         let primary = try XCTUnwrap(first.scrollView), secondary = try XCTUnwrap(second.scrollView)
         route.setContentScrollView(primary, for: .bottom)
-        for selected in [secondary, primary, nil] as [UIScrollView?] {
-            route.setContentScrollView(selected, for: .top)
-            XCTAssertTrue((selected ?? primary).scrollsToTop, "a native write updates scroll-to-top without an authored batch")
-            XCTAssertFalse((selected === secondary ? primary : secondary).scrollsToTop)
-            route.node.props["navigationScroll"] = selected === secondary ? "pane-first" : "pane-second"
+        // The route's pass and an authored batch
+        let pass = {
             p.navigation.prepareRoutes([route], in: navigation)
             p.apply(wireBatch([]))
-            until("native selection keeps the panes beneath the shared bar") {
+        }
+        let panesUnderTheBar = {
+            self.until("the panes stay beneath the shared bar") {
                 self.window?.layoutIfNeeded()
                 return abs(first.convert(first.bounds, to: route.view).minY) < 1
                     && abs(second.convert(second.bounds, to: route.view).minY) < 1
             }
-            XCTAssertTrue(route.contentScrollView(for: .top) === selected, "authored defaults do not overwrite a native selection, including nil")
+        }
+        // A native selection holds the top edge through a batch whose `navigationScroll` names the other pane
+        for (selected, other, named) in [(secondary, primary, "pane-first"), (primary, secondary, "pane-second")] {
+            route.setContentScrollView(selected, for: .top)
+            XCTAssertTrue(selected.scrollsToTop, "a native write updates scroll-to-top without an authored batch")
+            XCTAssertFalse(other.scrollsToTop)
+            XCTAssertTrue(route.contentScrollView(for: .top) === selected, "the bar follows the selection at once")
+            route.node.props["navigationScroll"] = named
+            pass()
+            panesUnderTheBar()
+            XCTAssertTrue(route.contentScrollView(for: .top) === selected, "authored defaults do not overwrite a native selection")
             XCTAssertTrue(route.contentScrollView(for: .bottom) === primary, "the other edge keeps its own native selection")
-            XCTAssertTrue(p.navigation.contentScrollView(of: route) === (selected ?? primary))
-            XCTAssertTrue(p.scrollsToTopTarget() === (selected ?? primary), "nil keeps automatic scroll-to-top instead of disabling it")
+            XCTAssertTrue(p.navigation.contentScrollView(of: route) === selected)
+            XCTAssertTrue(p.scrollsToTopTarget() === selected)
             XCTAssertTrue([primary, secondary].allSatisfy { $0.contentInsetAdjustmentBehavior == .automatic })
         }
-        for selected in [secondary, nil] as [UIScrollView?] {
-            route.setContentScrollView(selected, for: .all)
-            XCTAssertTrue((selected ?? primary).scrollsToTop)
-            XCTAssertFalse((selected === secondary ? primary : secondary).scrollsToTop)
-            p.navigation.prepareRoutes([route], in: navigation)
-            p.apply(wireBatch([]))
-            self.window?.layoutIfNeeded()
-            for edge in [NSDirectionalRectEdge.top, .bottom] {
-                XCTAssertTrue(route.contentScrollView(for: edge) === selected, "UIKit's all-edges selection survives projection")
-            }
-            XCTAssertTrue(p.navigation.contentScrollView(of: route) === (selected ?? primary))
-            XCTAssertTrue(p.scrollsToTopTarget() === (selected ?? primary))
-        }
+        // nil is UIKit's automatic selection, which Exact makes: the pane `navigationScroll` names
+        route.node.props["navigationScroll"] = "pane-second"
+        route.setContentScrollView(nil, for: .top)
+        XCTAssertTrue(secondary.scrollsToTop)
+        XCTAssertFalse(primary.scrollsToTop)
+        XCTAssertTrue(route.contentScrollView(for: .top) === secondary, "nil gives the edge back at once")
+        pass()
+        panesUnderTheBar()
+        XCTAssertTrue(route.contentScrollView(for: .top) === secondary, "the pass keeps the top edge on the pane `navigationScroll` names")
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === primary)
+        XCTAssertTrue(p.navigation.contentScrollView(of: route) === secondary)
+        XCTAssertTrue(p.scrollsToTopTarget() === secondary, "nil gives scroll-to-top back to the authored scroller")
+        XCTAssertTrue([primary, secondary].allSatisfy { $0.contentInsetAdjustmentBehavior == .automatic })
+        // `.all` with the pane that holds the bottom edge selects the top edge too, and nil gives both back
+        // (`NativeListNavigationIOSTests` checks that `.all` holds the bottom edge)
+        route.setContentScrollView(primary, for: .all)
+        XCTAssertTrue(primary.scrollsToTop)
+        XCTAssertFalse(secondary.scrollsToTop)
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === primary)
+        pass()
+        self.window?.layoutIfNeeded()
+        XCTAssertTrue(route.contentScrollView(for: .top) === primary, "UIKit's all-edges selection survives projection")
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === primary)
+        XCTAssertTrue(p.navigation.contentScrollView(of: route) === primary)
+        XCTAssertTrue(p.scrollsToTopTarget() === primary)
+        route.setContentScrollView(nil, for: .all)
+        XCTAssertTrue(secondary.scrollsToTop)
+        XCTAssertFalse(primary.scrollsToTop)
+        // Exact's bottom scroller here is the pane `navigationScroll` names
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === secondary, "nil gives the bottom edge back to Exact's bottom scroller at once")
+        pass()
+        self.window?.layoutIfNeeded()
+        XCTAssertTrue(route.contentScrollView(for: .top) === secondary)
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === secondary)
+        XCTAssertTrue(p.navigation.contentScrollView(of: route) === secondary)
+        XCTAssertTrue(p.scrollsToTopTarget() === secondary)
     }
 
     func testArrangedPeersScrollUnderTheBarsWithTheirOwnInsets() throws {
@@ -459,7 +491,15 @@ final class ContentOwnersIOSTests: XCTestCase {
         }
         controller.setViewController(holders[1], for: .secondary)
         controller.view.layoutIfNeeded()
-        p.arrangements.sync()
+        // UIKit gives the pane room before Exact tells it its allocation, then the kernel lays it out 0×0 until its covers follow
+        for told in [false, true] {
+            if told { p.arrangements.sync() }
+            XCTAssertTrue(!holders[1].view.bounds.isEmpty && second.bounds.isEmpty, "the shown pane has room and no layout yet")
+            for top in [true, false] {
+                XCTAssertEqual(p.arrangements.scrollers(in: route.node, top: top).map(\.id), [first.id],
+                               "a pane UIKit shows again owns no edge until it is laid out, and its sibling keeps its own")
+            }
+        }
         until("the shown peer restores its inset and position") {
             self.window?.layoutIfNeeded()
             return p.navigation.covers[second.id] != .whole && scrolls[1].contentInsetAdjustmentBehavior == .automatic
@@ -475,6 +515,16 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertTrue(p.arrangements.scrollers(in: route.node, top: true).isEmpty, "authored spacing above the arrangement keeps its clearance")
         wrapper.applyKernelContentBox(wrapperBox, padding: wrapperPadding)
         XCTAssertEqual(p.arrangements.scrollers(in: route.node, top: true).count, 2)
+        // A cover's answer grows UIKit's allocations a layout before the panes are laid out in them; grown upward, they
+        // still reach the arrangement's bottom
+        let frames = holders.map { $0.view.frame }
+        for holder in holders { holder.view.frame = holder.view.frame.inset(by: UIEdgeInsets(top: -25, left: 0, bottom: 0, right: 0)) }
+        XCTAssertEqual(p.arrangements.scrollers(in: route.node, top: false).count, 2, "panes yet to fill their grown allocations keep the route's bottom edge")
+        for (holder, frame) in zip(holders, frames) { holder.view.frame = frame }
+        let secondFrame = second.frame
+        second.frame.size.height -= 25
+        XCTAssertTrue(p.arrangements.scrollers(in: route.node, top: false).isEmpty, "a pane shorter than its block gives up the route's bottom edge")
+        second.frame = secondFrame
         let frame = holders[1].view.frame, paneFrame = second.frame
         holders[1].view.frame = frame.insetBy(dx: 0, dy: 16)
         second.frame = holders[1].view.bounds
@@ -503,6 +553,52 @@ final class ContentOwnersIOSTests: XCTestCase {
                 && p.navigation.covers[second.id] == nil
                 && abs(replacement.contentOffset.y + second.scrollTopInset(replacement) - savedTop) < 1
         }
+    }
+
+    func testOwnershipChecksUseTheInsetsAppliedToArrangedPeers() throws {
+        guard #available(iOS 27.1, *) else { throw XCTSkip("arrangements require iOS 27.1") }
+        guard let scene = hostedWindowScene() else { throw missing("scene", "arranged inset ownership needs a route in a window") }
+        let (session, root, first, second, route, _) = try arrangedPeers(in: scene)
+        let p = session.presenter, navigation = p.navigation
+        session.natives.hatchesConnected = true
+        route.hatched = true
+        route.ownedScroll = second
+        for pane in [first, second] {
+            pane.props["hatch"] = "arranged-pane"
+            p.elements.created(pane)
+        }
+        let scroll = try XCTUnwrap(second.scrollView)
+        let log = { session.agent(#"{"op":"logs","since":0}"#) }
+        let routeViolation = "route \(route.key): contentInsetAdjustmentBehavior changed outside Exact"
+        let elementViolation = "element arranged-pane #\(second.id): contentInsetAdjustmentBehavior changed outside Exact"
+        XCTAssertEqual(scroll.contentInsetAdjustmentBehavior, .automatic)
+        navigation.checkOwned()
+        p.elements.checkOwned()
+        XCTAssertFalse(log().contains(routeViolation), log())
+        XCTAssertFalse(log().contains(elementViolation), log())
+
+        // Authored geometry can change before the next arrangement sync applies its inset policy.
+        let box = root.kernelContentBox, padding = root.kernelPadding
+        root.applyKernelContentBox(root.bounds.insetBy(dx: 0, dy: 16), padding: [16, nil, 16, nil])
+        XCTAssertTrue(navigation.arrangementPeers(in: route).isEmpty)
+        navigation.checkOwned()
+        p.elements.checkOwned()
+        XCTAssertFalse(log().contains(routeViolation), "the last Exact write still owns this inset policy: \(log())")
+        XCTAssertFalse(log().contains(elementViolation), log())
+        root.applyKernelContentBox(box, padding: padding)
+        p.arrangements.sync()
+
+        scroll.contentInsetAdjustmentBehavior = .never
+        navigation.checkOwned()
+        p.elements.checkOwned()
+        XCTAssertTrue(log().contains(routeViolation), "a real external mutation is still reported")
+        XCTAssertTrue(log().contains(elementViolation), "element and route checks agree")
+        scroll.contentInsetAdjustmentBehavior = .automatic
+        XCTAssertTrue(p.arrangements.set(root.id, controller: nil))
+        until("the retired peer returns its inset policy") { scroll.contentInsetAdjustmentBehavior == .never }
+        XCTAssertTrue(NavigationHost.ownedChanges(scroll, of: second, insetByUIKit: navigation.insetByUIKit(second)).isEmpty)
+        scroll.contentInsetAdjustmentBehavior = .automatic
+        XCTAssertEqual(NavigationHost.ownedChanges(scroll, of: second, insetByUIKit: navigation.insetByUIKit(second)), ["contentInsetAdjustmentBehavior"])
     }
 
     /// The edge-effect fixture's Panes tab, its two peers arranged side by side beneath the route's bars.
@@ -831,7 +927,7 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertTrue(window?.hitTest(middle, with: nil)?.isDescendant(of: ask) == true, "and a touch at its middle lands on it")
     }
 
-    /// The document is fitted by one rule, whether the root's
+    /// LLP 1123 D1: the document is fitted by one rule, whether the root's
     /// routes have a native primary container, never by its bars or by a
     /// presentation. A primary stack whose bar an app's `navigation` hatch
     /// turned off still takes the whole view, and a sheet whose own stack
@@ -911,33 +1007,30 @@ final class ContentOwnersIOSTests: XCTestCase {
         until("the root hears the field leave with its sheet") { heard.last?.hasPrefix("focusout:sheet-a") == true }
     }
 
-    /// Under `viewport-fit="cover"` the document's insets are its own, not a
-    /// sheet's: a sheet's route is covered for the sheet's whole safe area
-    /// (its inline bar, the home indicator of an edge-attached sheet), not
-    /// for what is left of it after the document's insets, which would leave
-    /// the route under its bar. A route in the document is still covered
-    /// only past the insets the page pads with itself.
+    /// A route is cleared for its own safe area (LLP 1123 D3), a sheet's
+    /// route for the sheet's (its inline bar, the home indicator of an
+    /// edge-attached sheet), and a route in a page under
+    /// `viewport-fit="cover"` for the whole of its own too: the kernel
+    /// credits padding that reads `env()` on the route, so the document's
+    /// insets are no longer taken off here.
     func testASheetsRouteIsCoveredForItsOwnSafeArea() {
-        let cover = UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0)
         let edges = { (safe: UIEdgeInsets, presented: Bool, whole: Bool, reached: CGFloat) in
-            NavigationHost.routeEdges(safe: safe, document: cover, presented: presented, whole: whole, covered: !presented && !whole,
-                                      collapses: false, reached: reached)
+            NavigationHost.routeEdges(safe: safe, whole: whole, covered: !presented && !whole, collapses: false, reached: reached)
         }
         XCTAssertEqual(edges(UIEdgeInsets(top: 44, left: 0, bottom: 0, right: 0), true, true, 0),
                        .init(top: 44, right: 0, bottom: 0, left: 0), "a floating sheet's inline bar")
         XCTAssertEqual(edges(UIEdgeInsets(top: 56, left: 0, bottom: 34, right: 0), true, true, 34),
                        .init(top: 56, right: 0, bottom: 34, left: 0), "an edge-attached sheet's bar and home indicator")
         XCTAssertEqual(edges(UIEdgeInsets(top: 106, left: 0, bottom: 34, right: 0), false, false, 34),
-                       .init(top: 44, right: 0, bottom: 0, left: 0), "a route in the document: its bar past the status bar the page pads for")
-        // A tab's route under `viewport-fit="cover"`: the tab bar past the home indicator env() has, the bar's 49.
+                       .init(top: 106, right: 0, bottom: 34, left: 0), "a route in a covered page: its whole safe area, credited by the kernel")
         XCTAssertEqual(edges(UIEdgeInsets(top: 106, left: 0, bottom: 83, right: 0), false, false, 83),
-                       .init(top: 44, right: 0, bottom: 49, left: 0), "a covered page's route still clears the tab bar, which its env() does not hold")
-        XCTAssertEqual(NavigationHost.routeEdges(safe: UIEdgeInsets(top: 106, left: 0, bottom: 83, right: 0), document: .zero, presented: false, whole: true,
+                       .init(top: 106, right: 0, bottom: 83, left: 0), "a covered page's tab route clears the tab bar and the home indicator")
+        XCTAssertEqual(NavigationHost.routeEdges(safe: UIEdgeInsets(top: 106, left: 0, bottom: 83, right: 0), whole: true,
                                                  collapses: false, reached: 83),
                        .init(top: 106, right: 0, bottom: 83, left: 0), "the whole view's route: the bar and the status bar")
     }
 
-    /// A sheet's route ends only at a docked keyboard: the
+    /// A sheet's route ends only at a docked keyboard (LLP 1123 C26): the
     /// sheet's keyboard layout guide counts none without the keys, so a
     /// focused field with no keyboard up (a hardware keyboard, as in this
     /// test window) leaves the route its sheet's whole height. The guide
@@ -959,8 +1052,8 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertEqual(laidOut(session, sheet.id), sheetView.bounds.size, "no keys, no end")
     }
 
-    /// A scroller that ends a sheet's route reaches the sheet's bottom edge:
-    /// UIKit insets its content by the sheet's bottom safe
+    /// A scroller that ends a sheet's route reaches the sheet's bottom edge
+    /// (LLP 1116 D2): UIKit insets its content by the sheet's bottom safe
     /// area, and nothing above it clips there, so its content shows through
     /// the inset down to the edge. A hand-built scroll view in a floating 45%
     /// sheet on iOS 27 has the same: the sheet's bottom safe area is 34 points
@@ -1154,6 +1247,29 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertEqual([card, flying].filter { p.views[$0.id] != nil }.map(\.id), [], "and the card that flew")
         XCTAssertTrue(p.endExit(parent.id))
         XCTAssertEqual((pushed + [route, field, card, flying]).filter { p.views[$0.id] != nil }.map(\.id), [], "none returns as the exit ends")
+    }
+
+    /// `user-select: all` on a presented route's logical ancestor makes the
+    /// route's text part of one atomic element, as on an ancestor view: the
+    /// route, which holds that element's content in the sheet, is the unit a
+    /// selection takes whole (CSS UI 4 §6.1).
+    func testUserSelectAllOnARoutesLogicalAncestorSelectsTheRouteWhole() throws {
+        let session = try fixture("owner-select-all", CGSize(width: 402, height: 874))
+        let p = session.presenter
+        p.press(try node(session, "sheet").id)
+        _ = try mountSheet()
+        let route = try node(session, "route-sheet")
+        let parent = try XCTUnwrap(p.eventParent(of: route) as? NodeView)
+        let kids = route.container.subviews.compactMap { ($0 as? NodeView).map { Int($0.id) } }
+        p.apply(wireBatch([
+            ["op": "create", "id": 9101, "kind": "text", "props": ["text": "Inside the sheet"], "style": ["font_size": 17.0]],
+            ["op": "children", "id": Int(route.id), "ids": kids + [9101]],
+            ["op": "frame", "id": 9101, "x": 0.0, "y": 0.0, "w": 300.0, "h": 22.0]]))
+        let text = try XCTUnwrap(p.views[9101])
+        XCTAssertNil(text.selectAllElement)
+        p.apply(wireBatch([["op": "style", "id": Int(parent.id), "style": ["user_select": "all"]]]))
+        XCTAssertTrue(text.textSelectable)
+        XCTAssertTrue(text.selectAllElement === route, "the route, not nothing: \(String(describing: text.selectAllElement?.id))")
     }
 
     /// A presented route's logical ancestors hear its touches through its

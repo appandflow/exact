@@ -1,5 +1,5 @@
 //! The web ABI: wasm-bindgen exports the glue calls after the module's
-//! wasm is fetched on demand.
+//! wasm is fetched on demand (LLP 1009 D2).
 
 use crate::{json, Frame, Module, Registry, SurfaceRef};
 use std::cell::RefCell;
@@ -100,13 +100,17 @@ pub async fn recover(
             .ok_or_else(|| crate::recovery::RecoveryFailure::other("no device"))?;
         let mut targets = Vec::new();
         for (id, canvas) in ids.iter().zip(canvases) {
-            let config = module.instances[id].config.as_ref().ok_or_else(|| {
+            let inst = module.instances.get_mut(id).unwrap();
+            let config = inst.config.as_mut().ok_or_else(|| {
                 crate::recovery::RecoveryFailure::other("missing presentation configuration")
             })?;
             let target = gpu
                 .instance
                 .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
                 .map_err(|e| crate::recovery::RecoveryFailure::other(e.to_string()))?;
+            let caps = target.get_capabilities(&gpu.adapter);
+            inst.hdr = crate::target::configure(&*inst.surface, &gpu.adapter, &caps, config);
+            inst.alpha_modes = caps.alpha_modes;
             target.configure(&gpu.device, config);
             targets.push((*id, target));
         }
@@ -114,6 +118,8 @@ pub async fn recover(
             let inst = module.instances.get_mut(&id).unwrap();
             let config = inst.config.as_ref().unwrap();
             inst.surface.device_ready(gpu.device.features());
+            inst.surface
+                .color_space_granted(crate::target::granted(Some(config)));
             inst.surface
                 .prepare_assets(&gpu.device, &gpu.queue, crate::view_format(config));
             inst.presentation = Some(SurfaceRef::new(target));
@@ -159,7 +165,7 @@ pub fn create(name: &str, canvas: web_sys::HtmlCanvasElement, width: u32, height
     .unwrap_or(0)
 }
 
-/// Register the text of shader `name`: validated, its
+/// Register the text of shader `name` (LLP 1030 D8): validated, its
 /// interface checked against the one this module's Rust binds. `true` on
 /// success; the refusal is [`error`]'s.
 pub fn shader(name: &str, text: &str) -> bool {
@@ -213,14 +219,24 @@ pub fn shaders_clear() {
 /// — what the glue fetches (`./shaders/<name>.wgsl`) and registers before a
 /// surface is created. `[]` before the module is loaded.
 pub fn shader_names() -> String {
-    let names = with(|m| m.shader_names()).unwrap_or_default();
+    json_names(&with(|m| m.shader_names()).unwrap_or_default())
+}
+
+/// The registry's surfaces, as a JSON list of names: what the web build
+/// compiles to this module rather than to Canvas 2D. Needs no load.
+pub fn surface_names(registry: &Registry) -> String {
+    let names: Vec<&str> = registry.surfaces.iter().map(|(n, _, _)| *n).collect();
+    json_names(&names)
+}
+
+fn json_names(names: &[impl AsRef<str>]) -> String {
     let mut s = String::from("[");
     for (i, n) in names.iter().enumerate() {
         if i > 0 {
             s.push(',');
         }
         s.push('"');
-        s.push_str(n);
+        s.push_str(n.as_ref());
         s.push('"');
     }
     s.push(']');
@@ -235,6 +251,17 @@ pub fn bind(id: u32, values: &str) -> bool {
 /// Bind inputs at an optional host commit clock.
 pub fn bind_at(id: u32, values: &str, at_ms: Option<f64>) -> bool {
     with(|m| m.bind_json(id, values, at_ms)).unwrap_or(false)
+}
+
+/// Bind the named inputs that changed since the last accepted bind
+/// ([`Module::bind_changed_json`]).
+pub fn bind_changed_at(id: u32, changed: &str, at_ms: Option<f64>) -> bool {
+    with(|m| m.bind_changed_json(id, changed, at_ms)).unwrap_or(false)
+}
+
+/// The canvas's size in points, before a bind. `true` on success.
+pub fn size(id: u32, width: f32, height: f32) -> bool {
+    with(|m| m.size(id, width, height)).unwrap_or(false)
 }
 
 /// Record one frame into the open frame (shown at [`flush`]): 1 = wants
@@ -260,7 +287,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
     .unwrap_or(2)
 }
 
-/// Submit the frame the canvases recorded, once: before the
+/// Submit the frame the canvases recorded, once (LLP 1009 D7): before the
 /// task that rendered them ends, which is when the browser presents.
 /// `true` on success; a surface's failure is [`error`]'s.
 pub fn flush() -> bool {
@@ -279,7 +306,8 @@ pub fn child(id: u32, index: u32, name: &str, frame: [f32; 4]) -> bool {
 pub fn children_count(id: u32, count: u32) -> bool {
     with(|m| m.children_count(id, count as usize)).unwrap_or(false)
 }
-/// Same encoding as native: 0 kernel frame, 1 ten floats, 2 hidden (out untouched).
+/// Same encoding as native: 0 kernel frame, 1 ten floats (sixteen with the
+/// two clip rows when `out` has room), 2 hidden (out untouched).
 pub fn placement(id: u32, index: u32, out: &mut [f32]) -> u32 {
     if out.len() < 10 {
         return 0;
@@ -289,6 +317,9 @@ pub fn placement(id: u32, index: u32, out: &mut [f32]) -> u32 {
         Some(p) => {
             out[..9].copy_from_slice(&p.homography);
             out[9] = p.depth;
+            if out.len() >= 16 {
+                out[10..16].copy_from_slice(p.clip_depth.as_flattened());
+            }
             1
         }
         None => 0,
@@ -300,12 +331,12 @@ pub fn wants_input(id: u32) -> bool {
     with(|m| m.wants_input(id)).unwrap_or(false)
 }
 
-/// Whether a canvas draws above SDR white.
+/// Whether a canvas draws above SDR white (LLP 1100 D12b).
 pub fn high_dynamic_range(id: u32) -> bool {
     with(|m| m.high_dynamic_range(id)).unwrap_or(false)
 }
 
-/// The headroom an HDR canvas draws its next frames to.
+/// The headroom an HDR canvas draws its next frames to (LLP 1100 D12b).
 pub fn headroom(id: u32, headroom: f32) {
     with(|m| m.set_headroom(id, headroom));
 }
@@ -335,6 +366,16 @@ pub fn published(id: u32) -> Option<String> {
     with(|m| m.take_published(id)).flatten()
 }
 
+/// Enable or disable bounded HUD performance reporting.
+pub fn set_performance_reporting(id: u32, enabled: bool) -> bool {
+    with(|m| m.set_performance_reporting(id, enabled)).unwrap_or(false)
+}
+
+/// Take one metrics snapshot, at most once per second on the host clock.
+pub fn performance(id: u32, now_ms: f64) -> Option<String> {
+    with(|m| m.take_performance(id, now_ms)).flatten()
+}
+
 /// Drain posted messages as a JSON array.
 pub fn messages(id: u32) -> Option<String> {
     let messages = with(|m| m.take_messages(id)).unwrap_or_default();
@@ -361,6 +402,23 @@ pub fn period(period_ms: f64) {
     with(|m| m.set_period(period_ms));
 }
 
+/// The host's display callback for the frames after: its raw timestamp, when
+/// it began to run and the display's fastest period, in milliseconds on the
+/// frame clock, and the thermal state's code ([`crate::ThermalState`]).
+pub fn host_frame(raw_ms: f64, callback_ms: f64, fastest_period_ms: f64, thermal: u32) {
+    let host = crate::HostTiming {
+        raw_ms,
+        callback_ms,
+        fastest_period_ms,
+    };
+    with(|m| m.set_host_timing(host, crate::ThermalState::from_code(thermal)));
+}
+
+/// Whether a canvas's next frame is due at `now_ms` under its cap ([`crate::Module::due`]).
+pub fn due(id: u32, now_ms: f64) -> bool {
+    with(|m| m.due(id, now_ms)).unwrap_or(true)
+}
+
 /// Whether a canvas has unrendered inputs.
 pub fn dirty(id: u32) -> bool {
     with(|m| m.dirty(id)).unwrap_or(false)
@@ -369,11 +427,8 @@ pub fn dirty(id: u32) -> bool {
 /// Drop all surfaces and release the module's device.
 pub fn unload() {
     MODULE.with(|m| {
-        if let Some(mut module) = m.borrow_mut().take() {
-            module.instances.clear();
-            if let Some(gpu) = module.gpu.take() {
-                gpu.device.destroy();
-            }
+        if let Some(module) = m.borrow_mut().take() {
+            module.unload();
         }
     });
     crate::shaders::clear_shaders();
@@ -403,7 +458,7 @@ pub fn error() -> String {
     with(|m| m.take_error()).unwrap_or_default()
 }
 
-/// The exports for one app's registry, wasm-bindgen.
+/// The exports for one app's registry, wasm-bindgen (see LLP 1009 D2).
 #[macro_export]
 macro_rules! module {
     ($registry:expr) => {
@@ -433,7 +488,7 @@ macro_rules! module {
             $crate::web::create(name, canvas, width, height)
         }
 
-        /// Register a shader's text. `true` on success.
+        /// Register a shader's text (LLP 1030 D8). `true` on success.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_shader(name: &str, text: &str) -> bool {
             $crate::web::shader(name, text)
@@ -449,6 +504,12 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_shaders_clear() {
             $crate::web::shaders_clear()
+        }
+
+        /// The registry's surfaces, as a JSON list of names (the web build reads it).
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_surfaces() -> String {
+            $crate::web::surface_names(&$registry)
         }
 
         /// The shaders to register, as a JSON list of names.
@@ -467,6 +528,18 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_bind_at(id: u32, values: &str, at_ms: Option<f64>) -> bool {
             $crate::web::bind_at(id, values, at_ms)
+        }
+
+        /// Bind the named inputs that changed since the last accepted bind.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_bind_changed_at(id: u32, changed: &str, at_ms: Option<f64>) -> bool {
+            $crate::web::bind_changed_at(id, changed, at_ms)
+        }
+
+        /// The canvas's size in points, before a bind. `true` on success.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_size(id: u32, width: f32, height: f32) -> bool {
+            $crate::web::size(id, width, height)
         }
 
         /// Record one frame (shown at `gpu_flush`): 1 = wants another, 0 = done, 2 = failed.
@@ -516,7 +589,7 @@ macro_rules! module {
             $crate::web::wants_input(id)
         }
 
-        /// Whether a canvas draws above SDR white.
+        /// Whether a canvas draws above SDR white (LLP 1100 D12b).
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_high_dynamic_range(id: u32) -> bool {
             $crate::web::high_dynamic_range(id)
@@ -574,6 +647,18 @@ macro_rules! module {
             $crate::web::published(id)
         }
 
+        /// Enable or disable bounded HUD performance reporting.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_performance_reporting(id: u32, enabled: bool) -> bool {
+            $crate::web::set_performance_reporting(id, enabled)
+        }
+
+        /// Take one metrics snapshot, at most once per second on the host clock.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_performance(id: u32, now_ms: f64) -> Option<String> {
+            $crate::web::performance(id, now_ms)
+        }
+
         /// Drain messages as a JSON array.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_messages(id: u32) -> Option<String> {
@@ -601,6 +686,18 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_period(period_ms: f64) {
             $crate::web::period(period_ms)
+        }
+
+        /// The page's frame callback, on the frame clock, and the thermal state's code (0 unknown).
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_host_frame(raw_ms: f64, callback_ms: f64, fastest_period_ms: f64, thermal: u32) {
+            $crate::web::host_frame(raw_ms, callback_ms, fastest_period_ms, thermal)
+        }
+
+        /// Whether a canvas's next frame is due at `now_ms` under its frame-rate cap.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_due(id: u32, now_ms: f64) -> bool {
+            $crate::web::due(id, now_ms)
         }
 
         /// The page's GPU tier, told before `gpu_load` (`GpuTier::code`: 0

@@ -1,4 +1,4 @@
-//! Child processes for a Rust consumer: the
+//! Child processes for a Rust consumer (exact2 LLP 1133.007 D9): the
 //! platform's call, a process group of the child's own (a session for a
 //! login shell), only descriptors 0, 1 and 2 inherited, every signal's
 //! disposition the default and none blocked; then waiting, signalling the
@@ -398,7 +398,7 @@ pub fn wait_at_exit(wait: fn()) {
 }
 
 /// The person's home directory, from the password database, not `$HOME`,
-/// which a launcher may set.
+/// which a launcher may set (D6).
 pub fn home_dir() -> Option<PathBuf> {
     passwd().map(|(dir, _)| dir)
 }

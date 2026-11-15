@@ -1,4 +1,5 @@
 //! A `for` that builds a long list whole is said once, while measuring.
+//! @ref LLP 1144 D4.
 
 use exact_kernel::{Kernel, ViewId};
 use exact_plan::Value;

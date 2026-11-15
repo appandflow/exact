@@ -28,7 +28,7 @@ final class ScrollEndMacTests: XCTestCase {
         var ends: [UInt32] = []
         p.onScrollend = { ends.append($0) }
         move(sv, to: 40)
-        let last = Date() // (before the last move schedules its settle)
+        let last = Date() // (before the last move schedules its settle: Astra's round 1)
         move(sv, to: 80)
         XCTAssertEqual(ends, [], "not before it has been still")
         // On its event, not a 0.2 s deadline (a loaded run's settle came later; EventWaits).

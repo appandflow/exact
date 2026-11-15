@@ -1,4 +1,4 @@
-//! `-exact-animation-trigger`: an animation in a row a virtualized
+//! `-exact-animation-trigger` (LLP 1055 D13): an animation in a row a virtualized
 //! list mounted out of its port waits, held at its start, until a report
 //! puts the row in the port (the default); `none` starts it when the row is
 //! inserted.

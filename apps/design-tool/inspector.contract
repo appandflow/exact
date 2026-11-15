@@ -1,6 +1,6 @@
 use Changes, Grid, Inspected, Pinned, SelectUp, Uses from "./shapes.contract"
 
-// The inspector: inspect mode on the builds, the node
+// The inspector (LLP 1122 D5): inspect mode on the builds, the node
 // a click in one selected, where each row's value comes from, and
 // what may be edited from here (failing closed).
 component Inspector
@@ -62,8 +62,8 @@ component Inspector
       else
         column gap=4 testId="selection"
           text inspected.source font="-exact-headline" testId="selection-source"
-          // Each a press that selects that ancestor on the build, as a click on it would (tamber/1.16); none while the
-          // page's selection is not current (a stale or relaunched build's would be refused).
+          // Each a press that selects that ancestor on the build, as a click on it would (forma/1.16); none while the
+          // page's selection is not current (the Apple pass's #5, #6: a stale or relaunched build's would be refused).
           if changes.noStep.includes(inspected.build)
             text "This build can't move its selection up the chain: click the node itself." color="-exact-secondary-label" font="-exact-footnote" testId="selection-up-none"
           for c in inspected.chain key=c.up

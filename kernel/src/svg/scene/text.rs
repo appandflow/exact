@@ -1,10 +1,11 @@
 //! SVG `text` and `tspan` resolved into chunks of runs: where each chunk
 //! starts, how it anchors and which baseline sits on its `y`, and per run the
 //! string (white space collapsed), its font and its paint. The host shapes:
-//! only it has the fonts.
+//! only it has the fonts (LLP 1055.000 D11).
 //!
-//! Positioned by a chunk's first `x`/`y` and each run's first `dx`/`dy`;
-//! per-character lists, `rotate`, `textLength` and `textPath` are not read.
+//! Stage 5 positions by a chunk's first `x`/`y` and each run's first
+//! `dx`/`dy`; per-character lists, `rotate`, `textLength` and `textPath` are
+//! later stages.
 
 use super::{cascade, Resolver, ShapePaint};
 use crate::generated::{
@@ -14,6 +15,8 @@ use crate::generated::{
 use crate::id::ViewId;
 use crate::kernel::NodeRef;
 use crate::svg::length::{Length, Viewport};
+use crate::svg::server::{resolve, Resolved};
+use crate::svg::Paint;
 use crate::text::TextStyle;
 
 /// A `text` element, resolved.
@@ -21,6 +24,52 @@ use crate::text::TextStyle;
 pub struct TextItem {
     /// Its chunks, each starting at an absolute position.
     pub chunks: Vec<TextChunk>,
+}
+
+impl TextItem {
+    /// A box that holds every glyph, standing in for the object bounding box
+    /// when a `filter` or a `mask` sizes its region by it: the box is the
+    /// glyph cells' (SVG 2 §8.10), whose advances only the host measures.
+    /// Each character is taken as at most an em and a half wide and each
+    /// glyph within an em and a half of its baseline, whatever the anchor
+    /// and baseline, so the region is larger than the box, never smaller.
+    pub(super) fn reach(&self) -> super::Rect4 {
+        // Where a chunk can start on each axis, as a range: one that
+        // continues from the last can start wherever that one could end.
+        let (mut x, mut y) = ((0.0f32, 0.0f32), (0.0f32, 0.0f32));
+        let mut out: Option<super::Rect4> = None;
+        for chunk in &self.chunks {
+            if let Some(v) = chunk.x {
+                x = (v, v);
+            }
+            if let Some(v) = chunk.y {
+                y = (v, v);
+            }
+            let (mut advance, mut shift, mut em, mut stroke) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+            for run in &chunk.runs {
+                let size = run.style.font_size.max(0.0);
+                let chars = run.text.chars().count() as f32;
+                advance += run.dx.abs() + chars * (1.5 * size + run.style.letter_spacing.abs());
+                shift += run.dy.abs();
+                em = em.max(size);
+                if run.stroke.is_some() {
+                    stroke = stroke.max(run.width / 2.0);
+                }
+            }
+            // An anchor moves a chunk back by up to its advance.
+            x = (x.0 - advance, x.1 + advance);
+            y = (y.0 - shift, y.1 + shift);
+            let reach = 1.5 * em + stroke;
+            let r = (
+                x.0 - stroke,
+                y.0 - reach,
+                x.1 - x.0 + 2.0 * stroke,
+                y.1 - y.0 + 2.0 * reach,
+            );
+            out = Some(out.map_or(r, |o| super::union(o, r)));
+        }
+        out.unwrap_or_default()
+    }
 }
 
 /// Runs laid out one after another from one absolute position.
@@ -112,7 +161,7 @@ impl Resolver<'_, '_> {
         let mut space = true;
         self.runs(node, style, vp, &mut chunks, &mut space, true);
         for chunk in &mut chunks {
-            if let Some(last) = chunk.runs.last_mut() {
+            if let Some(last) = chunk.runs.iter_mut().rev().find(|r| !r.text.is_empty()) {
                 if last.text.ends_with(' ') {
                     last.text.pop();
                 }
@@ -155,23 +204,56 @@ impl Resolver<'_, '_> {
         let dx = first(node.props.str(PropId::TextDx), vp.width).unwrap_or(0.0);
         let dy = first(node.props.str(PropId::TextDy), vp.height).unwrap_or(0.0);
         let hidden = style.visibility != Visibility::Visible;
-        let paint = |p: &crate::svg::Paint, opacity: f32| -> Option<ShapePaint> {
+        let paint = |p: &Paint, opacity: f32| -> Option<ShapePaint> {
             if hidden {
                 return None;
             }
-            let color = match p {
-                crate::svg::Paint::None | crate::svg::Paint::Url(..) => return None,
-                crate::svg::Paint::CurrentColor => style.text_color,
-                crate::svg::Paint::Color(c) => *c,
+            let opacity = opacity.clamp(0.0, 1.0);
+            let solid = |color, opacity| {
+                Some(ShapePaint {
+                    color,
+                    opacity,
+                    server: None,
+                    pattern: None,
+                })
             };
-            Some(ShapePaint {
-                color,
-                opacity: opacity.clamp(0.0, 1.0),
-                server: None,
-                pattern: None,
-            })
+            match p {
+                Paint::None => None,
+                Paint::CurrentColor => solid(style.text_color, opacity),
+                Paint::Color(c) => solid(*c, opacity),
+                // As a shape's paint resolves it, with no box: the host
+                // measures the glyphs, so a server in bounding-box units
+                // paints nothing here, and a pattern is not painted on text.
+                Paint::Url(id, _) => {
+                    let target = self.kernel.resolve_id(node.id, id);
+                    if target
+                        .and_then(|t| self.kernel.node(t))
+                        .is_some_and(|t| t.node_type == NodeType::SvgPattern)
+                    {
+                        return None;
+                    }
+                    match resolve(self.kernel, node.id, id, None, vp) {
+                        Resolved::Server(server) if self.budget.cost(server.stops.len() as u64) => {
+                            Some(ShapePaint {
+                                color: style.text_color,
+                                opacity,
+                                server: Some(Box::new(server)),
+                                pattern: None,
+                            })
+                        }
+                        Resolved::Server(_) | Resolved::Nothing => None,
+                        Resolved::Color(color, stop) => solid(color, opacity * stop),
+                        // A missing server paints the fallback, or nothing.
+                        Resolved::Fallback => match p.fallback()? {
+                            Paint::CurrentColor => solid(style.text_color, opacity),
+                            Paint::Color(c) => solid(c, opacity),
+                            _ => None,
+                        },
+                    }
+                }
+            }
         };
-        // Bold Text, on the run's own weight and family.
+        // Bold Text (LLP 1115.000 D12.3), on the run's own weight and family.
         let mut drawn = TextStyle::from_style(style);
         node.arena.embolden(node.slot, &mut drawn);
         let run = |text: String| TextRun {

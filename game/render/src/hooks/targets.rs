@@ -1,4 +1,5 @@
 //! Optional retained attachments; the default renderer never constructs these.
+//! @ref llp/1046.006.000-render-hooks.rfc.md#d3-optional-services-the-scene-copy
 use super::{Needs, PostInputs, SceneCopy};
 use crate::{buffers::Targets, pipeline::Pipelines};
 use exact_gpu::wgpu;

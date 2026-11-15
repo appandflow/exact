@@ -1,6 +1,6 @@
-//! MIDI in the compiler: `sendMIDI` and `requestMIDIAccess` checked,
-//! `midimessage` and `midiinputs`, `clockOut=` compiled and `clock=` refused,
-//! and the test steps for the driver.
+//! MIDI in the compiler (LLP 1125 D6–D8): `sendMIDI` and
+//! `requestMIDIAccess` checked, `midimessage` and `midiinputs`, `clockOut=`
+//! compiled and `clock=` refused, and the test steps for the driver.
 
 fn app(body: &str, view: &str) -> String {
     format!("component A\n  state out = \"synth\"\n  state ins = [\"keys\"]\n  action go\n    {body}\n  action heard(e: MIDIMessageEvent)\n    out = e.input\n  view\n    {view}\n")
@@ -142,8 +142,8 @@ fn reaching_midi_without_its_grant_warns_at_the_call() {
     std::fs::create_dir_all(dir.join("strings")).unwrap();
     std::fs::write(dir.join("strings/en.json"), r#"{"purpose.midi": "Plays."}"#).unwrap();
     assert!(grant("device.midi purpose.midi").is_empty());
-    // A comment in a file read first does not stand for the grant (it is
-    // not read as the key `grants`), nor does it hide the grant.
+    // A comment in a file read first does not stand for the grant (round 1:
+    // it read as the key `grants`), nor does it hide the grant.
     std::fs::write(
         dir.join("a.ts"),
         "// device.midi grants instrument access\nexport {};\n",
@@ -167,7 +167,7 @@ fn reaching_midi_without_its_grant_warns_at_the_call() {
             "{built}: {warnings:?}"
         );
     }
-    // An app that only logs to `""`, no output, and reads
+    // An app that only logs to `""`, no output (LLP 1125 D6), and reads
     // `sent` alone, never asking for access, reaches no device: no grant is
     // owed. Asking for access, sending to a named output, or reading
     // `state` reaches one.

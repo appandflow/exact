@@ -1,4 +1,4 @@
-//! A loopback redirect for `openAuthSession` (RFC 8252
+//! A loopback redirect for `openAuthSession` (LLP 1133.005 D9, RFC 8252
 //! §7.3): bound on `127.0.0.1:<port>` (or `[::1]`) before the browser
 //! opens, it answers the one `GET` whose path is the callback's and whose
 //! query carries `state` exactly once, and exactly one `code` or `error`
@@ -31,7 +31,7 @@ pub struct Callback {
     /// The app's name, for the page.
     pub app: String,
     /// The page's sentence when the app gives one, else "You can close this
-    /// tab.".
+    /// tab." (LLP 1133.005 D9).
     pub message: Option<String>,
 }
 
@@ -355,7 +355,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "binds a real loopback port; `cargo test -- --ignored` runs it"]
+    #[ignore = "async lane: binds a real loopback port"]
     fn the_one_callback_is_answered_and_everything_else_refused() {
         let free = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = free.local_addr().unwrap().port();
@@ -433,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "binds a real loopback port; `cargo test -- --ignored` runs it"]
+    #[ignore = "async lane: binds a real loopback port"]
     fn a_port_held_on_the_wildcard_address_is_in_use() {
         for wildcard in ["0.0.0.0:0", "[::]:0"] {
             // With `SO_REUSEADDR` (std's) and without.
@@ -461,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "binds a real loopback port; `cargo test -- --ignored` runs it"]
+    #[ignore = "async lane: binds a real loopback port"]
     fn a_receiver_opens_again_on_its_port_right_after_answering() {
         let free = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = free.local_addr().unwrap().port();
@@ -486,7 +486,7 @@ mod tests {
     /// listener, and each connection accepted from it, carry `SO_NOSIGPIPE`.
     #[cfg(target_vendor = "apple")]
     #[test]
-    #[ignore = "binds a real loopback port; `cargo test -- --ignored` runs it"]
+    #[ignore = "async lane: binds a real loopback port"]
     fn the_listener_and_what_it_accepts_never_raise_sigpipe() {
         use std::os::fd::AsRawFd;
         let nosigpipe = |fd: i32| {
@@ -512,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "binds a real loopback port; `cargo test -- --ignored` runs it"]
+    #[ignore = "async lane: binds a real loopback port"]
     fn a_peer_that_resets_mid_reply_does_not_kill_the_process() {
         // The app the receiver runs in does not ignore SIGPIPE; the test
         // harness does, so it is restored here.
@@ -542,7 +542,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "binds a real loopback port; `cargo test -- --ignored` runs it"]
+    #[ignore = "async lane: binds a real loopback port"]
     fn idle_connections_in_every_place_delay_the_callback_but_do_not_shut_it_out() {
         let free = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = free.local_addr().unwrap().port();
@@ -568,7 +568,7 @@ mod tests {
     /// independently, as the reference's do ("allows two accounts to
     /// complete independently"); a stray return to one ends neither.
     #[test]
-    #[ignore = "binds a real loopback port; `cargo test -- --ignored` runs it"]
+    #[ignore = "async lane: binds a real loopback port"]
     fn two_receivers_on_two_ports_complete_independently() {
         let ports: Vec<u16> = (0..2)
             .map(|_| TcpListener::bind("127.0.0.1:0").unwrap())

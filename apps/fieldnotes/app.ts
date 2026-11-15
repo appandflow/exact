@@ -114,7 +114,7 @@ function validate(title: string, body: string): void {
   if (title.length > 160) throw new Error('Keep titles under 160 characters.');
   if (body.length > 20000) throw new Error('Keep each note under 20,000 characters.');
 }
-// Standard UTF-8 on every executor
+// @ref LLP 1027.001 D1 — standard UTF-8 on every executor
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 function encode(text: string): Uint8Array { return encoder.encode(text); }
@@ -194,7 +194,7 @@ async function service(source:string,args:unknown[],storage:Storage,store:Store)
       await withDatabase(storage, db=>db.transaction([{sql:'DELETE FROM notes'},...restored.map(n=>({sql:'INSERT INTO notes (id,title,body,pinned) VALUES (?,?,?,?)',params:[id(n.id),n.title,n.body,n.pinned?1n:0n]}))]));
       notice=`Restored ${restored.length} notes.`;
     } else if(source==='importNotes') {
-      // A backup file the person picked, copied into app:/tmp/picked/.
+      // A backup file the person picked (LLP 1069.002), copied into app:/tmp/picked/.
       const path=String(args[0]);if(!path.startsWith('app:/tmp/picked/'))throw new Error('Choose a backup file to import.');
       text=decode(await storage.fs.readFile(path));
       const restored=parseBackup(text);
@@ -206,7 +206,7 @@ async function service(source:string,args:unknown[],storage:Storage,store:Store)
     return {revision:nextRevision(store),message:notice,failed:false,backupText:text};
   } catch(error) {return {revision:nextRevision(store),message:message(error),failed:true,backupText:''};}
 }
-// A walk's figures: the steps since it began and the
+// A walk's figures (LLP 1133.026 §12): the steps since it began and the
 // height climbed, read only while it lasts. A figure the platform refuses
 // (no permission, no sensor) is left out, not shown as 0; so is the climb
 // where the altimeter's status says there is none.
@@ -221,7 +221,7 @@ async function walk(start: number, climbs: boolean): Promise<Result<'walk'>> {
   if (climb.status === 'fulfilled') Object.assign(out, { climb: climb.value.relativeAltitude, climbed: true });
   return out;
 }
-// The text of the files shared to Fieldnotes, each copied
+// The text of the files shared to Fieldnotes (LLP 1133.024 D3), each copied
 // into app:/tmp/shared/ under a name that keeps its extension; a picture or
 // another file it cannot read as text is left to its name in the list.
 const textFile = /\.(txt|text|md|markdown|csv|json)$/;

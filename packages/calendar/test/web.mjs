@@ -1,4 +1,4 @@
-// The Calendar example on the web in
+// LLP 1133.018 §11 drive 7 and stage 1: the Calendar example on the web in
 // production, in each engine, with the web implementations bound and no
 // agent. The browser has no calendar store, so there is no "Show my
 // calendars"; a desktop browser has no contact picker, so there is no

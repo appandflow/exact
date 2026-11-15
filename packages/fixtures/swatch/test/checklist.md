@@ -5,8 +5,9 @@ fixture as the suites make it (`fixture.mjs`), then for each phone:
 
 - **iPhone**: `bun host/apple/build.mjs --device --ios <name>-apple --run` with
   `EXACT_APP_DIR` set to the fixture.
-- **Android**: `bun packages/fixtures/swatch/test/android.mjs` builds the APK;
-  install it with `adb install -r` from `host/android/app/build`.
+- **Android**: `bun packages/fixtures/swatch/test/android.mjs` builds the APK
+  and deletes the fixture; keep the fixture's directory and install the APK from
+  its `target/android/app/outputs/apk/release` with `adb install -r`.
 
 On each:
 
@@ -20,4 +21,4 @@ On each:
 6. Tap **Remove**. The box goes; a second `displayed N false app` is added.
 
 On Android a tap reaches a hosted view only as a click (`Natives.click`); a
-gesture does not yet.
+gesture does not until LLP 1133.008 D8 item 6.

@@ -1,18 +1,19 @@
-// In a real browser, a value chosen from a few is a `radiogroup` of native
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// LLP 1116.004 D5.2 in a real browser: a value chosen from a few is a `radiogroup` of native
 // `radio` buttons, which a default build's stylesheet (look.mjs) draws as a segmented control (a track, the
 // checked radio raised in it) and the input piece (input-glue.js, which both web targets load)
 // gives one Tab stop and the arrow keys, as WAI-ARIA's radio group has them. The nodes are as
 // the hosts write them; a press checks its radio as the app's commit would.
 import { test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 

@@ -1,4 +1,5 @@
-// The JS target's hatches (host/web-js/hatches.js): what a hatch's code records is bounded and refused past
+// The JS target's hatches (host/web-js/hatches.js; LLP 1075.003.000.001
+// §3.1–3.2, §4.4): what a hatch's code records is bounded and refused past
 // its bounds, a call's time is its own, a throw stops one node's hatch and
 // leaves its end, and a production page keeps nothing. The DOM is a small
 // fake; the runtime and the page module are stand-ins.
@@ -6,9 +7,10 @@ import { test, expect } from 'bun:test';
 import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-hatches-'));
-copyFileSync(resolve(new URL('../../web-js/hatches.js', import.meta.url).pathname), resolve(dir, 'hatches.js'));
+copyFileSync(resolve(fileURLToPath(new URL('../../web-js/hatches.js', import.meta.url))), resolve(dir, 'hatches.js'));
 writeFileSync(resolve(dir, 'rt.js'), 'export const { onEnd, journal, clock, viewId, inflight, painted, time, paint, drive } = globalThis.rtStandIn;\n');
 writeFileSync(resolve(dir, 'native.js'), 'export const pageTable = () => { globalThis.pageTables = (globalThis.pageTables ?? 0) + 1; return globalThis.pageModule; };\n');
 

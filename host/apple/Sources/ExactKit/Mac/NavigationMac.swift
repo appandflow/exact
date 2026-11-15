@@ -1,4 +1,4 @@
-// The web's hide-and-inert rule.
+// @ref LLP 1038 D6; LLP 1035.001 D1/D6 — the web's hide-and-inert rule.
 #if os(macOS)
 import AppKit
 
@@ -15,7 +15,7 @@ final class NavigationHost {
     /// and each write posts an accessibility notification.
     private static let gating: Set<BatchOp.Kind> = [.create, .props, .style, .children, .roots]
     init(presenter: Presenter) { self.presenter = presenter }
-    /// A route or tabpanel this host hid (the web's
+    /// LLP 1080.001 D3: a route or tabpanel this host hid (the web's
     /// hide-and-inert rule), which it inerts with it.
     func hides(_ node: NodeView) -> Bool { node.routeInert && (panels.contains(node.id) || node.props["navigationKey"] != nil) }
     /// The first navigation root, the stack that holds the route it shows
@@ -32,17 +32,26 @@ final class NavigationHost {
     private(set) var root: (node: NodeView, tabs: NavigationTabs?, at: Int?)?
     /// Whether that root has no routes, in any of its stacks (BackMac.swift `routerRoot`).
     private(set) var routeless = false
-    /// The ground under each modal route that
+    /// Whether the app's route table declares one location, asked of the
+    /// runtime once a session (BackMac.swift `backPossible`).
+    var oneLocation: Bool {
+        if let asked = oneLocationAsked { return asked }
+        guard let asked = presenter.session?.runtime.routeOneLocation() else { return false }
+        oneLocationAsked = asked
+        return asked
+    }
+    private var oneLocationAsked: Bool?
+    /// @ref LLP 1115.002 D7.1 — the ground under each modal route that
     /// paints none of its own, by the route's id (`ModalGround`).
     private var grounds: [UInt32: ModalGround] = [:]
-    /// The modal routes that are sheets as of the
+    /// @ref LLP 1115.002 D7.4 — the modal routes that are sheets as of the
     /// last batch, bottom to top, with what each sheet shows of its header
     /// (RouteSheetMac.swift), and why a route that is not one stays painted.
     private(set) var sheets: [(base: NodeView, route: NodeView, header: SheetHeader?)] = []
     var keptSheets: [UInt32: String] = [:]
     /// A batch that can have changed a header came since the sheets last showed theirs.
     var sheetsRead = false
-    /// The selected stack as a list beside its detail (SplitMac.swift).
+    /// @ref LLP 1115.002 D4 — the selected stack as a list beside its detail (SplitMac.swift).
     private(set) lazy var split = SplitHost(presenter)
     /// The modal route the root shows painted in the window, on its ground.
     var paintedModal: NodeView? {
@@ -58,13 +67,13 @@ final class NavigationHost {
     func routes(in node: NodeView) -> [NodeView] {
         presenter.blocks.authored(NavigationTabs.routes(in: node), in: node.container).filter { $0.props["navigationKey"] != nil }
     }
-    /// A modal route's ground is this host's view.
+    /// LLP 1080.001 D3: a modal route's ground is this host's view.
     func inspectionOwns(_ view: NSView) -> Bool { view is ModalGround }
     /// The page's ground changed colour: the grounds are painted again.
     func groundChanged() { for ground in grounds.values { ground.needsDisplay = true }; split.groundChanged() }
     func reset() {
         refused.removeAll(); gates.removeAll(); panels.removeAll(); shown.removeAll(); selection = nil; barRoute = false; root = nil; routeless = false
-        sheets = []; keptSheets.removeAll(); split.reset()
+        oneLocationAsked = nil; sheets = []; keptSheets.removeAll(); split.reset()
         for ground in grounds.values { ground.removeFromSuperview() }
         grounds.removeAll()
     }
@@ -77,7 +86,7 @@ final class NavigationHost {
     private func ground(_ routes: [NodeView], grounded: inout Set<UInt32>) {
         for route in routes where route.props["navigationPresentation"] == "modal" {
             let painted = (route.cgColor("background_color")?.alpha ?? 0) > 0 || route.style["background_image"] != nil
-            // In its sheet the route stands on the sheet's own ground.
+            // In its sheet the route stands on the sheet's own ground (D7.4).
             guard !painted, !sheets.contains(where: { $0.route === route }), !presenter.dialogs.owns(route) else { continue }
             grounded.insert(route.id)
             let ground = grounds[route.id] ?? ModalGround(presenter: presenter)
@@ -124,7 +133,7 @@ final class NavigationHost {
         root = nil
         routeless = false
         for nav in roots {
-            // With tabs, each panel is a stack.
+            // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack.
             let tabs = NavigationTabs.of(nav, presenter)
             let locate = { (key: String) -> (at: Int?, stacks: [[NodeView]]) in
                 let stacks = tabs.map { $0.panels.map(self.routes(in:)) } ?? [self.routes(in: nav)]
@@ -137,7 +146,7 @@ final class NavigationHost {
                     refused[nav.id] = key
                     presenter.session?.log("navigationKey \"\(key)\" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged")
                 }
-                // Left alone, less the routes that left the tree (a closed sheet's).
+                // D1: left alone, less the routes that left the tree (a closed sheet's).
                 let declared = stacks.map { $0.map { $0.props["navigationKey"] ?? "" } }
                 if let survivor = NavigationRules.survivor(of: shown[nav.id] ?? [], declared: declared) {
                     key = survivor
@@ -171,10 +180,17 @@ final class NavigationHost {
                 if stack == at { shown[nav.id] = routes.prefix(selected + 1).map { $0.props["navigationKey"] ?? "" } }
                 if stack == at, nav === roots.first { selection = (nav.id, routes.map(\.id), selected) }
                 if nav === roots.first, routes.contains(where: { $0.props["navigationBar"] != "none" }) { barRoute = true }
-                let modal = routes.indices.contains(selected) && routes[selected].props["navigationPresentation"] == "modal"
+                // A modal route painted in the window shows the route beneath it, and so does a
+                // full-screen route whose author wrote its background (`transparent` included),
+                // drawn over that page as CSS composites it (Charlie, 2026-11-10). One that paints
+                // nothing covers it.
+                let overPage = routes.indices.contains(selected) && {
+                    let route = routes[selected], presentation = route.props["navigationPresentation"]
+                    return presentation == "modal" || presentation == "fullscreen" && (route.wrote("background_color") || route.wrote("background_image"))
+                }()
                 // The lowest route in a sheet: it and the sheets on it are shown, and the route they stand over.
                 let lowest = stack == at && nav === roots.first ? sheeted.first.flatMap { low in routes.firstIndex { $0 === low.base } } : nil
-                // A stack that splits shows its list and the route its pane shows, and the list stays live beside its detail.
+                // A stack that splits (D4) shows its list and the route its pane shows, and the list stays live beside its detail.
                 let splits = stack == at && nav === roots.first && split.active, beside = splits ? split.shown?.detail : nil
                 let covered = routes.indices.contains(selected) && ["modal", "fullscreen"].contains(routes[selected].props["navigationPresentation"] ?? "")
                 for (index, route) in routes.enumerated() {
@@ -184,7 +200,7 @@ final class NavigationHost {
                     let column = splits && (index == 0 || route === beside)
                     // In the detail's pane, out of its hidden panel's views: hidden and inert by name.
                     let away = stack != at && split.holds(route)
-                    gate(route, hidden: leaving ? route.isHidden : away || (index != selected && !(modal && index == selected - 1) && !under && !column),
+                    gate(route, hidden: leaving ? route.isHidden : away || (index != selected && !(overPage && index == selected - 1) && !under && !column),
                          inert: away || (index != selected && !(splits && index == 0 && !covered)))
                 }
             }
@@ -229,6 +245,10 @@ final class NavigationHost {
     /// from (`Presenter.tabStart`). `aria-hidden` takes a node out of the
     /// accessibility tree only, and the focus stays, as in Chrome.
     func refreshInputGates(_ nodes: [NodeView]) {
+        // Nothing below changes what makes a node inert: the ancestors' answers are asked once, as a hit test asks them.
+        let outermost = NodeView.hitInert == nil
+        if outermost { NodeView.hitInert = [:] }
+        defer { if outermost { NodeView.hitInert = nil } }
         for node in nodes {
             let inert = node.inert
             let unreachable = inert || node.isHiddenOrHasHiddenAncestor
@@ -237,7 +257,9 @@ final class NavigationHost {
             let focused = responder.map { $0 === node || $0.isDescendant(of: node) || node.field?.currentEditor() === $0 } ?? false
             // The AX getter can traverse the legacy unsupported-attribute path
             // for non-elements; writing this property is cheaper than querying it.
-            node.setAccessibilityHidden(node.accessibilityInert || node.isHiddenOrHasHiddenAncestor || node.accessibilityHiddenByProp)
+            // Each write posts a notification, changed or not.
+            let hidden = node.accessibilityInert || node.isHiddenOrHasHiddenAncestor || node.accessibilityHiddenByProp
+            if node.accessibilityHiddenWritten != hidden { node.setAccessibilityHidden(hidden) }
             let enabled = !node.disabled && !inert
             if let field = node.field, field.isEnabled != enabled { field.isEnabled = enabled }
             let editable = enabled && node.props["editable"] != "false"
@@ -253,15 +275,15 @@ final class NavigationHost {
     }
 }
 
-/// The opaque surface of a modal route that paints
+/// @ref LLP 1115.002 D7.1 — the opaque surface of a modal route that paints
 /// none: the page's ground, under everything the route holds (a child's
 /// negative `z-index` included), at the route's size. It is no hit: a click
 /// on it is a click on the route. A modal route is a sheet with a window of
-/// its own (RouteSheetMac.swift); this is the ground of one painted
+/// its own (D7.4, RouteSheetMac.swift); this is the ground of one painted
 /// in the window all the same (the driver's own chrome, a header its sheet
 /// cannot take the title out of, no window) when the compiler gave it none
-/// either (the compiler gives a route whose presentation it can read the
-/// page's).
+/// either (LLP 1116.009 D3 gives a route whose presentation it can read
+/// the page's).
 final class ModalGround: NSView {
     private weak var presenter: Presenter?
     init(presenter: Presenter) {
@@ -274,7 +296,7 @@ final class ModalGround: NSView {
     required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
-        (presenter?.pageBackground ?? .windowBackgroundColor).setFill()
+        (presenter?.opaqueGround ?? .windowBackgroundColor).setFill()
         // A capture's dirty rectangle is the captured view's, not this one's.
         bounds.intersection(dirtyRect).fill()
     }

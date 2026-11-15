@@ -118,7 +118,7 @@ fn invalid_opt_in_shape_and_layout_are_rejected_with_stable_ids() {
         (
             "list virtualized=true estimated-item-height=yes height=200",
             ROW,
-            "lower-list-height",
+            "lower-attr-type",
         ),
         (
             "list virtualized=true item-height=400 height=200",
@@ -131,7 +131,7 @@ fn invalid_opt_in_shape_and_layout_are_rejected_with_stable_ids() {
             "lower-list-height",
         ),
         ("column estimated-item-height=400", ROW, "lower-list-height"),
-        // The windowed list is deleted: its hints say how
+        // The windowed list is deleted (LLP 1070 stage 1): its hints say how
         // to move to the collection.
         ("list item-height=400 height=200", ROW, "lower-list-height"),
         (

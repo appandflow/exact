@@ -1,8 +1,8 @@
-//! Timers — pure, ungated.
+//! Timers — pure, ungated (LLP 0059.000 §3.2).
 //!
 //! The wheel is Rust's; the callbacks stay in the engine. A JavaScript function
-//! is not something that can cross the boundary — only primitives and
-//! handles do — so JavaScript keeps its closures in a map keyed by the integer
+//! is not something that can cross the boundary — §1.1 admits primitives and
+//! handles — so JavaScript keeps its closures in a map keyed by the integer
 //! handle this module mints, and the pump asks which handle is due.
 //!
 //! That split is the same one `fetch` uses: Rust owns *when*, the engine owns
@@ -19,7 +19,7 @@ use std::time::Duration;
 /// A monotonic instant, in milliseconds since the runtime started.
 ///
 /// A plain number rather than `Instant` because it must cross the boundary and
-/// be comparable with the frame clock's base.
+/// be comparable with the frame clock's base (LLP 0059.000 §2).
 pub type Millis = f64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,14 +61,14 @@ pub struct Timers {
     scheduled: BTreeMap<Key, Entry>,
     by_handle: HashMap<u64, Key>,
     /// Intervals whose occurrence has been taken for admission and not yet
-    /// delivered: rescheduled by `delivered`, so one interval
+    /// delivered (LLP 0071 D6): rescheduled by `delivered`, so one interval
     /// never has two occurrences queued, and dropped by `clear`.
     queued: HashMap<u64, (Duration, u32)>,
     next_handle: u64,
     next_sequence: u64,
 }
 
-/// HTML's nesting clamp, as an interval meets it: after its
+/// HTML's nesting clamp, as an interval meets it (LLP 0071 D6): after its
 /// fifth delivered occurrence, an interval repeats no sooner than this, so a
 /// `setInterval(f, 0)` at a held clock runs five times and then waits.
 pub const INTERVAL_FLOOR: Duration = Duration::from_millis(4);
@@ -78,7 +78,7 @@ pub const INTERVAL_FLOOR_AFTER: u32 = 5;
 
 /// Milliseconds as the wheel's integer microseconds (floor). Every comparison
 /// the wheel makes is on this integer, so "due" and "how long until due"
-/// agree.
+/// agree (LLP 0071 D3).
 pub fn micros(ms: Millis) -> u64 {
     (ms * 1000.0) as u64
 }
@@ -173,7 +173,7 @@ impl Timers {
 
     /// The occurrence of `handle` taken by [`Self::take_due`] is being
     /// delivered at `now_micros`: an interval not cleared since is
-    /// rescheduled from now (rescheduling on delivery),
+    /// rescheduled from now (LLP 0058.000.000 §8, rescheduling on delivery),
     /// rather than from the deadline it missed, so a slow turn cannot leave it
     /// owing a burst of catch-up firings — the behaviour browsers settled on
     /// for the same reason.
@@ -288,7 +288,7 @@ mod tests {
         );
     }
 
-    /// A zero interval runs five times at one instant and then
+    /// LLP 0071 D6: a zero interval runs five times at one instant and then
     /// waits HTML's 4 ms, so a held clock settles.
     #[test]
     fn a_zero_interval_meets_the_nesting_clamp_after_five_runs() {

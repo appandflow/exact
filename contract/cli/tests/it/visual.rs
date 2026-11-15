@@ -1,6 +1,6 @@
-//! `corner-shape`, `mask-image` and `text-shadow` reach the kernel as CSS,
-//! in a literal, a `style` and a conditional, and what the hosts do not draw
-//! is refused at compile time, by name.
+//! LLP 1077 D1–D3: `corner-shape`, `mask-image` and `text-shadow` reach the
+//! kernel as CSS, in a literal, a `style` and a conditional, and what the
+//! hosts do not draw is refused at compile time, by name.
 
 use exact_kernel::corner::{Corner, CornerShape};
 use exact_kernel::gradient::BackgroundImage;
@@ -87,8 +87,8 @@ fn what_no_host_draws_is_refused_by_name() {
     }
 }
 
-/// The declared rows Apple draws, their refusals named, and `haptic()` a
-/// host command.
+/// LLP 1077 §5: the declared rows Apple draws, their refusals named, and
+/// `haptic()` a host command.
 #[test]
 fn apples_affordances_are_declared_rows_and_haptic_is_a_command() {
     let src = std::fs::read_to_string(concat!(
@@ -105,7 +105,7 @@ fn apples_affordances_are_declared_rows_and_haptic_is_a_command() {
     assert_eq!(palette.symbol_palette.0.len(), 2);
     assert_eq!(style_of(&r, "value").symbol_value, 0.4);
     assert_eq!(style_of(&r, "mono").symbol_value, -1.0);
-    // A role now: the platform's colour, its pair the fallback.
+    // A role now (LLP 1095 D2): the platform's colour, its pair the fallback.
     let secondary = style_of(&r, "secondary").text_color;
     assert!(matches!(secondary, exact_kernel::ColorValue::Role(_)));
     assert_eq!(
@@ -123,7 +123,7 @@ fn apples_affordances_are_declared_rows_and_haptic_is_a_command() {
             "one to three",
         ),
         ("-exact-press-haptic=\"buzz\"", "selection"),
-        // An outcome is the action's, and the refusal says so.
+        // An outcome is the action's, and the refusal says so (the euxy port).
         (
             "-exact-press-haptic=\"warning\"",
             "\"warning\" is an outcome, which a press has not had at touch-down: play it from the action that has it, `haptic(\"warning\")`",
@@ -134,8 +134,9 @@ fn apples_affordances_are_declared_rows_and_haptic_is_a_command() {
     }
 }
 
-/// Every literal `haptic()` can be, through a choice, is a kind, and a near
-/// miss is named; a native button's press haptic is its action's.
+/// The euxy port: every literal `haptic()` can be, through a choice, is a
+/// kind, and a near miss is named; a native button's press haptic is its
+/// action's.
 #[test]
 fn a_haptic_kind_is_checked_in_each_arm_and_a_near_one_named() {
     let haptic = |kind: &str| {
@@ -197,7 +198,7 @@ fn a_native_button_haptic_repair_compiles() {
     }
 }
 
-/// A cancelled pointer is a `pointerup` on every host, and
+/// The euxy port: a cancelled pointer is a `pointerup` on every host, and
 /// the refusal of `pointercancel` says so.
 #[test]
 fn pointercancel_names_the_pointerup_that_ends_a_hold() {
@@ -213,9 +214,25 @@ fn pointercancel_names_the_pointerup_that_ends_a_hold() {
     );
 }
 
+/// An agent who knows CSS writes `animationend=`: the refusal names the timer.
+#[test]
+fn a_motion_end_handler_names_the_gated_timer() {
+    for name in ["animationend", "transitionend"] {
+        let e = contract::compile(&format!(
+            "component App\n  state shown = true\n  action hide\n    shown = false\n  view\n    view {name}=hide\n      text \"Toast\"\n",
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, "lower-unknown-attr");
+        assert!(
+            e.message.contains("a gated task's `after(ms, action)`"),
+            "{e}"
+        );
+    }
+}
+
 #[test]
 fn a_vendor_prefixed_name_is_an_attribute_before_its_equals_and_a_negation_elsewhere() {
-    // Glued to `=` or spaced from it, as any attribute may be.
+    // LLP 1077 D7: glued to `=` or spaced from it, as any attribute may be.
     let r = boot(
         "component App\n  state w = 3\n  view\n    column\n      text \"a\" -webkit-text-stroke=\"2px #ff0000\" testId=\"a\"\n      text \"b\" -webkit-text-stroke-width = w testId=\"b\"\n      text `${10 -w}` testId=\"c\"\n",
     );
@@ -225,9 +242,9 @@ fn a_vendor_prefixed_name_is_an_attribute_before_its_equals_and_a_negation_elsew
     assert_eq!(style_of(&r, "b").text_stroke_width, 3.0);
 }
 
-/// A plan that binds `-exact-content-transition` uses the numerals
-/// capability, which links SwiftUI's numeric text on Apple; one that does
-/// not, does not.
+/// LLP 1115.003 D3: a plan that binds `-exact-content-transition` uses the
+/// numerals capability, which links SwiftUI's numeric text on Apple; one that
+/// does not, does not.
 #[test]
 fn a_rolling_number_uses_the_numerals_capability() {
     use exact_runner::Capability;

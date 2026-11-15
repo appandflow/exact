@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// One shortcut rule on every host: with the world's canvas
+// One shortcut rule on every host (LLP 1132 D11): with the world's canvas
 // focused, a key a shown button's `aria-keyshortcuts` declares presses that
 // button once (a repeat presses nothing, a disabled button nothing), never
 // reaches the world and moves no focus, and nothing is left held.

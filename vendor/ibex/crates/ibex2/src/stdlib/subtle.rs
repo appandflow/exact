@@ -2,6 +2,8 @@
 //!
 //! The JavaScript binding stores these values behind runtime-owned handles;
 //! only an explicit export of an extractable key exposes its material.
+//!
+//! @ref LLP 0059.000#314-cryptosubtle--pure-ungated-author-required — opaque keys and the L2 algorithm set
 
 #[cfg(feature = "crypto")]
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -12,7 +14,7 @@ mod asymmetric;
 #[cfg(feature = "crypto-asymmetric")]
 mod der;
 
-/// PBKDF2 remains a synchronous pure operation on the calling thread, so
+/// PBKDF2 remains a synchronous pure operation under LLP 0059.000 §1.1, so
 /// bound the work admitted by one host call instead of allowing an unbounded
 /// iteration count to monopolize the runtime thread.
 pub const MAX_PBKDF2_ITERATIONS: u32 = 1_000_000;

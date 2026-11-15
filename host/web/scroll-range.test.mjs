@@ -1,17 +1,18 @@
+import { hostFixtureFile as readFileSync } from './tests/glue-fixture.mjs';
 import { test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
+
 import { layoutBoxes, agentInput } from './agent-input.js';
 
 // The wasm host loads the agent's helpers as `agentInput` and binds each by name (glue.js `agentInputReady`): a name
 // it binds that `agentInput` lacks is undefined at the first call, as `scrollRange` once was in every `layout <target>`.
 test('the wasm host binds no agent helper that agent-input.js does not hand it', () => {
-  const glue = readFileSync(new URL('./glue.js', import.meta.url), 'utf8');
-  const bound = /\(\{ ([\w, ]+) \} = helpers\)/.exec(glue)?.[1].split(', ');
+  const glue = readFileSync(new URL('./wasm/agent.js', import.meta.url), 'utf8');
+  const bound = /\(\{([^}]+)\} = helpers\)/.exec(glue)?.[1].split(',').map(binding => binding.trim().split(':')[0]);
   expect(bound).toContain('scrollRange');
   for (const name of bound) expect([name, typeof agentInput[name]]).toEqual([name, 'function']);
 });
 
-test('the wasm host\'s layout reports a scroller\'s range beside its offset, a hidden overflow\'s too (rx/ry)', () => {
+test('the wasm host\'s layout reports a scroller\'s range beside its offset, a hidden overflow\'s too (LLP 1012 rx/ry)', () => {
   const saved = { style: globalThis.getComputedStyle, frame: globalThis.HTMLIFrameElement };
   globalThis.getComputedStyle = () => ({ display: 'block' });
   globalThis.HTMLIFrameElement ??= class {};

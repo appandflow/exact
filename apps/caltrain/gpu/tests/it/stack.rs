@@ -1,4 +1,4 @@
-//! The card stack, headless: cards bound, given frames, and
+//! The card stack (LLP 1014 D5), headless: cards bound, given frames, and
 //! rendered over a moving clock; their placements — the homographies the
 //! host hit-tests through — are where the fan says they are, nearest first
 //! where they overlap, settled once the springs are, and a card whose train
@@ -58,7 +58,7 @@ fn the_fan_places_cards_down_the_canvas_and_settles() {
     let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
         return;
     };
-    // The shaders travel as files: registered as a host would.
+    // The shaders travel as files (LLP 1030 D8): registered as a host would.
     exact_gpu::shaders::load_dir(&caltrain_gpu::shader_dir(), &caltrain_gpu::REGISTRY).unwrap();
     let mut stack = StackSurface::new();
     stack

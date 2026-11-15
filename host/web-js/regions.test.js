@@ -1,4 +1,4 @@
-// A bound length's layout regions as the browser's safe area. `bun test ./host/web-js/regions.test.js`.
+// A bound length's layout regions as the browser's safe area (LLP 1123 D10). `bun test ./host/web-js/regions.test.js`.
 import { test, expect } from "bun:test";
 import { regions } from "./regions.js";
 

@@ -1,8 +1,10 @@
 //! The wasm ABI, with no `unsafe`.
 //!
+//! @ref LLP 1007 §3
+//!
 //! The exports include `exact_plan` for the build's exact baked bytes,
 //! `exact_boot_plan` for the dev loop, `exact_fonts` for plan-owned font
-//! catalog data, and `exact_agent` for the agent API.
+//! catalog data, and `exact_agent` for LLP 1012's agent API.
 //! The glue never hands the host a pointer it did not get from
 //! the host: `exact_in(len)` resizes a host-owned input buffer and returns its
 //! address; the glue writes the payload there; every call returns the length
@@ -19,29 +21,29 @@ use std::cell::RefCell;
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
     host: Option<Host<D>>,
-    /// The page's snapshot of the app's kept secrets, handed
+    /// The page's snapshot of the app's kept secrets (LLP 1018 D6), handed
     /// in through `exact_store` before boot and taken by the next boot.
     snapshot: Vec<(String, Vec<u8>)>,
-    /// The archive's `compat.json`, from the `host!`
+    /// The archive's `compat.json` (LLP 1030 D3a), from the `host!`
     /// invocation: what the runner's `delivery` resource says about this
     /// binary's cohort, its update store, and its executors.
     compat: Option<&'static str>,
-    /// A rendered page's digest and checkpoint, handed in
+    /// A rendered page's digest and checkpoint (LLP 1048.000 D6), handed in
     /// through `exact_checkpoint` before boot and taken by the next boot.
     checkpoint: Option<(String, String)>,
     /// The user's display preferences as the page's media queries last
-    /// reported them: handed in with each boot and resize, so
+    /// reported them (LLP 1061 D4): handed in with each boot and resize, so
     /// a dev restart boots under the current ones.
     preferences: exact_runner::Preferences,
-    /// The fold the page last reported, beside the preferences.
+    /// The fold the page last reported (LLP 1078 D6), beside the preferences.
     fold: exact_runner::Fold,
     /// The date and place the page told before a boot (`set_launch_time`,
     /// `set_launch_place`): a runner booted after reads them from its first settle.
     launch_facts: exact_runner::time::Launch,
-    /// What the artifact links that is generic over `D`, from
+    /// What the artifact links that is generic over `D` (LLP 1047 D3), from
     /// the `host!` invocation; the core alone until it says.
     links: crate::HostLinks<D>,
-    /// A `pan` contact's samples, for its release velocity.
+    /// A `pan` contact's samples, for its release velocity (LLP 1057 §10.6).
     pan: crate::pan_velocity::PanVelocity,
     /// The page's clock while it owns time, kept for every boot (`clock.rs`)
     live_clock: Option<fn() -> f64>,
@@ -57,6 +59,8 @@ mod requests;
 
 #[cfg(test)]
 mod refusal_tests;
+#[cfg(test)]
+mod store_tests;
 
 impl<D: DataSource> Bridge<D> {
     /// Empty; `boot` fills it.
@@ -77,7 +81,7 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
-    /// This wasm's `compat.json`, for the delivery facts
+    /// This wasm's `compat.json` (LLP 1030 D3a), for the delivery facts
     /// every subsequent boot hands the runner before its first frame. The
     /// `host!` macro passes the app's `COMPAT` const; nothing crosses the
     /// wasm ABI for it.
@@ -85,21 +89,22 @@ impl<D: DataSource> Bridge<D> {
         self.compat = Some(json);
     }
 
-    /// What this artifact links that is generic over `D`: the
+    /// What this artifact links that is generic over `D` (LLP 1047 D3): the
     /// `host!` macro passes [`crate::HostLinks::of`] the entry's set.
     pub fn set_links(&mut self, links: crate::HostLinks<D>) {
         self.links = links;
     }
 
-    /// The page's snapshot of the app's kept secrets: the
+    /// The page's snapshot of the app's kept secrets (LLP 1018 D6): the
     /// input buffer's first `len` bytes (`page_snapshot`), taken by the next
-    /// `boot` (a `boot_plan` carries the running store instead).
+    /// `boot` or `boot_plan` (a `boot_plan` beside a running host carries its
+    /// store instead).
     pub fn store(&mut self, len: usize) {
         self.snapshot = page_snapshot(&self.input[..len.min(self.input.len())]);
     }
 
     /// A rendered page's digest, a newline, and its checkpoint as the page
-    /// carries it: the input buffer's first `len` bytes,
+    /// carries it (LLP 1048.000 D6): the input buffer's first `len` bytes,
     /// taken by the next `boot`.
     pub fn checkpoint(&mut self, len: usize) {
         let text = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
@@ -110,20 +115,30 @@ impl<D: DataSource> Bridge<D> {
 
     /// The page's facts as bits, for the next boot: the display preferences
     /// in bits 0–7 and 26–31, and the fold
-    /// above them — bit 8 `folded`, bits 9–16 the columns,
+    /// (LLP 1078 D4, D6) above them — bit 8 `folded`, bits 9–16 the columns,
     /// bits 17–24 the rows (0 reads as 1). The browser resolves the
     /// `env(viewport-segment-*)` lengths itself; the runner answers the
     /// three `exactViewport` fields. Bit 25 is reserved. Bits 26–27 carry
     /// gamut, 28 HDR, and 29–31 display mode; unpack these above the low
-    /// byte for the runner.
+    /// byte for the runner. `update` has no room here and keeps what
+    /// [`Bridge::set_update`] last said.
     pub fn set_preferences(&mut self, bits: u32) {
-        self.preferences =
-            exact_runner::Preferences::from_bits((bits & 0xff) | ((bits >> 26) << 8));
+        self.preferences = exact_runner::Preferences {
+            update: self.preferences.update,
+            ..exact_runner::Preferences::from_bits((bits & 0xff) | ((bits >> 26) << 8))
+        };
         self.fold = fold_bits(bits);
     }
 
+    /// The page's `update` media feature (LLP 1101.003 D6): 0 `fast`, 1
+    /// `slow`, 2 `none`, as the native wire's bits 15–16 hold it. Taken by
+    /// the next boot or resize, which the page sends after this.
+    pub fn set_update(&mut self, code: u32) {
+        self.preferences.update = exact_runner::Preferences::from_bits((code & 3) << 15).update;
+    }
+
     /// UTF-8 launch location carried after optional plan bytes.
-    /// The page supplies pathname plus search before boot.
+    /// @ref LLP 1038 D5 — the page supplies pathname plus search before boot.
     pub fn launch_input(&self, start: usize, len: usize) -> String {
         let start = start.min(self.input.len());
         let end = start.saturating_add(len).min(self.input.len());
@@ -155,7 +170,7 @@ impl<D: DataSource> Bridge<D> {
         &self.output[..len.min(self.output.len())]
     }
 
-    /// A named refusal, keeping the live runner's scheduled wakes.
+    /// A named refusal (LLP 1047 D6), keeping the live runner's scheduled wakes.
     pub fn refuse(&mut self, message: &str) -> u32 {
         let batch = self.host.as_ref().map_or_else(
             || crate::batch::Batch::new().finish(None, false, 0.0, Some(message)),
@@ -224,7 +239,7 @@ impl<D: DataSource> Bridge<D> {
 
     /// The input concatenates plan, pairing receipt, and browser environment id.
     /// The JS loader prepares that private environment before this synchronous swap.
-    /// Requests in flight refuse it unless `let_go` (the dev loop's):
+    /// Requests in flight refuse it unless `let_go` (the dev loop's, LLP 1007 §6):
     /// then it boots carrying state as [`Self::boot_plan`] does.
     pub fn boot_module(&mut self, lengths: [usize; 3], admitted: D, let_go: bool) -> u32 {
         let busy = self.host.as_ref().is_some_and(|h| h.runner().has_pending());
@@ -279,6 +294,7 @@ impl<D: DataSource> Bridge<D> {
             height,
             preferences: self.preferences,
             fold: self.fold,
+            ..exact_runner::Viewport::default()
         };
         let (checkpoint, launch_facts) = (self.checkpoint.take(), self.launch());
         let booted = exact_runner::time::launching_with(launch_facts, || match checkpoint {
@@ -321,11 +337,15 @@ impl<D: DataSource> Bridge<D> {
     pub fn boot_plan(&mut self, len: usize, data: D, width: f64, height: f64, launch: &str) -> u32 {
         let plan = self.input[..len.min(self.input.len())].to_vec();
         let carried = self.host.as_ref().map(Host::carry);
+        // A page's first dev boot has no host to carry from: it reads the
+        // store the page handed in, as `boot` does.
+        let snapshot = std::mem::take(&mut self.snapshot);
         let viewport = exact_runner::Viewport {
             width,
             height,
             preferences: self.preferences,
             fold: self.fold,
+            ..exact_runner::Viewport::default()
         };
         let booted = exact_runner::time::launching_with(self.launch(), || {
             Host::boot_linked(
@@ -333,7 +353,7 @@ impl<D: DataSource> Bridge<D> {
                 &plan,
                 data,
                 carried.as_ref(),
-                Vec::new(),
+                snapshot,
                 self.compat,
                 viewport,
                 launch,
@@ -349,7 +369,7 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
-    /// The locations `plan` renders at build, as a JSON
+    /// The locations `plan` renders at build (LLP 1048.000 D7), as a JSON
     /// array: the web build runs no render step when there are none.
     pub fn build_locations(&mut self, plan: &[u8]) -> u32 {
         // The routes whose pages a source lists count too, by pattern.
@@ -401,7 +421,7 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// `exact_host_back`: the platform's own Back, a batch.
+    /// `exact_host_back`: the platform's own Back (LLP 1115 D5), a batch.
     pub fn host_back(&mut self, id: u64, now_ms: f64) -> u32 {
         let out = match self.host.as_mut() {
             Some(h) => h.host_back(id, now_ms),
@@ -411,7 +431,7 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// `exact_host_go`: the platform's own navigation to the location in the
-    /// input buffer, a batch.
+    /// input buffer (LLP 1115.000 D4.3), a batch.
     pub fn host_go(&mut self, len: usize, now_ms: f64) -> u32 {
         let location = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
         let out = match self.host.as_mut() {
@@ -421,14 +441,14 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// Canonical location from the input URL.
+    /// Canonical location from the input URL. @ref LLP 1038 D8
     pub fn location_of(&mut self, len: usize) -> u32 {
         let href = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
         self.emit(exact_route::location_of(&href))
     }
 
-    /// Whether the location in the input buffer names a declared route:
-    /// the page then follows a same-origin link in place.
+    /// Whether the location in the input buffer names a declared route
+    /// (LLP 1038 §7): the page then follows a same-origin link in place.
     pub fn route_matches(&self, len: usize) -> u32 {
         let location = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
         u32::from(
@@ -496,19 +516,19 @@ impl<D: DataSource> Bridge<D> {
     /// key's chord with its code, repeat and isComposing (`KeyboardEvent::parse`), or a
     /// guest message — is the input buffer's first `len` bytes, UTF-8).
     /// Kind 43 is `keyup`; 44 is `keycapture`, with the keydown payload (#140).
-    /// Kind 45 is `intersect`, `0|1,ratio`.
+    /// Kind 45 is `intersect`, `0|1,ratio` (LLP 1005).
     /// Kinds 46/47 are `focusin`/`focusout`, with target and relatedTarget (#283).
-    /// Kind 14 is navigate: one UTF-8 location at the navigation root.
-    /// Kind 20 is pan (`dx,dy`); 28 panrelease (`vx,vy`, px/s).
+    /// Kind 14 is navigate: one UTF-8 location at the navigation root (LLP 1038 D8).
+    /// Kind 20 is pan (`dx,dy`); 28 panrelease (`vx,vy`, px/s; LLP 1057 §10.6).
     /// Kind 23 is a text field's `input`; 24 and 25 a checkbox's `change`
-    /// and `input`, the payload `true` or `false`; 40 to
-    /// 42 a text field's `input`, `change` and `select` with its selection;
-    /// 48 is replacement input with that selection payload.
+    /// and `input`, the payload `true` or `false` (LLP 1069.001 D4); 40 to
+    /// 42 a text field's `input`, `change` and `select` with its selection
+    /// (x2apps codeedit #2); 48 is replacement input with that selection payload.
     pub fn dispatch(&mut self, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         let event = match kind {
-            // A press, with the modifiers held as a chord prefix.
+            // A press, with the modifiers held as a chord prefix (gallery F20).
             0 => {
                 let Some(event) = Event::press(&payload) else {
                     return self.refuse("invalid press modifiers");
@@ -525,21 +545,22 @@ impl<D: DataSource> Bridge<D> {
             11 => Event::Dblclick,
             12 => Event::Swiperight,
             // A context menu (its point when it has one), scroll, media, pan,
-            // selection and pan release, the pointer's down,
-            // up and move with its record,
+            // selection and pan release (LLP 1057 §10.6), the pointer's down,
+            // up and move with its record (LLP 1005 §3; LLP 1056 §3 stage 3),
             // the clipboard's three, a text's selectionchange, beforeunload,
             // wheel, drop and resize, and a text field's input, change and
             // select with its selection, replacement input (48), a key's down (6), up (43) and capture (44)
             // with its code and repeat, and focusin (46) and focusout (47) with
             // their targets, toggle (50), scrollend (51), a file drag's enter
-            // and leave (55, 56), a paste with files (57), an iframe's record (58), an atom's press (59) (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=48 | 50..=59 => {
+            // and leave (55, 56), a paste with files (57), an iframe's record (58), an atom's press (59),
+            // a left swipe (61), and a scroll drag's start (62) and release (63) (`Event::of_host_kind`).
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=48 | 50..=59 | 61..=63 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
                     Err(error) => return self.refuse(error),
                 }
             }
-            // The next ABI kind after scroll.
+            // @ref LLP 1038 D8 — the next ABI kind after scroll.
             14 => Event::Navigate(payload),
             15 => {
                 let Some(event) = Event::height_release_payload(&payload) else {
@@ -565,9 +586,9 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
-            // 23 is a text field's `input`; 24 and
+            // @ref LLP 1069.001 D4 — 23 is a text field's `input`; 24 and
             // 25 a checkbox's `change` and `input`, the payload `true`/`false`.
-            // 26 is a file input's `change`, one
+            // @ref LLP 1069.002 D3, D2 — 26 is a file input's `change`, one
             // picked file per line; 27 its `cancel`.
             26 => {
                 let payload_files = crate::link::linked().picker.and_then(|read| read(&payload));
@@ -613,7 +634,7 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// A 2D canvas's geometry from the page.
+    /// A 2D canvas's geometry from the page (LLP 1056 D4).
     pub fn canvas_geometry(&mut self, view: u32, width: f64, height: f64, scale: f64) -> u32 {
         let out = self.host.as_mut().map_or_else(
             || crate::batch::Batch::new().finish(None, false, 0.0, Some("not booted")),
@@ -622,7 +643,7 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// A Canvas 2D image handle loaded or failed on the page;
+    /// A Canvas 2D image handle loaded or failed on the page (LLP 1056 D9);
     /// the payload is in the input buffer.
     pub fn canvas_image(&mut self, len: usize) -> u32 {
         let text = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
@@ -633,7 +654,7 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// A font finished loading on the page.
+    /// A font finished loading on the page (LLP 1056 D8).
     pub fn canvas_fonts(&mut self) -> u32 {
         let out = self.host.as_mut().map_or_else(
             || crate::batch::Batch::new().finish(None, false, 0.0, Some("not booted")),
@@ -644,8 +665,8 @@ impl<D: DataSource> Bridge<D> {
 
     /// Re-answer viewport resources and return the resulting batch. The page
     /// reports the size and the display preferences together, on a change
-    /// of either.
-    /// Buffers remain host-owned, with no unsafe code.
+    /// of either (LLP 1061 D4).
+    /// @ref LLP 1039 D2 — buffers remain host-owned, with no unsafe code.
     pub fn resize(&mut self, width: f64, height: f64, preferences: u32, now_ms: f64) -> u32 {
         self.set_preferences(preferences);
         let viewport = exact_runner::Viewport {
@@ -653,6 +674,7 @@ impl<D: DataSource> Bridge<D> {
             height,
             preferences: self.preferences,
             fold: self.fold,
+            ..exact_runner::Viewport::default()
         };
         let out = self.host.as_mut().map_or_else(
             || exact_runner::agent::error("not booted"),
@@ -661,7 +683,7 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// Re-answer `exactTime` resources.
+    /// Re-answer `exactTime` resources (LLP 1027.000.000).
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> u32 {
         let out = self.host.as_mut().map_or_else(
             || exact_runner::agent::error("not booted"),
@@ -670,7 +692,7 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// Re-answer `exactPage` resources: bit 0 hidden,
+    /// Re-answer `exactPage` resources (LLP 1069.000 D2): bit 0 hidden,
     /// bit 1 offline, bit 2 a share sheet, bit 3 the pickers, bit 4 without
     /// focus ([`exact_runner::Page::from_bits`]).
     pub fn set_page(&mut self, bits: u32) -> u32 {
@@ -682,7 +704,7 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// The root font size in CSS pixels: the document
+    /// The root font size in CSS pixels (LLP 1069.000 D3): the document
     /// element's computed `font-size`.
     pub fn set_root_font_size(&mut self, px: f64) -> u32 {
         let out = self.host.as_mut().map_or_else(
@@ -692,7 +714,7 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// The display's scale: the page's
+    /// The display's scale (LLP 1115.000 D10.3): the page's
     /// `devicePixelRatio`.
     pub fn set_display_scale(&mut self, scale: f64) -> u32 {
         let out = self.host.as_mut().map_or_else(
@@ -766,7 +788,7 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// `key\nblock\ninline` in the input buffer; the key may hold a newline.
+    /// `key\nblock\ninline` in the input buffer (LLP 1070.000 §5); the key may hold a newline.
     pub fn into_view(&mut self, view: u32, len: usize) -> u32 {
         let text = String::from_utf8_lossy(self.input.get(..len).unwrap_or(&[])).into_owned();
         let mut parts = text.rsplitn(3, '\n');
@@ -825,14 +847,14 @@ impl<D: DataSource> Bridge<D> {
             let (op, view, property, serial, value, now) =
                 decoded.map_err(|_| "malformed motion input".to_string())?;
             if op == 11 {
-                // The thresholds exact2 defines itself.
+                // The thresholds exact2 defines itself (LLP 1057.001 §3).
                 let [knee, resistance, edge, slop] = exact_motion::gesture::CONSTANTS;
                 return Ok(format!(
                     "{{\"knee\":{knee},\"resistance\":{resistance},\"edge\":{edge},\"slop\":{slop}}}"
                 ));
             }
             // A pan's pointer sample (token 1 begins the contact) and its
-            // release velocity, at the event's own ms.
+            // release velocity (LLP 1057 §10.6), at the event's own ms.
             if op == 13 {
                 let first = serial == 1;
                 let ok = self.pan.sample(view, first, value.x, value.y, now);
@@ -863,7 +885,7 @@ impl<D: DataSource> Bridge<D> {
                         None => Ok("{\"accepted\":false}".into()),
                     };
                 }
-                // The velocity is the engine's; y is unused.
+                // The velocity is the engine's (LLP 1057.001 §3); y is unused.
                 return Ok(match host.dispatch_height_measured(serial, view, value.x, value.y, now)? {
                     Some(batch) => format!("{{\"accepted\":true,\"batch\":{batch}}}"),
                     None => "{\"accepted\":false}".into(),
@@ -898,8 +920,9 @@ impl<D: DataSource> Bridge<D> {
                 2 => host.end_hold(serial, HoldEnd::Release { velocity: value }, now),
                 3 => host.end_hold(serial, HoldEnd::Cancel, now),
                 4 => return Ok(format!("{{\"accepted\":{}}}", host.has_hold(serial))),
-                5 => Ok(host.dispatch_held(serial, now)),
-                // Release at the engine's measured velocity.
+                // x: the presented offset, whose sign says which swipe.
+                5 => Ok(host.dispatch_held(serial, value.x, now)),
+                // Release at the engine's measured velocity (LLP 1057.001 §3).
                 10 => host.end_hold_measured(serial, now),
                 // The constrained value a display shows for the hold.
                 12 => return Ok(format!("{{\"accepted\":{}}}", host.track_hold(serial, value, now))),
@@ -915,7 +938,7 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// A presented frame.
+    /// A presented frame (LLP 1073 D5).
     pub fn frame(&mut self, now_ms: f64) -> u32 {
         let out = match self.host.as_mut() {
             Some(h) => h.frame(now_ms),
@@ -929,8 +952,8 @@ impl<D: DataSource> Bridge<D> {
     pub fn agent(&mut self, len: usize) -> u32 {
         let request =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
-        // `tap @t` / `type @t` answer a held device request
-        // before any view is looked up.
+        // `tap @t` / `type @t` answer a held device request (LLP 1069.007
+        // D4) before any view is looked up.
         let out = match self.host.as_mut() {
             Some(h) => h.answer_hold(&request).unwrap_or_else(|| h.agent(&request)),
             None => exact_runner::agent::error("not booted"),
@@ -939,8 +962,8 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// A command that shows system UI, which the glue is about to run
-    /// (`share`, `saveFile`): the runner's
-    /// decision on it ([`exact_runner::commands::request`]).
+    /// (`share`, LLP 1069.003; `saveFile`, LLP 1069.010 D3): the runner's
+    /// ruling on it ([`exact_runner::commands::request`]).
     pub fn command(&mut self, len: usize) -> u32 {
         let request =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
@@ -951,7 +974,7 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// The page's word on an auth session (`exact_auth`).
+    /// The page's word on an auth session (`exact_auth`, LLP 1069.006 D4).
     pub fn auth(&mut self, len: usize) -> u32 {
         let request =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
@@ -978,7 +1001,7 @@ impl<D: DataSource> Default for Bridge<D> {
     }
 }
 
-/// The fold in a facts word: bit 8 `folded`, bits 9–16 the
+/// The fold in a facts word (LLP 1078 D6): bit 8 `folded`, bits 9–16 the
 /// columns, 17–24 the rows, 0 reading as 1.
 fn fold_bits(bits: u32) -> exact_runner::Fold {
     exact_runner::Fold {
@@ -1006,7 +1029,7 @@ pub type Cell<D> = RefCell<Bridge<D>>;
 /// The invoking crate defines `EXACT_LINKED`, the [`crate::Linked`] of the
 /// capabilities its plan uses, and `EXACT_REPLACEMENT`, whether a running
 /// page may take a new data module; the generated entry writes both
-/// (`contract::web_linked`). Every boot registers the first.
+/// (`contract::web_linked`, LLP 1047 D3). Every boot registers the first.
 #[macro_export]
 macro_rules! host {
     ($data:ty, $plan:expr, $compat:expr, $new:expr, $module:expr) => {
@@ -1053,7 +1076,7 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().baked_plan($compat.as_bytes()))
         }
 
-        /// The page's snapshot of the app's kept secrets, from
+        /// The page's snapshot of the app's kept secrets (LLP 1018 D6), from
         /// the input buffer's first `len` bytes (`name NUL value NUL …`),
         /// for the next `exact_boot`.
         #[no_mangle]
@@ -1061,14 +1084,14 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().store(len as usize))
         }
 
-        /// A rendered page's digest and checkpoint, from
+        /// A rendered page's digest and checkpoint (LLP 1048.000 D6), from
         /// the input buffer's first `len` bytes, for the next `exact_boot`.
         #[no_mangle]
         pub extern "C" fn exact_checkpoint(len: u32) {
             EXACT_BRIDGE.with(|b| b.borrow_mut().checkpoint(len as usize))
         }
 
-        /// The locations the baked plan renders at build,
+        /// The locations the baked plan renders at build (LLP 1048.000 D7),
         /// as a JSON array, for the web build.
         #[no_mangle]
         pub extern "C" fn exact_build_locations() -> u32 {
@@ -1129,7 +1152,7 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
                 if !EXACT_REPLACEMENT {
-                    return b.refuse("this build takes no module replacement");
+                    return b.refuse("this build takes no module replacement (LLP 1047 D6)");
                 }
                 b.set_links(EXACT_HOST_LINKS);
                 b.boot_module([plan, receipt, module].map(|n| n as usize), ($new)(), let_go != 0)
@@ -1143,7 +1166,7 @@ macro_rules! host {
         }
 
         /// Query the current plan's declared font catalog. The returned JSON
-        /// is separate from operation batches.
+        /// is separate from operation batches (LLP 1019 D5).
         #[no_mangle]
         pub extern "C" fn exact_fonts() -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().fonts())
@@ -1161,7 +1184,7 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().dispatch(view, kind, len as usize, now_ms))
         }
 
-        /// The platform's own Back from visit `id`; returns
+        /// The platform's own Back from visit `id` (LLP 1115 D5); returns
         /// the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_host_back(id: f64, now_ms: f64) -> u32 {
@@ -1170,7 +1193,7 @@ macro_rules! host {
 
         /// The platform's own navigation to a location (the input buffer),
         /// for the browser's Forward and a link to a declared route under a
-        /// root with no `navigate` handler; returns the
+        /// root with no `navigate` handler (LLP 1115.000 D4.3); returns the
         /// batch's length.
         #[no_mangle]
         pub extern "C" fn exact_host_go(len: u32, now_ms: f64) -> u32 {
@@ -1189,7 +1212,7 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow().route_matches(len as usize))
         }
 
-        /// A request's outcome: `kind` 0 response / 1 network /
+        /// A request's outcome (LLP 1016 D2): `kind` 0 response / 1 network /
         /// 2 refused / 3 unsupported / 4 aborted / 5 storage / 6 captured
         /// surface / 7 restored surface; the input buffer holds
         /// `hlen` bytes of `name: value` header lines then `blen` bytes of
@@ -1200,21 +1223,29 @@ macro_rules! host {
         }
 
         /// Whether the runner still holds request `ticket`: the page asks
-        /// after each commit and lets go of the work for one it doesn't,
-        /// and its `clock settle` waits only on held ones.
+        /// after each commit and lets go of the work for one it doesn't
+        /// (LLP 1016 D5), and its `clock settle` waits only on held ones.
         #[no_mangle]
         pub extern "C" fn exact_request_active(ticket: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow().request_active(ticket))
         }
 
+        /// The page's `update` media feature, for the next boot or resize
+        /// (`Bridge::set_update`).
+        #[no_mangle]
+        pub extern "C" fn exact_set_update(code: u32) {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().set_update(code))
+        }
+
         /// The viewport or the page's facts (bit 0 reduced motion, bit 1
         /// reduced transparency, bit 2 contrast more, bit 3 contrast less,
         /// bit 4 a dark system; bit 8 folded, bits 9–16 and 17–24 the
-        /// viewport segment columns and rows) changed; returns
-        /// the batch length.
+        /// viewport segment columns and rows, LLP 1078 D6) changed, with the
+        /// page's geometry in `geometry` bytes of the input buffer (none for
+        /// 0, LLP 1039 D9); returns the batch length.
         #[no_mangle]
-        pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64, preferences: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, preferences, now_ms))
+        pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64, preferences: u32, geometry: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().resize_with(width, height, preferences, now_ms, geometry as usize))
         }
 
         /// The date: Unix ms at clock zero and minutes east of UTC.
@@ -1223,25 +1254,42 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_time(epoch_at_zero, utc_offset))
         }
 
-        /// The page's facts: bit 0 hidden, bit 1 offline,
+        /// The page's facts (LLP 1069.000 D2): bit 0 hidden, bit 1 offline,
         /// bit 2 a share sheet; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_set_page(bits: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_page(bits))
         }
 
-        /// The root font size in CSS pixels; returns the
+        /// The root font size in CSS pixels (LLP 1069.000 D3); returns the
         /// batch length.
         #[no_mangle]
         pub extern "C" fn exact_set_root_font_size(px: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_root_font_size(px))
         }
 
-        /// The display's scale, the page's `devicePixelRatio`;
-        /// returns the batch length.
+        /// The display's scale, the page's `devicePixelRatio` (LLP 1115.000
+        /// D10.3); returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_set_display_scale(scale: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_display_scale(scale))
+        }
+
+        /// The browser's document insets and segment rectangles in the input buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_set_viewport_geometry(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().viewport_geometry(len as usize))
+        }
+
+        /// Whether this canvas name is read by a performance resource.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_performance_requested(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow().canvas_performance_requested(len as usize))
+        }
+        /// Publish or clear a canvas's performance record.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_performance_record(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().canvas_performance_record(len as usize))
         }
 
         /// The aborts a realm heard between batches.
@@ -1285,7 +1333,7 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().advance(now_ms, mode))
         }
 
-        /// A presented animation frame at `now_ms`: timers
+        /// A presented animation frame at `now_ms` (LLP 1073 D5): timers
         /// due by then, then every frame task once.
         #[no_mangle]
         pub extern "C" fn exact_frame(now_ms: f64) -> u32 {
@@ -1298,8 +1346,8 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().agent(len as usize))
         }
 
-        /// A page line for the runner's journal:
-        /// the input buffer's first `len` bytes. Returns 0.
+        /// A page line for the runner's journal (LLP 1012 §3; LLP 1035.001
+        /// D6): the input buffer's first `len` bytes. Returns 0.
         #[no_mangle]
         pub extern "C" fn exact_log(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().log(len as usize))
@@ -1312,7 +1360,7 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().command(len as usize))
         }
 
-        /// An auth session's arm or report, JSON in the
+        /// An auth session's arm or report (LLP 1069.006 D4), JSON in the
         /// input buffer; the output is the runner's word, not a batch.
         #[no_mangle]
         pub extern "C" fn exact_auth(len: u32) -> u32 {
@@ -1321,7 +1369,7 @@ macro_rules! host {
     };
 }
 
-/// Motion's export group, beside [`host!`]: the generated entry
+/// Motion's export group (LLP 1047 D3), beside [`host!`]: the generated entry
 /// invokes it when the plan uses motion, and the glue calls it only for a
 /// hold the plan's gestures begin.
 #[macro_export]
@@ -1335,7 +1383,7 @@ macro_rules! motion_exports {
     };
 }
 
-/// Lists' export group, beside [`host!`]: the generated entry
+/// Lists' export group (LLP 1047 D3), beside [`host!`]: the generated entry
 /// invokes it when the plan has a list the host windows, and the glue calls
 /// it only for one.
 #[macro_export]
@@ -1377,55 +1425,10 @@ macro_rules! list_exports {
             EXACT_BRIDGE.with(|b| b.borrow_mut().collection_feedback(len as usize))
         }
 
-        /// The agent's `tap <list> into <key>`.
+        /// The agent's `tap <list> into <key>` (LLP 1070.000 §5).
         #[no_mangle]
         pub extern "C" fn exact_into_view(view: u32, len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().into_view(view, len as usize))
-        }
-    };
-}
-
-/// GPU surfaces' export group, beside [`host!`]: the generated
-/// entry invokes it when the plan has a canvas with a surface, and the glue
-/// calls it only for one.
-#[macro_export]
-macro_rules! surface_exports {
-    () => {
-        /// A 2D canvas's content box and device scale, from
-        /// the page's `ResizeObserver`; returns the batch length.
-        #[no_mangle]
-        pub extern "C" fn exact_canvas_geometry(
-            view: u32,
-            width: f64,
-            height: f64,
-            scale: f64,
-        ) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().canvas_geometry(view, width, height, scale))
-        }
-
-        /// A Canvas 2D image handle loaded or failed; the
-        /// payload is in the input buffer. Returns the batch length.
-        #[no_mangle]
-        pub extern "C" fn exact_canvas_image(len: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().canvas_image(len as usize))
-        }
-
-        /// A font finished loading; returns the batch length.
-        #[no_mangle]
-        pub extern "C" fn exact_canvas_fonts() -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().canvas_fonts())
-        }
-
-        /// Publish or clear a named surface record; returns the batch length.
-        #[no_mangle]
-        pub extern "C" fn exact_surface_record(len: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| {
-                let Ok(mut bridge) = b.try_borrow_mut() else {
-                    eprintln!("exact_surface_record refused: nested bridge export");
-                    return 0;
-                };
-                bridge.surface_record(len as usize)
-            })
         }
     };
 }

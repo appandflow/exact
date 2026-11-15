@@ -1,7 +1,7 @@
-//! Stream timing, for the video throughput gate: four stamps per
+//! Stream timing, for LLP 1133.003's throughput gate (§9): four stamps per
 //! message of a byte stream or a socket — the transport's receipt, the
 //! mapper's entry, the decode call reaching the host, and the commit
-//! standing — read by `perf streams`. Nothing is stamped until
+//! standing — read by `perf streams` (LLP 1079). Nothing is stamped until
 //! a development build's agent starts it (`perf streams start`); production
 //! trust refuses that, as it refuses `perf`.
 //!

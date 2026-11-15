@@ -1,4 +1,4 @@
-//! `backgroundMaterial`'s table for the Swift presenters:
+//! `backgroundMaterial`'s table for the Swift presenters (LLP 1053.000 D4):
 //! the schema's row for a name, as the platform's own name for it.
 // The C seam reads a caller's name and writes one static pointer.
 #![allow(unsafe_code)]
@@ -32,7 +32,7 @@ pub unsafe fn platform(name: *const u8, len: usize, platform: u8, out: *mut *con
 #[macro_export]
 macro_rules! material_exports {
     () => {
-        /// This platform's name for a `backgroundMaterial`.
+        /// This platform's name for a `backgroundMaterial` (LLP 1053.000 D4).
         ///
         /// # Safety
         /// As [`$crate::material::platform`].

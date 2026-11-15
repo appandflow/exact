@@ -1,4 +1,4 @@
-//! A grouped list's reorder on the web: the same v3
+//! A grouped list's reorder on the web (LLP 1094 D5–D9): the same v3
 //! packets, no holds. The page draws the ghost (`group-glue.js`); the
 //! runner hides the row, moves the gap in whichever grouped list the ghost's
 //! centre is over (op 21, `reorder-preview-into`, its one record naming the
@@ -10,7 +10,7 @@ use super::*;
 use exact_runner::ReorderStep;
 
 /// `{"op":"reorder-group",…}` for a grip: its list's `reorderGroup` (null
-/// for none) and whether the host's keys may drive it (only when it has no `press`,
+/// for none) and whether the host's keys may drive it (D9: no `press`,
 /// `key`, `pan` or `pointerdown` of its own).
 pub(super) fn group_binding<D: DataSource>(
     runner: &exact_runner::Runner<D>,

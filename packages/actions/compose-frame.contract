@@ -1,6 +1,6 @@
 use PostButton from "./post-button.contract"
 
-// The composer's frame (the clone's ComposeScreen):
+// The composer's frame (the clone's ComposeScreen, theme2's 02:41 ruling):
 // its bar (Cancel, Drafts unless a reply, the Post button with its own
 // params), the app's body as its one slot (the post replied to, the
 // thread's posts, the field, its attachments and pills: the app's), and

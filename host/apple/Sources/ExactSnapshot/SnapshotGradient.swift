@@ -1,8 +1,8 @@
-// A `background-image` gradient as the batch carries it (the
+// A `background-image` gradient as the batch carries it (LLP 1066; the
 // emitter is `host/apple/src/gradient.rs`, the reading mirrors
 // `ExactKit/Gradient.swift`): stops flat as `t, r, g, b, a` (positions
 // 0–1; channels 0–255, or extended linear sRGB floats with alpha 0–1 when
-// `space` is `srgb-linear`), a `dark` set when the colours
+// `space` is `srgb-linear`, LLP 1100 D2), a `dark` set when the colours
 // pair, and the shape: `linear` degrees, `corner` `[right, bottom]`,
 // `radial` `[circle, extent, x%, xpx, y%, ypx]`. A gradient with length
 // stops arrives as its CSS (`{"css": …}`) and the kernel places it once the
@@ -76,10 +76,10 @@ struct GradientRow {
         guard let css else { return nil }
         return Owner.shared.sync { () -> GradientRow? in
             let input = Array(css.utf8), w = Float(box.width), h = Float(box.height)
-            let n = exact_gradient(input, input.count, w, h, dark ? 1 : 0, nil, 0)
+            let n = exact_gradient(input, input.count, w, h, dark ? 1 : 0, nil, nil, 0)
             guard n > 0 else { return nil }
             var bytes = [UInt8](repeating: 0, count: n)
-            _ = exact_gradient(input, input.count, w, h, dark ? 1 : 0, &bytes, n)
+            _ = exact_gradient(input, input.count, w, h, dark ? 1 : 0, nil, &bytes, n)
             return bytes.withUnsafeBufferPointer { buffer -> GradientRow? in
                 var reader = BatchReader(bytes: buffer)
                 return (try? reader.value()).flatMap { GradientRow($0) }

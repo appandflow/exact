@@ -1,4 +1,4 @@
-//! The table's slots reclaimed (as built: mark and
+//! The table's slots reclaimed (LLP 1121 §5 stage 4, as built: mark and
 //! sweep, where the RFC says reference-counted). `ColorValue` is `Copy`, so
 //! an id has no owner to count; instead every holder of ids registers a
 //! [`Holder`] and publishes the slots it holds as a [`WideMark`], on its own
@@ -35,7 +35,7 @@
 //! than that before it applies, off its kernel's thread or for no kernel,
 //! must hold what it parsed under a [`Batch`] or a [`Keep`] until its commit
 //! (or its keep) marks it. A live edit's batch or snapshot applied on its
-//! kernel's thread (commit 4) is in that thread's batch.
+//! kernel's thread (LLP 1121 stage 4, commit 4) is in that thread's batch.
 //!
 //! When fewer than a quarter of the slots are free, the table sweeps: it
 //! frees every slot no mark holds and not interned recently, and bumps those
@@ -280,7 +280,7 @@ impl Table {
         if !self.told {
             self.told = true;
             crate::diagnostic(format_args!(
-                "exact: the wide colour table is full ({WIDE_CAP} colours held); {text} refused, and the row keeps its value"
+                "exact: the wide colour table is full ({WIDE_CAP} colours held); {text} refused, and the row keeps its value (LLP 1121 stage 4)"
             ));
         }
     }
@@ -512,7 +512,7 @@ pub(in crate::style) fn stale(id: u16) {
     });
     if first {
         crate::diagnostic(format_args!(
-            "exact: wide colour {id:#06x} read after its slot was reclaimed: a holder its mark missed"
+            "exact: wide colour {id:#06x} read after its slot was reclaimed: a holder its mark missed (LLP 1121 stage 4)"
         ));
     }
     debug_assert!(

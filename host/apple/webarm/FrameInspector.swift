@@ -1,4 +1,4 @@
-// The platform's inspector for a frame's guest,
+// The platform's inspector for a frame's guest (@ref LLP 1020.002 D11),
 // Electron's `<webview>.openDevTools()`. On macOS it is Safari's Web
 // Inspector in a window of its own. WebKit has no public call that shows it,
 // so this uses the private `-[WKWebView _inspector]` (`WKWebViewPrivate.h`)
@@ -6,8 +6,8 @@
 // wry does, with `-[WKPreferences _setDeveloperExtrasEnabled:]`
 // (`WKPreferencesPrivate.h`), without which the inspector never connects
 // (measured on macOS 27.2). A WebKit without them is refused by name. They
-// compile into production arms too (ruled 2026-10-31),
-// a named exception to the rule that no private API ships.
+// compile into production arms too (ruled 2026-10-31, LLP 1020.002 D11),
+// a named exception to the 2026-11-03 ruling that no private API ships.
 import Foundation
 import WebKit
 

@@ -1,28 +1,30 @@
-// The transport on the JS target: the runner's
+// The transport on the JS target (LLP 1125 D2–D5): the runner's
 // (runner/src/transport.rs and runner/src/runner/transport.rs) with the same
 // rules, ids, order and journal lines; read it beside them. Imported by an
 // app's module only for a plan that declares a sequence or reads
 // `exactTransport` (host/web-js/src/timers.rs). The voices and haptics go
 // into sounds.js's table (`Sounds.seq`).
 // - The gate step (`Sounds.gate`, inside the commit's rollback) reads each
-//   sequence's gate, key and six `play` arguments; once the commit stands
-//   (`Sounds.stood`) the transport arms, restarts, edits or stops.
+//   sequence's gate, key and six `play` arguments into that commit's snapshot.
+//   `Sounds.committed` stops on freeze before a deferred tree update; otherwise
+//   `Sounds.stood` arms, restarts, edits or stops after the tree.
 // - Its own wake (a fill, the count-in's end) is a `hatch` in `clock.timers`:
 //   no commit, after everything due at its time. Its end is a timer after
 //   every task (`i: Infinity`), a hatch too when there is no `ended=`.
 // - `exactTransport` is answered again by a commit of its own, a `then` after
 //   every mutation's: a pseudo-mutation pushed last into `Mutations`.
-// - MIDI: a step's note and clock out go on midi.js's queue
+// - MIDI (LLP 1125 D7): a step's note and clock out go on midi.js's queue
 //   (`Midi`); a track's `offset` shifts its outputs, placed as `fill` says.
-// - Clock in (runner/src/transport/clock.rs): `clock=` follows an input
+// - Clock in (D9, runner/src/transport/clock.rs): `clock=` follows an input
 //   (clockin.js's follower); midi.js hands its clock messages to
 //   `Sounds.clockIn` before it dispatches a delivery.
 import { journal, clock, Sounds, Mutations, Resources, R, data, drive, untracked, Refusal } from './rt.js';
+import { watchPage } from './facts.js';
 import { plain } from './format.js';
 import { Midi } from './midi.js';
-import { follower, feed, tempo, position, LOOKAHEAD as CLOCK_AHEAD, DRIFT } from './clockin.js';
+import { follower, feed, tempo, position, LOOKAHEAD as CLOCK_AHEAD, DRIFT, TICKS_PER_SECOND } from './clockin.js';
 
-const LOOKAHEAD = 1000, REFILL = 500, SEGMENTS = 1024, LOOPS_PER_SECOND = 1000, FROM_LIMIT = 2147483648, SHORTEST = 1 / 1048576, EXACT = 4503599627370496, OFFSET_LIMIT = 500, HOLD = 50, TICKS_PER_SECOND = 1000;
+const LOOKAHEAD = 1000, REFILL = 500, SEGMENTS = 1024, LOOPS_PER_SECOND = 1000, FROM_LIMIT = 2147483648, SHORTEST = 1 / 1048576, EXACT = 4503599627370496, OFFSET_LIMIT = 500, HOLD = 50;
 const KINDS = ['selection', 'impact', 'impact-light', 'impact-medium', 'impact-heavy', 'impact-soft', 'impact-rigid', 'success', 'warning', 'error'];
 const say = line => journal.push(`t=${clock.now} ${line}`);
 const num = n => !Number.isFinite(n) ? 'null' : n < 0 ? `-${plain(-n)}` : plain(n); // the runner's `num`
@@ -38,8 +40,10 @@ const Seqs = []; // each declared sequence, in plan order: its code, `ended`, na
 let Readers = {}, Owner = null, Last = null, Raw = [], Play = null, Segments = [], Recorded = 0, State = 'stopped', Reason = '';
 // Issued: where the last fill stopped, by beat (a tempo edit moves its time): the hits before it, and the first [1] at it,
 // were issued.
-let IssuedTo = 0, Skip = 0, Issued = [-Infinity, 0], RefillDue = Infinity, PhaseDue = Infinity, EndedDue = Infinity, Pending = null, UnsentTold = false;
-// Clock in: the follower while the owner follows an input; the last arming followed one, so `exactTransport` answers
+let IssuedTo = 0, Skip = 0, Issued = [-Infinity, 0], RefillDue = Infinity, PhaseDue = Infinity, EndedDue = Infinity, UnsentTold = false;
+let Cut = null; // a tempo edit's time and the segment before it, for the fill that follows
+const order = (a, b) => a.at - b.at || a.track - b.track || a.step - b.step;
+// Clock in (D9): the follower while the owner follows an input; the last arming followed one, so `exactTransport` answers
 // `Pub`; where its hits are issued to, past the last delivery.
 let Follow = null, Clocked = false, Pub = { state: 'stopped', reason: '', bpm: 0, at: 0, beat: 0 }, ClockTo = 0;
 // Following, the hits issued and not taken back at or after HitsFloor, `[beat, track, step, step time]`: a refill issues none
@@ -85,17 +89,17 @@ function read(name, args) {
       : bpm / 60 / length > LOOPS_PER_SECOND ? `it would loop more than ${num(LOOPS_PER_SECOND)} times a second`
       : !(Number.isFinite(offset) && Math.abs(offset) <= OFFSET_LIMIT) ? `its offset ${num(offset)} is not within ${num(OFFSET_LIMIT)} ms` : null;
     if (why) return void say(`${label} dropped: ${why}`);
-    tracks.push({ length, loops, offset, output, steps: items(f[4]).map((s, j) => step(s, length, output, `${label} step ${j + 1}`)).filter(Boolean) });
+    tracks.push({ id: i + 1, length, loops, offset, output, steps: items(f[4]).map((s, j) => step(s, length, output, `${label} step ${j + 1}`)).filter(Boolean) });
   });
   const countIn = from < 0 ? items(args[3]).map((s, j) => step(s, -from, null, `sequence ${name}: count-in step ${j + 1}`)).filter(Boolean) : [];
   const clockIn = text(args[4]);
   let clockOut = text(args[5]);
-  if (clockIn && clockOut) { say(`sequence ${name}: clock out ignored: it follows ${clockIn}`); clockOut = ''; }
+  if (clockIn && clockOut) { say(`sequence ${name}: clock out ignored: it follows ${clockIn}`); clockOut = ''; } // rulings #4
   if (clockOut && bpm * 24 / 60 > TICKS_PER_SECOND) { say(`sequence ${name}: clock out dropped: bpm ${num(bpm)} is more than ${num(TICKS_PER_SECOND)} ticks a second`); clockOut = ''; }
   return { tracks, bpm, from, countIn, clockIn, clockOut };
 }
 const samePlay = (a, b) => !!a && !!b && Object.is(a.bpm, b.bpm) && Object.is(a.from, b.from) && a.clockIn === b.clockIn && a.clockOut === b.clockOut && sameSteps(a.countIn, b.countIn)
-  && a.tracks.length === b.tracks.length && a.tracks.every((t, i) => ['length', 'loops', 'offset'].every(k => Object.is(t[k], b.tracks[i][k])) && t.output === b.tracks[i].output && sameSteps(t.steps, b.tracks[i].steps));
+  && a.tracks.length === b.tracks.length && a.tracks.every((t, i) => ['id', 'length', 'loops', 'offset'].every(k => Object.is(t[k], b.tracks[i][k])) && t.output === b.tracks[i].output && sameSteps(t.steps, b.tracks[i].steps));
 const sameSteps = (a, b) => a.length === b.length && a.every((s, i) => ['beat', 'gain', 'note', 'velocity', 'channel', 'duration', 'rate', 'pan'].every(k => Object.is(s[k], b[i][k])) && ['src', 'group', 'haptic'].every(k => s[k] === b[i][k]));
 const endBeat = p => p.tracks.some(t => t.loops === 0) ? null : p.tracks.reduce((m, t) => Math.max(m, t.loops * t.length), 0);
 // The hits whose time is in [from, to) under `seg`, in order: time, then track (0 the count-in), then step.
@@ -108,7 +112,7 @@ function hits(p, seg, from, to) {
     if (t.loops > 0) last = Math.min(last, t.loops - 1);
     for (; k <= last; k++) t.steps.forEach((s, j) => { const beat = k * t.length + s.beat, at = time(seg, beat); if (from <= at && at < to) out.push({ at, beat, track: i + 1, step: j }); });
   });
-  return out.sort((a, b) => a.at - b.at || a.track - b.track || a.step - b.step);
+  return out.sort(order);
 }
 const stepOf = (p, h) => h.track === 0 ? p.countIn[h.step] : p.tracks[h.track - 1].steps[h.step];
 const trackOf = (p, h) => h.track === 0 ? [0, ''] : [p.tracks[h.track - 1].offset, p.tracks[h.track - 1].output];
@@ -127,20 +131,34 @@ function timing(t) {
 // past is skipped and said once. `how` places an output before `at`: played now at the arming, skipped at an edit
 // (it was played already), late at a wake (the runner's `Fill`).
 function fill(at, how) {
+  const cut = Cut;
+  Cut = null;
   if (!Play || Owner == null) return;
   // A track that loops forever (or as many times) whose loop index would pass 2^52 (a beat kept across an edit can reach
   // it) is dropped: past 2^53 an index no longer steps by 1. What is left may now end.
   const end = beatAt(seg(), at + LOOKAHEAD), n = Play.tracks.length;
   Play.tracks = Play.tracks.filter(t => {
+    if (seg().bpm / 60 / t.length > LOOPS_PER_SECOND) {
+      say(`sequence ${Seqs[Owner].name}: track ${t.id} dropped: it would loop more than ${num(LOOPS_PER_SECOND)} times a second`);
+      return false;
+    }
     const far = (t.loops === 0 || t.loops - 1 >= EXACT) && !(Math.abs(end / t.length) < EXACT);
     if (far) say(`sequence ${Seqs[Owner].name}: a track dropped: beat ${num(end)} is past exact loop counting`);
     return !far;
   });
-  if (Play.tracks.length !== n) timing(at);
+  if (Play.tracks.length !== n) { timing(at); if (Follow) Skip = 0; }
   // Following a clock, to past the last delivery, under its one segment (clock.rs).
   const from = IssuedTo, following = Follow != null, to = following ? Math.max(ClockTo, from) : at + LOOKAHEAD, live = !clock.agent, g = seg();
   Midi.ticks(b => time(g, b), to, endBeat(Play), live ? at : -Infinity, at);
-  const list = following ? hits(Play, g, from, to) : hitsAcross(Play, from, to);
+  let list = following ? hits(Play, g, from, to) : hitsAcross(Play, from, to);
+  // A tempo edit at `t` took back the steps whose time under the segment before it is at or after `t`. The new segment
+  // rounds differently: it can time one of those just before `t` (lost) or a step that stayed at `t` (played twice). So
+  // what is issued again is what was taken back, none before `t`; a millisecond is far wider than the rounding (the
+  // runner's `fill`).
+  if (cut) {
+    const [t, old] = cut, taken = hits(Play, g, t - 1, t).filter(h => time(old, h.beat) >= t).map(h => ({ ...h, at: t }));
+    list = list.filter(h => h.at < t || time(old, h.beat) >= t).concat(taken).sort(order);
+  }
   let skipped = 0; while (skipped < Skip && skipped < list.length && list[skipped].at === from) skipped++;
   // The hits an earlier fill issued (an edit fills from its time again): a run of the first, as hits are in time order.
   let issued = 0, tied = 0;
@@ -153,7 +171,8 @@ function fill(at, how) {
   const full = T().batch(() => {
     for (let k = 0; k < list.length; k++) {
       const h = list[k];
-      if (following && (h.beat < HitsFloor || kept.some(e => e[0] === h.beat && e[1] === h.track && e[2] === h.step))) continue;
+      const track = h.track === 0 ? 0 : Play.tracks[h.track - 1].id; // stable when another track drops
+      if (following && (h.beat < HitsFloor || kept.some(e => e[0] === h.beat && e[1] === track && e[2] === h.step))) continue;
       const s = stepOf(Play, h), [offset, output] = trackOf(Play, h), when = h.at + offset;
       let counted = late;
       // Played now at the arming, skipped at an edit, late only at a stalled live wake (more than REFILL past).
@@ -167,7 +186,7 @@ function fill(at, how) {
       else if (note != null) unsent ??= output;
       if (s.haptic) { const w = place(when); if (w != null) T().haptic(s.haptic, w, h.at, at); }
       if (counted > late) late++;
-      if (following) fresh.push([h.beat, h.track, h.step, h.at]);
+      if (following) fresh.push([h.beat, track, h.step, h.at]);
     }
     return null;
   });
@@ -206,7 +225,7 @@ function arm(i, t, args) {
   if (p.why) { say(`sequence ${name} did not play: ${p.why}`); stop(t, 'bpm'); State = 'stopped'; Reason = 'bpm'; return; }
   Owner = i; Raw = args; IssuedTo = t; Skip = 0; UnsentTold = false;
   if (p.clockIn) {
-    // Clock in: waiting, no segment and no fill until Start.
+    // Clock in (D9): waiting, no segment and no fill until Start.
     say(`sequence ${name} waits for clock from ${p.clockIn}`);
     if (!Clocked) { const a = answer(); Pub = { state: a.state, reason: a.reason, bpm: a.bpm, at: a.anchorAt, beat: a.anchorBeat }; }
     Midi.clockTo('', 0, t);
@@ -231,7 +250,7 @@ function edit(t, args) {
   const following = Follow != null;
   if (Follow) { Follow.prior = p.bpm; Follow.from = p.from; if (State === 'waiting') { say(`sequence ${name} edited`); Play = p; return; } }
   const g = seg();
-  if (!following && !Object.is(p.bpm, g.bpm)) { say(`sequence ${name} edited: bpm ${num(p.bpm)}`); segment({ at: t, beat: beatAt(g, t), bpm: p.bpm }); }
+  if (!following && !Object.is(p.bpm, g.bpm)) { say(`sequence ${name} edited: bpm ${num(p.bpm)}`); segment({ at: t, beat: beatAt(g, t), bpm: p.bpm }); Cut = [t, g]; }
   else say(`sequence ${name} edited`);
   T().batch(() => T().retract(t));
   Midi.retractSeq(t); ClockHits = ClockHits.filter(e => e[3] < t);
@@ -246,7 +265,7 @@ function stop(t, reason) {
   silence(t, reason);
   Owner = null; Play = null; Raw = []; Follow = null; Clocked = false; // stopped, it answers as its own clock again
 }
-// `stop`'s sound: the sequence stays the owner (a clock's Stop leaves it waiting).
+// `stop`'s sound: the sequence stays the owner (a clock's Stop leaves it waiting, D9).
 function silence(t, reason) {
   const name = Seqs[Owner].name;
   say(`sequence ${name} stopped (${reason})`);
@@ -325,7 +344,7 @@ function anchor(t, next, early, name) {
   say(`sequence ${name} re-anchored: beat ${num(next.beat)} at ${num(next.at)}, bpm ${num(next.bpm)}`);
   let from = issued;
   if (issued > band) {
-    // Only hits after the hold's edge: one at it is handed. From the first beat taken back, which an older segment
+    // Only hits after the hold's edge: one at it is handed (D7). From the first beat taken back, which an older segment
     // may have timed before the band; what was kept is not issued again.
     const edge = t + HOLD + early;
     T().batch(() => T().retract(t, edge, 'clock', true)); Midi.retractSeq(t, edge, 'clock', true);
@@ -337,7 +356,7 @@ function anchor(t, next, early, name) {
   IssuedTo = time(next, from);
 }
 // `exactTransport`'s answer while following, published again only when the state or reason changes, the tempo (to 0.1)
-// moves by 0.5 or more, or the published line puts the latest anchor more than 1/48 beat off.
+// moves by 0.5 or more, or the published line puts the latest anchor more than 1/48 beat off (rulings #7).
 function publish() {
   if (!Clocked) return;
   const p = Pub, bpm = Follow ? Math.round(tempo(Follow) * 10) / 10 : p.bpm, seen = Follow ? Follow.seen : null;
@@ -347,14 +366,14 @@ function publish() {
 }
 function stood(seen, t = clock.now) {
   const before = answerKey();
+  if (Owner != null && !seen[Owner].on) stop(t, 'gate');
   seen.forEach((s, i) => {
     const q = Seqs[i], wasOn = q.on, wasKey = q.kt;
     q.on = s.on; q.kt = s.key;
-    // The input followed changed: a restart, as a key's.
+    // The input followed changed (D9): a restart, as a key's (rulings #13).
     const rising = s.on && (!wasOn || s.key !== wasKey), refollow = !!Play && Play.clockIn !== text(s.args[4]);
     if (Owner === i) {
-      if (!s.on) stop(t, 'gate');
-      else if (s.key !== wasKey || refollow) { T().batch(() => T().retract(t)); Midi.retractSeq(t); Midi.endSeq(t); arm(i, t, s.args); } // a restart: Stop, then Start at its new beat 0
+      if (s.key !== wasKey || refollow) { T().batch(() => T().retract(t)); Midi.retractSeq(t); Midi.endSeq(t); arm(i, t, s.args); } // a restart: Stop, then Start at its new beat 0
       else if (Raw.length !== s.args.length || !Raw.every((a, k) => same(a, s.args[k]))) edit(t, s.args);
     } else if (rising) {
       if (Owner != null) say(`sequence ${q.name} did not play: sequence ${Seqs[Owner].name} is playing`);
@@ -370,18 +389,34 @@ const look = q => {
   return { on, key, args: on ? q.args() : [] };
 };
 Sounds.transportAnswer = Answer;
-Sounds.gate = () => { Pending = null; if (Seqs.length) Pending = untracked(() => Seqs.map(look)); };
-Sounds.stood = () => { const seen = Pending; Pending = null; if (seen) stood(seen); };
+let Frozen = false, Snapshot = 0, Applied = 0;
+Sounds.gate = () => ({ seen: Seqs.length ? untracked(() => Seqs.map(look)) : null, frozen: Sounds.frozen === true, id: ++Snapshot });
+Sounds.stood = pending => {
+  if (!pending) return T()?.flush();
+  // A freeze has already applied its settled sequence state; older tree updates cannot restore it.
+  if (pending.id <= Applied) return;
+  Applied = pending.id;
+  if (pending.seen) stood(pending.seen); else T()?.flush();
+};
+Sounds.committed = pending => {
+  if (!pending) return;
+  const freeze = pending.frozen && !Frozen;
+  Frozen = pending.frozen;
+  if (!freeze) return;
+  Sounds.stood(pending);
+  if (Owner != null) { const before = answerKey(); stop(clock.now, 'background'); after(before); }
+};
 // The beat at `t` while a sequence plays, by the segment that holds it; −1 while stopped or waiting (a MIDI input's `beat`).
-// Following a clock, by the one segment hits are issued under: its segments do not join.
+// Following a clock, by the one segment hits are issued under: its segments do not join (D9).
 Sounds.beatAt = t => Owner == null || State === 'waiting' || !Segments.length ? -1 : beatAt(Follow ? seg() : Segments.findLast(g => g.at <= t) ?? Segments[0], t);
-// Clock in: the followed input, its follower (for `tap midi`'s stamps), and one delivery's clock messages.
+// Clock in (D9): the followed input, its follower (for `tap midi`'s stamps), and one delivery's clock messages.
 Sounds.clockInput = () => Follow ? Follow.input : null;
 Sounds.follower = () => Follow;
 Sounds.clockIn = msgs => { const before = answerKey(); follow(msgs, clock.now); after(before); };
-/** Every `sequence name when gate key=key`, `[gate, key, args, ended, name]` each, `args` making `play`'s six
+/** Every `sequence name when gate key=key` (LLP 1125 D2), `[gate, key, args, ended, name]` each, `args` making `play`'s six
  * arguments: all read first, then armed at mount where a gate holds, as the runner's boot does, so a refusal arms none. */
 export function sequence(list) {
+  watchPage(true);
   for (const [gate, key, args, ended, name] of list) Seqs.push({ gate, key: key || null, args, ended, name, on: false, kt: undefined });
   stood(untracked(() => Seqs.map(look)));
 }

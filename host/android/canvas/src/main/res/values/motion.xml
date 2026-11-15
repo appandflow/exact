@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The menu's window animation (Surfaces.kt), one for each corner it can grow from. -->
+<!-- The menu's window animation (LLP 1115.001 D10; Surfaces.kt), one for each corner it can grow from. -->
 <resources>
     <style name="ExactMenu" />
     <style name="ExactMenu.TopStart">

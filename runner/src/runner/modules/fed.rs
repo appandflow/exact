@@ -1,6 +1,6 @@
 //! A canvas a package feeds hears whether it is displayed, and who made it
-//! so (a package view's report, extended to a kernel `canvas`). A send
-//! that declares
+//! so (LLP 1133.013 D6, D12 item 3: LLP 1133.008 D8 item 2's report, extended
+//! from a package's views to a kernel `canvas`). A send that declares
 //! `"feeds"` names a surface; from an input's start until the surface's last
 //! input stops, the runner keeps whether any canvas of that surface is
 //! displayed, by `wakelock`'s rule (`crate::wakelock::displayed`), and the
@@ -9,8 +9,8 @@
 //! - hidden (`display: none`, a screen pushed over it, not yet mounted), the
 //!   input is paused;
 //! - shown again by a commit of the app's own code or a person's input, it
-//!   resumes; shown by a tool's or a wake's commit, it stays paused, as a
-//!   viewfinder does. A new start takes the state then.
+//!   resumes; shown by a tool's or a wake's commit, it stays paused, as LLP
+//!   1133.008 D3 rules for a viewfinder. A new start takes the state then.
 //!
 //! The substitute's inputs follow the lease (`samples.rs`). An
 //! implementation the host binds, in production or under `--bind`, is told
@@ -99,7 +99,7 @@ impl<D: DataSource> Runner<D> {
             paused: !shown,
         });
         s.sensors.insert(sensor);
-        // A new start takes the canvas as it is now.
+        // A new start takes the canvas as it is now (D6).
         (s.shown, s.paused) = (shown, !shown);
         if started && !shown && self.route(row) != Route::Substitute {
             self.tell_fed(&surface, false, origin);

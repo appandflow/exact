@@ -1,4 +1,4 @@
-//! A share received on Apple: the claim path the share
+//! A share received on Apple (LLP 1133.024 D2–D4): the claim path the share
 //! extension's inbox and the driver's `share:` form both take. The tokens
 //! are set with their files pending, the location goes to the navigation
 //! root, the files move from where they wait into `app:/tmp/shared/` and the

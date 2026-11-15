@@ -14,7 +14,7 @@ fn main() {
         contract::bake(plan, exact_heavylist_data::Heavy::default()).unwrap_or_else(|e| panic!("bake: {e:?}"));
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
     std::fs::write(out_dir.join("app.plan"), baked.encode()).unwrap();
-    // The compatibility id for this platform, beside the
+    // The compatibility id (LLP 1030 D3a) for this platform, beside the
     // plan: what a bundle may depend on and this binary cannot replace.
     println!("cargo:rerun-if-changed=../app.json");
     println!("cargo:rerun-if-changed=../data");
@@ -31,6 +31,7 @@ fn main() {
         "exact_heavylist_data::Heavy",
         "exact_heavylist_data::Heavy::default()",
         contract::web_rust_mode(&compat.inputs),
+        &compat.inputs,
     )
     .unwrap();
     std::fs::write(

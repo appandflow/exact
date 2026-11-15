@@ -1,12 +1,12 @@
-// @exact/geolocation's conformance suite on Apple: the fixture app made as
-// the web suite makes it, built for macOS or an iOS simulator, and driven
-// by the agent with the Apple implementation bound (`--bind geolocation`),
-// so CoreLocation answers and not the substitute. The platform's own means
-// answer its side: on a simulator `simctl privacy grant` and `simctl
-// location set`. macOS lets no tool grant location, so there the suite
-// checks what holds before a person's grant and names what it skips. On iOS
-// a second fixture, granted the approximate line, checks that line's
-// ceiling.
+// @exact/geolocation's conformance suite on Apple (LLP 1133.001 D7, LLP
+// 1133.002 stage 2): the fixture app made as the web suite makes it, built
+// for macOS or an iOS simulator, and driven by the agent with the Apple
+// implementation bound (`--bind geolocation`), so CoreLocation answers and
+// not the substitute. The platform's own means answer its side: on a
+// simulator `simctl privacy grant` and `simctl location set`. macOS lets no
+// tool grant location, so there the suite checks what holds before a
+// person's grant and names what it skips. On iOS a second fixture, granted
+// the approximate line, checks that line's ceiling.
 //
 // usage: bun packages/geolocation/test/apple.mjs [macos] [ios] [--sim <name|udid>] [--ask]
 //   (--ask: on macOS, the request opens the system's dialog for a person to answer)
@@ -17,7 +17,7 @@ import { checker, makeFixture, root, run } from './fixture.mjs';
 const argv = process.argv.slice(2), sim = argv.includes('--sim') ? argv[argv.indexOf('--sim') + 1] : process.env.EXACT_SIM;
 const hosts = argv.filter((a, i) => ['macos', 'ios'].includes(a) && argv[i - 1] !== '--sim');
 const { app, id } = makeFixture(), name = basename(app);
-Object.assign(process.env, { EXACT_APP_DIR: app, EXACT2: root, HERMES_LEAN_SYS_OFFLINE: '1' });
+Object.assign(process.env, { EXACT_APP_DIR: app, EXACT: root, HERMES_LEAN_SYS_OFFLINE: '1' });
 const { open } = await import(resolve(root, 'scripts/agent.mjs'));
 const { check, failed } = checker();
 
@@ -39,7 +39,7 @@ const until = async (s, testId, want, ms = 15000) => {
 };
 const WORDS = ['notDetermined', 'restricted', 'denied', 'authorizedWhenInUse', 'authorizedAlways'];
 
-/** The approximate line as a ceiling on iOS: the fixture made with it,
+/** The approximate line as a ceiling on iOS (D7): the fixture made with it,
  * granted full accuracy, reads approximate positions and status. */
 async function approximate(udid) {
   const where = 'ios-simulator approximate', fixture = makeFixture({ approximate: true });
@@ -88,11 +88,11 @@ for (const host of hosts.length ? hosts : ['macos', 'ios']) {
     run('xcrun', ['simctl', 'privacy', udid, 'grant', 'location', id]);
     run('xcrun', ['simctl', 'location', udid, 'set', '48.8566,2.3522']);
   }
-  // The build's Info.plist: the usage key, iOS's reduced default, and a purpose for each key the app passes.
+  // The build's Info.plist (D7, D10): the usage key, iOS's reduced default, and a purpose for each key the app passes.
   const plistAt = readdirSync(resolve(app, 'target'), { recursive: true }).find((f) => host === 'ios' ? /iphonesimulator|ios-sim/.test(f) && f.endsWith('.app/Info.plist') : /macos/.test(f) && f.endsWith('-Info.plist'));
   const plist = plistAt ? JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', resolve(app, 'target', plistAt)])) : {};
   check(where, 'Info.plist carries the usage key and the temporary purpose', !!plist.NSLocationWhenInUseUsageDescription && plist.NSLocationTemporaryUsageDescriptionDictionary?.['purpose.geolocation'] === 'The conformance suite reads the position.', plistAt ?? 'no Info.plist under target/');
-  check(where, 'no NSLocationDefaultAccuracyReduced: the fixture asks for precise', !('NSLocationDefaultAccuracyReduced' in plist), JSON.stringify(plist.NSLocationDefaultAccuracyReduced));
+  check(where, 'no NSLocationDefaultAccuracyReduced: the fixture asks for precise (D7)', !('NSLocationDefaultAccuracyReduced' in plist), JSON.stringify(plist.NSLocationDefaultAccuracyReduced));
   const s = await open({ host, app: name, bind: 'geolocation' });
   try {
     const state = await s.state();

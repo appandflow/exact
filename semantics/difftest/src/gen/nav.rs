@@ -1,4 +1,4 @@
-//! Navigation: a fixed `routes nav` table, the router's reads
+//! Navigation (LLP 1038): a fixed `routes nav` table, the router's reads
 //! as root derives of the types the generator writes, and `nav = verb(…)`
 //! statements over it — the six verbs, `path(…)` with string and number
 //! parameters, and locations that are canonicalized, unmatched or refused.

@@ -1,7 +1,7 @@
 //! Fixed native-image limits and integer metadata; no source strings or bytes.
 
 /// Unique decoded allocations plus in-flight output/scratch/copy reservations,
-/// for a session made without a budget of its own; one decode's peak, always.
+/// for a session made without a budget of its own, and the minimum budget.
 pub const SESSION_BYTES: u64 = 32 * 1024 * 1024;
 pub const RUNNING_DECODES: usize = 2;
 pub const DELIVERY_CELLS: usize = 2;
@@ -14,8 +14,8 @@ pub const COLD_ENTRIES: usize = 256;
 pub const MAX_ENCODED_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_HEADER_BYTES: u64 = 256 * 1024;
 pub const MAX_SOURCE_PIXELS: u64 = 64 * 1024 * 1024;
-/// A `data:` image source's bound, in bytes of URL text, on every host:
-/// small generated pictures, not photos (those are `app:/` files).
+/// A `data:` image source's bound, in bytes of URL text, on every host (LLP
+/// 1011 §2): small generated pictures, not photos (those are `app:/` files).
 /// Apple's `RasterInput.dataLimit` and the web hosts' `DATA_LIMIT` are this.
 pub const MAX_DATA_URL_BYTES: usize = 1024 * 1024;
 
@@ -42,7 +42,7 @@ impl Crop {
     }
 }
 
-/// The storage a decode produces. Every adapter applies EXIF
+/// The storage a decode produces (LLP 1100 D7). Every adapter applies EXIF
 /// orientation and decodes the first frame.
 pub mod variant {
     /// 8-bit sRGB: a standard picture, or one an adapter can only show as sRGB.

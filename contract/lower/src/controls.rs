@@ -1,4 +1,4 @@
-//! Form controls by their HTML names: which
+//! Form controls by their HTML names (LLP 1069.001, LLP 1069.002): which
 //! control an element is, the tag it lowers with, HTML's content model for
 //! `select` and `option`, and the bare words and derived rows a control
 //! carries.
@@ -47,11 +47,57 @@ fn canonical_type_expr(value: &Expr) -> Option<Expr> {
             Box::new(canonical_type_expr(no)?),
             *span,
         )),
+        Expr::Let {
+            name,
+            value,
+            body,
+            span,
+        } => Some(Expr::Let {
+            name: name.clone(),
+            value: value.clone(),
+            body: Box::new(canonical_type_expr(body)?),
+            span: *span,
+        }),
         _ => None,
     }
 }
 
-/// The form control an element is, refusing a bound
+/// @ref LLP 1141.002 D1 — `rel` has HTML's meaning on a `link` or `form`,
+/// and on a tab, where `search` names the app's search tab; anywhere else it
+/// is refused. `role="search"` on a tab (a control that names a panel) is
+/// refused with the reason, so the tab keeps its role.
+fn search_tab_words(tag: &str, attrs: &[contract_syntax::Attr]) -> Result<(), LowerError> {
+    let role = attrs
+        .iter()
+        .find(|a| a.name == "role")
+        .and_then(|a| match &a.value {
+            Expr::Str(s, _) => Some(s.as_str()),
+            _ => None,
+        });
+    if role == Some("search") && attrs.iter().any(|a| a.name == "aria-controls") {
+        let a = attrs
+            .iter()
+            .find(|a| a.name == "role")
+            .expect("found above");
+        return err(
+            "lower-attr-value",
+            "a tablist owns only tabs (WAI-ARIA), so keep `role=\"tab\"`; write `rel=\"search\"` to make this the app's search tab",
+            a.span,
+        );
+    }
+    if let Some(a) = attrs.iter().find(|a| a.name == "rel") {
+        if !matches!(tag, "link" | "form") && role != Some("tab") {
+            return err(
+                "lower-attr-tag",
+                "`rel` belongs to `link` and `form` (HTML's link types), or to a `role=\"tab\"` of the root tablist, where `rel=\"search\"` makes it the app's search tab",
+                a.span,
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The form control an element is (LLP 1069.001 D1), refusing a bound
 /// `type` that could name a control: the node type is chosen when the view
 /// compiles, from the literal. A choice between text fields' types stays a
 /// text field and is bound. A `select` is one; it takes no `type`.
@@ -60,6 +106,7 @@ pub(crate) fn control(
     attrs: &[contract_syntax::Attr],
     native_button: bool,
 ) -> Result<Option<&'static str>, LowerError> {
+    search_tab_words(tag, attrs)?;
     if tag != "textarea" {
         if let Some(a) = attrs.iter().find(|a| a.name == "rows") {
             return err("lower-attr-tag", "HTML rows belongs to textarea", a.span);
@@ -74,7 +121,7 @@ pub(crate) fn control(
             );
         }
     }
-    // A native button, and its style nowhere else.
+    // @ref LLP 1069.011 D1, D2 — a native button, and its style nowhere else.
     if tag == "button" && native_button {
         if let Some(a) = attrs.iter().find(|a| a.name == "checked") {
             return err(
@@ -86,7 +133,7 @@ pub(crate) fn control(
         return Ok(Some("button"));
     }
     // An author's: the grouped sheet sizes a row's switch by the platform's
-    // metric, which is the compiler's row and not theirs.
+    // metric (LLP 1115.002 D6), which is the compiler's row and not theirs.
     if let Some(a) = attrs.iter().find(|a| {
         a.written
             && matches!(
@@ -201,10 +248,11 @@ pub(crate) fn control(
     Ok(control)
 }
 
-/// The rule that bounds the picker, cited by each refusal.
-pub const PICKER_ADMISSION: &str = "the picker admits an unrestricted file input; `capture` stays refused and specific `accept` types are bounded to media or the app's `file_handlers`";
+/// The sentence of `rules/DEFERRED.md` that bounds the picker (LLP 1069.002
+/// D1), cited by each refusal.
+pub const PICKER_ADMISSION: &str = "rules/DEFERRED.md admits an unrestricted file input (Charlie, 2026-10-11); `capture` stays refused and specific `accept` types are bounded to media or the app's `file_handlers`";
 
-/// `input type="file"`: specific `accept` is a literal list of
+/// `input type="file"` (LLP 1069.002 D1): specific `accept` is a literal list of
 /// `image/*`, `video/*`, `image/<subtype>`, `video/<subtype>`, or a MIME
 /// type or extension the manifest's `file_handlers` declares (checked at
 /// bake, where the manifest is read: `contract::picker`); `capture` is
@@ -252,8 +300,8 @@ pub fn accept_tokens(list: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether an `accept` token is a media type every app may pick:
-/// `image/*`, `video/*`, or one image or video subtype.
+/// Whether an `accept` token is a media type every app may pick (LLP
+/// 1069.002 D1): `image/*`, `video/*`, or one image or video subtype.
 pub fn media_accept(token: &str) -> bool {
     token.split_once('/').is_some_and(|(kind, sub)| {
         matches!(kind, "image" | "video")
@@ -264,11 +312,11 @@ pub fn media_accept(token: &str) -> bool {
     })
 }
 
-/// A range and a determinate `progress` are full width.
+/// A range and a determinate `progress` are full width (LLP 1115.000 D10.2).
 /// Neither platform control has a width of its own (`UISlider`,
 /// `UIProgressView` and `NSSlider` take the width they are given), so each is
 /// lowered `width: 100%`: an ordinary row the compiler implies, not the
-/// author's, and CSS decides the rest on every host. An
+/// author's (LLP 1115.000 D2), and CSS decides the rest on every host. An
 /// authored `width` replaces it; `flex=1` takes what a row's other children
 /// leave; and where a percentage has nothing to resolve against (a
 /// shrink-to-fit box), or the author writes `width="auto"`, the control
@@ -276,11 +324,14 @@ pub fn media_accept(token: &str) -> bool {
 /// progress (`kernel/src/control.rs`). No host widens either itself.
 pub(crate) const FULL_WIDTH: &[(StyleId, &str)] = &[(StyleId::Width, "100%")];
 
+/// A `select` is no wider than what holds it (LLP 1115.000 D10.4).
+pub(crate) const CONTAINED: &[(StyleId, &str)] = &[(StyleId::MaxWidth, "100%")];
+
 /// The tag an `input` control lowers with (a `select` keeps its own).
 pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
     match kind {
         "button" => native_tag(),
-        // A file input: the kernel's `Control`, a measured
+        // A file input (LLP 1069.002 D1): the kernel's `Control`, a measured
         // leaf the host presents as its own control (the browser's "Choose
         // File"). No control has a margin of its own (below).
         "file" => Tag {
@@ -289,9 +340,9 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
             fixed_props: &[],
             positional: None,
         },
-        // A checkbox: ARIA's role; `switch` or `role="switch"` replaces it.
-        // No margin of its own, on any host:
-        // Chrome's UA sheet gives a checkbox `3px 3px 3px
+        // A checkbox: ARIA's role; `switch` or `role="switch"` replaces it
+        // (LLP 1069.001 D1, D3). No margin of its own, on any host (LLP
+        // 1115.000 D10.1): Chrome's UA sheet gives a checkbox `3px 3px 3px
         // 4px`, a radio `3px 3px 0 5px` and a range `2px`, which no platform
         // control has and the common resets zero (the web's sheet does too,
         // `host/web/index.html`). The space beside a label is the author's
@@ -303,7 +354,7 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
             fixed_props: &[(PropId::AccessibilityRole, "checkbox")],
             positional: None,
         },
-        // A radio: ARIA's role.
+        // A radio (x2apps survey #2): ARIA's role.
         "radio" => Tag {
             node_type: NodeType::Control,
             fixed_styles: &[],
@@ -332,16 +383,16 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
 
 /// A range's `value`, `min`, `max` and `step` as HTML's strings, and a text
 /// or number field's `min`, `max` and `step`: a number literal, `-40` as `40`,
-/// is written as one, a bound number through `toString`
-/// (the props are strings on the wire, typed per control); so
+/// is written as one, a bound number through `toString` (LLP
+/// 1069.001 D4: the props are strings on the wire, typed per control); so
 /// too a determinate `progress`'s `value` and `max`, and ARIA's range
-/// values on any element. `None` when nothing needs rewriting.
+/// values on any element (LLP 1116 D8). `None` when nothing needs rewriting.
 pub(crate) fn range_attrs(
     tag: &str,
     control: Option<&str>,
     attrs: &[contract_syntax::Attr],
 ) -> Option<Vec<contract_syntax::Attr>> {
-    // A text field's bounds take numbers as a range's do, a
+    // A text field's bounds take numbers as a range's do (LLP 1102 §3.12), a
     // number field's and a decimal pad's alike (`type="text" inputmode="decimal"
     // min=-1000`, whose negative bound gives the pad its ± key): `min`, `max`
     // and `step` are HTML's strings, and a number written for one is its text,
@@ -401,7 +452,7 @@ pub(crate) fn check_nesting(tag: &str, parent: Option<&str>, span: Span) -> Resu
     Ok(())
 }
 
-/// `progress` is HTML's:
+/// `progress` is HTML's (LLP 1069.001, amended 2026-10-07; LLP 1116 D8):
 /// with a `value`, the determinate bar, `max` its top (1 unsaid); without
 /// one, the indeterminate activity indicator, where a `max` means nothing
 /// and is refused. No `type`, which is the kind it is; no ARIA range
@@ -446,8 +497,8 @@ pub(crate) fn check_progress(
 }
 
 impl Lowerer<'_> {
-    /// A control's bare word — HTML's boolean `switch` on a checkbox,
-    /// `multiple` on a file input — as its
+    /// A control's bare word — HTML's boolean `switch` on a checkbox (LLP
+    /// 1069.001 D1), `multiple` on a file input (LLP 1069.002 D1) — as its
     /// prop; `false` when `word` is not one.
     pub(crate) fn control_word(
         &mut self,
@@ -483,7 +534,7 @@ impl Lowerer<'_> {
 }
 
 /// A control's derived rows: a checkbox's checked state is its
-/// accessibility state on every host. Whether a row was
+/// accessibility state on every host (LLP 1069.001 D8). Whether a row was
 /// added.
 pub(crate) fn derived_rows(bindings: &mut Vec<BindingsRow>) -> bool {
     let checked = PropId::Checked as u16;
@@ -500,9 +551,9 @@ pub(crate) fn derived_rows(bindings: &mut Vec<BindingsRow>) -> bool {
     true
 }
 
-/// The native button lowering's tag: a `Control` of type
+/// The native button lowering's tag (LLP 1069.011 D3): a `Control` of type
 /// `button`, a block-level flex item whose box is `border-box` with the
-/// platform's chrome inside it.
+/// platform's chrome inside it (D6).
 pub(crate) fn native_tag() -> Tag {
     Tag {
         node_type: NodeType::Control,
@@ -519,8 +570,8 @@ pub(crate) fn native_tag() -> Tag {
     }
 }
 
-/// What makes a place one a native button may not be, for the children of
-/// the element being lowered; `None` when it adds
+/// What makes a place one a native button may not be (LLP 1069.011.000
+/// D9), for the children of the element being lowered; `None` when it adds
 /// nothing. `menu_row` is whether that element is a popover's direct child —
 /// a menu row, which may be a native button but whose own children are not
 /// rows (a host makes a menu item of a popover's direct children only).
@@ -546,10 +597,11 @@ pub(crate) fn button_context(
     None
 }
 
-/// The style rows a native button's box may carry: where it
+/// The style rows a native button's box may carry (LLP 1069.011 D6): where it
 /// sits and how big it is, whether it shows (`display` is checked to be its
 /// own `flex` or `none`), its opacity and transforms, its clip, its accent,
-/// and `outline: none`, which takes the platform's focus ring off. Its
+/// and `outline: none`, which takes the platform's focus ring off (LLP 1104
+/// D6). Its semantic content rows are LLP 1069.011.001 D2–D9, D14–D17;
 /// chrome and arbitrary inner layout remain the platform's to draw.
 const NATIVE_ROWS: &[StyleId] = &[
     StyleId::ControlSize,
@@ -601,6 +653,7 @@ const NATIVE_ROWS: &[StyleId] = &[
     StyleId::Opacity,
     StyleId::Visibility,
     StyleId::Translate,
+    StyleId::TranslateVelocity,
     StyleId::TranslatePercent,
     StyleId::TranslateZ,
     StyleId::Scale,
@@ -623,7 +676,7 @@ const NATIVE_ROWS: &[StyleId] = &[
 ];
 
 /// Whether a native button's box may carry row `id` ([`NATIVE_ROWS`]): what
-/// a library control's `control` group takes.
+/// a library control's `control` group takes (LLP 1139 D6).
 pub(crate) fn native_row(id: StyleId) -> bool {
     NATIVE_ROWS.contains(&id)
 }
@@ -641,7 +694,7 @@ fn may_be_empty(e: &Expr) -> bool {
         Expr::Str(s, _) => s.trim().is_empty(),
         Expr::None(_) => true,
         Expr::Ternary(_, a, b, _) => may_be_empty(a) || may_be_empty(b),
-        Expr::Typed(x, _, _) => may_be_empty(x),
+        Expr::Typed(x, _, _) | Expr::Let { body: x, .. } => may_be_empty(x),
         _ => false,
     }
 }
@@ -652,7 +705,7 @@ fn always_empty(e: &Expr) -> bool {
         Expr::Str(s, _) => s.trim().is_empty(),
         Expr::None(_) => true,
         Expr::Ternary(_, a, b, _) => always_empty(a) && always_empty(b),
-        Expr::Typed(x, _, _) => always_empty(x),
+        Expr::Typed(x, _, _) | Expr::Let { body: x, .. } => always_empty(x),
         _ => false,
     }
 }
@@ -666,12 +719,14 @@ fn literals(e: &Expr) -> Option<Vec<&str>> {
             out.extend(literals(b)?);
             Some(out)
         }
+        Expr::Let { body, .. } => literals(body),
         _ => None,
     }
 }
 
 impl Lowerer<'_> {
-    /// A native button's attributes, face and place, after class merging.
+    /// A native button's attributes, face and place (LLP 1069.011 D2, D5,
+    /// D6, D11), after class merging.
     pub(crate) fn check_native_button(
         &self,
         attrs: &[contract_syntax::Attr],
@@ -690,8 +745,8 @@ impl Lowerer<'_> {
             let name = a.name.as_str();
             let refuse = |id: &'static str, why: String| err(id, why, a.span);
             match name {
-                // A menu's invoker is a custom button in this version; a row
-                // that only closes its popover or dialog — a confirmation's
+                // A menu's invoker is a custom button in this version (LLP 1069.011.000
+                // D5); a row that only closes its popover or dialog — a confirmation's
                 // action or cancel — is not an invoker.
                 "popovertarget" => {}
                 "commandfor" if attrs.iter().find(|a| a.name == "command").is_some_and(|a| {
@@ -711,7 +766,7 @@ impl Lowerer<'_> {
                     )
                 }
                 // Its fixed role yields to a tab's, a radio's (a radio group's
-                // segment) or a menu item's.
+                // segment, LLP 1116.004 D5.2) or a menu item's (LLP 1069.011.000 D4, D5).
                 "role"
                     if !literals(&a.value).is_some_and(|roles| {
                         roles.iter().all(|r| {
@@ -732,7 +787,7 @@ impl Lowerer<'_> {
                         format!("a native button's role is `button`, `tab`, `radio`, `menuitem`, `menuitemcheckbox` or `menuitemradio`, written as a literal or a choice: {alternative}"),
                     )
                 }
-                "backgroundMaterial" | "glassGroup" => {
+                "backgroundMaterial" | "glassGroup" | "glassInteractive" | "-exact-glass-tint" => {
                     return refuse(
                         "lower-button-style-attr",
                         format!("a native button draws its own glass: no `{name}` on it (put a `glassGroup` on its parent); {alternative}"),
@@ -813,6 +868,12 @@ impl Lowerer<'_> {
                         format!("a native button draws its own `{name}`: {alternative}"),
                     );
                 }
+                // Nothing fires `toggle` at a button: say that, not that a native one refuses it.
+                Some(crate::tags::AttrTarget::Handler("toggle")) => {
+                    if let Some(e) = crate::handlers::unheard_toggle("button", attrs, a) {
+                        return Err(e);
+                    }
+                }
                 Some(crate::tags::AttrTarget::Handler(h))
                     if !matches!(
                         h,
@@ -838,7 +899,22 @@ impl Lowerer<'_> {
         let labelled = attrs
             .iter()
             .any(|a| a.name == "aria-label" && !may_be_empty(&a.value));
-        let faces = face_counts(self, children)?;
+        // A tab that names its panel may hold its badge beside its face (LLP 1075.003 §9.9).
+        let panel_tab = attrs.iter().any(|a| a.name == "aria-controls")
+            && attrs
+                .iter()
+                .rev()
+                .find(|a| a.name == "role")
+                .and_then(|a| literals(&a.value))
+                .is_some_and(|roles| roles == ["tab"]);
+        if panel_tab && badges(children) > 1 {
+            return err(
+                "lower-button-style-attr",
+                "a tab shows one badge: a filled box holding one `text`; write a custom `button` for more",
+                span,
+            );
+        }
+        let faces = face_counts(self, children, panel_tab)?;
         if faces.contains(&(0, 0)) {
             return err(
                 "lower-button-content",
@@ -933,12 +1009,44 @@ fn symbol_source(source: &Expr) -> bool {
     }
 }
 
+/// A tab's badge (LLP 1075.003 §9.9): a box, not a text, an image or a
+/// control, whose only child is one `text` with nothing inside it. It stands
+/// beside the tab's face: UIKit's tab bar item shows its text as the item's
+/// badge, and the web paints the box on the tab.
+pub(crate) fn is_badge(node: &contract_syntax::Node) -> bool {
+    use contract_syntax::Node;
+    let Node::Element { tag, children, .. } = node else {
+        return false;
+    };
+    !matches!(
+        tag.as_str(),
+        "text" | "image" | "button" | "link" | "input" | "select" | "textarea"
+    ) && matches!(children.as_slice(), [Node::Element { tag, children, .. }] if tag == "text" && children.is_empty())
+}
+
+/// The most badges any arm of `nodes` shows.
+fn badges(nodes: &[contract_syntax::Node]) -> usize {
+    use contract_syntax::Node;
+    nodes
+        .iter()
+        .map(|node| match node {
+            Node::When {
+                then, otherwise, ..
+            } => badges(then).max(badges(otherwise)),
+            Node::Match { some, none, .. } => badges(&some.1).max(badges(none)),
+            node => usize::from(is_badge(node)),
+        })
+        .sum()
+}
+
 /// Every face a native button's children can show, as (texts, images),
-/// saturated above two texts/one image; refusing what a face cannot hold: repeated/arbitrary children and non-face
-/// rows, after each child's class merge.
+/// saturated above two texts/one image; refusing what a face cannot hold (LLP 1069.011.001 D3, D12): repeated/arbitrary children and non-face
+/// rows, after each child's class merge. A tab that names its panel
+/// (`badge`) may also hold a badge, which is no part of its face.
 fn face_counts(
     lower: &Lowerer<'_>,
     nodes: &[contract_syntax::Node],
+    badge: bool,
 ) -> Result<Vec<(u8, u8)>, LowerError> {
     use contract_syntax::Node;
     let mut faces = vec![(0u8, 0u8)];
@@ -956,6 +1064,7 @@ fn face_counts(
     };
     for node in nodes {
         let here: Vec<(u8, u8)> = match node {
+            node if badge && is_badge(node) => vec![(0, 0)],
             Node::Element {
                 tag,
                 positional,
@@ -979,16 +1088,16 @@ fn face_counts(
                             if tag == "text" {
                                 matches!(r, StyleId::FontSize | StyleId::FontWeight | StyleId::TextColor | StyleId::WhiteSpace | StyleId::LineClamp | StyleId::TextAlign)
                             } else {
-                                matches!(r, StyleId::TintColor | StyleId::FontSize | StyleId::FontWeight)
+                                matches!(r, StyleId::TintColor | StyleId::FontSize | StyleId::FontWeight | StyleId::SymbolRendering)
                             }
                         }),
                         _ => false,
                     };
                     if !allowed {
-                        // Each edit keeps what the attribute was for.
+                        // LLP 1116.018: each edit keeps what the attribute was for.
                         let message = match (tag.as_str(), a.name.as_str()) {
                             ("image", "width" | "height") if !positional.first().is_some_and(symbol_source) => format!("a raster face needs `button appearance=\"none\"`; put `{}` on its image there to size the picture's box", a.name),
-                            ("image", "width" | "height") => format!("write `font-size=…` for the symbol's size in a native button, not `{}`: there a symbol's `font-size` is its point size and `width` would size a box; a box of that size is a custom `button`", a.name),
+                            ("image", "width" | "height") => format!("write `font-size=…` for the symbol's size in a native button, not `{}`: there a symbol's `font-size` is its point size and `width` would size a box (LLP 1069.011.001 D4); a box of that size is a custom `button`", a.name),
                             (_, name) if name == "role" || name.starts_with("aria-") => format!("put the `{name}` on a node beside the button: a button's content is presentational (WAI-ARIA 1.2, a button's children are presentational), so it is not announced inside it; name the button with `aria-label` if its words differ"),
                             ("image", "color") if positional.first().is_some_and(symbol_source) => "a native button's symbol is coloured with `-exact-tint-color`, not `color`; a floating round control is `buttonStyle=\"glass\"` (or `\"prominent-glass\"`), still the platform's button".to_string(),
                             _ => format!("a native button's `{tag}` takes no `{}`; write a custom `button` for other face rows", a.name),
@@ -1024,10 +1133,10 @@ fn face_counts(
                         }
                     }
                     "image" => {
-                        // A role from the table or an SF Symbol's name,
-                        // a choice between them, or a
+                        // A role from the table or an SF Symbol's name
+                        // (LLP 1035.004.000), a choice between them, or a
                         // source computed at runtime that starts `symbol:`.
-                        // An icon token too, by name or its form.
+                        // An icon token too, by name or its form (LLP 1121 D10).
                         let symbol = |s: &str| {
                             s.strip_prefix("symbol:").is_some_and(|r| {
                                 r.strip_prefix("sf/").map_or_else(
@@ -1069,8 +1178,8 @@ fn face_counts(
             Node::When {
                 then, otherwise, ..
             } => {
-                let mut out = face_counts(lower, then)?;
-                for f in face_counts(lower, otherwise)? {
+                let mut out = face_counts(lower, then, badge)?;
+                for f in face_counts(lower, otherwise, badge)? {
                     if !out.contains(&f) {
                         out.push(f);
                     }
@@ -1078,8 +1187,8 @@ fn face_counts(
                 out
             }
             Node::Match { some, none, .. } => {
-                let mut out = face_counts(lower, &some.1)?;
-                for f in face_counts(lower, none)? {
+                let mut out = face_counts(lower, &some.1, badge)?;
+                for f in face_counts(lower, none, badge)? {
                     if !out.contains(&f) {
                         out.push(f);
                     }
@@ -1101,7 +1210,7 @@ fn face_counts(
 }
 
 /// A `button` or `link` with nothing to press: no children, no size and no
-/// insets that size it, refused before layout could find it.
+/// insets that size it (LLP 1017 P1c), refused before layout could find it.
 pub(crate) fn check_zero_size(
     tag: &str,
     attrs: &[contract_syntax::Attr],
@@ -1112,6 +1221,8 @@ pub(crate) fn check_zero_size(
         "width",
         "height",
         "flex",
+        "flex-grow",
+        "flex-basis",
         "padding",
         "padding-top",
         "padding-right",
@@ -1122,7 +1233,7 @@ pub(crate) fn check_zero_size(
     ];
     // An absolutely positioned box is sized by its insets (CSS 2 §10.3.7,
     // §10.6.4): `inset=0`, or `top` with `bottom` or `left` with `right`
-    // (a modal's backdrop button is one).
+    // (ledger2 Rough 4: a modal's backdrop button was refused).
     let has = |name: &str| attrs.iter().any(|a| a.name == name);
     let positioned = attrs.iter().any(|a| {
         a.name == "position"

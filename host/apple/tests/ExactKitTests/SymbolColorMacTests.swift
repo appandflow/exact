@@ -1,4 +1,4 @@
-// Symbols take computed color without replacing their image.
+// LLP 1081 stage 2: symbols take computed color without replacing their image.
 #if os(macOS)
 import AppKit
 import XCTest
@@ -125,7 +125,7 @@ final class SymbolColorMacTests: XCTestCase {
         return (count, drawn)
     }
 
-    /// A symbol a native control shows as its face keeps the
+    /// LLP 1121 D9: a symbol a native control shows as its face keeps the
     /// control's tint. Under the same written green, hierarchical (which
     /// bakes its colour into the image), a tablist of two image tabs and a
     /// radio group of two image radios are segmented controls whose images

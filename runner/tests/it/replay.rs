@@ -1,9 +1,12 @@
-//! Two runs of the same calls agree (first slice): every input
+//! Two runs of the same calls agree (LLP 1069.009, first slice): every input
 //! is a runner call, so a fixed sequence of calls made twice, from two fresh
 //! runners on Caltrain's plan, must leave equal state, hand out equal
 //! requests after every call, and write equal journals. And an answer that
-//! reads the device replays from its recorded value, not by running
-//! the source again. The `take_requests` comparison is the divergence check.
+//! reads the device (D2a) replays from its recorded value, not by running
+//! the source again.
+//!
+//! @ref LLP 1069.009 D1 (the calls), D2a (recorded answers), D4 (the
+//! `take_requests` comparison is the divergence check)
 use exact_kernel::Kernel;
 use exact_plan::Value;
 use exact_runner::{
@@ -144,7 +147,7 @@ impl DataSource for Device {
     }
 }
 
-/// One recorded answer (an `answer` record): made while the device-read
+/// One recorded answer (D3's `answer` record): made while the device-read
 /// count rose, so a replay takes the value rather than running the source.
 /// It carries the topics the answer watched, or a replay would not know to
 /// ask again when one changes.
@@ -393,7 +396,7 @@ fn published<D: DataSource>(r: &Runner<D>) -> Vec<(u32, [u32; 6], bool)> {
 }
 
 /// A host that gives no subtree a containing block lays out as before the
-/// kernel knew of them, on Caltrain's plan after the
+/// kernel knew of them (LLP 1115.002 D8.2), on Caltrain's plan after the
 /// calls above: a page that had a block and lost it publishes what a page
 /// that never had one does, bit for bit. The digest printed is of that
 /// layout, to compare across commits.
@@ -426,6 +429,7 @@ fn a_block_given_and_taken_back_leaves_caltrain_s_layout_as_it_was() {
         .max_by_key(|id| k.arena().subtree(k.arena().slot_of(*id).unwrap()).len())
         .unwrap();
     let block = HostBlock {
+        tactic: Default::default(),
         width: BlockAxis::Is(320.0),
         height: BlockAxis::AtMost(500.0),
     };

@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// `tree --ax` on AppKit: the unignored tree in
+/// `tree --ax` on AppKit (LLP 1080.002 §3 stage 3): the unignored tree in
 /// navigation order, AppKit's own roles and names, each element joined to
 /// its view. Run by `bun host/apple/build.mjs --test`.
 private extension NSView {
@@ -168,10 +168,10 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertEqual((box["states"] as? [String: Any])?["checked"] as? Bool, true)
     }
 
-    /// A box whose ARIA role is `button` is one, as the web's tree has it;
-    /// an empty date reads empty and shows its author's
-    /// `placeholder` or no words, never the picker's
-    /// 1/1/2001 and never a browser's `mm/dd/yyyy`.
+    /// A box whose ARIA role is `button` is one, as the web's tree has it
+    /// (chat F14); an empty date reads empty and shows its author's
+    /// `placeholder` or no words (LLP 1115.000 D13.1), never the picker's
+    /// 1/1/2001 (kanban F23) and never a browser's `mm/dd/yyyy`.
     func testARoleButtonBoxIsAButtonAndAnEmptyDateReadsEmpty() throws {
         let p = try fixture()
         p.apply(wireBatch([
@@ -228,8 +228,8 @@ final class AccessibilityTreeMacTests: XCTestCase {
     }
 
     /// A range keeps the person's value until its bound value changes, as the
-    /// web build's does: it snapped back to 10 after an action that wrote
-    /// something else.
+    /// web build's does (LLP 1069.001 D4, amended 2026-10-04): it snapped back
+    /// to 10 after an action that wrote something else.
     func testARangeKeepsThePersonsValueUntilItsBoundValueChanges() throws {
         let p = try fixture()
         p.apply(wireBatch([
@@ -247,6 +247,79 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertEqual(slider.doubleValue, 70, "another prop leaves it")
         p.apply(wireBatch([["op": "props", "id": 11, "set": ["value": "40"]]]))
         XCTAssertEqual(slider.doubleValue, 40, "the bound value, once it changes")
+    }
+
+    func testRangeAccessibilityStepsCommitAfterUnrelatedEvents() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 11, "kind": "control",
+             "props": ["type": "range", "min": "0", "max": "100", "step": "5", "value": "50"],
+             "handlers": ["input", "change"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 11]],
+            ["op": "frame", "id": 11, "x": 0, "y": 140, "w": 129, "h": 24],
+        ]))
+        let slider = try XCTUnwrap(p.controls.controls[11] as? NSSlider)
+        let cell = try XCTUnwrap(slider.cell as? NSSliderCell)
+        var heard: [String] = []
+        p.onControlValue = { id, value, input, change in
+            XCTAssertEqual(id, 11)
+            if input { heard.append("input:\(value)") }
+            if change { heard.append("change:\(value)") }
+        }
+        for type: NSEvent.EventType in [.mouseMoved, .keyUp, .flagsChanged, .applicationDefined, .leftMouseUp] {
+            try rangeCurrentEvent(type)
+            heard = []
+            _ = slider.accessibilityPerformIncrement()
+            XCTAssertEqual(slider.doubleValue, 55)
+            XCTAssertEqual(heard, ["input:55", "change:55"], "after \(type)")
+            heard = []
+            _ = cell.accessibilityPerformDecrement()
+            XCTAssertEqual(slider.doubleValue, 50)
+            XCTAssertEqual(heard, ["input:50", "change:50"], "after \(type)")
+            XCTAssertNil(p.controls.lastRange[11])
+        }
+
+        try rangeCurrentEvent(.keyDown)
+        heard = []
+        slider.moveRight(nil)
+        XCTAssertEqual(heard, ["input:55", "change:55"])
+
+        heard = []
+        try rangeCurrentEvent(.leftMouseDown)
+        slider.doubleValue = 61
+        XCTAssertTrue(slider.sendAction(slider.action, to: slider.target))
+        XCTAssertEqual(slider.doubleValue, 60)
+        XCTAssertEqual(heard, ["input:60"])
+        try rangeCurrentEvent(.leftMouseDragged)
+        slider.doubleValue = 69
+        XCTAssertTrue(slider.sendAction(slider.action, to: slider.target))
+        XCTAssertTrue(slider.sendAction(slider.action, to: slider.target))
+        XCTAssertEqual(slider.doubleValue, 70)
+        XCTAssertEqual(heard, ["input:60", "input:70"])
+        try rangeCurrentEvent(.leftMouseUp)
+        XCTAssertTrue(slider.sendAction(slider.action, to: slider.target))
+        XCTAssertEqual(heard, ["input:60", "input:70", "change:70"])
+        XCTAssertNil(p.controls.lastRange[11])
+    }
+
+    private func rangeCurrentEvent(_ type: NSEvent.EventType) throws {
+        let event: NSEvent?
+        switch type {
+        case .keyDown, .keyUp, .flagsChanged:
+            event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: "\u{F703}",
+                charactersIgnoringModifiers: "\u{F703}", isARepeat: false, keyCode: 124)
+        case .applicationDefined:
+            event = NSEvent.otherEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, subtype: 0, data1: 0, data2: 0)
+        default:
+            event = NSEvent.mouseEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0)
+        }
+        NSApp.postEvent(try XCTUnwrap(event), atStart: true)
+        let mask = NSEvent.EventTypeMask(rawValue: 1 << type.rawValue)
+        _ = try XCTUnwrap(NSApp.nextEvent(matching: mask, until: .distantPast, inMode: .default, dequeue: true))
+        XCTAssertEqual(NSApp.currentEvent?.type, type)
     }
 
     /// An attached sheet is the modal: the driver judges everything else against it.
@@ -536,11 +609,11 @@ final class AccessibilityTreeMacTests: XCTestCase {
         try assertModalParentChain(dialog, presenter: p)
     }
 
-    /// What the web's tree has, AppKit's has. A native checkbox's `aria-label`
-    /// names it (its cell is served the control's label);
-    /// `role="radio"`/`"checkbox"`/`"switch"` with `aria-checked` are
-    /// checkable; a `radiogroup` groups them; `aria-hidden` text leaves the
-    /// tree and a name; `role="img"` is a labelled image.
+    /// Onboarding and habits F16: what the web's tree has, AppKit's has. A
+    /// native checkbox's `aria-label` names it (its cell is served the
+    /// control's label); `role="radio"`/`"checkbox"`/`"switch"` with
+    /// `aria-checked` are checkable; a `radiogroup` groups them; `aria-hidden`
+    /// text leaves the tree and a name; `role="img"` is a labelled image.
     func testARIARolesStatesAndHiddenTextReachAppKit() throws {
         let p = try fixture()
         p.apply(wireBatch([
@@ -629,10 +702,10 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertTrue(node.isAccessibilityRequired())
     }
 
-    /// A field's `aria-describedby` text is its AXHelp (and follows that
-    /// text), `aria-required` its AXRequired, `aria-invalid` WebKit's
-    /// AXInvalid; a menu button's `aria-haspopup` is Chromium's AXHasPopup
-    /// and AXPopupValue.
+    /// Onboarding F22, spreadsheet F20: a field's `aria-describedby` text is
+    /// its AXHelp (and follows that text), `aria-required` its AXRequired,
+    /// `aria-invalid` WebKit's AXInvalid; a menu button's `aria-haspopup` is
+    /// Chromium's AXHasPopup and AXPopupValue.
     func testFormStatesAndHasPopupAreServed() throws {
         let p = try fixture()
         p.apply(wireBatch([
@@ -704,8 +777,8 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertEqual(try group()["name"] as? String, "Currency symbol", "the name follows the heading")
     }
 
-    /// A shortcut behind a shown `aria-modal` view is not heard, and Enter
-    /// or Space on a focused button is its own.
+    /// Gallery F22, onboarding F27: a shortcut behind a shown `aria-modal`
+    /// view is not heard, and Enter or Space on a focused button is its own.
     func testShortcutsStayInsideTheModalAndLeaveTheFocusItsKeys() throws {
         let p = try fixture()
         p.apply(wireBatch([
@@ -726,7 +799,7 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertTrue(p.shortcutAdmits(done, key: "Enter", held: "", focus: done))
     }
 
-    /// A `dialog` or `alertdialog` role is a group with WebKit's
+    /// #278: a `dialog` or `alertdialog` role is a group with WebKit's
     /// subrole, named by its author, holding its children; a status
     /// paragraph with a link holds its words around the link, so each word
     /// is read once, as Chrome's tree has them.
@@ -818,7 +891,7 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertEqual(elements(ax).compactMap { $0["testId"] as? String }, ["named"])
     }
 
-    /// A sheet is this session's only when it holds this session's views;
+    /// D3: a sheet is this session's only when it holds this session's views;
     /// another session's (or the host app's) sheet is foreign and not walked.
     func testOnlyASheetHoldingTheSessionsViewsIsItsOwn() throws {
         let p = try fixture(), other = Presenter()
@@ -832,7 +905,7 @@ final class AccessibilityTreeMacTests: XCTestCase {
         guard case .none = p.axSheet(nil) else { return XCTFail("no sheet") }
     }
 
-    /// A `dialog` in its sheet is that window's. The page
+    /// LLP 1115.002 D7.2: a `dialog` in its sheet is that window's. The page
     /// behind it exposes nothing, the sheet's content is the session's own
     /// root, and the walk from it finds the dialog as the modal `showModal`
     /// made, with what is in it; a popover AppKit shows from it is a root too.

@@ -104,7 +104,7 @@ fn a_sticky_box_carries_its_vertical_insets() {
     assert_eq!(json(&kernel)["top"], 0);
 }
 
-/// A popover placed by `position-area` carries its
+/// LLP 1021 "Placement": a popover placed by `position-area` carries its
 /// margins to the host, which aligns its margin box; without the row
 /// they stay the kernel's, as every other box's.
 #[test]

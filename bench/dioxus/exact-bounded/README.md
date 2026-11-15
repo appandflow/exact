@@ -1,6 +1,6 @@
 # Heavy list — exact2, bounded answer
 
-The heavy list (`../../heavy-list/SPEC.md`) on exact2 with the bounded answer, built from the checkout
+The heavy list (`../../heavy-list/SPEC.md`) on exact2 with LLP 1027.004's bounded answer, built from the checkout
 this directory is in. Bundle id `dev.exact.heavybench.bounded`. It is `../../heavy-list/exact-heavylist` with the
 list's resource changed; the rows, the Contract below the list and the DataSource's feed, reactions and live mode
 are the same.

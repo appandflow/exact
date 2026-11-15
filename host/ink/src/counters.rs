@@ -1,4 +1,4 @@
-//! Opt-in cumulative observations of the live painter.
+//! Opt-in cumulative observations of the live painter. @ref LLP 1149.001 Stage 0.
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{LazyLock, Once};

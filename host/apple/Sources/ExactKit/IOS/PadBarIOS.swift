@@ -1,11 +1,12 @@
-// The number pads' bar on iOS: the decimal, number and
+// The number pads' bar on iOS (LLP 1116.003 D7): the decimal, number and
 // phone pads have no Return key (and the decimal and number pads no minus
 // key), so a field on one gets the keys it needs in the keyboard's accessory
-// bar, as a hand-built form adds them: Done always (a pad with no way to
-// put it away leaves a person tapping elsewhere to dismiss it, where Return
-// would act only for a field with `enterkeyhint="done"` or a `submit`
-// handler), and ± where its `min` is below zero (`inputmode="text"` to reach
-// a minus gives a letter keyboard). ± flips the sign of what the field holds
+// bar, as a hand-built form adds them: Done always (LLP 1116.008 D8: a pad
+// with no way to put it away left expense-tracker's builder tapping a
+// category to dismiss it, where Return would have acted only for a field with
+// `enterkeyhint="done"` or a `submit` handler), and ± where its `min` is
+// below zero (round 5's unit converter wrote `inputmode="text"` to reach a
+// minus and got a letter keyboard). ± flips the sign of what the field holds
 // and fires its `input` as a keystroke does; Done does what Return does
 // (commit, submit) and puts the keyboard away. A one-time code's pad gets
 // none, as UIKit and SwiftUI give it none: the system suggests the code over
@@ -67,18 +68,29 @@ extension NodeView {
     }
 
     /// ±: the sign of the field's text flips (an empty field starts a negative
-    /// number) and the field reports the change as UIKit's own edit does
-    /// (`editingChanged`, FieldEditingIOS).
+    /// number). It is a person's edit, so it is admitted as UIKit's own are
+    /// (`textField(_:shouldChangeCharactersIn:replacementString:)`): `maxlength`
+    /// and a cancelable `beforeinput` first, then the change and its `input`.
     @objc func toggleSign() {
-        guard let f = field, !disabled, f.isEnabled else { return }
+        guard let f = field, !disabled, !inert, props["editable"] != "false", f.isEnabled else { return }
         let text = f.text ?? ""
-        f.text = text.hasPrefix("-") || text.hasPrefix("\u{2212}") ? String(text.dropFirst()) : "-" + text
+        let signed = text.hasPrefix("-") || text.hasPrefix("\u{2212}")
+        let range = NSRange(location: 0, length: signed ? 1 : 0), replacement = signed ? "" : "-"
+        guard TextInputLimit.allows(text, range: range, replacement: replacement, props: props) else { return }
+        if let fields = presenter?.fieldSelections {
+            // The sign is not beside the caret: removing it deletes in no direction.
+            let admitted = fields.withIntent(self, signed ? "deleteContent" : "insertText") {
+                fields.shouldEdit(self, range: range, replacement: replacement, marked: false)
+            }
+            guard admitted else { return }
+        }
+        f.text = signed ? String(text.dropFirst()) : "-" + text
         fieldChanged()
     }
 
     /// Done: what Return does (the key its handlers hear, the commit, an
     /// implicit submission, then the keyboard goes away unless the action
-    /// focused the field again). A Return a `key`
+    /// focused the field again, LLP 1115.000 D9.2). A Return a `key`
     /// handler prevented does none of that, and Done still says done.
     @objc func padDone() {
         guard let f = field else { return }

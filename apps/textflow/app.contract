@@ -1,7 +1,7 @@
 fn abs(n: number): number = n < 0 ? -n : n
-// Shapes move by commits, never transforms.
+// @ref LLP 1043.000 §3 D1/D8, §6.5 — shapes move by commits, never transforms.
 // Original prose; system serif. Fixed boxes deliberately leave font-metric slack;
-// Article's paragraphs have none: auto-height flow sizes them.
+// Article's paragraphs have none: auto-height flow sizes them (LLP 1043.000 §8).
 shape Viewport
   width: number
   height: number

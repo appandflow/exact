@@ -1,5 +1,5 @@
 //! A reply that repeats its last reply's list elements reuses their values
-//! (`reply_reusing`): the answer is exactly a
+//! (`reply_reusing`, rt1's crossing plan): the answer is exactly a
 //! full decode's, element by element, whatever changed between replies.
 use exact_js_value::{reply_from_json_text, reply_reusing, Rows, Shape};
 use exact_plan::{Items, Value};

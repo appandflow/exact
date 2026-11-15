@@ -1,4 +1,4 @@
-// The agent and Exact's picture-in-picture windows: each
+// @ref LLP 1042 §9.1. The agent and Exact's picture-in-picture windows: each
 // floating image's row in `tree` carries its window (its kind, title, frame on
 // screen and controls), `tap <image> pictureinpicture <control>` presses one of
 // that window's controls or moves the pointer over it (`hover`), and

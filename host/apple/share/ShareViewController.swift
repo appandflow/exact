@@ -1,7 +1,7 @@
-// The share extension's compose sheet, as a hand-built app's: the
-// system's `SLComposeServiceViewController` on iOS, which Xcode's
-// template uses; on the Mac, where AppKit has none, a view controller as
-// Xcode's macOS template builds one. Post writes the inbox
+// @ref LLP 1133.024 D4 — the share extension's compose sheet, as a
+// hand-built app's: the system's `SLComposeServiceViewController` on iOS,
+// which Xcode's template uses; on the Mac, where AppKit has none, a view
+// controller as Xcode's macOS template builds one. Post writes the inbox
 // (ShareInbox.swift) and ends; the extension never opens the app.
 import Foundation
 #if canImport(UIKit)
@@ -23,7 +23,7 @@ public final class ExactShareViewController: SLComposeServiceViewController {
 
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        // The post button's word is the app's (`postTitle`); the class has no property for it.
+        // The post button's word is the app's (`postTitle`, D6); the class has no property for it.
         if let word = Bundle.main.object(forInfoDictionaryKey: "ExactSharePostTitle") as? String {
             navigationController?.navigationBar.topItem?.rightBarButtonItem?.title = word
         }

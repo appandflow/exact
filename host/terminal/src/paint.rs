@@ -1,16 +1,16 @@
 //! The painter: one walk of the kernel tree into cells.
 //!
-//! The kernel is the display list: frames, styles and props are read where
-//! they live, snapped to the grid (each edge to the nearest cell boundary, so
-//! siblings tile), and drawn as cell styles.
+//! @ref LLP 1101 D7 — the kernel is the display list: frames, styles and
+//! props are read where they live, snapped to the grid (D3: each edge to the
+//! nearest cell boundary, so siblings tile), and drawn per §4's mapping.
 //! Open dialogs and popovers paint last, over a faint backdrop.
 
 use crate::grid::{CellRect, Grid, Rgb, Style};
-use crate::measure::{columns, wrap};
+use crate::measure::{columns, wrap, Glyph, Line};
 use exact_kernel::style::cells::{COLUMN, ROW};
 use exact_kernel::{
-    Color, ColorValue, Dimension, Display, Kernel, NodeRef, NodeType, Overflow, PropId,
-    TextDecorationLine, TextOverflow, ViewId, Visibility,
+    BorderStyle, Color, ColorValue, Dimension, Display, Kernel, NodeRef, NodeType, Overflow,
+    PropId, TextDecorationLine, TextOverflow, ViewId, Visibility,
 };
 use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
@@ -59,8 +59,6 @@ pub struct Scene<'a> {
     pub images: &'a crate::image::Images,
     /// Centre a dialog with no insets in the grid (full screen).
     pub center: bool,
-    /// The kernel's environment: its border rule among it.
-    pub env: exact_kernel::Env,
     /// Whether a node has a `press` of its own (a `box press=`, a card):
     /// a press can hit it as it hits a control (whether that press runs is
     /// the host's: a disabled or inert box swallows it).
@@ -106,7 +104,7 @@ pub fn paint(scene: &Scene<'_>, roots: &[ViewId], cols: usize, rows: usize, top:
 
 /// Where an open layer paints: where it was laid out, or centred in the
 /// grid when it names no inset (as the Mac host centres a dialog). A
-/// popover laid out in the viewport's block is placed by its
+/// popover laid out in the viewport's block (stage 14 B) is placed by its
 /// insets in the grid, which stays put as the document scrolls.
 pub(crate) fn placement(
     scene: &Scene<'_>,
@@ -128,9 +126,14 @@ pub(crate) fn placement(
         let gy = (rows as f32 - h).max(0.0);
         return (0.0, f.y - gy * ROW);
     }
-    let auto = [s.top, s.right, s.bottom, s.left]
-        .iter()
-        .all(|d| *d == Dimension::Auto);
+    let auto = [
+        s.top.clone(),
+        s.right.clone(),
+        s.bottom.clone(),
+        s.left.clone(),
+    ]
+    .iter()
+    .all(|d| *d == Dimension::Auto);
     if !auto {
         // In the viewport's block: by its insets in the grid.
         let grid = (cols as f32 * COLUMN, rows as f32 * ROW);
@@ -180,7 +183,12 @@ fn node(
 ) {
     let kernel = scene.kernel;
     let id = n.id;
-    if n.style.display == Display::None || n.is_inline_run() || n.node_type == NodeType::Head {
+    if clip.w <= 0
+        || clip.h <= 0
+        || n.style.display == Display::None
+        || n.is_inline_run()
+        || n.node_type == NodeType::Head
+    {
         return;
     }
     // A dialog or popover paints only as an open layer, after everything.
@@ -189,16 +197,26 @@ fn node(
     }
     let f = n.frame;
     let rect = cells(f.x - dx, f.y - dy, f.width, f.height);
-    // A box wholly above or below the rows asked for shows nothing, nor do
-    // its flow children: a long transcript paints only the rows in view.
-    if rect.h > 0 && (rect.y + rect.h <= clip.y || rect.y >= clip.y + clip.h) {
+    let native_button =
+        n.node_type == NodeType::Control && n.props.str(PropId::Type) == Some("button");
+    let scrolls = matches!(n.node_type, NodeType::ScrollView | NodeType::List)
+        || matches!(n.style.overflow_y, Overflow::Scroll | Overflow::Auto);
+    let clips_x = scrolls || n.style.overflow_x.computed(n.style.overflow_y) != Overflow::Visible;
+    let clips_y = scrolls || n.style.overflow_y.computed(n.style.overflow_x) != Overflow::Visible;
+    // An unclipped container's descendants can reach outside its own rows.
+    // Text and native buttons paint their inline children within their box.
+    if rect.h > 0
+        && (rect.y + rect.h <= clip.y || rect.y >= clip.y + clip.h)
+        && (clips_y
+            || n.node_type == NodeType::Text
+            || native_button
+            || n.child_nodes().next().is_none())
+    {
         return;
     }
     let visible =
         n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility) == Visibility::Visible;
     let current = n.text_color();
-    let native_button =
-        n.node_type == NodeType::Control && n.props.str(PropId::Type) == Some("button");
     let native_field =
         n.node_type == NodeType::TextInput && n.style.appearance != exact_kernel::Appearance::None;
     if visible {
@@ -208,7 +226,7 @@ fn node(
             } else {
                 Rgb(228, 228, 228)
             };
-            out.grid.fill(rect, clip, fill);
+            out.grid.fill(rect, clip, Some(fill));
         }
         if let Some(bg) = n
             .style
@@ -216,24 +234,19 @@ fn node(
             .map(|c| c.resolve(scene.dark))
             .and_then(rgb)
         {
-            out.grid.fill(rect, clip, bg);
+            out.grid.fill(rect, clip, Some(bg));
+        } else if layer && !n.style.mask.has(exact_kernel::StyleId::BackgroundColor) {
+            // An open layer the author gave no background is the
+            // platform's opaque surface (the web's `dialog` is `Canvas`):
+            // the terminal's own ground, not the page beneath.
+            out.grid.fill(rect, clip, None);
         }
         border(scene, out, &n, rect, clip, current);
         grouped::separator(scene, out, &n, clip, dx, dy);
     }
-    let [bt, br, bb, bl] = n.style.border_widths_in(&scene.env);
-    let (pl, pt, pr, pb) = kernel.resolved_padding(n.key).unwrap_or_default();
-    let content = n.field_content_rect().map_or_else(
-        || {
-            cells(
-                f.x - dx + bl + pl,
-                f.y - dy + bt + pt,
-                f.width - bl - br - pl - pr,
-                f.height - bt - bb - pt - pb,
-            )
-        },
-        |c| cells(f.x - dx + c.x, f.y - dy + c.y, c.width, c.height),
-    );
+    let [bt, br, bb, bl] = n.style.border_widths_in(&kernel.env_of(n.id));
+    let (pl, _, pr, _) = kernel.resolved_padding(n.key).unwrap_or_default();
+    let content = content_cells(kernel, &n, dx, dy);
     let seen = rect.intersect(clip);
     if visible && seen.w > 0 && seen.h > 0 {
         out.shown.push(id);
@@ -260,19 +273,21 @@ fn node(
             _ => {}
         }
     }
-    let scrolls = matches!(n.node_type, NodeType::ScrollView | NodeType::List)
-        || matches!(n.style.overflow_y, Overflow::Scroll | Overflow::Auto);
-    let clips = scrolls
-        || n.style.overflow_x != Overflow::Visible
-        || n.style.overflow_y != Overflow::Visible;
     let inner = cells(
         f.x - dx + bl,
         f.y - dy + bt,
         f.width - bl - br,
         f.height - bt - bb,
     );
-    let child_clip = if clips { clip.intersect(inner) } else { clip };
+    let clipped = clip.intersect(inner);
+    let child_clip = CellRect {
+        x: if clips_x { clipped.x } else { clip.x },
+        y: if clips_y { clipped.y } else { clip.y },
+        w: if clips_x { clipped.w } else { clip.w },
+        h: if clips_y { clipped.h } else { clip.h },
+    };
     let mut child_dy = dy;
+    let mut indicator = None;
     if scrolls {
         let reach = (n.content.1 - (f.height - bt - bb)).max(0.0);
         let offset = scene
@@ -283,29 +298,8 @@ fn node(
             .clamp(0.0, reach);
         child_dy += offset;
         out.scrollers.push((id, inner.intersect(clip), reach));
-        // A one-column indicator at the inner right edge.
         if reach > 0.0 && n.style.scrollbar_width != exact_kernel::ScrollbarWidth::None {
-            let track = inner.h.max(1);
-            let thumb = ((track as f32) * (f.height / (f.height + reach)))
-                .ceil()
-                .max(1.0) as i32;
-            let top = ((track - thumb) as f32 * (offset / reach)).round() as i32;
-            let x = inner.x + inner.w - 1;
-            for i in 0..track {
-                let on = i >= top && i < top + thumb;
-                let style = Style {
-                    faint: !on,
-                    ..Style::default()
-                };
-                out.grid.put(
-                    x,
-                    inner.y + i,
-                    if on { "┃" } else { "│" },
-                    1,
-                    style,
-                    child_clip,
-                );
-            }
+            indicator = Some((f.height / (f.height + reach), offset / reach));
         }
     }
     if n.node_type != NodeType::Text && !native_button {
@@ -313,19 +307,67 @@ fn node(
             node(scene, out, child, child_clip, dx, child_dy, false);
         }
     }
+    // A one-column indicator at the inner right edge (LLP 1101 §4), over
+    // the rows: layout reserves no column for it.
+    if let Some((shown, scrolled)) = indicator {
+        let track = inner.h.max(1);
+        let thumb = ((track as f32) * shown).ceil().max(1.0) as i32;
+        let top = ((track - thumb) as f32 * scrolled).round() as i32;
+        let x = inner.x + inner.w - 1;
+        for i in 0..track {
+            let on = i >= top && i < top + thumb;
+            let style = Style {
+                faint: !on,
+                ..Style::default()
+            };
+            out.grid.put(
+                x,
+                inner.y + i,
+                if on { "┃" } else { "│" },
+                1,
+                style,
+                child_clip,
+            );
+        }
+    }
     if visible && scene.focus == Some(id) && n.node_type != NodeType::TextInput && !native_button {
         out.grid.reverse(rect, clip);
     }
 }
 
-/// A determinate `progress`.
+/// A node's content box in cells, less the offsets above it: inside its
+/// borders and padding, or a field's own text rectangle. A textarea's
+/// lines are this wide for the painter and for the arrow keys alike.
+pub(crate) fn content_cells(kernel: &Kernel, n: &NodeRef<'_>, dx: f32, dy: f32) -> CellRect {
+    let f = n.frame;
+    if let Some(c) = n.field_content_rect() {
+        return cells(f.x - dx + c.x, f.y - dy + c.y, c.width, c.height);
+    }
+    // A box's lengths in its own environment (LLP 1123 D9)
+    let [bt, br, bb, bl] = n.style.border_widths_in(&kernel.env_of(n.id));
+    let (pl, pt, pr, pb) = kernel.resolved_padding(n.key).unwrap_or_default();
+    cells(
+        f.x - dx + bl + pl,
+        f.y - dy + bt + pt,
+        f.width - bl - br - pl - pr,
+        f.height - bt - bb - pt - pb,
+    )
+}
+
+/// Whether a textarea's cluster of `cols` at `col` starts a new visual
+/// line in `width` columns: one that does not fit, unless the line is empty.
+pub(crate) fn wraps_before(col: usize, cols: usize, width: usize) -> bool {
+    col > 0 && col + cols > width
+}
+
+/// A determinate `progress` (LLP 1116 D8).
 fn bar(n: &NodeRef<'_>) -> bool {
     exact_kernel::ControlKind::of(n.node_type, n.props)
         == Some(exact_kernel::ControlKind::ProgressBar)
 }
 
 /// A determinate `progress` as text: its middle row of content cells, `█`
-/// to its value and `░` after it, in its colour.
+/// to its value and `░` after it, in its colour (LLP 1116 D8).
 fn progress_bar(
     scene: &Scene<'_>,
     out: &mut Painted,
@@ -343,11 +385,11 @@ fn progress_bar(
     }
 }
 
-/// A native face is host paint, never its unlaid-out children.
+/// LLP 1104 D7: a native face is host paint, never its unlaid-out children.
 fn button(scene: &Scene<'_>, out: &mut Painted, n: &NodeRef<'_>, rect: CellRect, clip: CellRect) {
     let face = scene.kernel.press_face(n.id).unwrap_or_default();
     let rows = scene.kernel.button_face_style(n.id).expect("button");
-    let lines = crate::measure::button_lines(
+    let mut lines = crate::measure::button_lines(
         &face,
         &rows,
         exact_kernel::AxisOffer::Definite(rect.w as f32 * COLUMN),
@@ -373,7 +415,10 @@ fn button(scene: &Scene<'_>, out: &mut Painted, n: &NodeRef<'_>, rect: CellRect,
         h: rect.h,
     });
     let top = rect.y + (rect.h - lines.len() as i32).max(0) / 2;
-    for (row, line) in lines.iter().enumerate() {
+    for (row, line) in lines.iter_mut().enumerate() {
+        if line.clamped {
+            ellipsize(line, width);
+        }
         let slack = width.saturating_sub(line.cols()) as i32;
         let mut x = rect.x
             + 1
@@ -404,7 +449,8 @@ fn border(
     clip: CellRect,
     current: ColorValue,
 ) {
-    let widths = n.style.border_widths_in(&scene.env);
+    let env = scene.kernel.env_of(n.id);
+    let widths = n.style.border_widths_in(&env);
     if widths.iter().all(|w| *w <= 0.0) || r.w < 1 || r.h < 1 {
         return;
     }
@@ -422,20 +468,40 @@ fn border(
     .iter()
     .zip(widths)
     .any(|(w, on)| on > 0.0 && *w >= 5.0);
-    let env = scene.kernel.env();
     let round = !heavy
         && [
-            s.border_radius_top_left,
-            s.border_radius_top_right,
-            s.border_radius_bottom_right,
-            s.border_radius_bottom_left,
+            s.border_radius_top_left.clone(),
+            s.border_radius_top_right.clone(),
+            s.border_radius_bottom_right.clone(),
+            s.border_radius_bottom_left.clone(),
         ]
         .iter()
         .any(|d| matches!(d.resolve(&env), Dimension::Points(p) if p > 0.0));
-    let (h, v) = if heavy {
-        ("━", "┃")
-    } else {
-        ("─", "│")
+    // Each side its own line (LLP 1101 §4): light `─│`, dashed `┄┆`,
+    // dotted `┈┊`, each in its heavy form for a heavy border. The corners
+    // have no dashed or dotted forms, so they stay solid.
+    let styles = [
+        s.border_style_top,
+        s.border_style_right,
+        s.border_style_bottom,
+        s.border_style_left,
+    ];
+    let line = |i: usize| {
+        let across = matches!(i, 0 | 2);
+        match (styles[i], heavy, across) {
+            (BorderStyle::Dashed, false, true) => "┄",
+            (BorderStyle::Dashed, false, false) => "┆",
+            (BorderStyle::Dashed, true, true) => "┅",
+            (BorderStyle::Dashed, true, false) => "┇",
+            (BorderStyle::Dotted, false, true) => "┈",
+            (BorderStyle::Dotted, false, false) => "┊",
+            (BorderStyle::Dotted, true, true) => "┉",
+            (BorderStyle::Dotted, true, false) => "┋",
+            (_, false, true) => "─",
+            (_, false, false) => "│",
+            (_, true, true) => "━",
+            (_, true, false) => "┃",
+        }
     };
     let (tl, tr, br, bl) = match (heavy, round) {
         (true, _) => ("┏", "┓", "┛", "┗"),
@@ -450,18 +516,18 @@ fn border(
     };
     for x in r.x..=x1 {
         if top {
-            out.grid.put(x, r.y, h, 1, style(0), clip);
+            out.grid.put(x, r.y, line(0), 1, style(0), clip);
         }
         if bottom {
-            out.grid.put(x, y1, h, 1, style(2), clip);
+            out.grid.put(x, y1, line(2), 1, style(2), clip);
         }
     }
     for y in r.y..=y1 {
         if left {
-            out.grid.put(r.x, y, v, 1, style(3), clip);
+            out.grid.put(r.x, y, line(3), 1, style(3), clip);
         }
         if right {
-            out.grid.put(x1, y, v, 1, style(1), clip);
+            out.grid.put(x1, y, line(1), 1, style(1), clip);
         }
     }
     if top && left {
@@ -508,7 +574,7 @@ fn base_style(scene: &Scene<'_>, n: &NodeRef<'_>, current: ColorValue) -> Style 
 }
 
 /// A cell has no alpha: a see-through box's text, or a native disabled
-/// field, is faint instead.
+/// field, is faint instead (LLP 1104 D7).
 fn faded(kernel: &Kernel, id: ViewId) -> bool {
     let mut at = kernel.node(id);
     while let Some(n) = at {
@@ -649,6 +715,22 @@ impl TextPaint<'_> {
     }
 }
 
+fn ellipsize(line: &mut Line, width: usize) {
+    if width == 0 {
+        return;
+    }
+    let mut cols = line.cols();
+    while cols > width - 1 {
+        cols -= line.glyphs.pop().unwrap().cols;
+    }
+    let run = line.glyphs.last().map_or(0, |g| g.run);
+    line.glyphs.push(Glyph {
+        text: "…".into(),
+        cols: 1,
+        run,
+    });
+}
+
 fn text(
     scene: &Scene<'_>,
     out: &mut Painted,
@@ -677,6 +759,7 @@ fn text(
         reach: None,
     };
     if paragraph.white_space == exact_kernel::WhiteSpace::Pre
+        && paragraph.line_clamp == 0
         && !matches!(
             paragraph.text_align,
             exact_kernel::TextAlign::Right | exact_kernel::TextAlign::Center
@@ -685,9 +768,6 @@ fn text(
     {
         let mut previous_row = None;
         crate::measure::visit_preserved(&runs, |row, col, text, cols, run| {
-            if paragraph.line_clamp > 0 && row >= paragraph.line_clamp as usize {
-                return;
-            }
             let y = content.y + row as i32;
             if y >= inner.y && y < inner.y + inner.h {
                 if previous_row != Some(y) {
@@ -704,16 +784,8 @@ fn text(
             if y < inner.y || y >= inner.y + inner.h {
                 continue;
             }
-            if ellipsis && line.cols() > width && width > 0 {
-                while line.cols() > width - 1 {
-                    line.glyphs.pop();
-                }
-                let run = line.glyphs.last().map_or(0, |g| g.run);
-                line.glyphs.push(crate::measure::Glyph {
-                    text: "…".into(),
-                    cols: 1,
-                    run,
-                });
+            if line.clamped || (ellipsis && line.cols() > width) {
+                ellipsize(line, width);
             }
             let slack = width.saturating_sub(line.cols()) as i32;
             let mut x = content.x
@@ -767,8 +839,20 @@ fn image(scene: &Scene<'_>, out: &mut Painted, n: &NodeRef<'_>, content: CellRec
                 faint: true,
                 ..Style::default()
             };
-            for (x, g) in (content.x..).zip(format!("[{alt}]").graphemes(true)) {
-                out.grid.put(x, content.y, g, 1, style, inner);
+            // App text under the painter's one policy (LLP 1101 D7): a
+            // control is a visible replacement, never written as itself, and a
+            // wide cluster takes two cells. On one line, a break is a space.
+            let mut x = content.x;
+            for g in format!("[{alt}]").graphemes(true) {
+                let (text, cols) = if g.chars().all(char::is_whitespace) {
+                    (" ", 1)
+                } else if g.chars().any(char::is_control) {
+                    ("\u{fffd}", 1)
+                } else {
+                    (g, g.width().max(1))
+                };
+                out.grid.put(x, content.y, text, cols, style, inner);
+                x += cols as i32;
             }
         }
     }
@@ -825,7 +909,10 @@ fn field(
             }
             continue;
         }
-        if multiline && col + cols > width {
+        if *cols == 0 {
+            continue;
+        }
+        if multiline && wraps_before(col, *cols, width) {
             row += 1;
             col = 0;
         }
@@ -862,7 +949,7 @@ fn field(
     }
 }
 
-fn clusters(s: &str) -> Vec<(String, usize)> {
+pub(crate) fn clusters(s: &str) -> Vec<(String, usize)> {
     s.graphemes(true)
         .map(|g| {
             if g == "\n" || g == "\r\n" {
@@ -870,7 +957,8 @@ fn clusters(s: &str) -> Vec<(String, usize)> {
             } else if g.chars().any(char::is_control) {
                 ("\u{fffd}".to_string(), 1)
             } else {
-                (g.to_string(), g.width().max(1))
+                // A zero-width cluster takes no column, as text's does.
+                (g.to_string(), g.width())
             }
         })
         .collect()

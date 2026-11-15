@@ -1,4 +1,4 @@
-//! `@exact/language-model`'s bake (D15 items 3 and 4): a
+//! `@exact/language-model`'s bake (LLP 1133.016 D8, D15 items 3 and 4): a
 //! `shape-name` option names one of the app's shapes and goes as its JSON
 //! Schema; `prompt`'s answer is the constraint's shape; the declaration's
 //! new fields read. The package is the repository's own, installed beside

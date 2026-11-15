@@ -56,7 +56,7 @@ fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
     check_ecdsa(&String::from_utf8_lossy(&result.stdout), &ec_pair);
 }
 
-/// What Chrome's WebCrypto signed in each placement,
+/// LLP 1069.005 D1b: what Chrome's WebCrypto signed in each placement,
 /// verified here by Rust's P-256 (the reference Hermes is held to as well):
 /// a key Chrome generated exports a JWK Rust imports and verifies under;
 /// Rust's key imported in Chrome signs what Rust verifies; a kept pair
@@ -112,7 +112,7 @@ fn check_ecdsa(stdout: &str, rust: &exact_data::crypto::EcKeyPair) {
 }
 
 /// The entropy fixture's `digests`, as `js/tests/it/entropy.rs` computes
-/// them for Hermes: each SHA-2 size over the empty string,
+/// them for Hermes (LLP 1069.005 D1): each SHA-2 size over the empty string,
 /// `abc` and 1 MiB of `i % 251`, then SHA-256 of `abc` twice more.
 fn expected_digests() -> String {
     use sha2::Digest;
@@ -129,7 +129,7 @@ fn expected_digests() -> String {
 }
 
 /// What a realm under the agent with seed 1 answers to `uuid`, `bytes(20)`,
-/// `uuid`: the Rust stream's first 52 bytes, as Hermes
+/// `uuid` (LLP 1069.005 D2b): the Rust stream's first 52 bytes, as Hermes
 /// draws them.
 fn agent_stream() -> String {
     let mut stream = exact_data::crypto::AgentStream::new(1, "typescript");
@@ -151,8 +151,8 @@ fn grant_sets() -> String {
         "net.fetch https://fixture.exact.test\n",
         "secret.keep dpop\n",
         "net.fetch https://api.castle.xyz\nsecret.keep castle.session\n",
-        // js/tests/fixtures/storage.ts's, as it declares them (its widget cache writes since 5363e50241).
-        "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n",
+        // js/tests/fixtures/storage.ts's declared grants.
+        "fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\nfs.read bundle:/Resources/shipped\n",
         "fs.read app:/\nfs.write app:/\nsqlite.open app:/data",
         "fs.read app:/data/move\nfs.write app:/data/move",
         "fs.read app:/data",
@@ -182,6 +182,8 @@ import { chromium } from './scripts/agent-launch.mjs';
 const { executable: browserExecutable, unavailable: browserMissing } = chromium();
 if (browserMissing) { console.log(`missing chrome: ${browserMissing}`); process.exit(0); }
 import { webHostFiles } from './scripts/app.mjs';
+import { buildHostGlue } from './host/web-js/glue.mjs';
+await buildHostGlue(process.cwd());
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
@@ -233,7 +235,7 @@ const startupStub=()=>{
 const startupPage=hostPage.replace('<script type="module" src="./glue.js"></script>',`<script>(${startupStub.toString()})()</script><script type="module" src="/startup/glue.js"></script>`);
 const server = createServer((req,res)=>{
   const path=new URL(req.url,'http://fixture.invalid').pathname;
-  // The dev protocol's SHA-256 for a page with no `crypto.subtle`.
+  // The dev protocol's SHA-256 for a page with no `crypto.subtle` (LLP 1069.005 D1).
   if(path==='/sha256'&&req.method==='POST'){
     const hash=createHash('sha256');req.on('data',chunk=>hash.update(chunk));
     req.on('end',()=>{res.setHeader('content-type','text/plain');res.end(hash.digest('hex'));});return;
@@ -251,10 +253,10 @@ const server = createServer((req,res)=>{
   res.end(routes[path] ? readFileSync(routes[path]) : path==='/startup/app.wasm' ? '' : path==='/startup' ? startupPage : modulePage);
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
-// Exercise the actual fixture server without Chrome.
+// @ref LLP 1043.000 §3 D7/D8 — exercise the actual fixture server without Chrome.
 if(process.env.EXACT_MODULE_ROUTES_ONLY==='1'){
   try {
-    const glue=readFileSync('host/web/glue.js','utf8');
+    const glue=readFileSync(webHostFiles()['glue.js'],'utf8');
     const requested=[...glue.matchAll(/loadAfterPaint\(['"]\.\/([^'"]+)['"]/g)].map(match=>match[1]);
     assert(requested.length>0,'negative control: the loader inventory cannot be empty');
     const problems=[];
@@ -361,6 +363,34 @@ try {
     module.dispose();
     if(!call({op:'answer',id:module.id,source:'explicit',args:[0]}).error)throw new Error('disposed environment is callable');
 
+    for(const placement of ['main','worker'])for(const hasOverlay of [false,true]){
+      const overlaySource=`let reads=0, present=${hasOverlay};
+        globalThis.exact={abi:1,appId:'test.browser.module',grants:'secret.keep token',
+          get overlay(){reads++;return present?()=>{throw new Error('worker overlay ran');}:undefined;},
+          answer(source){if(source==='toggle')present=!present;return reads;}};`;
+      const realm=await prepare(await payload(overlaySource),{...identity,placement});
+      try{
+        for(const source of ['reads','toggle','reads']){
+          const probe=call({op:'has-overlay',id:realm.id});
+          if(probe.has!==hasOverlay)throw new Error(`${placement}: overlay at load was ${hasOverlay}, probe answered ${JSON.stringify(probe)}`);
+          const started=call({op:'answer',id:realm.id,source,args:[],store:[],grants:[]});
+          if((await checkpoint(started)).value!==1)throw new Error(`${placement}: overlay was not read exactly once at load`);
+        }
+        if(placement==='worker'&&hasOverlay){
+          const overlay=call({op:'overlay',id:realm.id,source:'reads',args:[],answer:1,writes:[]});
+          if(overlay.tag!==4||overlay.worker!==true)throw new Error('worker overlay no longer shows the answer');
+        }
+      }finally{realm.dispose();}
+      if(!call({op:'has-overlay',id:realm.id}).error)throw new Error('disposed realm retained its overlay decision');
+      const bad=overlaySource.replace("appId:'test.browser.module'","appId:'another.app'");
+      let refused=false;try{await prepare(await payload(bad),{...identity,placement});}catch{refused=true;}
+      if(!refused)throw new Error(`${placement}: invalid module admitted`);
+      const throwing=await prepare(await payload(overlaySource.replace('reads++;return present?',
+        "throw new Error('overlay getter failed');return present?")),{...identity,placement});
+      try{if(call({op:'has-overlay',id:throwing.id}).has!==true)throw new Error(`${placement}: throwing overlay getter treated as absent`);}
+      finally{throwing.dispose();}
+    }
+
     const inputsIdentity=admit({appId:'test.explicit-inputs',grants:'net.fetch https://fixture.exact.test\n'});
     const inputs=await prepare(await payload(fixtures.inputs,inputsIdentity),inputsIdentity);
     const invoke=(realm,source,args=[],store=[],grants=[],outcome)=>checkpoint(call({id:realm.id,op:outcome?'resume':'answer',source,args,store,grants,outcome}));
@@ -389,7 +419,7 @@ try {
     const draining=run(stale.continuation);await Promise.resolve();
     inputs.dispose();let dropped=false;try{await draining;}catch{dropped=true;}
     if(!dropped)throw new Error('disposed continuation executed');
-    // As js/tests/it/entropy.rs holds Hermes to: a draw is
+    // LLP 1069.005 D2/D3, as js/tests/it/entropy.rs holds Hermes to: a draw is
     // a counted read, refused at initialization, and no realm has `subtle`.
     const entropyIdentity=admit({appId:'test.entropy',grants:'net.fetch https://fixture.exact.test\n'});
     for(const placement of ['main','worker']){
@@ -406,7 +436,7 @@ try {
       if((await ask('bytes',[4])).value.split(',').length!==4||(await ask('plain')).entropy!==false)throw new Error(`${placement}: bytes or a plain answer`);
       if((await ask('refusals')).value!=='QuotaExceededError/TypeMismatchError/TypeError')throw new Error(`${placement}: refusals`);
       if((await ask('globals')).value!=='object/function/function/[object Crypto]/getRandomValues,randomUUID,subtle/[object SubtleCrypto]')throw new Error(`${placement}: crypto's shape`);
-      // Digests, the same bytes as Hermes; the rest of `subtle` refuses by name.
+      // D1: digests, the same bytes as Hermes; the rest of `subtle` refuses by name.
       if((await ask('atInit',['digest'])).value!=='ran: function')throw new Error(`${placement}: a digest at initialization`);
       const digested=await ask('digests');
       if(digested.value!==fixtures.digests||digested.entropy||digested.externalRead)throw new Error(`${placement}: digests ${JSON.stringify(digested).slice(0,400)}`);
@@ -414,7 +444,7 @@ try {
       if((await ask('digestLater')).request?.url!=='https://fixture.exact.test/value'||(await ask('digestLater',[],response())).value!=='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')throw new Error(`${placement}: a digest after a fetch`);
       realm.dispose();
     }
-    // Under the agent (a loopback page with `?agent`) a realm draws the
+    // D2b: under the agent (a loopback page with `?agent`) a realm draws the
     // seed's repeatable stream, the bytes Hermes draws; outside it, the OS's.
     const pageUrl=location.href;
     // The seed is the launch URL's (its navigation entry, 18d0dec29), not the
@@ -444,7 +474,7 @@ try {
       if(a===b||a.split(' ')[0]===seeded.split(' ')[0])throw new Error(`${placement}: outside the agent a draw is not the OS's`);
     }
 
-    // ECDSA P-256 in both placements, the same checks
+    // LLP 1069.005 D1b: ECDSA P-256 in both placements, the same checks
     // Hermes meets; the signatures go back to Rust to verify (the harness).
     const ecIdentity=admit({appId:'test.ecdsa',grants:'secret.keep dpop\n'}), ecdsa={};
     for(const placement of ['main','worker']){
@@ -508,7 +538,7 @@ try {
       return await checkpoint(await run(started.continuation));
     });
     // The runner let go of a call (newer arguments replaced its request):
-    // the realm drops it and keeps the one still in flight.
+    // the realm drops it and keeps the one still in flight (LLP 1016 D5).
     const forgets=async (realm,invokeCall)=>{
       const login=who=>['Mutation(0)',[who,'pw']];
       for(const who of ['ada','bob'])if(!(await invokeCall(...login(who))).request)throw new Error(`${realm}: ${who} did not fetch`);
@@ -545,7 +575,7 @@ try {
     for(const expected of ['1/1','2/2']){await ask('reused');const reused=await ask('reused',[],response('ok'));if(reused.value?.error!==expected)throw new Error(`abort listeners outlive their fetches: ${JSON.stringify(reused)}`);}
     if((await ask('logout')).writes[0][1]!==null)throw new Error('forget');
     castle.dispose();
-    // A worker placement: the same module, prepared on a
+    // A worker placement (LLP 1027.002 D2): the same module, prepared on a
     // dedicated Worker; the turn's snapshot arrives at dispatch, its writes
     // and reads come back in the reply, and disposal terminates the Worker.
     const workerIdentity={...identity,placement:'worker'};
@@ -578,7 +608,7 @@ try {
     };
     // The fixture's own grants (js/tests/fixtures/storage.ts, js/tests/it/storage.rs GRANTS): its module declares
     // them, and admission refuses a module whose declaration differs from the admitted one.
-    const storageIdentity=admit({appId:'dev.exact.storage-test',grants:'fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n'});
+    const storageIdentity=admit({appId:'dev.exact.storage-test',grants:'fs.read app:/data\nfs.write app:/data\nfs.write app:/cache/widget-hidden\nfs.write app:/cache/widget-copy\nfs.read doc:/\nfs.write doc:/\ndoc.keep\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\nfs.read bundle:/Resources/shipped\n'});
     const beforeStorage=(await indexedDB.databases()).length;
     let storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
     if((await indexedDB.databases()).length!==beforeStorage)throw new Error('prepare opened storage');
@@ -605,6 +635,15 @@ try {
     if(await storageCall('refused')!=='denied')throw new Error('filesystem grant');
     if(await storageCall('types')!=='9223372036854775807/-9223372036854775808/1.25/0,255')throw new Error('SQLite value parity');
     if(await storageCall('sql-refusals')!=='Unavailable/Unavailable/Unavailable/Unavailable')throw new Error('SQLite policy parity');
+    const batchRefused=await storageCall('sql-batch-refused');
+    if(!batchRefused.includes('statement 2 of 2 (PRAGMA foreign_keys=OFF): not authorized: PRAGMA foreign_keys: ')||!batchRefused.includes('app SQL may run only PRAGMA user_version'))throw new Error(`SQLite refusal message parity: ${batchRefused}`);
+    const longRefused=await storageCall('sql-batch-long');
+    if(!longRefused.includes(`statement 1 of 1 (INSERT INTO missing VALUES ('${'\u{1F600}'.repeat(171)}…): `))throw new Error(`SQLite statement shown by code points: ${longRefused}`);
+    if(await storageCall('sql-code-words')!=='failed/failed/failed/failed')throw new Error('SQL text decided a storage code');
+    const vacuumRefused=await storageCall('sql-vacuum-refused');
+    if(!vacuumRefused.includes('not authorized: ATTACH and DETACH')||!vacuumRefused.includes('not authorized: PRAGMA foreign_keys: '))throw new Error(`SQLite step-time refusal parity: ${vacuumRefused}`);
+    const migration=await storageCall('sql-migration');
+    if(migration!=='ok|10:1,20:1,30:1,40:2|enforced|foreign key check failed, the batch is rolled back: 3 foreign-key violations: fk_gone row 20 (references fk_t), fk_nulled row 30 (references fk_t), fk_plain row 10 (references fk_t)|10:1,20:1,30:1,40:2|enforced|refused|failed|enforced|mismatch|enforced|ok|ok|unwritable|foreign key check failed, the batch is rolled back: 1 foreign-key violation: fk_tc row 1 (references fk_tp)|counted|enforced|enforced|enforced|Error/Unavailable/failed/SQLite transaction options: unknown option busy; the one option is foreignKeys|Error/Unavailable/failed/SQLite transaction options: unknown option foreignKey; the one option is foreignKeys|Error/Unavailable/failed/SQLite transaction options must be an object|Error/Unavailable/failed/SQLite transaction options: foreignKeys is "check" or absent|failed/foreign key check failed, the batch is rolled back: 2 foreign-key violations: fk_big row 1 (references fk_t), fk_big row 9007199254740993 (references fk_t)|failed/foreign key check failed, the batch is rolled back: 1 foreign-key violation: a fk_wr row (references fk_t)|failed/foreign key check failed, the batch is rolled back: 4 foreign-key violations: fk_\u{E000}1 row 1 (references fk_t), fk_\u{E000}2 row 1 (references fk_t), fk_\u{E000}3 row 1 (references fk_t), and 1 more|failed/foreign key check failed, the batch is rolled back: 2 foreign-key violations: busy row 1 (references fk_t), database is locked row 1 (references fk_t)|failed/foreign key check failed, the batch is rolled back: 2 foreign-key violations: fk_two row 1 (references fk_q), fk_two row 1 (references fk_t)|kept|kept|kept|kept|1/1|failed/SQLite transaction options: unknown option __proto__; the one option is foreignKeys|failed/SQLite transaction options: unknown option constructor; the one option is foreignKeys|kept|failed/SQLite transaction options: foreignKeys is "check" or absent|failed/SQLite transaction options: unknown option other; the one option is foreignKeys|failed/SQLite transaction options must be an object')throw new Error(`SQLite foreignKeys check parity: ${migration}`);
     const fetchStart=await invoke(storage,'work',['fetch','a'],[],['session']);
     if(fetchStart.request?.url!=='https://example.test/a')throw new Error('storage to fetch continuation');
     const fetchEnd=await invoke(storage,'work',['fetch','a'],[],['session'],response('reply'));
@@ -627,7 +666,7 @@ try {
     if(workerFetch.request?.url!=='https://example.test/w')throw new Error(`worker fetch yields to the page: ${JSON.stringify(workerFetch)}`);
     const workerResumed=await workerInvoke('work',['fetch','w'],[],['session'],response('reply'));
     if(workerResumed.value?.text!=='w:reply'||workerResumed.writes[0]?.[1]!=='w')throw new Error(`worker fetch resume: ${JSON.stringify(workerResumed)}`);
-    // `exactBodyFrom` sends the path alone from either realm, and fetch's own refusals are
+    // LLP 1108 D6 R2: `exactBodyFrom` sends the path alone from either realm, and fetch's own refusals are
     // TypeErrors in both; the page then reads the file from the store into the body (http-body.js) as a Blob.
     const bodyFromRefusals=['TypeError: exactBodyFrom must be an app:/ path','TypeError: exactBodyFrom must be an app:/ path',
       'TypeError: exactBodyFrom: an app:/ path has no . or .. segment','TypeError: fetch: a request has one body: body or exactBodyFrom',
@@ -646,17 +685,21 @@ try {
       const photo=new Uint8Array(300000).map((_,i)=>(Math.imul(i,2654435761)>>>13)&255);
       const files=createFileStore(storageIdentity.appId);
       await files.writeFile('app:/data/photo.jpg',photo);
-      // A picked file's entry is the browser's own File.
+      // A picked file's entry is the browser's own File (LLP 1069.002 D5).
       await files.putBlob('app:/data/picked.jpg',new File([photo],'picked.jpg',{type:'image/jpeg'}));
       files.close();
       const sent=[], fetchBefore=globalThis.fetch;
-      globalThis.fetch=async(url,init)=>{sent.push({url:String(url),body:init.body,headers:init.headers});return new Response('stored');};
+      globalThis.fetch=async(url,init)=>{
+        sent.push({url:String(url),body:init.body,headers:init.headers});
+        return Object.defineProperty(new Response('stored'),'url',{value:String(url)});
+      };
       try {
         const host={grantSet:storageIdentity.grantSet,controllers:new Set(),bodyFile:(path,grants)=>requestBody(storageIdentity.appId,grants,path)};
         const op=(path,headers=[])=>({op:'request',ticket:1,method:'POST',url:'https://example.test/upload',headers,body:'',bodyFrom:path,cache:'default',scope:null});
         const typed=await runRequest(op('app:/data/photo.jpg',[['content-type','image/jpeg']]),host);
         const picked=await runRequest(op('app:/data/picked.jpg'),host);
         if(typed.kind!==0||picked.kind!==0||sent.length!==2)throw new Error(`exactBodyFrom on the page: ${typed.kind} ${picked.kind} ${sent.length}`);
+        for(const reply of [typed,picked])if(reply.status!==200||new TextDecoder().decode(reply.body)!=='stored')throw new Error('exactBodyFrom: the upload reply changed');
         // The file's bytes as a Blob with no type, so the browser adds no Content-Type; the author's headers as they were.
         for(const one of sent)if(!(one.body instanceof Blob)||one.body.type!==''||await hash(await one.body.arrayBuffer())!==await hash(photo))throw new Error('exactBodyFrom: the body is not the file as an untyped Blob');
         if(JSON.stringify(sent[0].headers)!=='[["content-type","image/jpeg"]]'||sent[1].headers.length)throw new Error('exactBodyFrom: the headers changed');
@@ -692,7 +735,7 @@ try {
     const abandonedSource=`let invocation=0;globalThis.exact={abi:1,appId:'dev.exact.storage-test',grants:${JSON.stringify(storageIdentity.grants)},answer(source,args,store,storage){
       if(invocation++===0){void storage.fs.stat('app:/data').then(()=>store.set('session','orphan'));throw new Error('abandoned');}
       return storage.fs.stat('app:/data').then(()=>({text:'current'}));}};`;
-    // An abandoned call's storage is the background's, and an answer queued behind it parks until a
+    // LLP 1097 D7: an abandoned call's storage is the background's, and an answer queued behind it parks until a
     // background round delivers it, as the runner's background ticket runs one: start the answer, run the rounds
     // while the background holds the queue's head, then take the answer.
     const drained=async(realm,source,args,store,grants)=>{
@@ -705,12 +748,12 @@ try {
     const next=await drained(abandoned,'work',[],[],['session']);
     if(first.tag!==2||next.value?.text!=='current'||next.writes.length)throw new Error('abandoned completion entered another invocation');
     abandoned.dispose();
-    // A let-go chain keeps running; the host never closes a handle
+    // LLP 1097 D7 (Charlie, 2026-10-07): a let-go chain keeps running; the host never closes a handle
     // for it, so the chain closes its own in a finally. Its store write fails there (the background
     // has no store) while the close still runs, and the next open finds the database free.
     const openChain=close=>`let invocation=0;globalThis.exact={abi:1,appId:'dev.exact.storage-test',grants:${JSON.stringify(storageIdentity.grants)},answer(source,args,store,storage){
       if(invocation++===1){void storage.sqlite.open('app:/data/notes.db').then(${close?"async db=>{try{store.set('session','orphan');}finally{await db.close();}}":"db=>{store.set('session','orphan');return db.close();}"});throw new Error('abandoned open');}
-      return storage.sqlite.open('app:/data/notes.db').then(db=>db.close()).then(()=>({text:'current'}),()=>({text:'busy'}));}};`;
+      return storage.sqlite.open('app:/data/notes.db').then(db=>db.close()).then(()=>({text:'current'}),e=>({text:e.code}));}};`;
     const abandonedOpen=await prepare(await payload(openChain(true),storageIdentity),storageIdentity);
     await invoke(abandonedOpen,'work',[],[],['session']);
     if((await invoke(abandonedOpen,'work',[],[],['session'])).tag!==2)throw new Error('open abandonment fixture');
@@ -729,8 +772,10 @@ try {
     const leakingOpen=await prepare(await payload(openChain(false),storageIdentity),storageIdentity);
     await invoke(leakingOpen,'work',[],[],['session']);
     await invoke(leakingOpen,'work',[],[],['session']);
-    let leakLines=[];
-    for(let attempt=0;attempt<20&&!leakLines.some(l=>/is still open/.test(l));attempt++){await drained(leakingOpen,'work',[],[],['session']);leakLines=leakLines.concat(leakingOpen.journal());}
+    let leakLines=[];const leakAnswers=[];
+    for(let attempt=0;attempt<20&&!leakLines.some(l=>/is still open/.test(l));attempt++){leakAnswers.push((await drained(leakingOpen,'work',[],[],['session'])).value?.text);leakLines=leakLines.concat(leakingOpen.journal());}
+    // The open the leaked one holds back is refused as busy, the code its lock gives.
+    if(!leakAnswers.includes('EBUSY')||leakAnswers.some(t=>t!=='EBUSY'&&t!=='current'&&t!==undefined))throw new Error(`a held database's open is EBUSY: ${JSON.stringify(leakAnswers)}`);
     if(!leakLines.some(l=>l.includes('app:/data/notes.db is still open')&&l.includes('finally { db.close() }')))throw new Error(`a let-go chain's open database was not journaled: ${JSON.stringify(leakLines)}`);
     leakingOpen.dispose();
     const {createFileSystem}=await import('/storage-fs.js');
@@ -881,6 +926,16 @@ try {
     if((await copied.query('SELECT value FROM t')).rows[0][0]!==42n)throw new Error('copied database contents');
     const prepared=await copied.prepare('SELECT value FROM t');await copied.close();
     await refused(prepared.query());
+    // OR FAIL keeps, and outside a transaction commits, the rows the statement
+    // changed before its error (https://www.sqlite.org/lang_conflict.html).
+    const failing=await sql.open('app:/data/fail.db');
+    await failing.execute('CREATE TABLE t (x INTEGER UNIQUE)');
+    await failing.execute('INSERT INTO t VALUES (1)');
+    await refused(failing.execute('INSERT OR FAIL INTO t VALUES (2),(1)'));
+    await failing.close();
+    const reopened=await sql.open('app:/data/fail.db');
+    const kept=(await reopened.query('SELECT x FROM t ORDER BY x')).rows.map(r=>r[0]).join();await reopened.close();
+    if(kept!=='1,2')throw new Error(`rows a failing OR FAIL statement kept were not saved: ${kept}`);
     const reloadApp='test.browser.sqlite-overlap';
     let current=createSqlite(reloadApp,fsSet);
     const coldStart=performance.now();
@@ -942,7 +997,7 @@ try {
   })()`,returnByValue:true,awaitPromise:true});
   assert.equal(persisted.exceptionDetails,undefined,JSON.stringify(persisted.exceptionDetails));
   assert.equal(persisted.result.value,true,'storage survives full page reload');
-  // On a LAN dev page: plain HTTP to a name that is not
+  // LLP 1069.005 D1 on a LAN dev page: plain HTTP to a name that is not
   // loopback is no secure context, so neither realm has `crypto.subtle`.
   // SHA-256 is the dev protocol's (here the fixture server's); SHA-384
   // refuses by name; `randomUUID` is formed from `getRandomValues`.
@@ -986,7 +1041,7 @@ try {
     return result.result.value;
   };
   const frames='await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))';
-  // HTML's `change` commits a text field on blur: type, then leave.
+  // HTML's `change` commits a text field on blur (LLP 1069.001): type, then leave.
   const type=async text=>{await call('Input.insertText',{text});await evaluate(`document.getElementById('editor').blur()`);};
   const click=async id=>{
     const point=await evaluate(`(()=>{const r=document.getElementById(${JSON.stringify(id)}).getBoundingClientRect();return {x:r.x+20,y:r.y+20};})()`);
@@ -1032,13 +1087,13 @@ try {
       await click('action');await click('editor');await type('ready');
       const active=await evaluate(`({dispatch:startup.dispatch,value:document.getElementById('editor').value,disabled:document.getElementById('disabled').disabled})`);
       assert.equal(active.dispatch.some(event=>event.id===2&&event.kind===0),true,'ready button dispatches');
-      // A text field's committed value is kind 41, its selection then its value (navigation.js `controlEvent`); kind 1 is a non-text control's `change`, as the range's below.
+      // A text field's committed value is kind 41, its selection then its value (navigation.js `controlEvent`, x2apps codeedit #2); kind 1 is a non-text control's `change`, as the range's below.
       assert.equal(active.dispatch.some(event=>event.id===3&&event.kind===41&&event.value.includes('ready')),true,'ready input dispatches edits');
       assert.equal(active.value.includes('ready'),true);assert.equal(active.disabled,true,'authored disabled state survives activation');
       assert.deepEqual(await evaluate(`['disabled-on-activation','enabled-on-activation'].map(id=>document.getElementById(id).disabled)`),[true,false],'activation prop changes override originally authored disabled state');
-      // The range is controlled: an edit reaches the app, and the
+      // The range is controlled (LLP 1069.001): an edit reaches the app, and the
       // control keeps the person's value until its bound value changes, which this
-      // stub never does (the web never snaps a valued control back).
+      // stub never does (D4, amended 2026-10-04: the web never snapped a valued control back).
       const rangeEdits=`startup.dispatch.filter(event=>event.id===6&&event.kind===1).map(event=>event.value)`;
       await rangeKeyboard();
       assert.deepEqual(await evaluate(rangeEdits),['51'],'activated range accepts native keyboard editing');
@@ -1105,6 +1160,8 @@ import { chromium } from './scripts/agent-launch.mjs';
 const { executable: browserExecutable, unavailable: browserMissing } = chromium();
 if (browserMissing) { console.log(`missing chrome: ${browserMissing}`); process.exit(0); }
 import { webHostFiles } from './scripts/app.mjs';
+import { buildHostGlue } from './host/web-js/glue.mjs';
+await buildHostGlue(process.cwd());
 import { moduleBinding, moduleInterfaces } from './js/bake/src/typescript.mjs';
 import { rolldown } from 'rolldown';
 import { spawn } from 'node:child_process';
@@ -1258,8 +1315,8 @@ try {
 }
 "#;
 
-/// A prerequisite this run lacks: skipped, and a failure under EXACT_REQUIRED=1
-/// (scripts/coverage.mjs).
+/// A prerequisite this run lacks: skipped, and a failure under EXACT_REQUIRED=1,
+/// which the async lane sets (scripts/coverage.mjs).
 fn missing(kind: &str, why: &str) {
     assert_ne!(
         std::env::var("EXACT_REQUIRED").as_deref(),

@@ -1,9 +1,9 @@
-// The agent's input helpers: a guest frame's outline, taps and typing, a target's reveal, the boxes and
+// The agent's input helpers (LLP 1012): a guest frame's outline, taps and typing, a target's reveal, the boxes and
 // scroll ranges `layout` reports, and the glides `clock settle` waits for. Loaded only where the agent drives the
 // page (glue.js `agentInputReady`, the JS target's agent.js); the input glue keeps what a person's input needs.
 import { backButton } from "./input-glue.js";
 // A same-origin guest joins `tree` as a compact, bounded outline. Access to
-// a sandboxed or cross-origin document is simply absent.
+// a sandboxed or cross-origin document is simply absent (@ref LLP 1020 D4).
 export function guestOutline(frame) {
   let doc;
   try { doc = frame.contentDocument; } catch { return null; }
@@ -48,7 +48,8 @@ export function guestTap(frame, request) {
   catch { return { guest: true, malformed: true, error: "guest tap has an invalid selector" }; }
   target ||= document.elementFromPoint(x, y) || document.body;
   if (!target) return { guest: true, error: "guest tap found no target" };
-  // Script input is intentionally untrusted.
+  // Script input is intentionally untrusted (@ref LLP 1020 D4;
+  // exact1 20260806-webview-frame-guest-click-delivery).
   target.dispatchEvent(new guest.PointerEvent("pointerdown", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 1 }));
   target.dispatchEvent(new guest.PointerEvent("pointerup", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 0 }));
   target.dispatchEvent(new guest.MouseEvent("click", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0 }));
@@ -67,7 +68,7 @@ export function guestType(frame, request) {
   target ||= editable || document.querySelector("input,textarea,[contenteditable]");
   if (!target) return { guest: true, error: "guest type found no target" };
   // These are the Apple guest script's event shapes, including focus and
-  // isTrusted:false.
+  // isTrusted:false (@ref LLP 1020 D4).
   target.focus();
   if (request.key != null) {
     const key = String(request.key);
@@ -84,7 +85,7 @@ export function guestType(frame, request) {
 // What a guest field holds, as the reply shows it: a password's is a fixed mark, whatever its length (#134).
 const guestValue = (target) => "value" in target ? (target.type === "password" && target.value ? "•••" : target.value) : target.textContent;
 
-// The agent's `reveal`: before a tap or a type, a
+// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
 // target whose middle is out of view is scrolled to the middle of its
 // nearest scroll containers, then of the page (across, only as far as it
 // takes) — Playwright's actionability scroll, the web's own `scrollIntoView`. A scroll event reaches the app as a
@@ -157,7 +158,7 @@ function clear(el, middle) {
   return port.scrollTop === before ? null : middle();
 }
 
-// A text folded into its box's content: `display: contents`, or an inline box under a box that restricts
+// A text folded into its box's content (LLP 1007.001): `display: contents`, or an inline box under a box that restricts
 // touch. A paragraph's inline runs are not `data-exact-text`; only the paragraph is.
 const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
 
@@ -182,7 +183,7 @@ export function viewBox(el) {
   return stretch ? new DOMRect(left, t.y, right - left, t.height) : t;
 }
 
-// How far a scroller's offset travels on each axis from one end to the other (`rx`/`ry`), whether or not the
+// How far a scroller's offset travels on each axis from one end to the other (LLP 1012 `rx`/`ry`), whether or not the
 // person can scroll it that way: `overflow: hidden` keeps a programmatic range.
 export function scrollRange(el) {
   const r2 = (x) => Math.round(x * 100) / 100;
@@ -237,9 +238,9 @@ export function selectAll(el) {
   if (was === null || now === null) requestAnimationFrame(() => requestAnimationFrame(heard));
   return event;
 }
-// `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's
+// LLP 1069.001 D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's
 // `input`, then `change`. A select takes one of its enabled options by value, else by its one label (Playwright's
-// `selectOption`); a checkbox takes `true` or `false` and is clicked when that
+// `selectOption`, the diaries' kanban F17 and shop F10); a checkbox takes `true` or `false` and is clicked when that
 // differs, as a person would. The page's `inertAncestor` and `settleValue` (navigation.js) are passed in.
 export function typeControl(el, request, inertAncestor, settleValue) {
   let text = String(request.text ?? "");
@@ -253,7 +254,7 @@ export function typeControl(el, request, inertAncestor, settleValue) {
     if (el.checked !== (text === "true")) el.click();
     return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
   }
-  // A radio is checked by choosing it, and unchecked only by checking another.
+  // A radio is checked by choosing it, and unchecked only by checking another (x2apps survey #2).
   if (el.type === "radio") {
     if (text !== "true") return { handled: true, error: text === "false" ? `radio ${id} is unchecked by checking another of its group` : `radio ${id} takes true, not ${JSON.stringify(text)}` };
     if (!el.checked) el.click();
@@ -266,8 +267,22 @@ export function typeControl(el, request, inertAncestor, settleValue) {
       return { handled: true, error: `select ${id} has no enabled option ${JSON.stringify(text)}${labelled.length > 1 ? " (that label is on more than one option: choose by value)" : ""} (options: ${enabled.map((o) => `${JSON.stringify(o.value)} ${JSON.stringify(o.label)}`).join(", ")})` };
   }
   if (el.type === "range" && !(text.trim() !== "" && Number.isFinite(Number(text)))) return { handled: true, error: `${JSON.stringify(text)} is not a number` };
+  const previous = el.value;
   el.value = text;
-  if (el.value !== text && el instanceof HTMLInputElement && el.type !== "range") return settleValue(el), { handled: true, error: `${JSON.stringify(text)} is not a value an input type=${el.type} takes; it sanitized to ${JSON.stringify(el.value)}` };
+  if (el instanceof HTMLInputElement) {
+    // HTML sanitizes valid dates, colors and text too. Only a lost typed
+    // value (or a color replaced by the default) is a refusal.
+    const refused = /^(date|time|datetime-local|month|week|number)$/.test(el.type)
+      ? text !== "" && el.value === ""
+      : el.type === "color" ? el.value.toLowerCase() !== text.toLowerCase()
+      : !/^(range|text|search|tel|email|url|password)$/.test(el.type) && el.value !== text;
+    if (refused) {
+      const sanitized = el.value;
+      el.value = previous;
+      settleValue(el);
+      return { handled: true, error: `${JSON.stringify(text)} is not a value an input type=${el.type} takes; it sanitized to ${JSON.stringify(sanitized)}` };
+    }
+  }
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: id, value: el.value, delivery: "recognized", handled: true };

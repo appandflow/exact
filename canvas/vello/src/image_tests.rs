@@ -46,7 +46,7 @@ fn hundreds_of_decoded_images_have_a_cost_bound_and_live_scenes_keep_their_pixel
         assert_eq!(decoded.data.data()[0], (i % 251) as u8);
     }
     let bytes = ecg_memory();
-    eprintln!("decoded images=400 bytes={bytes}");
+    eprintln!("D3 decoded images=400 bytes={bytes}");
     assert!(
         bytes <= 32 * 1024 * 1024,
         "decoded cache holds {bytes} bytes"

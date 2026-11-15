@@ -1,4 +1,4 @@
-//! The router's boundary, not another router corpus.
+//! @ref LLP 1038 D3–D5, D7, D11 — the boundary, not another router corpus.
 #[path = "support/router.rs"]
 mod fixture;
 use exact_kernel::Kernel;
@@ -113,7 +113,7 @@ fn scroll(visit: &Value, fragment: &str, activation: u64) -> Vec<Value> {
     vec![visit.clone(), Value::str(fragment), activation]
 }
 
-/// The fragment rides on the visit; a host is told to
+/// @ref LLP 1153 D5 — the fragment rides on the visit; a host is told to
 /// scroll to it on a new visit, a changed fragment or a navigation to it,
 /// never on a return by Back or by a location without one.
 #[test]
@@ -179,7 +179,7 @@ fn a_fragment_rides_on_the_visit_and_asks_one_scroll_per_activation() {
     assert_eq!(r.derive("fragment"), Some(&Value::str("")));
 }
 
-/// A navigation is a router value assigned to the
+/// @ref LLP 1153 D5 — a navigation is a router value assigned to the
 /// router's slot by a commit that lands: a `go` merely computed, or one
 /// whose commit is refused, scrolls nothing and spends no activation.
 #[test]
@@ -201,6 +201,42 @@ fn only_a_navigation_assigned_to_the_router_scrolls() {
     assert!(fragment_scrolls(&mut r).is_empty(), "refused");
     assert_eq!(act(&mut r, "go", "/t/7#moves").unwrap().activation, 2);
     assert_eq!(fragment_scrolls(&mut r), [scroll(&visit, "moves", 2)]);
+}
+
+/// A table counts its locations without the `notfound` row; a push of the
+/// one location it declares is no new visit.
+#[test]
+fn a_table_of_one_location_says_so() {
+    let route = |name: &str, pattern: &str, notfound: bool| Route {
+        name: name.into(),
+        pattern: pattern.into(),
+        parent: None,
+        tab: false,
+        notfound,
+    };
+    let one = |routes: Vec<Route>| boot(fixture::plan(&Table { routes }), "/").route_one_location();
+    assert!(one(vec![route("home", "/", false)]));
+    assert!(!one(vec![
+        route("home", "/", false),
+        route("add", "/add", false)
+    ]));
+    assert!(one(vec![
+        route("home", "/", false),
+        route("notfound", "", true)
+    ]));
+    assert!(!boot(fixture::plan(&table()), "/").route_one_location());
+    let mut r = boot(
+        fixture::plan(&Table {
+            routes: vec![route("home", "/", false)],
+        }),
+        "/",
+    );
+    act(&mut r, "push", "/");
+    assert_eq!(
+        nav(&r).tabs[0].stack.len(),
+        1,
+        "a push of the one location is no visit"
+    );
 }
 
 #[test]
@@ -543,7 +579,7 @@ fn a_deep_launch_answering_later_cannot_show_another_locations_compiled_value() 
     b.set_resource_initial_args(resource, &[Value::str("/")]);
     let plan = b.finish().unwrap();
     let calls = Rc::new(RefCell::new(0));
-    // The deep launch shows the type's zero,
+    // @ref LLP 1054.000.002 D1 — the deep launch shows the type's zero,
     // pending, never another location's compiled value.
     let mut deep = Runner::boot(
         plan.clone(),
@@ -835,7 +871,7 @@ fn at<'a>(v: &'a Value, path: &[usize]) -> &'a Value {
     })
 }
 
-/// A host's own Back for a route with no Back control goes to
+/// LLP 1115 D5: a host's own Back for a route with no Back control goes to
 /// the location of the visit beneath it, on whichever stack holds it.
 #[test]
 fn the_location_beneath_a_visit_is_its_stacks_previous_entry() {
@@ -865,7 +901,7 @@ fn the_location_beneath_a_visit_is_its_stacks_previous_entry() {
     );
 }
 
-/// With no `navigate` handler: the host's own Back is the
+/// LLP 1115 D5 with no `navigate` handler: the host's own Back is the
 /// router's `back`, one commit journaled as `host back`, and only from the
 /// selected top that has a visit beneath it.
 #[test]
@@ -947,7 +983,7 @@ fn a_host_history_jump_selects_the_exact_visit_in_one_commit() {
     assert!(r.take_router_change().is_none());
 }
 
-/// With no `navigate` handler: the host's own navigation
+/// LLP 1115.000 D4.3 with no `navigate` handler: the host's own navigation
 /// to a location (the browser's Forward, a link to a declared route) is the
 /// router's `go`, one commit journaled as `host go`; nothing when `go`
 /// leaves the router as it is.
@@ -987,4 +1023,109 @@ fn a_host_go_goes_to_a_location_as_its_own_commit() {
             .count(),
         1
     );
+}
+
+#[test]
+fn a_refused_forward_keeps_history_and_does_not_mark_the_next_commit() {
+    for handler in ["goAndTrap", "peek"] {
+        let mut b = fixture::builder(&table());
+        let action = b
+            .plan()
+            .actions
+            .iter()
+            .position(|a| b.plan().str(a.name) == handler)
+            .unwrap();
+        b.node(
+            exact_kernel::NodeType::View as u8,
+            Some(exact_plan::NodesId(0)),
+            None,
+            1,
+            &[],
+            &[(
+                exact_plan::EventKind::Navigate,
+                exact_plan::ActionsId(action as u32),
+                &[],
+            )],
+            None,
+        );
+        let mut r = boot(b.finish().unwrap(), "/");
+        for location in ["/t/a", "/t/b", "/t/a"] {
+            act(&mut r, "push", location);
+        }
+        act(&mut r, "back", "");
+        let before = nav(&r);
+        let root = r.roots()[0];
+        let target = r.kernel().node(root).unwrap().children()[0];
+        let result = r.host_forward(target);
+        assert_eq!(result.is_err(), handler == "goAndTrap", "{result:?}");
+        assert_eq!(nav(&r), before);
+        assert_eq!(r.location_ahead().as_deref(), Some("/t/a"));
+        // This is an ordinary Back to the same URL the refused Forward named.
+        act(&mut r, "go", "/t/a");
+        assert_eq!(r.location_ahead().as_deref(), Some("/t/b"));
+        let fallback_root = r.roots()[0];
+        r.host_forward(fallback_root).unwrap();
+        assert_eq!(r.location_ahead().as_deref(), Some("/t/a"));
+        r.host_forward(fallback_root).unwrap();
+        assert_eq!(r.location_ahead(), None);
+        assert!(r.host_forward(fallback_root).unwrap().is_none());
+
+        act(&mut r, "push", "/t/a");
+        act(&mut r, "push", "/t/b");
+        act(&mut r, "back", "");
+        act(&mut r, "replace", "/t/b#draft");
+        let before = nav(&r);
+        let result = r.host_forward(target);
+        assert_eq!(result.is_err(), handler == "goAndTrap", "{result:?}");
+        assert_eq!(nav(&r), before);
+        assert_eq!(r.location_ahead().as_deref(), Some("/t/b"), "{handler}");
+    }
+}
+
+#[test]
+fn forward_to_the_current_location_consumes_one_destination() {
+    for handler in [None, Some("go")] {
+        let mut b = fixture::builder(&table());
+        if let Some(handler) = handler {
+            let action = b
+                .plan()
+                .actions
+                .iter()
+                .position(|a| b.plan().str(a.name) == handler)
+                .unwrap();
+            b.node(
+                exact_kernel::NodeType::View as u8,
+                Some(exact_plan::NodesId(0)),
+                None,
+                1,
+                &[],
+                &[(
+                    exact_plan::EventKind::Navigate,
+                    exact_plan::ActionsId(action as u32),
+                    &[],
+                )],
+                None,
+            );
+        }
+        let mut r = boot(b.finish().unwrap(), "/");
+        for location in ["/t/a", "/t/b"] {
+            act(&mut r, "push", location);
+        }
+        act(&mut r, "replace", "/t/a");
+        act(&mut r, "push", "/t/b");
+        act(&mut r, "back", "");
+        act(&mut r, "back", "");
+        let before = nav(&r);
+        let root = r.roots()[0];
+        let target = match handler {
+            Some(_) => r.kernel().node(root).unwrap().children()[0],
+            None => root,
+        };
+        assert!(r.host_forward(target).unwrap().is_some(), "{handler:?}");
+        assert_eq!(nav(&r), before);
+        assert_eq!(r.location_ahead().as_deref(), Some("/t/b"));
+        r.host_forward(target).unwrap();
+        assert_eq!(exact_route::top(&nav(&r)).unwrap().url, "/t/b");
+        assert_eq!(r.location_ahead(), None);
+    }
 }

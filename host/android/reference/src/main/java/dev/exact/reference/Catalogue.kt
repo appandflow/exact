@@ -16,7 +16,7 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.graphics.toArgb
 
 /**
- * The catalogue on a phone: one specimen of `specimens.json`, `--es id <id> --es scheme
+ * The catalogue on a phone (LLP 1115.001.001 D4): one specimen of `specimens.json`, `--es id <id> --es scheme
  * light|dark`, drawn as `DrawTest` draws it on the JVM, over the whole screen with the system bars hidden, so that a
  * screenshot holds only the specimen. `--es scheme dynamic-light|dynamic-dark` draws it in the phone's own colours,
  * which the reader shows Exact's side in, and each launch logs those two schemes (tag `reference`) for the door. Once

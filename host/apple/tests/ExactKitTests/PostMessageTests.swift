@@ -5,7 +5,7 @@ import XCTest
 // postMessage parity (final review item 3): a post with no live canvas of its
 // surface name waits, at most CanvasesHost.postBound per name, as on web and Linux.
 final class PostMessageTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactSurfaces.install() }
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     func testPostsWaitForTheirSurfaceUpToTheBound() {
         let canvases = CanvasesHost()
         for _ in 0..<CanvasesHost.postBound { canvases.post("world", "buy") }

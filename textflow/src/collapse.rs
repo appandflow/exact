@@ -1,6 +1,6 @@
 //! CSS white space collapsing for a paragraph's runs, before shaping.
 //!
-//! Native engines shape strings as given; the browser
+//! @ref LLP 1053 §0 G5 — native engines shape strings as given; the browser
 //! collapses first. One preparation, shared by every native host, so that
 //! `white-space: normal` and `nowrap` text reaches CoreText and Parley as
 //! Chrome renders it (CSS Text 3 §4.1.1, as Chrome implements it):

@@ -15,7 +15,7 @@ package struct TextLineBox: Sendable {
 
     package init() {}
 
-    /// A box of these extents: an image in the text.
+    /// A box of these extents: an image in the text (LLP 1011.002).
     package init(above: CGFloat, below: CGFloat) {
         self.above = max(0, above); self.below = max(0, below); baseline = self.above
     }
@@ -43,7 +43,7 @@ package struct TextLineBox: Sendable {
 /// CSS line heights use the web host's metrics and Chrome's rounding, which
 /// is in device pixels: `scale` is the device pixels a point. The Mac passes
 /// its window's backing scale (`TextEngine.lineScale`); headless sessions and
-/// every other host pass 1, whole points.
+/// every other host pass 1, whole points (LLP 1008 §3).
 /// UIKit positions glyphs at its face's ascent within that height.
 /// On iOS PresentedText.measure returns nil; FieldChromeIOS keeps UIFont.lineHeight
 /// for native editors. Reader line boxes do not change those control metrics.

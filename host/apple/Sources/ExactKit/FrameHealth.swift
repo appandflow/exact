@@ -12,7 +12,7 @@ import AppKit
 /// source reports deadlines with unknown cadence.
 final class FrameHealth {
     /// When a collector collects: from the start, in a development build or where `app.json` says `"core"`; while
-    /// the card shows, in a production build, which no agent can attach to; or never, where it says
+    /// the card shows, in a production build, which no agent can attach to (LLP 1079.000 §9); or never, where it says
     /// `"off"`.
     enum Policy { case always, onDemand, off }
     static let policy: Policy = switch ExactEnv.appMetadata["ExactFrameHealthMode"] as? String {
@@ -67,14 +67,15 @@ final class FrameHealth {
     var requestedHertz: Float = 0
     var hudDragging = false
     /// Work a frame started that finishes later: owner work, which finishes when it lands, and a
-    /// canvas render that drew nothing, as without its drawable, which finishes when it draws.
+    /// canvas render that drew nothing, as without its drawable, which finishes when it draws
+    /// (LLP 1079.000 §4.6).
     static let tick: UInt8 = 1, advance: UInt8 = 2, canvas: UInt8 = 4
     /// A frame's work: what it started and has not finished, and whether its callback has returned.
     private struct Pending { var start, deadline, finished: Double; var waiting: UInt8; var returned: Bool }
     /// Each kind is in flight one at a time, so at most three frames wait.
     private var pending = [Pending?](repeating: nil, count: 3)
     var changed: (() -> Void)? { didSet { FrameHealthPublication.update(self) } }
-    /// A card's charts while it reads, fed by each frame
+    /// A card's charts while it reads, fed by each frame (LLP 1079.000 §7.2)
     weak var chart: FrameHealthChart?
     var ended: (() -> Void)?
     var hudVisible = false
@@ -83,15 +84,16 @@ final class FrameHealth {
     var hudBounds: CGRect?
     private(set) var virtual = false
     var publicationDirty = false
+    var publicationForced = false
     /// The source of the card's observer of the screen, whose frames have work against UIKit's deadlines and no frame
-    /// times
+    /// times (LLP 1079.000 §7.4)
     static let screenSource = "ui-update"
     var screenFrames: Bool { source == Self.screenSource }
     /// Whether it collects now
     var enabled: Bool { handle != 0 && (policy != .onDemand || demanded) }
     /// Whether it collects now or can when asked
     var available: Bool { unavailableCode == nil }
-    /// Whether it may observe native scrolling now: in a development build, while it collects
+    /// Whether it may observe native scrolling now: in a development build, while it collects (LLP 1079.000 §6.1)
     var observesNativeScrolling: Bool { enabled && Self.developmentObserver }
 
     init(policy: Policy = FrameHealth.policy, source: String = "exact-app-display-link") {
@@ -175,7 +177,7 @@ final class FrameHealth {
 
     /// Record one callback. `sent` is the owner work this frame sent, whose landing finishes it;
     /// `ran` says it did frame work of its own, and `held` that frame work waited on earlier work
-    /// in flight. A callback that started no frame work is not a frame.
+    /// in flight. A callback that started no frame work is not a frame (LLP 1079.000 §4.6).
     func record(arrival: Double, target: Double, period: Double, finished: Double,
                 held: Bool = false, ran: Bool = true, sent: UInt8 = 0, flags: UInt64 = 0) {
         guard enabled else { return }
@@ -184,7 +186,6 @@ final class FrameHealth {
         let valid = arrival.isFinite && target.isFinite && period.isFinite && finished.isFinite
             && arrival > 0 && target > 0 && period >= 0 && target >= period && finished >= arrival
         let outcome: UInt32 = sent != 0 ? 1 : ran ? 0 : held ? 2 : 3
-        if valid { expireCapture(at: arrival) }
         let accepted = valid && exact_frame_health_record(handle, Self.nanoseconds(arrival), Self.nanoseconds(target),
             Self.nanoseconds(period), Self.nanoseconds(finished), outcome, flags) != 0
         // The card's charts take the frame before the work it finished within its callback
@@ -206,7 +207,7 @@ final class FrameHealth {
         }
         guard valid else { return }
         running = true
-        (publicationOwner ?? self).publicationDue(at: finished)
+        (publicationOwner ?? self).markPublication()
     }
 
     /// Work of `kind` is about to start for the frame starting at `start`. Owner work is registered
@@ -240,7 +241,7 @@ final class FrameHealth {
         }
         guard recorded else { return }
         // A landing after the source stopped is the last change; publish it past the throttle
-        if running { (publicationOwner ?? self).publicationDue(at: now) } else { (publicationOwner ?? self).publish() }
+        (publicationOwner ?? self).markPublication(force: !running)
     }
 
     /// A canvas render that waited on its drawable will not draw: its canvas left, or the source
@@ -253,6 +254,7 @@ final class FrameHealth {
     @discardableResult
     private func finish(_ index: Int) -> Bool {
         guard let work = pending[index], work.returned, work.waiting == 0 else { return false }
+        expireCapture(at: work.finished)
         exact_frame_health_worked(handle, Self.nanoseconds(work.start), Self.nanoseconds(work.deadline), Self.nanoseconds(work.finished))
         chart?.work(start: work.start, deadline: work.deadline, finished: work.finished)
         pending[index] = nil
@@ -260,16 +262,26 @@ final class FrameHealth {
     }
 
     /// Frames whose work is still in flight, and those of them already past their deadline at `now`,
-    /// so certainly late (unresolved exposure, apart from finalized counts).
+    /// so certainly late (LLP 1079.000 §4.4: unresolved exposure, apart from finalized counts).
     func pendingFrames(at now: Double) -> (pending: Int, overdue: Int) {
         let frames = pending.compactMap { $0 }
         return (frames.count, frames.filter { now > $0.deadline }.count)
     }
 
-    func publicationDue(at now: Double) {
+    func markPublication(force: Bool = false) {
         guard changed != nil else { return }
         publicationDirty = true
-        FrameHealthPublication.request(at: now)
+        publicationForced = publicationForced || force
+    }
+
+    /// Existing frame, landing and apply passes publish after the recording hook returns.
+    /// An idle collector needs neither a timer nor a new run-loop observer.
+    func maintain(at time: Double? = nil) {
+        guard enabled else { return }
+        let now = time ?? CACurrentMediaTime()
+        if let publicationOwner { publicationOwner.maintain(at: now); return }
+        guard changed != nil, publicationDirty else { return }
+        FrameHealthPublication.request(at: now, force: publicationForced)
     }
 
     func snapshot() -> ExactFrameHealthSnapshot { enabled ? exact_frame_health_snapshot(handle) : ExactFrameHealthSnapshot() }
@@ -308,9 +320,8 @@ final class FrameHealth {
     }
 
     fileprivate func publish() {
-        guard changed != nil else { return }
-        publicationDirty = true
-        FrameHealthPublication.request(at: CACurrentMediaTime(), force: true)
+        markPublication(force: true)
+        maintain()
     }
 
     func uiReply() -> [String: Any] {

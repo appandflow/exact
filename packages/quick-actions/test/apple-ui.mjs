@@ -1,4 +1,4 @@
-// The simulator drives: ShelfReachUITests.swift, built as
+// LLP 1133.023 stage 2's simulator drives: ShelfReachUITests.swift, built as
 // an XCUITest bundle with swiftc and run through an .xctestrun on a simulator
 // that already has Shelf installed (`bun host/apple/build.mjs --ios shelf-apple
 // --sim <udid> --run`), with no Xcode project:
@@ -38,7 +38,7 @@ for (const [key, value] of Object.entries({ CFBundleExecutable: 'XCTRunner', CFB
 const frameworks = resolve(runner, 'Frameworks');
 mkdirSync(frameworks, { recursive: true });
 for (const f of ['XCTest.framework', 'XCUIAutomation.framework', 'Testing.framework', '_Testing_Foundation.framework']) cpSync(`${platform}/Library/Frameworks/${f}`, resolve(frameworks, f), { recursive: true });
-for (const f of ['XCTestCore.framework', 'XCUnit.framework', 'XCTAutomationSupport.framework', 'XCTestSupport.framework']) cpSync(`${platform}/Library/PrivateFrameworks/${f}`, resolve(frameworks, f), { recursive: true });
+for (const f of ['XCTestCore.framework', 'XCTAutomationSupport.framework', 'XCTestSupport.framework']) cpSync(`${platform}/Library/PrivateFrameworks/${f}`, resolve(frameworks, f), { recursive: true });
 for (const f of ['libXCTestSwiftSupport.dylib', 'lib_TestingInterop.dylib']) cpSync(`${platform}/usr/lib/${f}`, resolve(frameworks, f));
 run('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-module-name', name, '-target', 'arm64-apple-ios17.0-simulator', '-sdk', sdk,
   '-F', `${platform}/Library/Frameworks`, '-I', `${platform}/usr/lib`, '-L', `${platform}/usr/lib`, '-framework', 'XCTest', '-framework', 'XCUIAutomation',

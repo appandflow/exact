@@ -7,7 +7,7 @@ import XCTest
 private var seenIds: Set<UInt32> = []
 
 /// A canvas's `CAMetalLayer` is lent from the process's spare ones and given
-/// back when its view goes (`MetalCanvasView`, `MetalLayerPool`):
+/// back when its view goes (`MetalCanvasView`, `MetalLayerPool`; LLP 1068 §4.5):
 /// the next canvas draws into the same layer's drawables instead of making
 /// three more. The layer still holds the picture last presented to it, so it
 /// stays hidden until the module says the new canvas's first frame is with
@@ -15,7 +15,7 @@ private var seenIds: Set<UInt32> = []
 /// the box's background, never the old row's. UIKit, so a simulator runs it:
 ///   bun host/apple/build.mjs --test --ios
 final class CanvasLayerPoolIOSTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactSurfaces.install() }
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     override func setUp() {
         MetalLayerPool.drain()
         seenIds = []

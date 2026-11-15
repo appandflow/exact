@@ -1,4 +1,4 @@
-//! Requests the server holds, the runner half: pending as
+//! Requests the server holds (LLP 1016.000 D9), the runner half: pending as
 //! any request, but no clock waits on one; the work its reply starts does.
 use super::*;
 use crate::{Outcome, Response, Store};
@@ -146,7 +146,10 @@ fn an_unmarked_long_hold_is_still_waited_on() {
     r.act("wave", vec![Value::Number(2.)]).unwrap();
     let (ticket, request) = one_request(&mut r);
     assert!(!request.held);
-    assert!(r.has_pending(), "what is in flight is waited on");
+    assert!(
+        r.has_pending(),
+        "calendar F10: what is in flight is waited on"
+    );
     assert_eq!(r.in_flight(), vec![("changes".to_string(), ticket)]);
     assert!(r.held_requests().is_empty());
 }

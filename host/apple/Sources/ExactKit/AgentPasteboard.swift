@@ -1,9 +1,9 @@
-// The pasteboard a drive writes instead of the person's:
+// The pasteboard a drive writes instead of the person's (LLP 1133.006 §7):
 // `copyText`'s, and @exact/clipboard's implementation's by the same rule and
 // name (packages/clipboard/apple/Clipboard.swift). Under the agent, unless the
 // drive binds the clipboard as in production (`--bind clipboard`,
 // `EXACT_AGENT_BIND`, which the implementation hears as `context.agent`) or
-// asks for the real device (`EXACT_DEVICE=real`). Named for
+// asks for the real device (`EXACT_DEVICE=real`, LLP 1069.007 D8). Named for
 // the session, and removed when it ends or the process exits, since a named
 // pasteboard outlives its writer. Where it cannot be made nothing is written.
 import Foundation

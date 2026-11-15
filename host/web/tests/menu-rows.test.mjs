@@ -1,20 +1,23 @@
-// The menu rule in a real browser: a popover a row of a menu (`role="menu"`) opens is opened as if by
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// exact2's menu rule in a real browser (LLP 1021; theme2 2026-10-21 19:47,
+// 22:05): a popover a row of a menu (`role="menu"`) opens is opened as if by
 // the menu's own invoker, so the menu closing as its row is chosen doesn't
 // take it along; a submenu, itself a menu, stays nested in its menu; a row
 // that hides its menu is unchanged. Both web targets run host/web/menu-rows.js.
 import { expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
 const page = `<!doctype html>
+<input id="draft" aria-label="Draft">
 <button id="opener" popovertarget="menu">Message</button>
 <div id="menu" popover role="menu">
   <button id="react" popovertarget="picker">Add Reaction…</button>
@@ -87,7 +90,7 @@ async function inChrome(test) {
       for (let i = 0; i < 100; i++) { if (JSON.stringify(await evaluate(expression)) === JSON.stringify(want)) return; await evaluate('new Promise(requestAnimationFrame)'); }
       expect(await evaluate(expression)).toEqual(want);
     };
-    await test(evaluate, press, until, enter);
+    await test(evaluate, press, until, enter, call);
   } finally {
     await suite.close();
     server.close();
@@ -104,6 +107,56 @@ check('a menu row opens its popover from the menu\'s invoker, the menu closes an
   // A press in the picker keeps it open: the menu, now closed, was never its ancestor.
   await press('emoji');
   await until('open()', ['picker']);
+}), 60000);
+
+check('menu focus follows opening and dismissal, while authored focus and light dismissal win', () => inChrome(async (evaluate, press, until, enter) => {
+  const focused = 'document.activeElement.id';
+  await enter('opener');
+  await until(focused, 'react');
+  await enter('more');
+  await until(focused, 'deep');
+  await evaluate(`document.getElementById('submenu').hidePopover()`);
+  await until(focused, 'more');
+  await evaluate(`document.getElementById('menu').hidePopover()`);
+  await until(focused, 'opener');
+
+  await evaluate(`document.getElementById('more').autofocus = true`);
+  await enter('opener');
+  await until('open()', ['menu']);
+  expect(await evaluate(focused)).toBe('more');
+  // A real outside press closes the menu and keeps the control it focused.
+  await evaluate(`document.body.insertAdjacentHTML('beforeend', '<button id="outside">Outside</button>')`);
+  await press('outside');
+  await until('open()', []);
+  expect(await evaluate(focused)).toBe('outside');
+
+  // Without an eligible row the menu itself takes focus, without changing its authored tabindex.
+  await evaluate(`{ const m = document.getElementById('menu'), b = document.getElementById('opener'); m.replaceChildren(); b.focus(); m.showPopover({ source: b }); }`);
+  await until(focused, 'menu');
+  await evaluate(`document.getElementById('menu').hidePopover()`);
+  await until(focused, 'opener');
+  expect(await evaluate(`document.getElementById('menu').getAttribute('tabindex')`)).toBe(null);
+}), 60000);
+
+check('removing an open menu restores its focusable source or prior focus, unless focus moved elsewhere', () => inChrome(async (evaluate, press, until) => {
+  const focused = 'document.activeElement.id';
+  for (const source of ['opener', null, 'plain']) {
+    const options = source ? `{ source: document.getElementById('${source}') }` : '';
+    await evaluate(`{
+      document.getElementById('draft').focus();
+      window.keptMenu = document.getElementById('menu');
+      keptMenu.showPopover(${options});
+    }`);
+    await until(focused, 'react');
+    await evaluate('keptMenu.remove()');
+    await until(focused, source === 'opener' ? 'opener' : 'draft');
+    await evaluate('document.body.appendChild(keptMenu)');
+  }
+  await press('opener');
+  await until(focused, 'react');
+  await evaluate(`{ const plain = document.getElementById('plain'); plain.tabIndex = -1; plain.focus(); keptMenu.remove(); }`);
+  await until(`document.getElementById('opener').hasAttribute('data-exact-open')`, false);
+  expect(await evaluate(focused)).toBe('plain');
 }), 60000);
 
 check('a button is marked open while the popover it opened is open, a submenu\'s row too', () => inChrome(async (evaluate, press, until) => {
@@ -235,6 +288,34 @@ check('a submenu\'s row opens its popover from the outermost menu\'s invoker, an
   await press('deeper');
   await until('open()', ['picker']);
   expect(await evaluate('sources.picker')).toBe('opener');
+}), 60000);
+
+check('a menu\'s button and link rows are menu items, and a role the author writes is theirs', () => inChrome(async (evaluate, press, until, enter, call) => {
+  // Chrome's accessibility tree, as a screen reader meets each node.
+  const roles = async ids => {
+    const { root } = await call('DOM.getDocument', { depth: 0 }), out = [];
+    for (const id of ids) {
+      const { nodeId } = await call('DOM.querySelector', { nodeId: root.nodeId, selector: '#' + id });
+      out.push((await call('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false })).nodes[0]?.role?.value);
+    }
+    return out;
+  };
+  const attrs = ids => evaluate(`${JSON.stringify(ids)}.map(id => { const el = document.getElementById(id); return [el.getAttribute('role'), el.hasAttribute('data-exact-menuitem')]; })`);
+  await evaluate(`document.getElementById('menu').insertAdjacentHTML('beforeend', '<a id="site" href="#site">Site</a><button id="pinned" role="menuitemcheckbox" aria-checked="true">Pinned</button><div id="inside" popover><button id="inner">Inner</button></div>')`);
+  await press('opener');
+  await until('open()', ['menu']);
+  expect(await roles(['react', 'site', 'pinned', 'opener', 'menu'])).toEqual(['menuitem', 'menuitem', 'menuitemcheckbox', 'button', 'menu']);
+  // A popover the menu holds that is no menu holds no items; nor does a popover outside it.
+  expect(await attrs(['inner', 'emoji'])).toEqual([[null, false], [null, false]]);
+  // A role the author writes replaces the host's; taken away, the host's comes back.
+  await evaluate(`document.getElementById('react').setAttribute('role', 'menuitemradio')`);
+  expect(await attrs(['react'])).toEqual([['menuitemradio', false]]);
+  await evaluate(`document.getElementById('react').removeAttribute('role')`);
+  expect(await attrs(['react'])).toEqual([['menuitem', true]]);
+  // A link without its `href`, and a row that leaves the menu, are no items; a row added to the open menu is one.
+  await evaluate(`document.getElementById('site').removeAttribute('href'); document.body.append(document.getElementById('more')); document.getElementById('menu').append(Object.assign(document.createElement('button'), { id: 'added', textContent: 'Added' }))`);
+  expect(await attrs(['site', 'more', 'added'])).toEqual([[null, false], [null, false], ['menuitem', true]]);
+  expect(await roles(['added'])).toEqual(['menuitem']);
 }), 60000);
 
 check('a row that invokes no popover, a dialog\'s command, keeps HTML\'s own activation', () => inChrome(async (evaluate, press, until) => {

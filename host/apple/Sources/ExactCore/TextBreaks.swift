@@ -1,6 +1,6 @@
-// CSS line breaking on Apple (CSS Text 3 §5): where a line may
+// CSS line breaking on Apple (LLP 1008 §3, CSS Text 3 §5): where a line may
 // end, and min-content's unbreakable pieces, from the shared walker's
-// opportunities (UAX #14 as Chrome tailors it) rather than
+// opportunities (UAX #14 as Chrome tailors it, LLP 1043 §4 C) rather than
 // CoreText's or CFStringTokenizer's, which break after a `/` before a letter.
 import Foundation
 import CoreText
@@ -14,6 +14,8 @@ package struct LineBreakPlan {
     package var boundaryIndex = 0, hardIndex = 0
     private var ordinary: [Int] = [], ordinaryContent: [Int] = []
     private var ordinaryIndex = 0
+
+    package init() {}
 
     package mutating func prepare(_ text: NSString, length: Int, emergency: [Int] = []) {
         (contentEnds, hardEnds) = TextEngine.breakEnds(text, boundaries: boundaries, length: length)
@@ -65,11 +67,13 @@ package struct LineBreakPlan {
         func suggest(_ room: Double) -> Int {
             plan.suggest(typesetter, start: start, room: room, offerWidth: offerWidth, breakWord: breakWord, length: length, text: text)
         }
-        return TextEngine.fitSoftHyphen(start: start, count: suggest(room), room: room, boundaries: boundaries, source: source,
-                                        typesetter: typesetter, length: length, retry: suggest)
+        let count = TextEngine.fitSoftHyphen(start: start, count: suggest(room), room: room, boundaries: boundaries, source: source,
+                                             typesetter: typesetter, length: length, retry: suggest)
+        return TextEngine.breakBeforeRoom(typesetter, source: source, start: start, count: count, room: room, boundaries: boundaries,
+                                          hard: hardIndex < hardEnds.count ? hardEnds[hardIndex] : length)
     }
 
-    /// CSS `text-wrap-style: balance` (as Chrome does it): the
+    /// CSS `text-wrap-style: balance` (LLP 1001 §6, as Chrome does it): the
     /// lines before the first forced break (`until`) take the narrowest room,
     /// `room`, that keeps the count they have at `limit`, when that is two to
     /// six (`TextEngine.balancedLimit`); the rest break at `limit`. `widest`
@@ -263,6 +267,41 @@ extension TextEngine {
             }
             start = end
         }
+        return pieces
+    }
+    /// Min-content's pieces of a paragraph: `pieceRanges` over the runs'
+    /// joined `text`, from `boundaries` taken over the whole of it, so a run's
+    /// end inside a word is no break (CSS Text 3, "Line Breaking Details").
+    /// A hung run (a list marker) is no piece and ends the pieces before it.
+    /// Each piece carries the indent of the run it starts in.
+    package static func paragraphPieces(_ text: NSString, runs: [Run], boundaries: [Int]) -> [(range: NSRange, hyphenated: Bool, indent: CGFloat)] {
+        var pieces: [(range: NSRange, hyphenated: Bool, indent: CGFloat)] = []
+        var starts: [(at: Int, indent: CGFloat)] = []
+        var spanStart = 0, offset = 0, next = 0, run = 0
+        func flush(_ end: Int) {
+            guard end > spanStart else { return }
+            while next < boundaries.count, boundaries[next] <= spanStart { next += 1 }
+            var inside: [Int] = []
+            while next < boundaries.count, boundaries[next] < end { inside.append(boundaries[next] - spanStart); next += 1 }
+            inside.append(end - spanStart)
+            let span = text.substring(with: NSRange(location: spanStart, length: end - spanStart)) as NSString
+            for piece in pieceRanges(span, boundaries: inside) {
+                let at = spanStart + piece.range.location
+                while run + 1 < starts.count, starts[run + 1].at <= at { run += 1 }
+                pieces.append((NSRange(location: at, length: piece.range.length), piece.hyphenated, starts[run].indent))
+            }
+        }
+        for r in runs {
+            let end = offset + (r.text as NSString).length
+            if r.hang {
+                flush(offset)
+                spanStart = end
+            } else {
+                starts.append((offset, r.indent))
+            }
+            offset = end
+        }
+        flush(offset)
         return pieces
     }
 }

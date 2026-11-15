@@ -1,5 +1,5 @@
 // What a batch's ops need that is a plain value, built on the owner thread
-// as the batch is decoded: the SVG scene's paths and its
+// as the batch is decoded (LLP 1072 stage 4): the SVG scene's paths and its
 // animations' signatures and keyframe values, and a flat leaf's paint. Main
 // applies them to layers; it no longer parses them from the batch's numbers.
 import CoreGraphics
@@ -22,7 +22,7 @@ final class PreparedPath {
 
 private func num(_ v: Any?) -> Double { (v as? NSNumber)?.doubleValue ?? 0 }
 
-/// A CSS animation spec as `CssAnimations` plays it, read from
+/// A CSS animation spec as `CssAnimations` plays it (LLP 1055 D7), read from
 /// the batch's dictionary once, on the owner as the batch is decoded
 /// (`SvgPrepare`), and kept for the agent clock's re-seek: kept as the
 /// dictionary, each animated box held about 1 KB.

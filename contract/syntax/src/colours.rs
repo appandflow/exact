@@ -1,5 +1,5 @@
-//! The colour declarations: CSS's `@color-profile`, the
-//! app's `theme` and its design, `app.tamber`.
+//! The colour declarations: CSS's `@color-profile` (LLP 1100 D3), the
+//! app's `theme` (LLP 1095 D4) and its design, `app.forma` (LLP 1121 D2).
 
 use crate::{Attr, Span};
 
@@ -14,7 +14,7 @@ pub struct ColorProfileDecl {
     pub span: Span,
 }
 
-/// `theme`, one `name="colour"` line an entry: a colour any
+/// `theme`, one `name="colour"` line an entry (LLP 1095 D4): a colour any
 /// row takes, another entry's name, or a role's; an entry named like a role
 /// overrides it.
 #[derive(Debug, Clone, PartialEq)]
@@ -25,15 +25,15 @@ pub struct ThemeDecl {
     pub span: Span,
 }
 
-/// The app's design: `app.tamber` beside `app.contract`, or
-/// the file `app.json`'s `"tamber"` names, read by the driver. The
-/// compiler checks and folds it with `exact-tamber`, as it does an inline
+/// The app's design (LLP 1121 D2): `app.forma` beside `app.contract`, or
+/// the file `app.json`'s `"forma"` names, read by the driver. The
+/// compiler checks and folds it with `exact-forma`, as it does an inline
 /// `theme`; an app has one or the other.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DesignSource {
     /// The file, as the driver found it.
     pub path: String,
-    /// The file as a component's identity names it:
+    /// The file as a component's identity names it (LLP 1121 D15):
     /// relative to the app's directory.
     pub home: String,
     /// Its text.
@@ -42,13 +42,13 @@ pub struct DesignSource {
     pub source_id: u32,
     /// The app beside it has code that can name a token outside its views
     /// (an `app.ts`, a Rust data crate, declared native modules or hatches):
-    /// the driver's half of `names_tokens_outside_views`.
+    /// the driver's half of `names_tokens_outside_views` (LLP 1121 D7).
     pub bindable: bool,
-    /// The package whose design this is, by its
+    /// The package whose design this is (LLP 1121 D11), by its
     /// `package.json` name (`@exact/reading`); none for the app's.
     pub package: Option<String>,
     /// The package's directory, where its `assets/` are (an icon's SVG is
-    /// read under the assets of the root whose file writes it); none for
+    /// read under the assets of the root whose file writes it, stage 13); none for
     /// the app's, whose `assets/` are the app's.
     pub root: Option<String>,
 }

@@ -1,4 +1,4 @@
-//! The system's ways into an app under the agent, through
+//! The system's ways into an app under the agent (LLP 1133.023 §10), through
 //! this checkout's `@exact/quick-actions` and `@exact/search-index`
 //! installed beside the app: the runner keeps the shortcut list and the
 //! content index the host's stores would, refuses what the platforms do,
@@ -126,7 +126,7 @@ fn extension(r: &Runner<NoData>, name: &str) -> Json {
 
 /// `setContentIndex` replaces one kind's entries and records the
 /// difference; an entry added alone keeps its own kind; the source of the
-/// entries answers them all, asked again when they change.
+/// entries answers them all, asked again when they change (D4, D9).
 #[test]
 fn the_index_keeps_entries_by_kind_and_tells_its_readers() {
     let (_app, mut r) = boot("index");
@@ -164,7 +164,7 @@ fn the_index_keeps_entries_by_kind_and_tells_its_readers() {
 }
 
 /// An entry whose url the routes do not match is refused `TypeError`, and
-/// the index is kept.
+/// the index is kept (D4).
 #[test]
 fn an_entry_outside_the_routes_is_refused() {
     let (_app, mut r) = boot("refused");
@@ -179,7 +179,7 @@ fn an_entry_outside_the_routes_is_refused() {
 
 /// The shortcut list is the app's last, after the manifest's; a url the
 /// routes do not match keeps the list; a pin is refused off Android, and
-/// there requested, or unsupported while the agent says so.
+/// there requested, or unsupported while the agent says so (D3, D11).
 #[test]
 fn shortcuts_are_the_last_list_and_a_pin_is_requested() {
     let (_app, mut r) = boot("shortcuts");
@@ -226,7 +226,7 @@ fn shortcuts_are_the_last_list_and_a_pin_is_requested() {
 }
 
 /// Where the platform has no shortcut list, the send is refused
-/// `NotSupportedError`.
+/// `NotSupportedError` (D17).
 #[test]
 fn shortcuts_are_refused_where_the_platform_has_none() {
     let (_app, mut r) = boot("web");
@@ -236,10 +236,12 @@ fn shortcuts_are_refused_where_the_platform_has_none() {
     assert!(logs(&r).contains("NotSupportedError"), "{}", logs(&r));
 }
 
-/// `intents.tools` in `app.json` faces a tool. A face is stored with the doors
-/// it reaches and its digest; one naming no tool, a parameter of another type,
-/// or a door with no confirmation for a `destroys` tool is refused; and a door
-/// is held to its face's digest.
+/// LLP 1133.023 D5, D8, D10: `intents.tools` in `app.json` faces a tool. A
+/// face is stored with the doors it reaches and its digest; one naming no
+/// tool, a parameter of another type, a door with no confirmation for a
+/// `destroys` tool, or the web door for a tool with a blank description or a
+/// name over 128 characters is refused; and a door is held to its face's
+/// digest.
 #[test]
 fn a_face_is_checked_against_its_tool_and_holds_its_door() {
     let tools = "  state last = \"\"\n  tool log writes closed \"Log a page.\" = log\n  tool drop destroys \"Drop a book.\" = drop\n  action log(id: string, page: number)\n    last = `${id} ${page}`\n  action drop(id: string)\n    last = id\n  action follow(url: string)";
@@ -278,6 +280,26 @@ fn a_face_is_checked_against_its_tool_and_holds_its_door() {
     );
     let digest = log["digest"].as_str().unwrap().to_owned();
     assert_eq!(digest.len(), 64);
+    // A face on the web door is offered to a browser's agent, so a page
+    // that would wait for the reader activates `idle` (LLP 1048.007 D1).
+    assert!(exact_runner::activation::offers_tools(&plan));
+
+    // A parameter's description is the face's, and the digest covers it:
+    // a door that compiled the old words is refused (`face`).
+    let mut described = good.clone();
+    described["tools"]["log"]["parameters"]["page"]["description"] = json!("The page reached.");
+    write(&described);
+    let plan = compile().unwrap_or_else(|e| panic!("{e:?}"));
+    let log = face(&plan, "log");
+    assert_eq!(
+        log["parameters"]["page"]["description"],
+        "The page reached."
+    );
+    assert_ne!(log["digest"], digest);
+    let mut native = good.clone();
+    native["tools"]["log"]["doors"] = json!(["apple"]);
+    write(&native);
+    assert!(!exact_runner::activation::offers_tools(&compile().unwrap()));
 
     let refused = |intents: Json, id: &str| {
         write(&intents);
@@ -296,6 +318,45 @@ fn a_face_is_checked_against_its_tool_and_holds_its_door() {
     let mut missing = good.clone();
     missing["tools"]["nothing"] = json!({ "title": "Nothing" });
     refused(missing, "intents-tool");
+
+    // Through the web door, WebMCP (§3, §4.2) needs a description and a name
+    // of at most 128 characters; a face without that door takes an empty
+    // description.
+    let faced = |name: &str, doors: Option<Json>| {
+        let mut intents = good.clone();
+        let mut log = intents["tools"]["log"].clone();
+        if let Some(doors) = doors {
+            log["doors"] = doors;
+        }
+        intents["tools"] = json!({ name: log, "drop": good["tools"]["drop"] });
+        intents
+    };
+    let with = |name: &str, description: &str| {
+        let line = format!("tool {name} writes closed \"{description}\" = log");
+        let replaced = source.replacen("tool log writes closed \"Log a page.\" = log", &line, 1);
+        std::fs::write(app.0.join("app.contract"), replaced).unwrap();
+    };
+    with("log", "");
+    refused(faced("log", None), "intents-web-description");
+    with("log", "   ");
+    refused(
+        faced("log", Some(json!(["web"]))),
+        "intents-web-description",
+    );
+    with("log", "");
+    write(&faced("log", Some(json!(["apple", "android"]))));
+    compile().unwrap_or_else(|e| panic!("no web door: {e:?}"));
+    let long = format!("l{}", "o".repeat(128));
+    with(&long, "Log a page.");
+    refused(faced(&long, None), "intents-web-name");
+    let longest = &long[1..];
+    with(longest, "Log a page.");
+    write(&faced(longest, None));
+    let plan = compile().unwrap_or_else(|e| panic!("128 characters: {e:?}"));
+    assert_eq!(
+        face(&plan, longest)["doors"],
+        json!(["apple", "android", "web"])
+    );
 
     // The description is part of the signature, so of the digest.
     let moved = source.replace("Log a page.", "Log the page.");

@@ -1,4 +1,4 @@
-// The Drag capability: height, transform and reorder
+// The Drag capability (LLP 1047.001 D4): height, transform and reorder
 // handles. An app's composition links this module only when its plan has a
 // drag, and installs it before any session is made.
 #if canImport(UIKit)

@@ -1,33 +1,260 @@
+import { hostFixtureFile } from './tests/glue-fixture.mjs';
 // The page's module realm (module-glue.js) over the real prelude, in a vm
 // context standing in for its iframe, and its worker placement on a Worker,
 // each with a scripted file store.
 import { expect, test } from 'bun:test';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, cpSync, fsyncSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
+import { modulePrelude } from '../web-js/glue.mjs';
 
 const ROOT = resolve(import.meta.dir, '../..');
 // The runner's normalized set for `net.fetch https://api.castle.test` (as tests/it/request.rs's batch carries it).
 const GRANTS = {version:1,entries:[[1,'net.fetch https://api.castle.test',['fetch','https','api.castle.test',443],null]],error:null,seal:'825ec7a8503217b3'};
 
+test('the image waiter cannot expose a raw database behind the storage queue', async () => {
+  const realm = vm.createContext({ URL, TextEncoder, TextDecoder, AbortController, AbortSignal, crypto,
+    __exact_host: () => '', console: { error() {} } });
+  vm.runInContext(readFileSync(resolve(ROOT, 'js/src/binary.js'), 'utf8'), realm);
+  vm.runInContext(modulePrelude(ROOT), realm);
+  vm.runInContext(`
+    var executed = [], release, reached, probe;
+    var held = new Promise(r => release = r), entered = new Promise(r => reached = r);
+    __exact_storage = {
+      sqlite: { open: () => Promise.resolve({ execute: sql => { executed.push(sql); return Promise.resolve(); } }) },
+      fs: { atomicWriteFile: () => { reached(); return held; } }
+    };
+    __exact_install_storage();
+    exact = { answer(source, args, store, storage) {
+      var opened = storage.sqlite.open('app:/data/notes.db');
+      var raw = globalThis.__exact_storage_promise?.();
+      return globalThis.result = opened.then(db => {
+        var first = storage.fs.atomicWriteFile('app:/data/value', new Uint8Array([1]));
+        var next = db.execute('queued');
+        probe = raw ? raw.then(db => db.execute('bypass')) : Promise.resolve();
+        return Promise.all([first, next, probe]);
+      });
+    } };
+  `, realm);
+  realm.__exact_call('work', '[]', 'answer');
+  try {
+    await realm.entered;
+    await realm.probe;
+    expect(Array.from(realm.executed)).toEqual([]);
+  } finally {
+    realm.release();
+    await realm.result;
+  }
+  expect(Array.from(realm.executed)).toEqual(['queued']);
+});
+
+for (const phase of ['sync', 'rename']) test(`a timed-out atomic write held at ${phase} keeps its queue slot`, async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-storage-timeout-'));
+  const path = resolve(dir, 'value'), temporary = text => resolve(dir, 'staged-' + text);
+  const realm = vm.createContext({ URL, TextEncoder, TextDecoder, AbortController, AbortSignal, crypto,
+    __exact_host: () => '', console: { error() {} } });
+  vm.runInContext(readFileSync(resolve(ROOT, 'js/src/binary.js'), 'utf8'), realm);
+  vm.runInContext(modulePrelude(ROOT), realm);
+  realm.__exact_main_thread();
+  realm.phase = phase;
+  realm.disk = {
+    stage: (text, bytes) => writeFileSync(temporary(text), bytes),
+    sync: text => {
+      const fd = openSync(temporary(text), 'r+');
+      try { fsyncSync(fd); } finally { closeSync(fd); }
+    },
+    rename: text => renameSync(temporary(text), path),
+  };
+  try {
+    vm.runInContext(`
+      var started = [], rejected = [], abandoned = [], reserved = 0, release, reached;
+      __exact_reserve_storage = () => ++reserved;
+      __exact_abandon_storage = token => abandoned.push(token);
+      var held = new Promise(r => release = r), entered = new Promise(r => reached = r);
+      __exact_storage = { fs: { atomicWriteFile: async function(path, bytes) {
+        var text = new TextDecoder().decode(bytes);
+        started.push(text);
+        disk.stage(text, bytes);
+        if (text === 'first' && phase === 'sync') { reached(); await held; }
+        disk.sync(text);
+        if (text === 'first' && phase === 'rename') { reached(); await held; }
+        disk.rename(text);
+      } } };
+      __exact_install_storage();
+      exact = { grants: 'fs.read app:/data', answer(source, args, store, storage) {
+        var write = text => storage.fs.atomicWriteFile('app:/data/value', new TextEncoder().encode(text));
+        if (source === 'failed') {
+          globalThis.failed = write('first').catch(e => {
+            rejected.push('first');
+            return write('reaction').catch(e => rejected.push('reaction'));
+          });
+          globalThis.queued = write('orphan').catch(e => rejected.push('orphan'));
+          return Promise.all([failed, queued]);
+        }
+        return globalThis.successor = write('successor');
+      } };
+    `, realm);
+    const first = JSON.parse(realm.__exact_call('failed', '[]', 'answer'));
+    await realm.entered;
+    const next = JSON.parse(realm.__exact_call('next', '[]', 'answer'));
+    realm.__exact_storage_failed(String(first.call), JSON.stringify({ failed: { kind: 'Aborted', message: 'storage continuation timed out' } }));
+    await Promise.all([realm.failed, realm.queued]);
+    expect(Array.from(realm.started)).toEqual(['first']);
+    expect(Array.from(realm.abandoned)).toEqual([2]);
+    expect(Array.from(realm.rejected).sort()).toEqual(['first', 'orphan', 'reaction']);
+    expect(JSON.parse(realm.__exact_settle(String(first.call))).tag).toBe(2);
+    expect(JSON.parse(realm.__exact_settle(String(next.call))).waiting).toBe(true);
+    expect(JSON.parse(realm.__exact_background())).toMatchObject({ head: true, queued: 1, inFlight: 1 });
+    realm.release();
+    await realm.successor;
+    expect(Array.from(realm.started)).toEqual(['first', 'successor']);
+    expect(readFileSync(path, 'utf8')).toBe('successor');
+    expect(JSON.parse(realm.__exact_settle(String(next.call))).tag).toBe(0);
+    expect(JSON.parse(realm.__exact_background())).toMatchObject({ head: false, queued: 0, inFlight: 0, done: 1, failed: 2, writes: 2 });
+  } finally {
+    realm.release?.();
+    await realm.successor?.catch(() => {});
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A realm whose `atomicWriteFile` holds the write of `first` until `release()`; `order` records what the store did.
+function heldWriteRealm(answer) {
+  const realm = vm.createContext({ URL, TextEncoder, TextDecoder, AbortController, AbortSignal, DOMException, crypto,
+    __exact_host: () => '', console: { error() {} } });
+  vm.runInContext(readFileSync(resolve(ROOT, 'js/src/binary.js'), 'utf8'), realm);
+  vm.runInContext(modulePrelude(ROOT), realm);
+  realm.__exact_main_thread();
+  vm.runInContext(`
+    var order = [], rejected = [], release, reached;
+    var held = new Promise(r => release = r), entered = new Promise(r => reached = r);
+    __exact_storage = { fs: {
+      flock: () => Promise.resolve(7),
+      unlock: h => { order.push('unlock ' + h); return Promise.resolve(); },
+      atomicWriteFile: function (path, bytes) {
+        var text = new TextDecoder().decode(bytes);
+        order.push('write ' + text);
+        if (text !== 'first') return Promise.resolve();
+        reached();
+        return held.then(() => { order.push('written first'); });
+      },
+    } };
+    __exact_install_storage();
+    var write = (storage, text) => storage.fs.atomicWriteFile('app:/data/' + text, new TextEncoder().encode(text));
+    exact = { grants: '', answer: ${answer} };
+  `, realm);
+  return realm;
+}
+const TIMED_OUT = JSON.stringify({ failed: { kind: 'Aborted', message: 'storage continuation timed out' } });
+
+test('a timed-out answer\'s lock release waits behind its write and still unlocks', async () => {
+  const realm = heldWriteRealm(`function (source, args, store, storage) {
+    return storage.fs.flock('app:/data/lock').then(lock =>
+      write(storage, 'first').finally(() => {
+        globalThis.unlocked = lock.unlock().then(() => 'released', e => 'refused: ' + e.message);
+      }));
+  }`);
+  const first = JSON.parse(realm.__exact_call('locked', '[]', 'answer'));
+  await realm.entered;
+  realm.__exact_storage_failed(String(first.call), TIMED_OUT);
+  await new Promise(r => setTimeout(r, 0));
+  expect(JSON.parse(realm.__exact_settle(String(first.call))).tag).toBe(2);
+  expect(Array.from(realm.order)).toEqual(['write first']);
+  realm.release();
+  expect(await realm.unlocked).toBe('released');
+  expect(Array.from(realm.order)).toEqual(['write first', 'written first', 'unlock 7']);
+  expect(JSON.parse(realm.__exact_background())).toMatchObject({ head: false, queued: 0, inFlight: 0 });
+});
+
+test('a let-go storage timeout rejects only the timed-out answer\'s queued work', async () => {
+  const realm = heldWriteRealm(`function (source, args, store, storage) {
+    var settled = text => p => p.then(() => {}, () => rejected.push(text));
+    if (source === 'a') return Promise.all([settled('first')(write(storage, 'first')), settled('a2')(write(storage, 'a2'))]);
+    return globalThis.second = settled('b')(write(storage, 'b'));
+  }`);
+  const a = JSON.parse(realm.__exact_call('a', '[]', 'answer'));
+  await realm.entered;
+  const b = JSON.parse(realm.__exact_call('b', '[]', 'answer'));
+  expect(realm.__exact_forget(String(a.call))).toBe('storage');
+  expect(realm.__exact_forget(String(b.call))).toBe('storage');
+  expect(realm.__exact_let_go('failed', 'storage continuation timed out')).toBe('settled');
+  await new Promise(r => setTimeout(r, 0));
+  expect(Array.from(realm.rejected).sort()).toEqual(['a2', 'first']);
+  // The timed-out write keeps its place as the module's; `b` starts once it completes.
+  expect(realm.__exact_let_go('', '')).toBe('queued');
+  expect(JSON.parse(realm.__exact_background())).toMatchObject({ head: true, queued: 1, inFlight: 1 });
+  realm.release();
+  await realm.second;
+  expect(Array.from(realm.order)).toEqual(['write first', 'written first', 'write b']);
+  expect(Array.from(realm.rejected).sort()).toEqual(['a2', 'first']);
+  expect(realm.__exact_let_go('', '')).toBe('');
+});
+
+test('image writes notify only for a successful widget-readable destination', async () => {
+  const realm = vm.createContext({ URL, TextEncoder, TextDecoder, AbortController, AbortSignal, crypto,
+    __exact_host: () => '', console: { error() {} } });
+  vm.runInContext(readFileSync(resolve(ROOT, 'js/src/binary.js'), 'utf8'), realm);
+  vm.runInContext(modulePrelude(ROOT), realm);
+  vm.runInContext(`
+    exact = { grants: 'fs.read app:/data/output.jpg', answer(source, args, store, storage) {
+      return globalThis.result = storage.fs[args[0]](args[1], args[2], {
+        maxDimension: 32, maxBytes: 10000, rotate: 90
+      });
+    } };
+    function image(from, to, transform) {
+      if (from === 'app:/data/missing.jpg') throw new Error('missing image');
+      const path = transform ? to + '.jpg' : to;
+      return nativeReply
+        ? (transform ? '32\\t32\\t100\\t' + path + '\\t{"type":"image/jpeg"}' : '32\\t32\\t100')
+        : { path, type: 'image/jpeg', width: 32, height: 32, size: 100 };
+    }
+    __exact_storage = { fs: {
+      compressImage: (from, to) => Promise.resolve(image(from, to, false)),
+      transformImage: (from, to) => Promise.resolve(image(from, to, true))
+    } };
+    __exact_install_storage();
+  `, realm);
+  let writes = 0;
+  for (const nativeReply of [false, true]) {
+    realm.nativeReply = nativeReply;
+    for (const method of ['compressImage', 'transformImage']) {
+      const destination = method === 'transformImage' ? 'app:/data/output' : 'app:/data/output.jpg';
+      for (const [from, to, changed, ok] of [
+        ['app:/data/input.jpg', destination, true, true],
+        ['app:/data/output.jpg', 'app:/cache/hidden', false, true],
+        ['app:/data/missing.jpg', destination, false, false],
+      ]) {
+        const call = JSON.parse(realm.__exact_call('image', JSON.stringify([method, from, to]), 'answer'));
+        await realm.result.catch(() => {});
+        const reply = JSON.parse(realm.__exact_settle(String(call.call)));
+        expect(reply.tag).toBe(ok ? 0 : 2);
+        if (ok) expect(reply.value.path).toBe(method === 'transformImage' ? to + '.jpg' : to);
+        if (changed) writes++;
+        expect(JSON.parse(realm.__exact_background()).writes).toBe(writes);
+      }
+    }
+  }
+});
+
 // An answer's storage operation queued behind another answer's parks; when
 // that answer delivers its own (after its fetch came back), the parked one's
-// operation is in flight and it is asked again (prelude.js `settle`). Were
-// only a background delivery to ask parked answers again, the Bluesky
-// clone's device settings would never answer on the web.
+// operation is in flight and it is asked again (prelude.js `settle`, LLP 1097
+// D3). Before, only a background delivery asked parked answers again, and the
+// Bluesky clone's device settings never answered on the web.
 test('a parked answer is asked again after another answer delivers its storage', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-module-storage-'));
   const saved = Object.fromEntries(['fetch', 'document', 'location'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   try {
-    for (const name of ['module-glue.js', 'storage.js', 'grant-admission.js', 'faults.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+    for (const name of ['module-glue.js', 'storage.js', 'grant-admission.js', 'faults.js', 'navigation.js']) writeFileSync(resolve(dir, name), hostFixtureFile(resolve(ROOT, 'host/web', name)));
     writeFileSync(resolve(dir, 'storage-environment.js'), `export const directories = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
 export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentReads = []; export const emptyRead = () => []; export const agentSeed = () => null;
-export const agentStream = () => null; export const keyStore = () => ({}); export const now = () => 0;`);
+export const agentStream = () => null; export const keyStore = () => ({}); export const now = () => 0;
+export { refuseCodeFromStrings } from ${JSON.stringify(resolve(ROOT, 'host/web/storage-environment.js'))};`);
     // Each read lands when the test says, in the order issued.
     writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({
   readFile: path => new Promise(ok => globalThis.reads.push(() => ok(new TextEncoder().encode(path)))), dispose() {} });`);
-    const prelude = readFileSync(resolve(ROOT, 'js/src/prelude.js'), 'utf8');
+    const prelude = modulePrelude(ROOT);
     const binary = readFileSync(resolve(ROOT, 'js/src/binary.js'), 'utf8');
     const script = new TextEncoder().encode(`exact = { abi: 1, appId: 'test.storage', grants: 'net.fetch https://api.castle.test', answer(source, args, store, storage) {
   const read = path => storage.fs.readFile(path).then(bytes => new TextDecoder().decode(bytes));
@@ -37,9 +264,9 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
     const sha = new Bun.CryptoHasher('sha256').update(script).digest('hex');
     globalThis.reads = [];
     const win = vm.createContext({ console: { log() {}, info() {}, warn() {}, error() {}, debug() {} }, TextEncoder, TextDecoder, structuredClone, setTimeout, clearTimeout,
-      queueMicrotask, URL, Headers, DOMException, crypto, indexedDB: null, MessageChannel, Uint8Array, ArrayBuffer, addEventListener() {} });
+      queueMicrotask, URL, Headers, DOMException, crypto, indexedDB: null, MessageChannel, Uint8Array, ArrayBuffer, AbortController, AbortSignal, addEventListener() {} });
     win.window = win;
-    for (const name of ['Promise', 'Error', 'Object', 'Array', 'JSON', 'Symbol']) win[name] = vm.runInContext(name, win); // what storage.js builds in the realm
+    for (const name of ['Promise', 'Error', 'SyntaxError', 'Object', 'Array', 'JSON', 'Symbol', 'Function', 'eval']) win[name] = vm.runInContext(name, win); // what storage.js builds in the realm
     win.document = { createElement: () => ({}), head: { append: el => vm.runInContext(el.textContent, win) } };
     const frame = { contentWindow: win, setAttribute() {}, remove() {} };
     Object.defineProperties(globalThis, {
@@ -88,10 +315,11 @@ async function moduleRealm(script, { placement = 'worker', key = 'k', top = '', 
     rmSync(dir, { recursive: true, force: true });
   };
   try {
-    for (const name of ['module-glue.js', 'module-worker.js', 'storage.js', 'grant-admission.js', 'faults.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+    for (const name of ['module-glue.js', 'module-worker.js', 'storage.js', 'grant-admission.js', 'faults.js', 'navigation.js']) writeFileSync(resolve(dir, name), hostFixtureFile(resolve(ROOT, 'host/web', name)));
     writeFileSync(resolve(dir, 'storage-environment.js'), `export const directories = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
 export const storageKey = () => ${JSON.stringify(key)}; export const agentStorageRefusal = 'no store'; export const agentReads = ['readdir']; export const emptyRead = () => []; export const agentSeed = () => null;
-export const agentStream = () => null; export const keyStore = () => ({}); export const now = () => 0;`);
+export const agentStream = () => null; export const keyStore = () => ({}); export const now = () => 0;
+export { refuseCodeFromStrings } from ${JSON.stringify(resolve(ROOT, 'host/web/storage-environment.js'))};`);
     writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => {
   const files = new Map();
   return { readFile: async path => files.get(path) ?? new TextEncoder().encode(path), readdir: async () => [],
@@ -100,7 +328,7 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
     writeFileSync(resolve(dir, 'storage-sqlite.js'), `export const createSqlite = () => ({
   open: async () => ({ query: async (_sql, params) => params,
     prepare: async () => ({ query: async params => params, close: async () => {} }), close: async () => {} }), dispose() {} });`);
-    const prelude = readFileSync(resolve(ROOT, 'js/src/prelude.js'), 'utf8');
+    const prelude = modulePrelude(ROOT);
     const binary = readFileSync(resolve(ROOT, 'js/src/binary.js'), 'utf8');
     const bytes = new TextEncoder().encode(`exact = { abi: 1, appId: 'test.storage', grants: ${JSON.stringify(declaration)}, answer(source, args, store, storage) {
   const read = path => storage.fs.readFile(path).then(bytes => new TextDecoder().decode(bytes));
@@ -115,7 +343,7 @@ ${top}`);
       const win = vm.createContext({ console: { log() {}, info() {}, warn() {}, error() {}, debug() {} }, TextEncoder, TextDecoder, structuredClone, setTimeout, clearTimeout,
         queueMicrotask, URL, Headers, DOMException, crypto, indexedDB: null, MessageChannel, Uint8Array, ArrayBuffer, AbortController, AbortSignal, addEventListener() {} });
       win.window = win;
-      for (const name of ['Promise', 'Error', 'Object', 'Array', 'JSON', 'Symbol']) win[name] = vm.runInContext(name, win);
+      for (const name of ['Promise', 'Error', 'SyntaxError', 'Object', 'Array', 'JSON', 'Symbol', 'Function', 'eval']) win[name] = vm.runInContext(name, win);
       win.document = { createElement: () => ({}), head: { append: el => vm.runInContext(el.textContent, win) } };
       const frame = { contentWindow: win, setAttribute() {}, remove() {} };
       Object.defineProperty(globalThis, 'document', { configurable: true, value: { createElement: () => frame, body: { append() {} } } });
@@ -142,6 +370,25 @@ ${top}`);
   } catch (error) { done(); throw error; }
 }
 const race = p => Promise.race([p.then(v => v, e => `rejected: ${e.message}`), new Promise(r => setTimeout(() => r('STILL WAITING'), 1500))]);
+
+// #128: the module's realm, the iframe's (module-glue.js `prepare`) and the worker's (module-worker.js `init`), runs no
+// code from a string, as Hermes runs none, and keeps what a function needs of `Function` (storage-environment.js
+// `refuseCodeFromStrings`). The worker still evaluates the prelude and the module with its own `eval`.
+test.each(['main', 'worker'])('code from a string throws in the %s module realm as on Hermes', async (placement) => {
+  const w = await moduleRealm(`const thrown = f => { try { f(); return 'ran'; } catch (e) { return e.name + ': ' + e.message; } };
+  for (const name of ['Function', 'eval']) globalThis[name] = globalThis[name];
+  const F = Function;
+  const key = 'constructor';
+  try { delete Function[key]; } catch {}
+  return JSON.stringify([thrown(() => Object.getOwnPropertyDescriptor(globalThis, 'Function').value('return 1')), thrown(() => Function[key]('return 1')),thrown(() => Function('return 1')), thrown(() => new F('return 1')), thrown(() => globalThis.Function('return 1')),
+    thrown(() => eval('1')), thrown(() => (0, eval)('1')), thrown(() => globalThis.eval('1')), thrown(() => eval.constructor('return 1')), thrown(() => Function.constructor('return 1')),
+    Function instanceof Function, eval instanceof Function, typeof Function, ((a, b) => a + b).call(null, 1, 2), Function.prototype.bind.call((a) => a * 2, null)(3)]);`, { placement });
+  try {
+    const answered = await race(w.ask('code'));
+    const refused = 'SyntaxError: Parsing source code unsupported: a data source runs no code from a string (Function, eval), as on Hermes';
+    expect(JSON.parse(answered.value)).toEqual([...Array(10).fill(refused), true, true, 'function', 3, 6]);
+  } finally { w.done(); }
+});
 
 test('background storage counters survive a turn after an answer abandons its read', async () => {
   const w = await moduleRealm(`if (source === 'abandoned') {
@@ -259,7 +506,7 @@ for (const placement of ['main', 'worker']) {
   });
 }
 
-// `scheduler.yield()`: the realm resolves an answer's
+// `scheduler.yield()` (LLP 1141.001 D10): the realm resolves an answer's
 // yields in a task of their own, and the answer goes on to its value.
 for (const placement of ['main', 'worker']) test(`${placement}: an answer that yields goes on to its value`, async () => {
   const realm = await moduleRealm(`return (async () => { let n = 0; for (let i = 0; i < 5; i++) { await scheduler.yield(); n++; } return 'yielded ' + n; })();`, { placement });
@@ -268,7 +515,7 @@ for (const placement of ['main', 'worker']) test(`${placement}: an answer that y
   } finally { realm.done(); }
 });
 
-// The prelude asks at load whether the host has a local listener, outside any answer: the page's
+// The prelude asks at load whether the host has a local listener (LLP 1133.005), outside any answer: the page's
 // realm answers that ask, no (''), the one call newly let through; what it refused outside an answer it still
 // refuses (a journal line, 13, and the clock, 21, were already answered there).
 test('outside an answer the realm newly answers only the load-time listen ask', async () => {
@@ -318,7 +565,7 @@ for (const placement of ['main', 'worker']) {
   }, 20000);
 }
 
-// A getter on `exact.overlay` runs inside the overlay's guard (prelude.js `__exact_overlay`): on the
+// A getter on `exact.overlay` runs inside the overlay's guard (prelude.js `__exact_overlay`, LLP 1054): on the
 // page realm an answer's call stays current between its tasks, so before the first read moved under the guard a
 // getter could `store.set` through a store it kept into that outstanding answer. Both reads refuse it now.
 test('a writing getter on exact.overlay is refused on both of the overlay\'s reads (main)', async () => {

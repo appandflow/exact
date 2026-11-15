@@ -1,5 +1,5 @@
 //! Executor-neutral, bounded image work with an observable publication decision.
-//! Cancellation never waits for publication.
+//! @ref LLP 0068.001#5-work-identity-and-the-cancellation-decision — cancellation never waits for publication.
 use super::app_fs::AppDirectories;
 use crate::{
     boundary::HostError,
@@ -23,7 +23,7 @@ pub struct CompressedImage {
     pub bytes: Vec<u8>,
     pub width: u32,
     pub height: u32,
-    /// Exact patch 9a: a transform's facts beside
+    /// Exact patch 9a (exact2 LLP 1133.019 D14): a transform's facts beside
     /// its pixels, as the codec words them (a JSON object), passed through.
     pub report: Option<String>,
     /// The written type's file extension, which a transform's `to` without
@@ -39,7 +39,7 @@ pub struct ImageFile {
     pub path: Option<String>,
     pub report: Option<String>,
 }
-/// Exact patch 9: what the codec encodes; JPEG
+/// Exact patch 9 (exact2 LLP 1069.002 A1.11): what the codec encodes; JPEG
 /// unless the app asks for a PNG, which keeps alpha.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ImageFormat {
@@ -52,7 +52,7 @@ pub struct ImageRequest {
     pub max_dimension: u32,
     pub max_bytes: u64,
     pub format: ImageFormat,
-    /// Exact patch 9a: the call's further options
+    /// Exact patch 9a (exact2 LLP 1133.019 D17): the call's further options
     /// as one JSON value, which Ibex passes to the codec unread: the edit on
     /// `compressImage`, everything on `transformImage`.
     pub options: Option<Arc<str>>,
@@ -586,8 +586,8 @@ impl ImageJob {
         {
             return Err(failed("codec exceeded its output contract"));
         }
-        // A transform's `to` without an extension gains the type's, in the
-        // directory already pinned.
+        // A transform's `to` without an extension gains the type's (LLP
+        // 1133.019 D14), in the directory already pinned.
         let mut path = self.to.clone();
         if self.request.transform {
             let leaf = path.rsplit('/').next().unwrap_or_default();

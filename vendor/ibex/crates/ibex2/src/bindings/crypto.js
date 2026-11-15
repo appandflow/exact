@@ -1,5 +1,5 @@
 // Object plumbing only: Rust owns entropy, algorithms, key material, and errors.
-// Thin projection over Rust key handles.
+// @ref LLP 0059.000#314-cryptosubtle--pure-ungated-author-required — thin projection over Rust key handles
 (function () {
   "use strict";
   const fill = globalThis.__ibex2_get_random_values;

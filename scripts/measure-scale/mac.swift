@@ -1,4 +1,4 @@
-// The base scale's measured cells, the Mac (scripts/measure-scale.mjs runs it): AppKit's own spacing and corners,
+// Stage 11 B's measured cells, the Mac (scripts/measure-scale.mjs runs it): AppKit's own spacing and corners,
 // read from its API where it says them and from the inked shape where it only draws them. Prints one
 // `measure <id> <value>` line each.
 import AppKit

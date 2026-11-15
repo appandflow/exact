@@ -1,10 +1,10 @@
-//! `t("key", name=value)` against the app's strings tables.
+//! `t("key", name=value)` against the app's strings tables (LLP 1060 D2).
 
 use super::{err, infer, Ref, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};
 use std::collections::BTreeMap;
 
-/// The app's strings tables, as the driver read them.
+/// The app's strings tables (LLP 1060 D1), as the driver read them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Strings {
     /// The locale every `t` is checked against and every table falls back to.
@@ -24,6 +24,47 @@ impl Strings {
 /// action or action prop of that name is being called.
 pub fn is_text_call(name: &str, scope: &Scope) -> bool {
     name == "t" && !matches!(scope.lookup(name), Some((Ref::Action(_) | Ref::Prop(_), _)))
+}
+
+/// `setLocale(tag)`: one string, the BCP 47 tag of the language the strings
+/// read (`"de"`, `"pt-BR"`), or `""` for the host's; a literal is checked
+/// here, any other at run time. Only an app with strings tables has a
+/// language to choose.
+pub(crate) fn set_locale_args(
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    const USAGE: &str = "`setLocale(tag)` takes the BCP 47 tag of the language the app's strings read, `setLocale(\"de\")`, or `setLocale(\"\")` for the host's locale";
+    let [arg] = args else {
+        return err("type-set-locale", USAGE, span);
+    };
+    if !infer(arg, scope, shapes)?.is_string() {
+        return err("type-set-locale", USAGE, arg.span());
+    }
+    if let Expr::Str(tag, at) = arg {
+        let fits = tag.is_empty()
+            || (tag.len() <= 64
+                && tag.split('-').all(|part| {
+                    !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric())
+                }));
+        if !fits {
+            return err(
+                "type-set-locale",
+                format!("\"{tag}\" is not a BCP 47 tag; {USAGE}"),
+                *at,
+            );
+        }
+    }
+    if shapes.strings.is_none() {
+        return err(
+            "type-strings-missing",
+            "`setLocale` chooses which of the app's strings tables, `strings/<locale>.json` beside `app.contract`, its `t(…)` texts read; there are none",
+            span,
+        );
+    }
+    Ok(())
 }
 
 /// A literal key the base table has, and a named argument for exactly the

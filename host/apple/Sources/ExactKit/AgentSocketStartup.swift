@@ -1,4 +1,4 @@
-// Physical-device agent startup, before the token handshake.
+// @ref LLP 1012#summary — physical-device agent startup, before the token handshake.
 import Foundation
 import Darwin
 

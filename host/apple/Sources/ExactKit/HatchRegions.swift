@@ -1,4 +1,4 @@
-// Hatch-owned regions and parts: what
+// Hatch-owned regions and parts (@ref LLP 1075.003.000.001 §3.4, §3.5): what
 // a hatch tells the agent it cannot otherwise see. A region is a sentence
 // bound, weakly, to an object the hatch made (a view, a gesture recognizer),
 // or to nothing for an appearance it set; the host then observes the object
@@ -14,7 +14,7 @@
 //   88  parts(host, node, json, len, views, count) → 0 taken
 //         json [{"id", "role", "label"}, …], one view each, replacing the node's parts
 //
-// Bounds: 32 regions a scope instance and 1,024 a session, a sentence
+// Bounds (§3.2): 32 regions a scope instance and 1,024 a session, a sentence
 // of 120 bytes, 16 appearance regions a session (the same sentence's key
 // replaces), 32 parts a node with ids of 64 bytes, unique in the node, and
 // labels of 120. Past one, the registration is refused by name, whole.
@@ -178,7 +178,7 @@ final class HatchRegions {
         reply["regionsRefused"] = rejected
     }
 
-    /// The region a view's interior belongs to:
+    /// The region a view's interior belongs to (LLP 1080.001 D3 as amended):
     /// its innermost ancestor that a region binds, by identity.
     func owner(of view: PlatformView) -> String? {
         guard regions.contains(where: { $0.kind == "view" }) else { return nil }
@@ -191,7 +191,7 @@ final class HatchRegions {
     }
 
     /// The part whose bound view `object` is, or lies inside: `<node>/<id>`.
-    /// `tree --ax` joins a part by this ownership, never by a string.
+    /// `tree --ax` joins a part by this ownership, never by a string (§3.5).
     func part(owning object: AnyObject) -> String? {
         guard !parts.isEmpty else { return nil }
         #if os(macOS)
@@ -220,7 +220,7 @@ final class HatchRegions {
         return (part, view)
     }
 
-    // MARK: Undeclared gestures, a development check
+    // MARK: Undeclared gestures (§3.4), a development check
 
     /// What the check has journaled, a hatch and a class each once.
     private(set) var reported: Set<String> = []

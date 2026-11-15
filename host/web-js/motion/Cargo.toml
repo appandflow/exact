@@ -1,4 +1,4 @@
-# The JS target's motion capability: the same `exact_motion`
+# The JS target's motion capability (LLP 1071 §7): the same `exact_motion`
 # Engine every host runs — springs, holds, a pan's release velocity — behind
 # a small numeric ABI, built to `motion.wasm` (host/web-js/module.mjs) and
 # fetched after first paint only by a plan that uses motion. The page's half

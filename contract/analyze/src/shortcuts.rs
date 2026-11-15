@@ -1,9 +1,9 @@
-//! A button's `aria-keyshortcuts` against the keys a game's `Actions` bind.
-//! A shown button's shortcut takes its chord, its key with
+//! A button's `aria-keyshortcuts` against the keys a game's `Actions` bind
+//! (LLP 1132 D11). A shown button's shortcut takes its chord, its key with
 //! exactly its modifiers, before the focused world hears it, on every host,
 //! so that press of a key both declare reaches the world only while no such
 //! button shows; the key with other modifiers reaches it either way. And
-//! the chords that never reach an app on Windows.
+//! the chords that never reach an app on Windows (LLP 1115.004 D9.6).
 
 use crate::{AnalyzeError, Related};
 use contract_syntax::{Attr, Expr, File, Node, Span};
@@ -120,27 +120,12 @@ fn key_codes(key: &str, shift: bool) -> Vec<String> {
 /// Whether any button in `file` declares `aria-keyshortcuts`: only then
 /// does a stale or missing key declaration matter.
 pub fn declares_shortcuts(file: &File) -> bool {
-    fn any(nodes: &[Node]) -> bool {
-        nodes.iter().any(|node| match node {
-            Node::Element {
-                tag,
-                attrs,
-                children,
-                ..
-            } => {
-                (tag == "button" && attrs.iter().any(|a| a.name == "aria-keyshortcuts"))
-                    || any(children)
-            }
-            Node::Use { children, .. } => any(children),
-            Node::Each { body, .. } => any(body),
-            Node::When {
-                then, otherwise, ..
-            } => any(then) || any(otherwise),
-            Node::Match { some, none, .. } => any(&some.1) || any(none),
-            Node::Children { .. } => false,
+    file.components.iter().any(|c| {
+        Node::walk(&c.view).any(|node| {
+            matches!(node, Node::Element { tag, attrs, .. }
+                if tag == "button" && attrs.iter().any(|a| a.name == "aria-keyshortcuts"))
         })
-    }
-    file.components.iter().any(|c| any(&c.view))
+    })
 }
 
 /// A button's `aria-keyshortcuts`: the button's attributes, the attribute,
@@ -175,35 +160,17 @@ fn button_shortcuts(file: &File) -> Vec<ButtonShortcut<'_>> {
         user: &'a str,
         args: &mut BTreeMap<(&'a str, &'a str), Vec<(&'a str, &'a Expr)>>,
     ) {
-        for node in nodes {
-            match node {
-                Node::Use {
-                    name,
-                    args: given,
-                    children,
-                    ..
-                } => {
-                    for Attr {
-                        name: prop, value, ..
-                    } in given
-                    {
-                        args.entry((name, prop)).or_default().push((user, value));
-                    }
-                    uses(children, user, args);
+        for node in Node::walk(nodes) {
+            if let Node::Use {
+                name, args: given, ..
+            } = node
+            {
+                for Attr {
+                    name: prop, value, ..
+                } in given
+                {
+                    args.entry((name, prop)).or_default().push((user, value));
                 }
-                Node::Element { children, .. } => uses(children, user, args),
-                Node::Each { body, .. } => uses(body, user, args),
-                Node::When {
-                    then, otherwise, ..
-                } => {
-                    uses(then, user, args);
-                    uses(otherwise, user, args);
-                }
-                Node::Match { some, none, .. } => {
-                    uses(&some.1, user, args);
-                    uses(none, user, args);
-                }
-                Node::Children { .. } => {}
             }
         }
     }
@@ -347,7 +314,7 @@ pub fn check_shortcut_keys(
                         };
                         out.push(AnalyzeError {
                             id: "analyze-shortcut-world-key",
-                            message: format!("`aria-keyshortcuts` \"{chord}\" takes {code} pressed with {held} held: while this button shows, surface `{surface}` does not hear that press as {names}, though {code} with other modifiers still reaches it; the shortcut presses the button first on every host; {fix}"),
+                            message: format!("`aria-keyshortcuts` \"{chord}\" takes {code} pressed with {held} held: while this button shows, surface `{surface}` does not hear that press as {names}, though {code} with other modifiers still reaches it; the shortcut presses the button first on every host (LLP 1132 D11); {fix}"),
                             span: button.shortcut.span,
                             related: button.related(text, written),
                         });
@@ -406,7 +373,7 @@ fn same_chord(a: &str, b: &str) -> bool {
 }
 
 /// Every button `aria-keyshortcuts` chord that never presses its button on
-/// Windows, for an app with a Windows host. Each host
+/// Windows (LLP 1115.004 D9.6), for an app with a Windows host. Each host
 /// matches a chord as written, and on Windows `Meta` is the Windows key,
 /// whose chords the shell takes first; so a `Meta` chord whose list holds
 /// no `Control` sibling is `analyze-shortcut-meta-only`, naming the sibling
@@ -449,12 +416,12 @@ pub fn check_windows_shortcuts(file: &File) -> Vec<AnalyzeError> {
                     };
                     (
                         "analyze-shortcut-meta-only",
-                        format!("`aria-keyshortcuts` \"{chord}\" has no Control chord beside it: on Windows `Meta` is the Windows key, whose chords the shell takes before the app hears them, and a host matches a chord as written, so this shortcut never fires there; {advice}"),
+                        format!("`aria-keyshortcuts` \"{chord}\" has no Control chord beside it: on Windows `Meta` is the Windows key, whose chords the shell takes before the app hears them, and a host matches a chord as written, so this shortcut never fires there; {advice} (LLP 1115.004 D9.6)"),
                     )
                 } else if let Some(kept) = windows_keeps(&modifiers, key) {
                     (
                         "analyze-shortcut-windows-reserved",
-                        format!("`aria-keyshortcuts` \"{chord}\" is a chord Windows keeps for {kept}, so on Windows it never presses this button; choose another"),
+                        format!("`aria-keyshortcuts` \"{chord}\" is a chord Windows keeps for {kept}, so on Windows it never presses this button; choose another (LLP 1115.004 D9.6)"),
                     )
                 } else {
                     continue;

@@ -3,9 +3,10 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// A flying view that is not an image keeps its own layout and is
-/// scaled whole to the shown width, top-anchored, in a clip that is
-/// the shown box, as CSS draws a view transition's snapshot.
+/// LLP 1013.000 D4.4 as amended (2026-10-05): a flying view that is not an
+/// image keeps its own layout and is scaled whole to the shown width,
+/// top-anchored, in a clip that is the shown box, as CSS draws a view
+/// transition's snapshot.
 final class FlightScaleIOSTests: XCTestCase {
     private struct Scene {
         let p = Presenter()
@@ -98,6 +99,25 @@ final class FlightScaleIOSTests: XCTestCase {
         XCTAssertEqual(scene.card.transform.a, 0.5, accuracy: 0.001)
         let clip = try XCTUnwrap(scene.card.superview as? FlightClip)
         XCTAssertEqual(clip.layer.cornerRadius, 20, accuracy: 0.01, "its 40 at half scale")
+    }
+
+    /// A destination taller than its scroller comes into view by CSSOM
+    /// View's `nearest` (LLP 1013.000 D5), as Chrome scrolls it: a 600-point
+    /// card in a 400-point port showing 1000 to 1400 stays put when it
+    /// covers the port, and otherwise aligns its end, which is the edge
+    /// nearer the port.
+    func testATallDestinationScrollsByNearest() {
+        for (top, expected) in [(CGFloat(900), CGFloat(1000)), (700, 900), (300, 500)] {
+            let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 402, height: 400))
+            scroll.contentInsetAdjustmentBehavior = .never
+            scroll.contentSize = CGSize(width: 402, height: 3000)
+            let scene = Scene(cardIn: scroll)
+            scene.screen.addSubview(scroll)
+            scroll.contentOffset.y = 1000
+            scene.card.frame = CGRect(x: 0, y: top, width: 402, height: 600)
+            scene.fly(0.5)
+            XCTAssertEqual(scroll.contentOffset.y, expected, "a card at \(top)")
+        }
     }
 
     /// Two flights overlapping in the flight layer paint by their views'

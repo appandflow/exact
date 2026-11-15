@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// The app's write into the focused textarea lands while the
+/// LLP 1045 D5: the app's write into the focused textarea lands while the
 /// text view is no accessibility element, so AppKit posts nothing VoiceOver
 /// would read; it is one again, with the new text, once the write is in.
 final class QuietWriteMacTests: XCTestCase {

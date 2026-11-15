@@ -1,9 +1,9 @@
-// Script, input and prompts for a partitioned frame's guest,
-// by WebDriver BiDi's names: `@exact/browser-automation`'s
+// Script, input and prompts for a partitioned frame's guest (@ref LLP
+// 1020.002 D9), by WebDriver BiDi's names: `@exact/browser-automation`'s
 // package calls `exact_web_automation`, after the runner admitted the call
 // under `browser.automation`. Only a partitioned frame is always the web
 // view's own top-level browsing context, so only it is driven; a picture
-// is any frame's.
+// (D7) is any frame's.
 import Foundation
 import WebKit
 
@@ -37,6 +37,9 @@ final class FrameAutomation {
     private var nextId = 0
     /// Evaluations in flight in the current document, by number.
     private var evaluations: [Int: ([String: Any]) -> Void] = [:]
+    /// `captureScreenshot` calls in flight, by number: they end with the
+    /// frame, as evaluations do, and outlive a navigation.
+    private var captures: [Int: ([String: Any]) -> Void] = [:]
     /// A `performActions` in flight: its number and how it ends early.
     private var acting: (id: Int, end: ([String: Any]) -> Void)?
     private var keys: [String: Set<String>] = [:]
@@ -92,8 +95,9 @@ final class FrameAutomation {
     /// The frame unmounted or changed its web view: every call in flight ends.
     func end(_ why: String) {
         let answer: [String: Any] = ["error": "NotFoundError", "message": why]
-        let pending = evaluations.values
+        let pending = Array(evaluations.values) + Array(captures.values)
         evaluations = [:]
+        captures = [:]
         pending.forEach { $0(answer) }
         acting?.end(answer)
         acting = nil
@@ -138,7 +142,11 @@ final class FrameAutomation {
             let path = request["path"] as? String ?? ""
             var command: [String: Any] = ["op": op, "path": path, "file": request["pathFile"] as? String ?? ""]
             if let clip = request["clip"] as? [String: Any] { command["clip"] = ["x", "y", "width", "height"].map { (clip[$0] as? NSNumber) ?? 0 } }
-            return arm.capture(command) { width, height, error, message in
+            nextId += 1
+            let number = nextId
+            captures[number] = reply
+            return arm.capture(command) { [weak self] width, height, error, message in
+                guard let reply = self?.captures.removeValue(forKey: number) else { return }
                 reply(error.isEmpty ? ["path": path, "width": width, "height": height] : ["error": error, "message": message])
             }
         }
@@ -362,7 +370,7 @@ final class FrameAutomation {
     }
 
     /// The input is dispatched: once the page has answered (`pace`), the
-    /// window's focus goes back to what had it ("Focus").
+    /// window's focus goes back to what had it (D9, "Focus").
     private func settle(_ web: WKWebView, _ then: @escaping () -> Void) {
         pace(web) { [weak self, weak web] in
             #if os(macOS)
@@ -439,7 +447,7 @@ final class FrameAutomation {
 
     #if os(macOS)
     /// macOS: `NSEvent`s to the web view's own responder methods, in-process,
-    /// as a person's arrive there; never posted to the OS.
+    /// as a person's arrive there; never posted to the OS (LLP 1020 §3.3).
     private func mouse(_ phase: String, _ source: String, _ css: CGPoint, button: Int, _ web: WKWebView) {
         guard let window = web.window else { return }
         let scale = Double(web.pageZoom * web.magnification)

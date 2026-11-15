@@ -1,4 +1,4 @@
-// Fragments: a location's fragment rides on the visit it
+// Fragments (LLP 1153 D5): a location's fragment rides on the visit it
 // arrives at and is no part of its identity. A push, replace or go that
 // changes only the fragment keeps the visit; go pops to an earlier visit or
 // selects another tab's top and writes the fragment there when the location

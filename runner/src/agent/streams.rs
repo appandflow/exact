@@ -1,7 +1,7 @@
-//! `state.streams`: the open streams, pending until their
+//! `state.streams` (LLP 1016.000 D5): the open streams, pending until their
 //! first message, then listed with what they delivered and what coalesced,
-//! the grant line that admitted each, a two-way socket's state, and a
-//! local listener's.
+//! the grant line that admitted each, a two-way socket's state (D7), and a
+//! local listener's (LLP 1133.005 D12).
 
 use super::quote;
 use crate::{DataSource, Runner};
@@ -25,7 +25,7 @@ pub(super) fn state<D: DataSource>(runner: &Runner<D>, s: &mut String) {
             s.push_str(",\"grant\":");
             quote(grant, s);
         }
-        // A child process: what ran, its incarnation,
+        // A child process (LLP 1133.007 D2): what ran, its incarnation,
         // bytes each way, restarts, its exit and whether it drained.
         if let Some(child) = runner.child_state(*ticket) {
             s.push_str(",\"kind\":\"process\",\"program\":");
@@ -65,11 +65,11 @@ pub(super) fn state<D: DataSource>(runner: &Runner<D>, s: &mut String) {
                 socket.sent
             );
         }
-        // A local listener's address and connections.
+        // A local listener's address and connections (LLP 1133.005 D12).
         if let Some(standing) = count.socket.and_then(|s| s.listen) {
             listener(runner, *ticket, standing, s);
         }
-        // A long poll waiting to ask again.
+        // A long poll waiting to ask again (LLP 1016.000 D8).
         if let Some(retry) = runner.retrying(*ticket) {
             let _ = write!(
                 s,

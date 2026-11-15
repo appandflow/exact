@@ -1,5 +1,5 @@
-//! `storage.fs.copyFile` from a chosen document into an app file, through
-//! the native storage provider.
+//! `storage.fs.copyFile` from a chosen document into an app file (LLP
+//! 1069.010 D1, ruled 2026-10-26), through the native storage provider.
 #![cfg(exact_js_engine)]
 use super::storage::{call, Root, GRANTS};
 use exact_runner::{DataSource, Store};

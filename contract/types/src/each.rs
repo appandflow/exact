@@ -1,4 +1,4 @@
-//! A resource over a list: `resource
+//! A resource over a list (LLP 1017.000 P4c, amended 2026-11-04): `resource
 //! r = source(x) for x in list [key=k] as shape S`. The list is read in the
 //! root's scope; the arguments and the key read the element, which the
 //! runner passes each element's request as its one parameter. A key is a
@@ -76,5 +76,19 @@ pub(crate) fn answer(r: &ResourceDecl, read: &Ty) -> Ty {
     match (&r.each, read) {
         (Some(_), Ty::List(t)) => (**t).clone(),
         (_, t) => t.clone(),
+    }
+}
+
+/// A resource's `when` (LLP 1161.002 D1): a `bool` over what its arguments
+/// may read.
+pub(crate) fn gate(r: &ResourceDecl, scope: &Scope, shapes: &Shapes) -> Result<(), TypeError> {
+    let Some(gate) = &r.gate else { return Ok(()) };
+    match infer(gate, scope, shapes)? {
+        Ty::Bool => Ok(()),
+        t => Err(TypeError {
+            id: "type-when-not-bool",
+            message: format!("`{}`'s `when` is a `bool`, given `{t}`", r.name),
+            span: gate.span(),
+        }),
     }
 }

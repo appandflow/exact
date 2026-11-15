@@ -1,5 +1,6 @@
-//! Lowering (lower.rs): which nodes lower, the names they take, and every
-//! refusal's code as the `--no-lower` build's, byte for byte.
+//! @ref LLP 1071.001 part B, B5 (lower.rs; theme2 07:30, 07:33): which nodes
+//! lower, the names they take, and every refusal's code as the `--no-lower`
+//! build's, byte for byte.
 use crate::emit::lower::{self, Refusal, REFUSED};
 
 const HEAD: &str = "component App\n  state s = \"a\"\n  state t = \"x\"\n  state n = 0\n  state on = false\n  action set(v: string)\n    s = v\n  view\n    column\n";
@@ -61,9 +62,14 @@ fn an_enumerated_node_lowers_to_one_class_write() {
     // The rows are `style_row`'s own statements, on the arm's literals.
     assert!(!js.contains("S(e1,"), "{js}");
     assert!(
-        js.contains("S($e,\"color\",\"\",()=>($cm)(blank((()=>$b[0])())))"),
+        js.contains("S($e,\"color\",\"\",()=>mapped((()=>$b[0])(),$cm,\"unset\"))"),
         "{js}"
     );
+}
+
+#[test]
+fn an_enumerated_colour_above_a_symbol_lowers_to_one_class_write() {
+    lowered("column color=(s == \"a\" ? \"#000000\" : \"#007AFF\")\n        image \"symbol:star\"");
 }
 
 #[test]
@@ -141,7 +147,7 @@ fn r6_a_modes_channel_keeps_its_effects() {
     let dir = std::env::temp_dir().join(format!("exact-web-js-lower-r6-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("app.tamber"), "tamber t\n\naxes\n  ink = tint | plain\n\ntheme\n  text.primary = #000001\n    when ink=plain: #000002\n").unwrap();
+    std::fs::write(dir.join("app.forma"), "forma t\n\naxes\n  ink = tint | plain\n\ntheme\n  text.primary = #000001\n    when ink=plain: #000002\n").unwrap();
     std::fs::write(
         dir.join("app.contract"),
         format!("{HEAD}      text \"x\" color=(s == \"a\" ? \"text.primary\" : \"#007AFF\")\n"),
@@ -288,7 +294,7 @@ fn a_development_build_lowers_and_counts_the_key() {
     assert!(!js.contains("const p1_"), "{js}");
 }
 
-/// A tinted image's template rows (symbols.js `template`) are
+/// Round 1 B1: a tinted image's template rows (symbols.js `template`) are
 /// glue-written there; a dynamic source makes the tint a binding too.
 #[test]
 fn a_tinted_images_template_rows_keep_their_effects() {
@@ -306,7 +312,7 @@ fn a_tinted_images_template_rows_keep_their_effects() {
     lowered("image \"symbol:star\" width=20 height=20 background-color=(s == \"a\" ? \"#00FF00\" : \"#0000FF\")");
 }
 
-/// `revert-layer` is refused; the CSS-wide keywords that mean
+/// Round 1 B2: `revert-layer` is refused; the CSS-wide keywords that mean
 /// the same inline and in an author rule are not.
 #[test]
 fn revert_layer_is_refused_and_the_other_wide_keywords_are_not() {
@@ -326,7 +332,7 @@ fn revert_layer_is_refused_and_the_other_wide_keywords_are_not() {
     lowered("text \"x\" font-weight=(s == \"a\" ? \"inherit\" : 400)");
 }
 
-/// Numbers as JavaScript writes and compares them.
+/// Round 1 B3: numbers as JavaScript writes and compares them.
 #[test]
 fn numbers_are_javascripts() {
     use lower::Lit;
@@ -347,7 +353,7 @@ fn numbers_are_javascripts() {
     assert!(js.contains("[[600],[700],[400]]"), "{js}");
 }
 
-/// A binding of another kind between two style rows runs between
+/// Round 2: a binding of another kind between two style rows ran between
 /// their effects, which one class write cannot keep: the node keeps its
 /// effects. Rows side by side (the other binding before or after) lower.
 #[test]
@@ -419,7 +425,7 @@ fn an_inline_read_property_keeps_its_effects() {
     }
 }
 
-/// A hatched node is page code's, which may class it; a live time
+/// Round 2: a hatched node is page code's, which may class it; a live time
 /// is its glue's (live-time-glue.js reads its widths inline).
 #[test]
 fn hatched_and_live_time_nodes_keep_their_effects() {
@@ -433,7 +439,7 @@ fn hatched_and_live_time_nodes_keep_their_effects() {
     );
 }
 
-/// Each name half is padded to 13 digits; `revert-layer` is a
+/// Round 2: each name half is padded to 13 digits; `revert-layer` is a
 /// whole token.
 #[test]
 fn names_are_padded_and_revert_layer_is_a_token() {
@@ -443,9 +449,9 @@ fn names_are_padded_and_revert_layer_is_a_token() {
     assert!(!lower::safe_text("a revert-layer"));
 }
 
-/// A `none` arm and a blank one write nothing there, as `S` removes the row.
+/// A `none` arm and a blank font-family arm can both lower.
 #[test]
 fn a_none_and_a_blank_arm_lower() {
     let js = lowered("text \"x\" font-weight=(s == \"a\" ? none : 700) font-family=(s == \"b\" ? \"\" : \"serif\")");
-    assert!(js.contains("[[null,4],[700,null],[700,4]]"), "{js}");
+    assert!(js.contains("[[null,4],[700,\"\"],[700,4]]"), "{js}");
 }

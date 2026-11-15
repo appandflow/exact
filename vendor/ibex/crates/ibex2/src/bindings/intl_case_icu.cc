@@ -4,7 +4,7 @@
 // accepts explicit UTF-16 code units so embedded NUL and unpaired surrogates
 // never pass through a lossy UTF-8 conversion.
 
-// Native libraries compute; Rust owns semantics.
+// @ref LLP 0057#3-the-boundary — native libraries compute; Rust owns semantics
 
 #if defined(_WIN32)
 #include "intl_icu_windows.h"

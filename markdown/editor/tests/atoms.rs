@@ -1,4 +1,4 @@
-//! Editing at an inline atom, driven as a browser drives
+//! LLP 1045.000 D5: editing at an inline atom, driven as a browser drives
 //! the editor (`beforeinput`, platform selections) and as an app does
 //! (`setSelectionRange`, `setRangeText`, faces arriving).
 
@@ -181,6 +181,22 @@ fn the_selection_facts_name_one_selected_atom_and_refuse_link_over_it() {
     p.e.set_selection(1, 2 + n(CITE));
     assert_eq!(p.e.facts().atom, "");
     assert!(!p.e.facts().unavailable.contains("link"));
+}
+
+#[test]
+fn one_link_atom_with_a_partly_bold_label_is_not_mixed() {
+    let atom = "[**Qu**ote](t3-citation:1)";
+    let text = format!("a {atom} b");
+    let mut p = Page::open(&text, "[]");
+    p.e.set_selection(2, 2 + n(atom));
+    let facts = p.e.facts();
+    assert_eq!(facts.atom, atom);
+    assert_eq!(facts.link, "t3-citation:1");
+    assert!(!facts.mixed);
+    let atoms = Atoms::parse(KINDS, "[]");
+    let range = exact_markdown::Range::new(2, 2 + n(atom));
+    let wire = exact_markdown::wire::selection_with(&text, range, &atoms);
+    assert!(wire.contains("\"mixed\":false"), "{wire}");
 }
 
 #[test]

@@ -16,7 +16,7 @@ private final class RegionInkView: NSView {
     override func mouseUp(with event: NSEvent) { surface?.followLink(event) }
     @objc func copy(_ sender: Any?) { surface?.copySelection() }
     override func keyDown(with event: NSEvent) {
-        if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "c" { copy(nil) }
+        if NodeView.isCommandAlone(event), NodeView.commandKey(event) == "c" { copy(nil) }
         else { super.keyDown(with: event) }
     }
 }
@@ -55,7 +55,7 @@ final class RegionSurfaceMac: NSView {
     private var lastWheel: [String: Any] = [:]
     override var isFlipped: Bool { true }
     var scrollOffset: CGPoint { scroller.contentView.bounds.origin }
-    /// The controller this surface draws for: `layout agree` accepts it as its session's.
+    /// The controller this surface draws for: `layout agree` accepts it as its session's (LLP 1080.001 D3).
     var owner: RegionController? { controller }
     init(controller: RegionController) {
         self.controller = controller
@@ -141,7 +141,7 @@ final class RegionSurfaceMac: NSView {
         // The presenter paints the page background when no authored ancestor does.
         if let found { return found }
         // The unset page is the window background, a dynamic colour: resolve
-        // it in this view's appearance.
+        // it in this view's appearance (LLP 1115 D2).
         guard let page = (superview as? NodeView)?.presenter?.pageBackground else { return nil }
         var resolved: NSColor?
         effectiveAppearance.performAsCurrentDrawingAppearance { resolved = page.usingColorSpace(.deviceRGB) }

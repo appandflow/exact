@@ -61,7 +61,7 @@ final class BoxLayerIOSTests: XCTestCase {
     /// The radius retains its viewport and resolves percentages per axis.
     func testACalculatedRadiusReadsTheKernelOnEachAxis() throws {
         let radius = try XCTUnwrap(CalculatedLength([
-            "calc": .number(calc("min(50%, 10vw)")),
+            "calc": .string("min(50%, 10vw)"),
             "env": [0, 0, 0, 0, 300, 600, 1, 1, 0, 0]
         ]))
         var style: NodeStyle = ["background_color": [36, 104, 172, 255]]
@@ -73,7 +73,7 @@ final class BoxLayerIOSTests: XCTestCase {
         XCTAssertNil(FlatPaint(style), "a calculated radius needs the final box")
         // Cancellation precedes the final conversion to layout precision.
         let steep = BatchValue.calculation(try XCTUnwrap(CalculatedLength([
-            "calc": .number(calc("calc(1e9 * (min(0.1%, 1px) - 0.2px) + 10px)")),
+            "calc": .string("calc(1e9 * (min(0.1%, 1px) - 0.2px) + 10px)"),
             "env": [0, 0, 0, 0, 300, 600, 1, 1, 0, 0]
         ])))
         XCTAssertEqual(steep.length(basis: 200), 10)
@@ -229,12 +229,12 @@ final class BoxLayerIOSTests: XCTestCase {
     private let white: BatchValue = [255, 255, 255, 255]
     private let blue: BatchValue = [0, 136, 255, 255]
 
-    /// A padding that resolves at layout (`min(10%, 20px)`
-    /// arrives as a calculation's handle) reads the content box the kernel published,
+    /// LLP 1116: a padding that resolves at layout (`min(10%, 20px)`
+    /// arrives as a calculation) reads the content box the kernel published,
     /// for the box and for each side; without one, the box's bounds.
     func testAPaddingResolvedAtLayoutReadsTheKernelsContentBox() throws {
         let padding = try XCTUnwrap(CalculatedLength([
-            "calc": .number(calc("min(10%, 20px)")),
+            "calc": .string("min(10%, 20px)"),
             "env": [0, 0, 0, 0, 300, 600, 1, 1, 0, 0]
         ]))
         let knots: NodeStyle = ["padding_top": .calculation(padding)]
@@ -248,12 +248,6 @@ final class BoxLayerIOSTests: XCTestCase {
         XCTAssertEqual(n.contentBox(), CGRect(x: 0, y: 0, width: 300, height: 120), "a box sent none is its own content box")
     }
 
-    /// The kernel's handle for a CSS length text that is a calculation.
-    private func calc(_ text: String) -> Double {
-        let bytes = Array(text.utf8)
-        return Double(bytes.withUnsafeBufferPointer { exact_calc_parse($0.baseAddress, $0.count) })
-    }
-
     private func node(_ style: NodeStyle, size: CGSize = CGSize(width: 300, height: 120)) -> NodeView {
         let p = Presenter()
         let n = NodeView(id: 1, kind: "view", presenter: p)
@@ -264,7 +258,7 @@ final class BoxLayerIOSTests: XCTestCase {
         return n
     }
 
-    /// CSS `filter` arriving in a later style, and
+    /// CSS `filter` (LLP 1055.000 D14) arriving in a later style, and
     /// leaving in one after: the box is masked while filtered and its
     /// picture is drawn with each batch; a node that never had one is
     /// neither.

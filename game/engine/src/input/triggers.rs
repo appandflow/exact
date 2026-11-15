@@ -36,7 +36,7 @@ impl TriggerState {
 /// What the coming ticks' edges depend on beyond the keys held: trigger
 /// gestures in progress, latched actions, and the contexts and bindings input
 /// last applied, which the next tick compares with the world's to release or
-/// latch. So it is world state, saved and hashed. Input works
+/// latch. So it is world state, saved and hashed (LLP 1128 I1). Input works
 /// on a copy the simulation writes back after each change; a world that never
 /// used a trigger, a context or a rebinding has no such resource.
 #[derive(Clone, Debug, Default, PartialEq, Resource)]

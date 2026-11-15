@@ -1,6 +1,6 @@
-// What Exact measures of each hatch call, and what hatch code says of itself.
-// One store a session, owned by the
-// main thread. Development only, as `perf` is: a production
+// What Exact measures of each hatch call, and what hatch code says of itself
+// (@ref LLP 1075.003.000.001 §3.1–3.3). One store a session, owned by the
+// main thread. Development only, as `perf` is (LLP 1079 D1): a production
 // bake hands the module no entry to call and times nothing, and a release
 // build times calls only once something reads them (`measurePerf`).
 //
@@ -50,11 +50,11 @@ final class HatchDiagnostics {
         return stores[rt]?.store
     }
 
-    // The bounds, fixed.
+    // §3.2's bounds, fixed.
     static let names = 64, samples = 256, openSpans = 32, snapshotNames = 16, snapshotBytes = 4096
     static let lineBytes = 256, linesPerSecond = 20, ringRecords = 1024, recentCalls = 1024, replyBytes = 65536
 
-    // MARK: What Exact times
+    // MARK: What Exact times (§3.1)
 
     private struct Timed { let hatch: String, site: Int?, moment: String; var calls = 0, ms = 0.0, worst = 0.0 }
     private var timing: [String: Timed] = [:]
@@ -90,7 +90,7 @@ final class HatchDiagnostics {
         return out
     }
 
-    /// A late frame's `hatches`: the calls that overlapped its window
+    /// A late frame's `hatches` (§3.1): the calls that overlapped its window
     /// `(from, to]`, seconds on the media clock, each charged its overlap;
     /// `coverage: partial` when the window reaches past the oldest call kept.
     /// Nil when none did. A join by window, not a causal trace.
@@ -107,7 +107,7 @@ final class HatchDiagnostics {
         return out
     }
 
-    // MARK: What hatch code records
+    // MARK: What hatch code records (§3.2)
 
     private struct Timing { var count = 0, sum = 0.0, max = 0.0, ring: [Double] = [], at = 0, dropped = 0, measured = false }
     private struct Span { let scope: String, name: String, from: Double, node: UInt32 }
@@ -301,7 +301,7 @@ final class HatchDiagnostics {
         lock.lock(); dropped = 0; lock.unlock()
     }
 
-    // MARK: Reads, which change nothing
+    // MARK: Reads, which change nothing (§3.3)
 
     private func grouped<V>(_ order: [String], _ value: (String) -> V) -> [String: [String: V]] {
         var out: [String: [String: V]] = [:]

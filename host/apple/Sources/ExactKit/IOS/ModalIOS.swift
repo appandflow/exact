@@ -1,5 +1,5 @@
-// UIKit owns modal presentation and its keyboard guide.
-// A presentation mounts only its own navigation: the
+// @ref LLP 1008 §9 — UIKit owns modal presentation and its keyboard guide.
+// @ref LLP 1123 D2 — a presentation mounts only its own navigation: the
 // session's viewport and the document stay in the session's view.
 #if os(iOS) || os(tvOS)
 import UIKit
@@ -14,12 +14,12 @@ extension ModalController: PaintsSheetSurface {}
 private final class ModalController: UIViewController, UIGestureRecognizerDelegate {
     weak var host: ModalHost?
     let routeID: UInt32
-    /// The route a `fit-content` detent measures.
+    /// The route a `fit-content` detent measures (LLP 1075.003 §9.11).
     private weak var route: NodeView?
     var retiringRoot: NodeView?
     var retiringNavigation: UIViewController?
     /// The keyboard probe and a freeze's pixels: what this controller adds
-    /// to its view beside the mount.
+    /// to its view beside the mount (LLP 1080.001 D3).
     private(set) var probe: UIView?
     private(set) var pixels: UIView?
     /// What the presentation's navigation is mounted in.
@@ -59,19 +59,13 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         cornerRadius = radius
         grabberValue = grabber
         let content = { [weak self] () -> CGFloat? in
-            guard let route = self?.route else { return nil }
-            // A scroller's extent counts its padding, and a container's
-            // bottom cover (the sheet's safe area, which UIKit adds below the
-            // detent) is padding; a route that does not scroll sends its
-            // children's extent, which leaves it out.
-            guard route.scroll != nil, case .edges(let e)? = self?.host?.presenter.navigation.covers[route.id] else { return route.content.height }
-            return route.content.height - e.bottom
+            self?.route?.fitContentHeight
         }
         let configure = {
             // Authored points and `fit-content` exclude the bottom safe
             // area, which UIKit adds.
             // One resting height leaves overscroll and dismissal with UIKit;
-            // several (`"300 large"`) make
+            // several (`"300 large"`, LLP 1075.003 from James's review) make
             // the sheet resizable among them, from the first, with its grabber.
             if newDetents {
                 var refused: [(Substring, ModalHost.DetentRefusal)] = []
@@ -91,7 +85,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
             sheet.prefersGrabberVisible = grabber == "visible" || grabber != "hidden" && sheet.detents.count > 1
             sheet.preferredCornerRadius = radius
             // Several: scrolling at the content's top grows the sheet, as
-            // UIKit's own sheets do.
+            // UIKit's own sheets do (LLP 1115 wave 1).
             sheet.prefersScrollingExpandsWhenScrolledToEdge = sheet.detents.count > 1
             // In `animateChanges`, the surface moves with the sheet.
             self.paintSurface()
@@ -112,10 +106,13 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     }
     required init?(coder: NSCoder) { nil }
     #if os(iOS)
-    // UIKit asks a presented controller that covers the screen;
-    // it answers the presenter's one resolved style, as the root does.
+    // LLP 1105 D6: UIKit asks a presented controller that covers the screen;
+    // it answers the presenter's one resolved style and hiding, as the root does.
     override var preferredStatusBarStyle: UIStatusBarStyle { host?.presenter.statusBar.style ?? .default }
-    // And the session's orientation lock, as the root does.
+    override var prefersStatusBarHidden: Bool { host?.presenter.statusBar.hidden ?? false }
+    override var prefersHomeIndicatorAutoHidden: Bool { host?.presenter.statusBar.hidden ?? false }
+    override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { host?.presenter.statusBarUpdateAnimation ?? .none }
+    // LLP 1133.029 D5: and the session's orientation lock, as the root does.
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         host?.presenter.orientationLock.supported ?? super.supportedInterfaceOrientations
     }
@@ -130,7 +127,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         appeared?()
         #if os(iOS)
         // Back after a cancelled drag or zoom dismissal, which no completion
-        // resolves: what landed during the gesture shows now.
+        // resolves: what landed during the gesture shows now (LLP 1105 D5).
         // The finished coordinator may still be installed: only a newly
         // started push or pop holds the style.
         let resolve = { [weak self] in self?.host?.presenter.resolveStatusBar(settled: true) }
@@ -159,7 +156,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         view.backgroundColor = .white
         #else
         ThemeRoles.adopt(view, from: host?.presenter.root)
-        // Its presenter's tint, as the root's: a sheet sits outside it.
+        // Its presenter's tint, as the root's (LLP 1095 D4): a sheet sits outside it.
         if let tint = ThemeRoles.color("AccentColor", in: view) { view.tintColor = tint }
         paintSurface()
         registerForTraitChanges([UITraitHorizontalSizeClass.self]) { (controller: ModalController, _: UITraitCollection) in controller.paintSurface() }
@@ -180,12 +177,14 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         #endif
     }
     #if os(iOS)
-    /// What shows under the route where it paints nothing:
+    /// What shows under the route where it paints nothing (LLP 1115 D2):
     /// the theme's ground; else, on a sheet resting below its large detent
     /// in a compact width, nothing, so UIKit draws its glass as it does for
-    /// a hand-built sheet whose view is left clear; else
+    /// a hand-built sheet whose view is left clear (LLP 1141.001 D3); else
     /// the system background, which UIKit elevates in dark mode. An authored
-    /// `transparent` is clear at any detent. The route's own paint is its
+    /// `transparent` is clear at any detent, and so is a full-screen route
+    /// that paints its own background (`NodeView.paintsOverPage`), which
+    /// shows the page under it where it is translucent. The route's own paint is its
     /// controller's (`RouteController.paintBackdrop`). While the keyboard
     /// ends the content above the screen's bottom, the colour the content
     /// goes on with shows behind the keys' bar (`ExactView.paintUnderKeys`).
@@ -193,7 +192,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         guard isViewLoaded else { return }
         let presenter = host?.presenter
         let keys = (presenter?.keyboardInset ?? 0) > 0 ? presenter?.bottomEdgeColor() : nil
-        let surface = keys ?? (transparent ? .clear
+        let surface = keys ?? (transparent || route?.paintsOverPage == true ? .clear
             : ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view) ?? (glass ? .clear : .systemBackground))
         if view.backgroundColor != surface { view.backgroundColor = surface }
     }
@@ -297,7 +296,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         defersFocus || isDismissing || layers.contains { $0.controller.isBeingPresented || $0.controller.isBeingDismissed }
     }
     var isDismissing: Bool { !retiring.isEmpty }
-    /// Every presentation's controller view, live and
+    /// LLP 1080.001 D3: every presentation's controller view, live and
     /// retiring, with what the presenter put in it: its probes and the mount
     /// its navigation is in.
     func surfaces(includingRetiring: Bool) -> [SessionSurface] {
@@ -317,7 +316,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     var closedby: String? { layers.last?.route.props["closedby"] }
     var presentation: String? { layers.last?.kind }
     var coordinateView: UIView? { layers.last?.controller.viewIfLoaded }
-    /// Whether the top presentation, modal as every one is,
+    /// Whether the top presentation, modal as every one is (LLP 1123 D2),
     /// makes `view` inert: it is neither in it nor in a `dialog`'s sheet,
     /// which UIKit presents over it (HTML modal dialogs).
     func inertBehind(_ view: UIView) -> Bool {
@@ -351,7 +350,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     /// Each presentation's mount and the route it holds.
     var mounted: [(mount: PresentationMount, route: NodeView)] { layers.map { ($0.controller.mount, $0.route) } }
     #if os(iOS)
-    /// The topmost presented route the status bar sits over: a
+    /// The topmost presented route the status bar sits over (LLP 1105 D2): a
     /// full-screen one always; a sheet only at its large detent on a
     /// compact-width screen. Nil when the bar is over the screen behind.
     /// The topmost covering presentation's navigation view (its routes and
@@ -368,9 +367,14 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         }
         return (covering?.navigation.viewIfLoaded, layers.compactMap { $0.navigation.viewIfLoaded })
     }
-    /// Every presented controller re-reads the style with the root:
+    /// Every presented controller re-reads the style with the root (D6):
     /// UIKit asks the topmost one that covers, which a sheet over it may hide.
-    func statusBarChanged() { for layer in layers { layer.controller.setNeedsStatusBarAppearanceUpdate() } }
+    func statusBarChanged() {
+        for layer in layers {
+            layer.controller.setNeedsStatusBarAppearanceUpdate()
+            layer.controller.setNeedsUpdateOfHomeIndicatorAutoHidden()
+        }
+    }
     #endif
 
     init(presenter: Presenter) { self.presenter = presenter }
@@ -381,8 +385,8 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
 
     /// A `navigationDetent`'s words as UIKit detents, in order. A bound value
     /// the compiler did not see may hold a word that names no detent, or one
-    /// that is not taller than the detent before it on every screen (the
-    /// compiler's `detent_out_of_order`): UIKit takes
+    /// that is not taller than the detent before it on every screen (LLP
+    /// 1075.003 §9.13, the compiler's `detent_out_of_order`): UIKit takes
     /// detents shortest to tallest, and a point height, a share of the
     /// maximum (`medium` is half) and the content's height cross on some
     /// screen. Each is skipped and handed to `refused`, so what is kept
@@ -396,7 +400,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             case .large: return .large()
             case .share where word.word == "medium": return .medium()
             case .share:
-                // A share of the sheet's maximum,
+                // @ref LLP 1075.003 §9.13 — a share of the sheet's maximum,
                 // as `.custom { $0.maximumDetentValue * 0.45 }` is in UIKit.
                 let share = CGFloat(word.height)
                 return .custom(identifier: identifier(word)) { context in context.maximumDetentValue * share / 100 }
@@ -409,7 +413,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                     followed && points >= context.maximumDetentValue ? nil : min(points, context.maximumDetentValue)
                 }
             case .content:
-                // The route's content, which its
+                // @ref LLP 1075.003 §9.11 — the route's content, which its
                 // box (the sheet) does not change; before it is measured,
                 // the sheet's maximum.
                 return .custom(identifier: identifier(word)) { context in
@@ -442,7 +446,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             case _ where word.hasSuffix("%"):
                 guard let share = Double(word.dropLast()), share.isFinite, share > 0, share <= 100 else { refused?(word, .unknown); continue }
                 // All of the maximum is UIKit's `large`, and is the same
-                // detent: one rest, and the status bar's.
+                // detent: one rest, and the status bar's (LLP 1105 D2).
                 (kind, height) = share == 100 ? (.large, 100) : (.share, share)
             default:
                 guard let points = Double(word), points.isFinite, points > 0 else { refused?(word, .unknown); continue }
@@ -488,7 +492,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         guard canDismissByBackdrop(id), let route = layers.last?.route else { return }
         presenter.navigation.invokeBack(from: route)
     }
-    /// The agent's `back` on the top sheet: its swipe
+    /// The agent's `back` on the top sheet (LLP 1116.006 D4): its swipe
     /// down, refused as UIKit's is (`presentationControllerShouldDismiss`)
     /// and ending as a completed one does (`invokeBack`). nil with no sheet
     /// up; "" when it went, else why not.
@@ -537,15 +541,17 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     }
 
     /// What each presentation's route inherits from its logical ancestors,
-    /// which UIKit's hierarchy no longer carries to it, mounted in its sheet:
-    /// an authored `aria-hidden` and `inert` above it (WAI-ARIA
+    /// which UIKit's hierarchy no longer carries to it, mounted in its sheet
+    /// (LLP 1123 D2): an authored `aria-hidden` and `inert` above it (WAI-ARIA
     /// tree exclusion, HTML inert subtrees), set on the view the navigation
     /// is mounted in, apart from the hiding a presentation over it gives its
-    /// navigation; and a `color-scheme`, the presented controller's
-    /// appearance, which UIKit carries to its sheet and everything in it.
-    /// The route's own `color-scheme` comes first, so a sheet that paints
-    /// its own surface has its bar, title and close button in that surface's
-    /// scheme. After every batch, a transition running or not.
+    /// navigation; and a `color-scheme`, the route's own or else the nearest
+    /// above it: the appearance of the presented controller, which UIKit
+    /// carries to everything in it, and of its presentation controller,
+    /// whose chrome (a partial detent's glass, the grabber) UIKit draws
+    /// outside the controller's view, from the window's appearance unless
+    /// told. After every batch, a transition running or
+    /// not, and as a presentation is made.
     func inheritFromAncestors() {
         for layer in layers where layer.controller.isViewLoaded { inherit(layer) }
     }
@@ -573,6 +579,11 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         if layer.controller.overrideUserInterfaceStyle != scheme {
             layer.controller.overrideUserInterfaceStyle = scheme
             layer.controller.updateTraitsIfNeeded()
+        }
+        if let sheet = layer.controller.presentationController {
+            let said = sheet.traitOverrides.contains(UITraitUserInterfaceStyle.self)
+            if scheme == .unspecified { if said { sheet.traitOverrides.remove(UITraitUserInterfaceStyle.self) } }
+            else if !said || sheet.traitOverrides.userInterfaceStyle != scheme { sheet.traitOverrides.userInterfaceStyle = scheme }
         }
     }
 
@@ -641,7 +652,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             // the source's id, when it has one; for an image, the image as it
             // is drawn (`object-fit`), so the zoom morphs photo into photo
             // rather than the whole route into the thumbnail with two photos
-            // cross-fading (the zoom's alignment).
+            // cross-fading (LLP 1035.001, the zoom's alignment).
             // The last answer, for the zoom back after a Close: by then the
             // route's nodes have left the presenter's map (`release`) though
             // UIKit still shows them. `prepare` samples it just before.
@@ -680,6 +691,9 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         layers.append(layer)
         controller.isModalInPresentation = refusesDismissal(of: route)
         controller.loadViewIfNeeded()
+        // What it inherits, from its first frame: a sheet a deferred sync
+        // presents (the second of two, after the first is up) waits for the next batch otherwise.
+        inherit(layer)
         controller.addChild(navigation)
         presenter.collections.watchContacts(in: controller.mount)
         controller.mount.addSubview(navigation.view)
@@ -701,7 +715,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             HostLog.note(presenter.session, "presentation: presented the \(layer.kind) \(layer.route.props["navigationKey"] ?? "?")")
             layer.presenting = false
             #if os(iOS)
-            // Up: what the bar sits over now.
+            // Up: what the bar sits over now (LLP 1105 D5).
             presenter.resolveStatusBar()
             #endif
             DispatchQueue.main.async { [weak self, weak layer] in
@@ -712,7 +726,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                 }
                 // The transition's transforms are gone: a transform drag in
                 // the presented route measures again, or it stays refused
-                // until something else lays out.
+                // until something else lays out (LLP 1057.001 §4).
                 presenter.transformGeometry.changed()
                 presenter.syncModal()
                 drainRetired()
@@ -771,10 +785,10 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             retiring.removeAll { $0 === layer }
             layer.presentationsDidDismiss?()
             layer.presentationsDidDismiss = nil
-            // Its routes, if they live on, give their blocks back
+            // Its routes, if they live on, give their blocks back (LLP 1123 D2)
             presenter.owners.publish()
             #if os(iOS)
-            // Gone: what the bar sits over now.
+            // Gone: what the bar sits over now (LLP 1105 D5).
             presenter.resolveStatusBar()
             #endif
             DispatchQueue.main.async { [weak self] in
@@ -863,7 +877,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
 
 #if os(iOS)
 // A sheet dragged between detents moves what the status bar sits over
-// with no batch.
+// with no batch (LLP 1105 D5).
 extension ModalHost: UISheetPresentationControllerDelegate {
     func sheetPresentationControllerDidChangeSelectedDetentIdentifier(_ sheetPresentationController: UISheetPresentationController) {
         presenter.resolveStatusBar()

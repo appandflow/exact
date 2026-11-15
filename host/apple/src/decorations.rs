@@ -1,4 +1,4 @@
-//! A textarea's decorations for the Apple field: the app's
+//! A textarea's decorations for the Apple field (LLP 1114.007): the app's
 //! record resolved against the field's text by the kernel's rule, and each
 //! visible declaration's paint rows in the batch's style encoding.
 #![allow(unsafe_code)]
@@ -98,7 +98,7 @@ mod tests {
         );
     }
 
-    /// An atom kind's state rows cross as a decoration's
+    /// An atom kind's state rows (LLP 1045.000 D4) cross as a decoration's
     /// do, by name: its ring's width, colour and offset, its corners'.
     #[test]
     fn an_atoms_state_rows_cross_by_name() {

@@ -1,4 +1,4 @@
-# Calendars by a person
+# Calendars by a person (LLP 1133.018 §11, stage 4)
 
 What no tool can do here: answer the system's calendar prompt, save or
 cancel in the system's event editor, raise write-only access to full, and
@@ -57,10 +57,10 @@ Two apps carry the module:
 
 1. In the Calendar, open an item and tap Add to Calendar…: Calendar opens
    the `.ics` and asks where to add it; the note reads "Opened in your
-   calendar app" (macOS has no editor that reports).
+   calendar app" (macOS has no editor that reports, D15).
 2. Turn on Show my calendars: the alert asks for full access with the
    purpose. Allow: your events and dots show. Record the time from the
-   switch to the section (the first answer's time).
+   switch to the section (D8 asks for the first answer's time).
 3. Install the fixture as a bundle (`… calendarfixture-apple --bundle`) and
    tap Save: write down whether macOS offers write-only access, and what
    `saved` and `walk` read after.
@@ -71,7 +71,7 @@ Two apps carry the module:
 `apps/contacts-calendar-fixture`, whose APK declares `READ_CALENDAR` and,
 because it calls `saveEvent`, `WRITE_CALENDAR`. Neither its `--emulator`
 drives nor the steps below have run, since the emulator does not start on the
-Mac they were built on. Install with
+Mac stage 3 was built on. Install with
 `adb install -r host/android/app/build/contacts-calendar-fixture/outputs/apk/release/app-release.apk`.
 
 1. **One dialog for both permissions.** At launch the reads ask: one
@@ -91,4 +91,4 @@ Mac they were built on. Install with
    and return: the status changes on resume.
 5. **An all-day event.** Add one in the calendar app today: back in the
    fixture after a relaunch, it lists under its local date, not the day
-   before or after (the provider keeps it at a UTC midnight).
+   before or after (D2: the provider keeps it at a UTC midnight).

@@ -1,4 +1,4 @@
-// The Mac's grouped form, where a row's look is a
+// @ref LLP 1115.002 D6 — the Mac's grouped form, where a row's look is a
 // control's: a field with no bezel, AppKit's mini switch, and a push button
 // round a `destructive` row's title. Each is what the sheet's metrics say
 // in the Mac's column, stated here as the batch the kernel then sends.

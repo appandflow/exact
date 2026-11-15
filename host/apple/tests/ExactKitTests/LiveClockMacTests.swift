@@ -2,7 +2,7 @@
 import XCTest
 @testable import ExactKit
 
-/// The wall clock owns time until the agent's takes it (the timers RFC):
+/// The wall clock owns time until the agent's takes it (the timers RFC, D1):
 /// on it a repeat that missed beats fires once; on the agent's, every beat.
 final class LiveClockMacTests: XCTestCase {
     private static let plan: Result<Data, Error> = Result {
@@ -29,7 +29,7 @@ final class LiveClockMacTests: XCTestCase {
         defer { session.destroy() }
         let boot = session.boot(plan: try Self.plan.get(), size: CGSize(width: 390, height: 844))
         XCTAssertNil(boot.error)
-        // On the wall clock a task's repeat is Foundation's timer, whose wake the runtime fires.
+        // On the wall clock a task's repeat is Foundation's timer (#1144), whose wake the runtime fires.
         let row = try XCTUnwrap(boot.nativeTimers?.first, "the task's native timer")
         let due = row.due
         // No frame yet, and three beats missed: one fire.

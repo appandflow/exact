@@ -1,4 +1,4 @@
-// Lights: the WLED lights on this network. Found by
+// Lights: the WLED lights on this network (LLP 1133.036 §10). Found by
 // DNS-SD through @exact/local-network, reached with `fetch` under the
 // `local-network` grant; a typed address when discovery finds nothing.
 use browseServices, localNetworkStatus, LocalServices, LocalNetworkStatus from "@exact/local-network"

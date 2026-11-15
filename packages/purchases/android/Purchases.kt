@@ -1,13 +1,13 @@
-// @exact/purchases on Android: Play Billing 9.1, answered in the Digital Goods API's shapes. Under the
-// agent the implementation is its own substitute: it makes no BillingClient and keeps a synthetic store
+// @exact/purchases on Android (LLP 1133.015): Play Billing 9.1, answered in the Digital Goods API's shapes. Under the
+// agent the implementation is its own substitute (§9): it makes no BillingClient and keeps a synthetic store
 // (AgentStore.kt) that behaves as Play does. A drive never binds it (`bind-real-money`): a sideloaded build signed in
 // with an account that is not a license tester would pay.
 //
-// - Made after the reader's first frame (`"start": "load"`): one BillingClient for the process, with pending
+// - Made after the reader's first frame (`"start": "load"`, D6): one BillingClient for the process, with pending
 //   purchases and automatic reconnection, connected then, its purchases queried then and at every resume.
-// - Two facts: `listPurchases` is the query's `PURCHASED` rows, `unfinishedPurchases` its unacknowledged ones,
-//   `PENDING` included. Play reports no expiry, so no answer names a stale time.
-// - Tier 3: `PurchasesModule.builder` sees the BillingClient.Builder before `build()`, `connected` the client
+// - Two facts (D3): `listPurchases` is the query's `PURCHASED` rows, `unfinishedPurchases` its unacknowledged ones,
+//   `PENDING` included. Play reports no expiry, so no answer names a stale time (D7).
+// - Tier 3 (D11): `PurchasesModule.builder` sees the BillingClient.Builder before `build()`, `connected` the client
 //   after its first connection, and `flow` each BillingFlowParams.Builder before `launchBillingFlow`.
 package exact.purchases
 
@@ -32,7 +32,7 @@ import java.util.UUID
 
 class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
     companion object {
-        /** The app's hatches: the builder before `build()`, the client after its first connection, and each
+        /** The app's hatches (D11): the builder before `build()`, the client after its first connection, and each
          * purchase's flow builder after the module's words are set. */
         @JvmStatic var builder: ((BillingClient.Builder) -> Unit)? = null
         @JvmStatic var connected: ((BillingClient) -> Unit)? = null
@@ -41,7 +41,8 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
         private var client: BillingClient? = null
         private var ready = false
         private var connecting = false
-        private val waiting = ArrayList<() -> Unit>()
+        /** Calls waiting on the first connection: each body, and its reply should the client end first. */
+        private val waiting = ArrayList<Pair<() -> Unit, (JSONObject) -> Unit>>()
         private var flowReply: ((JSONObject) -> Unit)? = null
         private var flowItem = ""
         private var country: String? = null
@@ -51,7 +52,7 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
         fun error(code: String, message: String? = null): JSONObject =
             JSONObject().put("error", code).also { if (message != null) it.put("message", message) }
 
-        /** Play's response codes in the interface's. */
+        /** Play's response codes in the interface's (D1). */
         fun failure(result: BillingResult): JSONObject = when (result.responseCode) {
             BillingClient.BillingResponseCode.USER_CANCELED -> error("AbortError")
             BillingClient.BillingResponseCode.FEATURE_NOT_SUPPORTED, BillingClient.BillingResponseCode.BILLING_UNAVAILABLE -> error("NotSupportedError", result.debugMessage)
@@ -70,6 +71,18 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
 
     private fun say(line: String) = context.log("purchases: $line")
 
+    // Above `init`, whose `connect()` hands it to the builder: Kotlin runs initialisers and `init` blocks in the order
+    // they are declared, so one declared below is still null there and `build()` throws.
+    private val updated = PurchasesUpdatedListener { result, purchases ->
+        val answer = flowReply
+        flowReply = null
+        if (answer != null) {
+            val bought = purchases?.firstOrNull { flowItem in it.products }
+            answer(if (result.responseCode == BillingClient.BillingResponseCode.OK && bought != null) details(bought) else failure(result))
+        }
+        changed()
+    }
+
     init {
         sessions.add(this)
         if (!context.agent && client == null) connect()
@@ -85,7 +98,7 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
 
     override fun later(name: String, args: JSONObject, preferred: Any?, reply: (JSONObject) -> Unit) {
         if (context.agent) return agentLater(name, args, preferred as? JSONObject, reply)
-        afterConnect { realLater(name, args, reply) }
+        afterConnect(reply) { realLater(name, args, reply) }
     }
 
     override fun preferred(values: JSONObject) {
@@ -103,9 +116,20 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
         changed()
     }
 
+    /** The client, its connection's waiters and the sheet's reply are the process's: the last session ends the client,
+     * and every call still waiting on it is answered, so none stays open and the next session can show a sheet. */
     override fun destroy(done: () -> Unit) {
         sessions.remove(this)
-        if (sessions.isEmpty()) { client?.endConnection(); client = null; ready = false; connecting = false; waiting.clear() }
+        if (sessions.isEmpty()) {
+            client?.endConnection(); client = null; ready = false; connecting = false
+            val ended = error("AbortError", "the purchases session ended")
+            val calls = ArrayList(waiting)
+            waiting.clear()
+            calls.forEach { (_, reply) -> reply(ended) }
+            val sheet = flowReply
+            flowReply = null
+            sheet?.invoke(ended)
+        }
         done()
     }
 
@@ -113,7 +137,7 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
         .put("canMakePayments", context.agent || client?.isReady == true).put("storefront", if (context.agent) "US" else country ?: JSONObject.NULL)
         .put("apple", JSONObject.NULL).put("android", JSONObject().put("countryCode", if (context.agent) "US" else country ?: JSONObject.NULL))
 
-    // MARK: under the agent
+    // MARK: under the agent (§9)
 
     private fun unixNow(): Double = AgentStore.unix(context.now())
 
@@ -151,7 +175,7 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
                     else -> reply(error("AbortError"))
                 }
             }
-            // Play has no restore sheet: a fresh query.
+            // Play has no restore sheet: a fresh query (D2).
             "restorePurchases" -> { reply(JSONObject().put("exact:answer", JSONArray(s.owned(now).map { s.details(it) }))); changed() }
             "acknowledge", "consume" -> {
                 val token = args.optString("purchaseToken")
@@ -165,17 +189,7 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
         }
     }
 
-    // MARK: Play Billing
-
-    private val updated = PurchasesUpdatedListener { result, purchases ->
-        val answer = flowReply
-        flowReply = null
-        if (answer != null) {
-            val bought = purchases?.firstOrNull { flowItem in it.products }
-            answer(if (result.responseCode == BillingClient.BillingResponseCode.OK && bought != null) details(bought) else failure(result))
-        }
-        changed()
-    }
+    // MARK: Play Billing (stage 2)
 
     private fun connect() {
         val b = BillingClient.newBuilder(context.application).setListener(updated)
@@ -197,15 +211,15 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
                 }
                 val now = ArrayList(waiting)
                 waiting.clear()
-                now.forEach { it() }
+                now.forEach { (body, _) -> body() }
                 changed()
             }
             override fun onBillingServiceDisconnected() { if (client === c) ready = false }
         })
     }
 
-    /** [body] once the client's first connection has answered (a call waits for the first query's chance). */
-    private fun afterConnect(body: () -> Unit) { if (connecting) waiting.add(body) else body() }
+    /** [body] once the client's first connection has answered (D6: a call waits for the first query's chance). */
+    private fun afterConnect(reply: (JSONObject) -> Unit, body: () -> Unit) { if (connecting) waiting.add(body to reply) else body() }
 
     private fun realLater(name: String, args: JSONObject, reply: (JSONObject) -> Unit) {
         val c = client ?: return reply(error("NotSupportedError"))
@@ -307,7 +321,7 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
         }
     }
 
-    /** The base plan's offer with a free trial or introductory phase if Play lists one, else the base plan; a
+    /** D2: the base plan's offer with a free trial or introductory phase if Play lists one, else the base plan; a
      * product with several base plans needs `android.basePlanId`. */
     private fun offerFor(offers: List<ProductDetails.SubscriptionOfferDetails>, basePlan: String?): String? {
         val plans = offers.map { it.basePlanId }.distinct()

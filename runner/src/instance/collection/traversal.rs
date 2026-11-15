@@ -3,7 +3,7 @@ use super::*;
 impl Collection {
     pub(in crate::instance) fn add_children<'a>(&'a self, stack: &mut Vec<&'a Child>) {
         // Only rows whose plan can hold an inner list: nothing else in a row
-        // is a collection (one level down).
+        // is a collection (LLP 1070 N6, one level down).
         let Some(inner) = &self.inner else { return };
         for row in &self.mounted {
             stack.extend(row.row.roots.iter().filter(|c| inner.may_hold(c)));
@@ -289,7 +289,7 @@ impl Tree {
                     root: first_root_bounded(&row.row.roots, &mut roots, max_traversal)?,
                     index: row.position,
                     start: c.index.prefix(row.position).unwrap(),
-                    size: c.index.height(row.position).unwrap(),
+                    size: (c.index.height(row.position).unwrap() - c.index.item_gap()).max(0.0),
                     epoch: row.epoch,
                     measured: c.index.is_measured_at(row.position),
                 });
@@ -531,7 +531,7 @@ fn find_collection_mut(children: &mut [Child], view: ViewId) -> Option<&mut Coll
                 if node.collection().is_some_and(|c| c.view == view) {
                     return node.collection_mut();
                 }
-                // A nested collection lives in a mounted row.
+                // A nested collection lives in a mounted row (LLP 1070 N1).
                 if let Some(collection) = crate::instance::rare::list_mut(&mut node.rare) {
                     for row in &mut collection.mounted {
                         stack.extend(row.row.roots.iter_mut());
@@ -565,7 +565,7 @@ fn release_other_pins(
             Child::Node(node) => {
                 if let Some(collection) = crate::instance::rare::list_mut(&mut node.rare) {
                     // The addressed list's ancestors keep their rows: the new
-                    // pin's chain runs through them, and
+                    // pin's chain runs through them (LLP 1070 N5), and
                     // releasing one would retire the row that holds it.
                     if collection.view != target && !collection.contains(target) {
                         changed |= collection.release_pins(u, frames, categories)?;
@@ -601,7 +601,7 @@ fn release_other_pins(
 
 /// Check the template, including inactive arms and rows not yet materialized:
 /// a row may hold a virtualized list with a constant `virtualized=true`, one
-/// level down; a dynamic opt-in, at any depth, could become
+/// level down (LLP 1070 N6); a dynamic opt-in, at any depth, could become
 /// enabled later and is refused, as is a list inside the inner one. An
 /// explicit false stays an ordinary eager list. Whether the rows can hold one.
 pub(super) fn validate_nesting(
@@ -638,7 +638,7 @@ pub(super) fn validate_nesting(
                     {
                         continue;
                     }
-                    let code = plan.code(binding.expr);
+                    let code = plan.read_code(plan.code(binding.expr)).0;
                     if code == constant(0) {
                         continue;
                     }

@@ -1,10 +1,11 @@
-// Glass groups on Apple over saturated
+// LLP 1053.000.000 §2 as a page: glass groups on Apple over saturated
 // stripes — two glass merging (row 1), apart past the spacing (3), a group
 // inside a group (5), paint order (7), a glass isolated by a fading box
 // (8) and by a clipping one (10), and a scroll on either side of a group
-// (11), and a group whose spacing is its gap (`glassGroup="auto"`: apart at
-// rest, as Apple's spacing-equals-gap pattern is). The web and Linux draw
-// each glass alone, as without a group; Apple's pictures are compared by eye.
+// (11), and a group whose spacing is its gap (`glassGroup="auto"`, LLP
+// 1053.000.000.000: apart at rest, as Apple's spacing-equals-gap pattern
+// is). The web and Linux draw each glass alone, as without a group (D1);
+// Apple's pictures are compared by eye with §2.
 component GlassGroups
   view
     main testId="glass-groups" position="relative" width=390 height=740 background-color="#ffffff"

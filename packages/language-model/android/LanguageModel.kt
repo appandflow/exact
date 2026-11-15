@@ -1,15 +1,16 @@
-// @exact/language-model on Android: ML Kit's GenAI Prompt API over AICore's Gemini Nano
-// (LanguageModelAndroid.kt), and under the agent the agent model on the session clock, with Android's limits.
+// @exact/language-model on Android (LLP 1133.016): ML Kit's GenAI Prompt API over AICore's Gemini Nano
+// (LanguageModelAndroid.kt), and under the agent the agent model of §9 on the session clock, with Android's limits.
 //
-// - The transcript is this module's: each session's instructions and turns (an input and the reply). ML Kit has
+// - The transcript is this module's (D6): each session's instructions and turns (an input and the reply). ML Kit has
 //   no session, so each generation sends the turns again as one request. web/index.js and LanguageModel.swift keep
 //   the same records, by the same rules, so the hosts agree on every count.
-// - A response is a value the runner polls: its text so far, which ML Kit's stream fills; only a change of
+// - A response is a value the runner polls (D7): its text so far, which ML Kit's stream fills; only a change of
 //   `state` is announced.
-// - Structured output is validated, not enforced, and there are no tools: `structuredOutput` reads
+// - Structured output is validated, not enforced (D8), and there are no tools (D9): `structuredOutput` reads
 //   `validated` and `tools` false, and a create with tools fails `NotSupportedError`.
-// - ML Kit generates only for the app in the foreground: a prompt in the background fails `NotAllowedError`,
-//   `background`, and one running when the app leaves ends so, with its text so far. One generation runs per process.
+// - ML Kit generates only for the app in the foreground (D10): a prompt in the background fails `NotAllowedError`,
+//   `background`, and one running or queued when the app leaves ends so, with its text so far. One generation runs per
+//   process.
 package exact.languagemodel
 
 import dev.exact.canvas.ExactExtension
@@ -17,12 +18,15 @@ import dev.exact.canvas.ExtensionContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** One input of a session and the reply. */
+/** One input of a session and the reply (D6). */
 class ModelTurn(var input: String?, var reply: String? = null)
+
+/** A call waiting its turn: [go] begins it, [cancel] answers it when the session's end discards it. */
+class Queued(val response: ModelResponse?, val go: (Double) -> Unit, val cancel: () -> Unit)
 
 class ModelSession(val id: String, val system: String?, val turns: MutableList<ModelTurn>, val window: Int, val options: JSONObject) {
     var overflowed = false
-    val queue = ArrayDeque<Pair<ModelResponse?, (Double) -> Unit>>()
+    val queue = ArrayDeque<Queued>()
     var responding: ModelResponse? = null
     val ended = ArrayDeque<String>()
     var count = 0
@@ -60,7 +64,7 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
         const val SESSION = "language-model.languageModelSession"
         const val AVAILABILITY = "language-model.languageModelAvailability"
 
-        /** The app's access hatches, on the main thread and never under the agent: the model's configuration
+        /** The app's access hatches (D12), on the main thread and never under the agent: the model's configuration
          * before each client is made, and each request's builder after the words are set. */
         @JvmStatic var modelConfig: ((com.google.mlkit.genai.prompt.ModelConfig.Builder) -> Unit)? = null
         @JvmStatic var request: ((com.google.mlkit.genai.prompt.GenerateContentRequest.Builder) -> Unit)? = null
@@ -69,7 +73,7 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
         fun cost(text: String) = 4 + (bytes(text) + 3) / 4
         fun schemaCost(schema: Any) = (bytes(LanguageModelSchema.json(schema)) + 3) / 4
 
-        /** Tokens as the agent model cuts them: at the end of each run of whitespace. */
+        /** Tokens as §9 cuts them: at the end of each run of whitespace. */
         fun tokens(text: String): List<String> {
             val out = mutableListOf<String>()
             val current = StringBuilder()
@@ -91,13 +95,13 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
     val responses = HashMap<String, ModelResponse>()
     private val byRequest = HashMap<Int, ModelResponse>()
     private var serial = 0
-    // The agent's words and its preferred availability, laid over the agent model's.
+    // The agent's words (§9) and its preferred availability, laid over the agent model's.
     private var overlay = JSONObject()
     private var script = mutableListOf<JSONObject>()
     private var scriptSeen = ""
     private var rate = TOKEN_MS
     private var agentWindow = WINDOW
-    /** A download the agent model started, and the creates waiting on it. */
+    /** A download the agent model started, and the creates waiting on it (D5). */
     private var downloading: Double? = null
     private val waiting = mutableListOf<(Boolean) -> Unit>()
     /** ML Kit, outside the agent (LanguageModelAndroid.kt). */
@@ -106,13 +110,13 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
     fun say(line: String) = context.log("language-model: $line")
     fun announce(key: String) = context.changed(key)
 
-    // ---------------------------------------------------------------- counting
+    // ---------------------------------------------------------------- counting (§9)
 
     fun windowOf(s: ModelSession) = if (agent) agentWindow else s.window
     private fun turnCost(t: ModelTurn) = (t.input?.let(::cost) ?: 0) + (t.reply?.let(::cost) ?: 0)
     fun counted(s: ModelSession) = (s.system?.let(::cost) ?: 0) + s.turns.sumOf(::turnCost)
 
-    /** Evict the oldest whole turns until `extra` more fits; false when even then it does not. */
+    /** Evict the oldest whole turns until `extra` more fits (D6); false when even then it does not. */
     fun fit(s: ModelSession, extra: Int): Boolean {
         val had = s.turns.size
         while (counted(s) + extra > windowOf(s) && s.turns.isNotEmpty()) { s.turns.removeAt(0); s.overflowed = true }
@@ -142,7 +146,7 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
     fun createdInfo(s: ModelSession): JSONObject = JSONObject().put("id", s.id).put("contextUsage", counted(s))
         .put("contextWindow", windowOf(s)).put("tools", JSONArray()).put("overflowed", s.overflowed)
 
-    /** A session from a create's arguments, trimmed as a prompt evicts: null when the system message and the newest
+    /** A session from a create's arguments, trimmed as a prompt evicts (D6): null when the system message and the newest
      * turn do not fit. */
     fun makeSession(args: JSONObject, window: Int): ModelSession? {
         val (system, turns) = turnsOf(args.optJSONArray("initialPrompts") ?: JSONArray())
@@ -179,20 +183,22 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
     }
     private fun advanceAll() = responses.values.toList().forEach(::advance)
 
-    /** The response ends: its turn committed with its text so far, the session's next call begun at `at`. */
+    /** The response ends: its turn committed with its text so far (D6), the session's next call begun at `at`. */
     fun end(r: ModelResponse, state: String, error: String? = null, reason: String? = null, message: String? = null, at: Double? = null) {
         if (!r.live) return
         r.state = state
         if (error != null) { r.error = error; r.reason = reason; r.message = message }
+        // Only a live response has a generation for its call's cancel to abort.
+        r.request?.let { if (byRequest[it] === r) byRequest.remove(it) }
         val s = r.session
         val begun = s.responding === r
         // One still waiting its turn never reached the session: nothing of it is committed.
-        if (begun) r.turn.reply = r.text else s.queue.removeAll { it.first === r }
+        if (begun) r.turn.reply = r.text else s.queue.removeAll { it.response === r }
         r.contextUsage = counted(s)
         r.job?.cancel()
         if (begun) s.responding = null
         s.ended.addLast(r.id)
-        // An ended response is kept until its session has ended eight newer.
+        // An ended response is kept until its session has ended eight newer (D6).
         while (s.ended.size > KEPT) { val old = s.ended.removeFirst(); responses.remove(old); say("$old: retired") }
         say("${r.id}: $state${error?.let { " ($it${reason?.let { w -> ", $w" } ?: ""})" } ?: ""}, ${r.text.length} characters, 0 tool calls")
         val settled = r.settled.toList()
@@ -204,16 +210,17 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
         mlkit?.ended(r)
     }
 
-    /** The calls waiting on `s`, begun in order until one generates (one generation a session). */
+    /** The calls waiting on `s`, begun in order until one generates (D6: one generation a session). */
     private fun next(s: ModelSession, at: Double) {
-        while (s.responding == null && s.queue.isNotEmpty()) s.queue.removeFirst().second(at)
+        while (s.responding == null && s.queue.isNotEmpty()) s.queue.removeFirst().go(at)
     }
 
-    /** `work(at)` once the session is free; `r`, the response it begins, holds the session until it ends. */
-    fun queued(s: ModelSession, r: ModelResponse?, work: (Double) -> Unit) {
-        s.queue.addLast(r to { at: Double ->
+    /** `work(at)` once the session is free; `r`, the response it begins, holds the session until it ends.
+     * [cancel] answers the call if the session ends first; a response's own end answers its prompt. */
+    fun queued(s: ModelSession, r: ModelResponse?, cancel: () -> Unit = {}, work: (Double) -> Unit) {
+        s.queue.addLast(Queued(r, { at: Double ->
             if (r == null || r.state == "generating") { if (r != null) s.responding = r; work(at) }
-        })
+        }, cancel))
         next(s, context.now())
     }
 
@@ -226,7 +233,7 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
             typed = c is String
             val parsed = if (typed) LanguageModelSchema.parse(c as String) else c
             schema = parsed as? JSONObject ?: throw Refused("SyntaxError", "the constraint is not a JSON Schema object")
-            LanguageModelSchema.refusal(schema)?.let { say("a constraint outside the supported subset: $it"); throw Refused("NotSupportedError", it) }
+            LanguageModelSchema.refusal(schema)?.let { say("a constraint outside D8's subset: $it"); throw Refused("NotSupportedError", it) }
         }
         val input = args.opt("input") as? String ?: throw Refused("TypeError", "`input` is a string")
         serial += 1
@@ -239,7 +246,7 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
         return r
     }
 
-    /** The input fitted to the window, evicting oldest turns: false, with the response failed, when it cannot. */
+    /** The input fitted to the window, evicting oldest turns (D6): false, with the response failed, when it cannot. */
     fun admitInput(r: ModelResponse, measured: Int? = null): Boolean {
         val s = r.session
         val had = s.turns.size
@@ -253,7 +260,7 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
         return true
     }
 
-    // ---------------------------------------------------------------- the agent model
+    // ---------------------------------------------------------------- the agent model (§9)
 
     private fun beginAgent(r: ModelResponse, at: Double) {
         if (r.state != "generating" || !admitInput(r)) return
@@ -263,7 +270,7 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
             end(r, "failed", it, entry.optString("reason").ifEmpty { null }, entry.optString("message").ifEmpty { null }, at)
             return
         }
-        // Android runs no tools: a scripted call is one the session did not list.
+        // Android runs no tools (D9): a scripted call is one the session did not list.
         entry?.optJSONArray("toolCalls")?.takeIf { it.length() > 0 }?.let { calls ->
             val why = "the session lists no tool `${calls.optJSONObject(0)?.optString("name")}`"
             say("${r.id}: the script's tool call is refused: $why")
@@ -274,7 +281,7 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
         if (text == null) text = r.schema?.let { LanguageModelSchema.firstInstance(it) } ?: "Agent model reply ${r.session.count}."
         r.schema?.let { schema ->
             val why = LanguageModelSchema.parse(text).let { if (it == null) "the text is not JSON" else LanguageModelSchema.violation(schema, it) }
-            // A validating platform would fail it: the response fails, and the journal names why.
+            // A validating platform would fail it (§9): the response fails, and the journal names why.
             if (why != null) { say("${r.id}: the script's reply does not satisfy the constraint: $why"); end(r, "failed", "SyntaxError", message = why, at = at); return }
         }
         r.planned = tokens(text)
@@ -292,7 +299,7 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
         end(r, "aborted", "AbortError")
     }
 
-    /** The agent model's availability: its own with Android's limits, the drive's overlay laid over it. */
+    /** The agent model's availability: §9's with Android's limits, the drive's overlay laid over it. */
     private fun agentAvailability(args: JSONObject): JSONObject {
         val a = JSONObject().put("availability", "available").put("contextWindow", agentWindow).put("leavesDevice", false)
             .put("structuredOutput", "validated").put("tools", false)
@@ -304,7 +311,7 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
         return a.put("android", JSONObject.NULL)
     }
 
-    /** Tool use asked by `expectedOutputs`, which Android does not offer. */
+    /** Tool use asked by `expectedOutputs`, which Android does not offer (D9). */
     fun wantsTools(args: JSONObject): Boolean {
         val outputs = args.optJSONArray("expectedOutputs") ?: return false
         return (0 until outputs.length()).any { outputs.optJSONObject(it)?.optString("type") == "tool-call" }
@@ -321,12 +328,11 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
                 "createLanguageModel" -> create(args, origin, reply)
                 "prompt", "promptStreaming" -> {
                     val s = session() ?: return reply(error("InvalidStateError"))
-                    // ML Kit generates only for the app in the foreground.
+                    // ML Kit generates only for the app in the foreground (D10).
                     if (!context.foreground) return reply(JSONObject().put("error", "NotAllowedError").put("reason", "background"))
                     val r = respond(s, args, name == "promptStreaming")
                     if (name == "promptStreaming") return reply(JSONObject().put("id", r.id).put("session", s.id))
                     val settle = { done: ModelResponse ->
-                        done.request?.let { byRequest.remove(it) }
                         when {
                             done.error != null -> reply(error(done.error!!))
                             !done.typed -> reply(JSONObject().put("text", done.text).put("contextUsage", done.contextUsage ?: 0).put("overflowed", done.overflowed))
@@ -349,7 +355,7 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
                 "appendLanguageModel" -> {
                     val s = session() ?: return reply(error("InvalidStateError"))
                     val input = args.optString("input")
-                    queued(s, null) {
+                    queued(s, null, { reply(error("AbortError")) }) {
                         if (!fit(s, cost(input))) return@queued reply(error("QuotaExceededError"))
                         s.turns += ModelTurn(input)
                         announce(SESSION)
@@ -372,7 +378,7 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
                 }
                 "cloneLanguageModel" -> {
                     val s = session() ?: return reply(error("InvalidStateError"))
-                    queued(s, null) {
+                    queued(s, null, { reply(error("AbortError")) }) {
                         serial += 1
                         val c = ModelSession("session-$serial", s.system, s.turns.map { ModelTurn(it.input, it.reply) }.toMutableList(), s.window, s.options)
                         c.overflowed = s.overflowed
@@ -412,7 +418,7 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
         if (state == "unavailable") return reply(error("NotSupportedError"))
         if (state == "available") return made(agentWindow)
         if (downloading == null) {
-            // A download is a person's act: the app's own call, in the foreground.
+            // A download is a person's act (D5, D10): the app's own call, in the foreground.
             if (!startsDownload(origin)) return reply(error("NotAllowedError"))
             downloading = 0.0
             say("download started (agent)")
@@ -421,14 +427,14 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
         waiting += { ok -> if (ok) made(agentWindow) else reply(error("NotSupportedError")) }
     }
 
-    /** Whether a create from `origin` may start a download, journaled when it may not. */
+    /** Whether a create from `origin` may start a download (D5, D10), journaled when it may not. */
     fun startsDownload(origin: String): Boolean {
         if (origin != "app") { say("create: refused, person-required ($origin origin) to start a download"); return false }
         if (!context.foreground) { say("create: refused, a download starts in the foreground"); return false }
         return true
     }
 
-    /** Under the agent: the preferred availability, laid over the agent model's, and the script, rate and window. */
+    /** Under the agent: the preferred availability, laid over the agent model's, and the script, rate and window (§9). */
     override fun preferred(values: JSONObject) {
         overlay = values.optJSONObject("languageModelAvailability")?.takeIf { !it.has("error") } ?: JSONObject()
         val seen = values.opt("responses")?.let(LanguageModelSchema::json) ?: "null"
@@ -458,13 +464,13 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
         w.forEach { it(ok) }
     }
 
-    /** A call let go: its prompt's generation aborted. */
+    /** A call let go (D15 item 2): its prompt's generation aborted. */
     override fun cancel(request: Int) {
         val r = byRequest.remove(request) ?: return
         abort(r, "cancelled: its call (request $request) was let go")
     }
 
-    /** Sessions and responses whose reply was dropped: never the app's. */
+    /** Sessions and responses whose reply was dropped: never the app's (D6). */
     override fun dispose(ids: List<String>) {
         for (id in ids) {
             sessions[id]?.let { drop(it, "its reply was dropped") }
@@ -472,17 +478,19 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
         }
     }
 
-    /** A return to the foreground reads the availability again; leaving it ends what generates. */
+    /** A return to the foreground reads the availability again (D5); leaving it fails every live response, those
+     * queued too, since a prompt from the background is refused (D10). */
     override fun foreground(shown: Boolean) {
         if (shown) { announce(AVAILABILITY); return }
-        for (r in responses.values.toList()) if (r.live && r.session.responding === r) {
+        // The queued first: ending a generating one begins its session's next, which must not start in the background.
+        for (r in responses.values.sortedBy { it.session.responding === it }) if (r.live) {
             say("${r.id}: the app left the foreground")
             if (agent) advance(r)
             end(r, "failed", "NotAllowedError", "background")
         }
     }
 
-    /** The end of the app's session: every response aborted, every session dropped. */
+    /** The end of the app's session: every response aborted, every session dropped (D6). */
     override fun destroy(done: () -> Unit) {
         for (s in sessions.values.toList()) drop(s, "the app's session ended")
         mlkit?.close()
@@ -490,9 +498,12 @@ class LanguageModelModule(context: ExtensionContext) : ExactExtension(context) {
     }
 
     fun drop(s: ModelSession, why: String) {
-        for (r in responses.values.toList()) if (r.session === s) { abort(r, why); responses.remove(r.id) }
-        s.queue.clear()
         sessions.remove(s.id)
+        // The calls waiting are answered first: the active response's end would begin them.
+        val waiting = s.queue.toList()
+        s.queue.clear()
+        waiting.forEach { it.cancel() }
+        for (r in responses.values.toList()) if (r.session === s) { abort(r, why); responses.remove(r.id) }
         say("${s.id}: $why")
         announce(SESSION)
     }

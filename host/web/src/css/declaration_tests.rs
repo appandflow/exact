@@ -10,7 +10,19 @@ fn css(rows: &[(StyleId, StyleValue)], fonts: &[&str]) -> String {
     css_text(&style, &fonts).0
 }
 
-/// Text balance and the `::placeholder` colour.
+#[test]
+fn explicit_transition_none_covers_no_property_in_the_browser() {
+    assert_eq!(css(&[], &[]), "");
+    assert_eq!(
+        css(
+            &[(StyleId::Transition, StyleValue::Text("none".into()))],
+            &[]
+        ),
+        "transition:none;"
+    );
+}
+
+/// LLP 1001 §6's balance; LLP 1104 D3's `::placeholder` colour.
 #[test]
 fn balance_and_the_placeholder_colour_are_written_for_the_browser() {
     let text = |id, v: &str| css(&[(id, StyleValue::Text(v.into()))], &[]);
@@ -18,6 +30,16 @@ fn balance_and_the_placeholder_colour_are_written_for_the_browser() {
     assert_eq!(wrap, "text-wrap-style:balance;");
     let ink = text(StyleId::PlaceholderColor, "#00800080");
     assert_eq!(ink, "--exact-placeholder-color:rgba(0,128,0,0.5019608);");
+}
+
+/// CSS Fonts 4 §6.12: `font-feature-settings` is written as CSS serializes it.
+#[test]
+fn font_feature_settings_are_their_css() {
+    let value = StyleValue::Text("'cv05' 1,'tnum' on,'liga' off".into());
+    assert_eq!(
+        css(&[(StyleId::FontFeatureSettings, value)], &[]),
+        r#"font-feature-settings:"cv05", "tnum", "liga" 0;"#
+    );
 }
 
 #[test]
@@ -74,7 +96,7 @@ fn composed_declarations_keep_their_text() {
             &[],
         ),
         css(&[(StyleId::LineClamp, StyleValue::Number(3.0))], &[]),
-        // One row, CSS's list.
+        // LLP 1077 D4: one row, CSS's list.
         css(
             &[(
                 StyleId::BoxShadow,
@@ -154,7 +176,7 @@ fn composed_declarations_keep_their_text() {
     assert_eq!(cases, golden);
 }
 
-/// `aspect-ratio` as authored (never a rounded float),
+/// LLP 1053: `aspect-ratio` as authored (never a rounded float),
 /// `direction`, the `flex-grow` longhand and `transform-origin` reach
 /// the page as CSS.
 #[test]
@@ -183,7 +205,7 @@ fn layout_rows_keep_their_css() {
             vec![(StyleId::Direction, t("rtl"))],
             "direction:rtl;--exact-separator-x:100%;--exact-separator-dir:-1;",
         ),
-        // Canonical, each axis a percentage or px.
+        // LLP 1061 D6: canonical, each axis a percentage or px.
         (
             vec![(StyleId::TransformOrigin, t("top left"))],
             "transform-origin:0% 0%;",
@@ -242,7 +264,7 @@ fn every_grid_row_has_css_and_none_is_skipped() {
     }
 }
 
-/// A gradient is one `background-image` declaration after the
+/// LLP 1066: a gradient is one `background-image` declaration after the
 /// colour it paints over; a `light-dark()` stop is the browser's to
 /// resolve, and `none` clears.
 #[test]
@@ -264,7 +286,7 @@ fn a_3d_rotate_and_translate_are_one_declaration_each() {
     assert!(text.contains("translate:1px 2px 3px;"), "{text}");
     assert!(text.contains("perspective:800px;"), "{text}");
     assert_eq!(text.matches("rotate").count(), 1, "{text}");
-    // A percentage is the browser's to resolve.
+    // Chess diary #4: a percentage is the browser's to resolve.
     let text = css(
         &[
             (StyleId::Translate, t("-50% 4px")),
@@ -362,12 +384,12 @@ fn background_image_is_one_declaration_over_the_colour() {
         css(&[(StyleId::BackgroundImage, t("none"))], &[]),
         "background-image:none;"
     );
-    // The admitted snap alignments are CSS's own.
+    // LLP 1008: the admitted snap alignments are CSS's own.
     assert_eq!(
         css(&[(StyleId::ScrollSnapAlign, t("end"))], &[]),
         "scroll-snap-align:end;"
     );
-    // The browser's own `fixed`, the gradient box the viewport.
+    // LLP 1066 D7: the browser's own `fixed`, the gradient box the viewport.
     assert_eq!(
         css(&[(StyleId::BackgroundAttachment, t("fixed"))], &[]),
         "background-attachment:fixed;"
@@ -435,4 +457,40 @@ fn only_a_pressable_node_animates_the_scale_custom_property() {
         animations_css(&list, true),
         list.css().replace(" grow,", " grow-exact-press,")
     );
+}
+
+/// `-exact-hit-slop` (Charlie, 2026-11-10) reaches the page only as the
+/// custom properties index.html's pseudo-element insets itself by.
+#[test]
+fn a_hit_slop_is_its_four_custom_properties() {
+    let rows = [
+        (StyleId::HitSlopTop, StyleValue::Number(12.0)),
+        (StyleId::HitSlopRight, StyleValue::Number(8.0)),
+        (StyleId::HitSlopBottom, StyleValue::Number(12.0)),
+        (StyleId::HitSlopLeft, StyleValue::Text("0.5rem".into())),
+    ];
+    assert_eq!(
+        css(&rows, &[]),
+        "--exact-hit-slop-top:12px;--exact-hit-slop-right:8px;\
+         --exact-hit-slop-bottom:12px;--exact-hit-slop-left:8px;"
+    );
+}
+
+#[test]
+fn scroll_snap_emits_both_axes_and_center() {
+    for axis in ["x", "y"] {
+        assert_eq!(
+            css(
+                &[
+                    (
+                        StyleId::ScrollSnapType,
+                        StyleValue::Text(format!("{axis} mandatory").into())
+                    ),
+                    (StyleId::ScrollSnapAlign, StyleValue::Text("center".into()))
+                ],
+                &[]
+            ),
+            format!("scroll-snap-type:{axis} mandatory;scroll-snap-align:center;")
+        );
+    }
 }

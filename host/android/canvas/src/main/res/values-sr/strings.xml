@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="exact_clear">Обриши</string>
+    <string name="exact_default_channel">Обавештења</string>
+    <string name="exact_silent_channel">Нечујна обавештења</string>
 </resources>

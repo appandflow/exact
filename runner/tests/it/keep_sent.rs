@@ -1,5 +1,5 @@
-//! A request with effects that the runner lets go runs to its end:
-//! the runner offers it to the source when the commit ends, keeps it
+//! A request with effects that the runner lets go runs to its end (LLP 1146
+//! D2): the runner offers it to the source when the commit ends, keeps it
 //! when the source takes it, and delivers its reply to `module_landed`. A
 //! refused commit keeps nothing: what it let go is in flight again.
 use exact_kernel::Kernel;
@@ -56,6 +56,7 @@ struct Seen {
 struct Source {
     keeps: bool,
     seen: Arc<Mutex<Seen>>,
+    row_request: Request,
 }
 
 fn row(n: f64) -> Value {
@@ -75,10 +76,11 @@ impl DataSource for Source {
     ) -> Result<Answer, DataError> {
         match source {
             // Each argument its own request, so newer ones replace it.
-            "row" => Ok(Answer::Later(Request::post_json(
-                &format!("https://example.test/row/{:?}", args[0]),
-                "{}",
-            ))),
+            "row" => {
+                let mut request = self.row_request.clone();
+                request.url = format!("https://example.test/row/{:?}", args[0]);
+                Ok(Answer::Later(request))
+            }
             "bad" if args[1] == Value::Bool(true) => Err(DataError::UnknownSource("bad".into())),
             "bad" | "now" => Ok(Answer::Now(row(0.0))),
             "post" => Ok(Answer::Later(Request::post_json(
@@ -149,10 +151,15 @@ impl DataSource for Source {
 }
 
 fn boot(keeps: bool) -> (Runner<Source>, Arc<Mutex<Seen>>) {
+    boot_request(keeps, Request::post_json("https://example.test/row", "{}"))
+}
+
+fn boot_request(keeps: bool, row_request: Request) -> (Runner<Source>, Arc<Mutex<Seen>>) {
     let seen = Arc::new(Mutex::new(Seen::default()));
     let source = Source {
         keeps,
         seen: seen.clone(),
+        row_request,
     };
     let plan = contract::compile(SOURCE).unwrap();
     let mut r = Runner::boot(
@@ -239,6 +246,44 @@ fn a_request_with_effects_is_in_flight_until_it_lands_kept_or_not() {
     assert_eq!(background(&r), r#"{"mustFinish":false}"#);
 }
 
+#[test]
+fn a_held_mark_does_not_change_an_uploads_lifetime() {
+    for held in [false, true] {
+        let mut request =
+            Request::post_json("https://example.test/row", "").body_from("app:/data/a");
+        request.held = held;
+        let (mut r, seen) = boot_request(true, request);
+        let (upload, _) = first(&mut r);
+        let background = |r: &Runner<_>| exact_runner::agent::handle(r, r#"{"op":"background"}"#);
+        assert!(r.in_flight().contains(&("row".to_string(), upload)));
+        assert!(!r
+            .held_requests()
+            .iter()
+            .any(|(_, ticket)| *ticket == upload));
+        assert!(r.effects_in_flight(), "held mark: {held}");
+        assert_eq!(background(&r), r#"{"mustFinish":true}"#);
+
+        r.act("bump", vec![]).unwrap();
+        assert!(seen.lock().unwrap().offered.contains(&(1, false)));
+        assert!(r.holds(upload));
+        assert!(r.pending().contains(&("module work".to_string(), upload)));
+        let newer = r
+            .take_requests()
+            .into_iter()
+            .find(|o| o.request.url.contains("/row/"))
+            .unwrap()
+            .ticket;
+        r.fulfill(newer, ok()).unwrap();
+        assert!(r.effects_in_flight(), "the kept upload is still out");
+        assert_eq!(background(&r), r#"{"mustFinish":true}"#);
+        assert!(r.fulfill(upload, ok()).unwrap().is_some());
+        assert_eq!(seen.lock().unwrap().landed, [77]);
+        assert!(!r.holds(upload));
+        assert!(!r.effects_in_flight());
+        assert_eq!(background(&r), r#"{"mustFinish":false}"#);
+    }
+}
+
 /// A source that keeps nothing (a Rust data source's default): the host
 /// cancels the let-go POST, as before.
 #[test]
@@ -308,8 +353,8 @@ fn a_refused_commit_keeps_nothing_it_let_go() {
 }
 
 /// Kept requests the host refuses at admission settle as module work lands,
-/// one a pump, each once, and the second still waiting asks for its own pump:
-/// each continuation hears its failure, and the runner holds
+/// one a pump, each once, and the second still waiting asks for its own pump
+/// (LLP 1146 §2.1): each continuation hears its failure, and the runner holds
 /// the ticket no more.
 #[test]
 fn kept_requests_the_host_refuses_together_each_settle_once() {
@@ -338,7 +383,7 @@ fn kept_requests_the_host_refuses_together_each_settle_once() {
 }
 
 /// An ordered kept request the host refuses fences later ordered work and
-/// settles only once earlier ordered work has, then once.
+/// settles only once earlier ordered work has (LLP 1041 §8.4), then once.
 #[test]
 fn an_ordered_kept_request_the_host_refuses_waits_behind_ordered_work() {
     let (mut r, seen) = boot(true);
@@ -382,7 +427,7 @@ fn a_refused_commit_after_a_module_turn_keeps_its_writes() {
 
 /// A kept reply's module turn writes the store: a reader whose request may
 /// never land (`held`) is asked again at once, and one in flight that will
-/// land (`reader`) waits for its reply.
+/// land (`reader`) waits for its reply (LLP 1146 §2.3).
 #[test]
 fn a_held_store_reader_is_asked_again_at_once_after_module_work() {
     let (mut r, _) = boot(true);
@@ -403,7 +448,7 @@ fn a_held_store_reader_is_asked_again_at_once_after_module_work() {
 
 /// A kept reply's module turn writes the store: `reader`, in flight, waits
 /// for its reply. An ordinary write after it asks `reader` again at once,
-/// as any other write does.
+/// as any other write does (LLP 1146 §2.3).
 #[test]
 fn module_work_s_wait_on_a_reader_lapses_at_the_next_write() {
     let (mut r, _) = boot(true);
@@ -702,4 +747,62 @@ mod tool_authority {
             );
         }
     }
+}
+
+fn retirement_before_reply(during_commit: bool) {
+    #[derive(Default)]
+    struct Retires(exact_runner::ModuleIdentity, bool);
+    impl DataSource for Retires {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(&mut self, _: &mut Store, _: &str, args: &[Value]) -> Result<Answer, DataError> {
+            if args[0] == Value::Number(1.) {
+                return Ok(Answer::Now(Value::str("new")));
+            }
+            let mut request = Request::post_json("https://example.test/write", "{}");
+            request.fetch = Some(7);
+            Ok(Answer::Later(request))
+        }
+        fn keep_sent(&mut self, _: &Store, calls: &[InFlight<'_>], _: bool) -> Vec<Option<u64>> {
+            if self.1 && !calls.is_empty() {
+                self.0.retire("heap exhausted".into());
+            }
+            calls.iter().map(|call| call.fetch).collect()
+        }
+        fn module_identity(&self, _: &str) -> Option<exact_runner::ModuleIdentity> {
+            Some(self.0.clone())
+        }
+        fn module_landed(&mut self, _: &mut Store, _: u64, _: Outcome) -> Result<(), DataError> {
+            panic!("a retired executor must never receive the reply");
+        }
+    }
+    let plan = contract::compile("component App\n  state n = 0\n  resource row = row(n) as shape string\n  action replace\n    n = 1\n  view\n    text row\n").unwrap();
+    let identity = exact_runner::ModuleIdentity::default();
+    let mut r = Runner::boot(
+        plan,
+        Retires(identity.clone(), during_commit),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let old = r.take_requests().remove(0);
+    r.act("replace", vec![]).unwrap();
+    if !during_commit {
+        identity.retire("heap exhausted".into());
+    }
+    r.fulfill(old.ticket, ok()).unwrap();
+    assert!(exact_runner::agent::logs(&r, 0).contains("executor retired: heap exhausted"));
+    assert!(r.pending().is_empty());
+}
+
+#[test]
+fn retirement_during_keep_sent_is_heard_before_an_immediate_reply() {
+    retirement_before_reply(true);
+}
+
+#[test]
+fn retirement_after_keep_sent_is_heard_before_an_immediate_reply() {
+    retirement_before_reply(false);
 }

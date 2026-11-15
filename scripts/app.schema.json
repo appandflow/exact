@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "exact2/app.json",
-  "title": "The app manifest: the W3C Web App Manifest's own keys, plus `app` (identity), `host.<platform>` (host metadata bake generates per platform), and `deploy` (policy, never identity).",
+  "title": "The app manifest (LLP 1030 D2, 1030.000 D7): the W3C Web App Manifest's own keys, plus `app` (identity), `host.<platform>` (host metadata bake generates per platform), and `deploy` (policy, never identity).",
   "type": "object",
   "required": [
     "name",
@@ -13,6 +13,25 @@
       "description": "Frame callback timing: core collects bounded counters on existing app clocks from launch, off never collects. Without a mode, a development build collects from launch and a production build only while the frame-health card shows. Presentation remains unobserved.",
       "additionalProperties": false,
       "properties": { "mode": { "enum": ["off", "core"] } }
+    },
+    "preload": {
+      "type": "object",
+      "description": "Named requests sent at process start by hosts that support them (LLP 1162.000 D2). Strings in url, header values and body may use {secret:NAME} for a secret.keep grant or {env:NAME} for a declared setting with a build value; {{ writes a literal brace. Fixed settings are written in at bake; launch settings and present secrets are filled on the device. Android and the web use build settings.",
+      "maxProperties": 8,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["url"],
+        "additionalProperties": false,
+        "properties": {
+          "url": { "type": "string" },
+          "method": { "type": "string", "default": "GET" },
+          "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+          "body": { "type": "string" },
+          "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 3600000 },
+          "when": { "enum": ["start", "foreground"], "default": "start" }
+        }
+      }
     },
     "launch": {
       "type": "array",
@@ -31,7 +50,7 @@
     },
     "modules": {
       "type": "array",
-      "description": "The native-module roster: the custom-element tags the app's module artifact serves (modules/apple/*.swift beside libexact_modules.dylib on Apple, modules/web/index.js on the web). A hyphenated tag in the Contract that this list lacks is bake-unknown-module.",
+      "description": "The native-module roster (LLP 1024 D1): the custom-element tags the app's module artifact serves (modules/apple/*.swift beside libexact_modules.dylib on Apple, modules/web/index.js on the web). A hyphenated tag in the Contract that this list lacks is bake-unknown-module.",
       "items": {
         "type": "string",
         "pattern": "^[a-z][a-z0-9_]*(-[a-z][a-z0-9_]*)+$"
@@ -39,14 +58,14 @@
     },
     "data": {
       "type": "array",
-      "description": "The app's data-* words, without the `data-`: real attributes on the web, read by the app module's hatches on Apple through typed keys the build writes from this list (ExactDataKey). A data-* attribute in the Contract that this list lacks is bake-undeclared-data.",
+      "description": "The app's data-* words (LLP 1075.003 Q2), without the `data-`: real attributes on the web, read by the app module's hatches on Apple through typed keys the build writes from this list (ExactDataKey). A data-* attribute in the Contract that this list lacks is bake-undeclared-data.",
       "items": {
         "type": "string",
         "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$"
       }
     },
     "hatches": {
-      "description": "The app's hatch words: a node marked hatch=\"word\" hands its platform object (a UIView or NSView and its kind's UIKit or AppKit object, or a DOM element) to the app module's element hatch, which compares it with typed keys the build writes from this list (ExactHatchKey). A hatched node leaves the host's fast path. A hatch word in the Contract that this list lacks is bake-undeclared-hatch. Either a list of words, each handled on every platform the app builds, or an object giving each word the platforms whose module handles it, as {\"avatar\": [\"ios\", \"macos\", \"web\"]}: a platform the word does not name shows the node and never calls a hatch for it, and its typed keys leave the word out.",
+      "description": "The app's hatch words (LLP 1075.003.000 Q1): a node marked hatch=\"word\" hands its platform object (a UIView or NSView and its kind's UIKit or AppKit object, or a DOM element) to the app module's element hatch, which compares it with typed keys the build writes from this list (ExactHatchKey). A hatched node leaves the host's fast path. A hatch word in the Contract that this list lacks is bake-undeclared-hatch. Either a list of words, each handled on every platform the app builds, or an object giving each word the platforms whose module handles it, as {\"avatar\": [\"ios\", \"macos\", \"web\"]} (LLP 1075.003.000.001 §5): a platform the word does not name shows the node and never calls a hatch for it, and its typed keys leave the word out.",
       "oneOf": [
         {
           "type": "array",
@@ -66,7 +85,7 @@
       ]
     },
     "implementations": {
-      "description": "The implementation each module interface binds on a target, where the build cannot choose alone: {\"@exact/geolocation\": {\"web\": \"@fast/geolocation-web\"}}. Unnamed, a target binds the app's one direct dependency that implements the interface there, else the one the interface carries; two such dependencies are bake-implementation-ambiguous.",
+      "description": "The implementation each module interface binds on a target (LLP 1133.001 D4), where the build cannot choose alone: {\"@exact/geolocation\": {\"web\": \"@fast/geolocation-web\"}}. Unnamed, a target binds the app's one direct dependency that implements the interface there, else the one the interface carries; two such dependencies are bake-implementation-ambiguous.",
       "type": "object",
       "additionalProperties": {
         "type": "object",
@@ -75,7 +94,7 @@
       }
     },
     "packages": {
-      "description": "Each package's configuration by target, as its interface's `config` declares it, read at bake and written into the bundle: {\"@exact/maps\": {\"web\": {\"tiles\": \"https://tile.openstreetmap.org/{z}/{x}/{y}.png\"}, \"android\": {\"apiKey\": {\"env\": \"EXACT_GOOGLE_MAPS_API_KEY\"}}}}. A secret is named by the environment variable that holds it, never written here.",
+      "description": "Each package's configuration by target (LLP 1133.021 §9 item 7), as its interface's `config` declares it, read at bake and written into the bundle: {\"@exact/maps\": {\"web\": {\"tiles\": \"https://tile.openstreetmap.org/{z}/{x}/{y}.png\"}, \"android\": {\"apiKey\": {\"env\": \"EXACT_GOOGLE_MAPS_API_KEY\"}}}}. A secret is named by the environment variable that holds it, never written here.",
       "type": "object",
       "additionalProperties": {
         "type": "object",
@@ -116,7 +135,7 @@
         },
         "modules": {
           "type": "object",
-          "description": "GPU artifacts beside the primary <app>-gpu: module name -> the surface names it registers. Module m is the crate <app>-gpu-m, loaded the first time a canvas of one of its surfaces is on screen; every other surface is the primary's.",
+          "description": "GPU artifacts beside the primary <app>-gpu (LLP 1009 D6): module name -> the surface names it registers. Module m is the crate <app>-gpu-m, loaded the first time a canvas of one of its surfaces is on screen; every other surface is the primary's.",
           "additionalProperties": {
             "type": "array",
             "items": {
@@ -138,7 +157,7 @@
         "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-logic$" },
         "look": {
           "type": "object",
-          "description": "The proof's look result: tells the game's look intends, silenced by name. A silenced tell is still printed and recorded.",
+          "description": "The proof's look result (LLP 1127.000 D1): tells the game's look intends, silenced by name. A silenced tell is still printed and recorded.",
           "additionalProperties": false,
           "properties": {
             "silence": {
@@ -150,7 +169,7 @@
         },
         "render": {
           "type": "object",
-          "description": "Optional GPU-only render hooks in render/ (formerly game.presentation). The crate may read game logic types; logic and host metadata must not depend on it. hooks names its exact_game_render::Hooks type; shaders names its reflected registry symbol, a Rust path, not shader files: those come from gpu.shaderRoots and gpu.shaderPreludes.",
+          "description": "Optional GPU-only render hooks in render/ (formerly game.presentation, LLP 1046.008 amendment). The crate may read game logic types; logic and host metadata must not depend on it. hooks names its exact_game_render::Hooks type; shaders names its reflected registry symbol, a Rust path, not shader files: those come from gpu.shaderRoots and gpu.shaderPreludes.",
           "required": ["crate", "hooks"],
           "additionalProperties": false,
           "properties": {
@@ -189,8 +208,14 @@
       "description": "What the app does, in a sentence: the web manifest's `description`, which an install prompt or a store listing can show.",
       "type": "string"
     },
+    "categories": {
+      "description": "The W3C manifest's categories, which the web manifest carries: what the app is, for a store or catalog to file it under. Each is a W3C standardized category or one of Apple's, written without public.app-category.: developer-tools, graphics-design, reference, video and the game genres (dice-games, puzzle-games, ...). The Apple bundles' LSApplicationCategoryType (iOS and macOS) is the first that Apple has: fitness and health are healthcare-fitness, photo photography, social social-networking, and books, food, government, kids, magazines, navigation, personalization, politics, security and shopping have none. Absent: a game the game shell builds (game) is filed under games, any other app under none. An Apple category of games or a game genre turns Game Mode on (host.ios.gameMode, host.macos.gameMode).",
+      "type": "array",
+      "minItems": 1,
+      "items": { "enum": ["books", "business", "education", "entertainment", "finance", "fitness", "food", "games", "government", "health", "kids", "lifestyle", "magazines", "medical", "music", "navigation", "news", "personalization", "photo", "politics", "productivity", "security", "shopping", "social", "sports", "travel", "utilities", "weather", "developer-tools", "graphics-design", "reference", "video", "action-games", "adventure-games", "arcade-games", "board-games", "card-games", "casino-games", "dice-games", "educational-games", "family-games", "kids-games", "music-games", "puzzle-games", "racing-games", "role-playing-games", "simulation-games", "sports-games", "strategy-games", "trivia-games", "word-games"] }
+    },
     "privacy_policy": {
-      "description": "The app's privacy policy, an https: URL: the one its App Store and Google Play listings name. HealthKit requires one, and Health Connect's permission screen links to it, so an app granting device.health-read without it is refused for Android (grant-privacy-policy) and warned for iOS.",
+      "description": "The app's privacy policy, an https: URL: the one its App Store and Google Play listings name (LLP 1133.026 D4). HealthKit requires one, and Health Connect's permission screen links to it, so an app granting device.health-read without it is refused for Android (grant-privacy-policy) and warned for iOS.",
       "type": "string",
       "pattern": "^https://"
     },
@@ -213,7 +238,7 @@
       ]
     },
     "display_override": {
-      "description": "The Web App Manifest's display modes in order of preference, each used where the platform takes it, else the next, else `display`. `window-controls-overlay` puts the page under the title bar beside the window's controls: Chrome's in an installed app; on macOS, an app without routes gets the platform's tall unified title row, an empty toolbar over the page, and `env(titlebar-area-*)` its area beside the traffic lights.",
+      "description": "The Web App Manifest's display modes in order of preference, each used where the platform takes it, else the next, else `display`. `window-controls-overlay` puts the page under the title bar beside the window's controls: Chrome's in an installed app; on macOS, an app without routes gets the platform's tall unified title row, an empty toolbar over the page, and `env(titlebar-area-*)` its area beside the traffic lights (LLP 1039 D8).",
       "type": "array",
       "items": {
         "type": "string",
@@ -241,16 +266,33 @@
         "portrait-secondary"
       ]
     },
+    "userInterfaceStyle": {
+      "description": "The app's appearance from launch, as the device's appearance would be (Expo's key): automatic (the default) follows the device; light or dark fixes it on iOS and tvOS (Info.plist's UIUserInterfaceStyle), macOS (the application's appearance, set before the first window) and the web (the page's color-scheme). A color-scheme a node sets still wins in its subtree. Android, Linux and Windows follow the device.",
+      "enum": ["automatic", "light", "dark"]
+    },
     "theme_color": { "type": "string" },
-    "background_color_dark": {
-      "type": "string",
-      "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
-      "description": "The dark first-frame background beside background_color, used by the web page and iOS launch screen: #RGB, #RRGGBB or #RRGGBBAA, the forms the launch screen's colour set takes."
+    "color_scheme_dark": {
+      "description": "What replaces a member in a dark scheme, as the W3C manifest draft's member of this name: background_color (the dark first frame of the web page, the iOS launch screen and the Android launch window), theme_color, and icons, which replaces icons there (LLP 1163 D2). manifest.json carries it without icons.",
+      "type": "object",
+      "properties": {
+        "background_color": {
+          "type": "string",
+          "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+          "description": "The dark first-frame background: #RGB, #RRGGBB or #RRGGBBAA, the forms the launch screen's colour set takes."
+        },
+        "theme_color": { "type": "string" },
+        "icons": {
+          "description": "The dark scheme's icons, which replace icons there: every file a dark slot may take, \"any\" only. iOS's dark icon and the web's dark favicon are picked from it as the light ones are from icons.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/icon" }
+        }
+      },
+      "additionalProperties": false
     },
     "background_color": {
       "type": "string",
       "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
-      "description": "The first-frame background, the web page's and the iOS launch screen's: #RGB, #RRGGBB or #RRGGBBAA, the forms the launch screen's colour set takes, so a colour the web accepts is one every host builds. Unset, the iOS launch screen is the platform's: systemBackground, or the grouped background where the first route scrolls a grouped list."
+      "description": "The first-frame background, the web page's, the iOS launch screen's and the Android launch window's (its starting window from Android 12): #RGB, #RRGGBB or #RRGGBBAA, the forms the launch screen's colour set takes, so a colour the web accepts is one every host builds. Unset, each is the platform's: on iOS systemBackground, or the grouped background where the first route scrolls a grouped list; on Android the theme's surface."
     },
     "lang": {
       "description": "The W3C manifest's language: a BCP 47 tag for the page's <html lang> and the web manifest. Absent is en.",
@@ -259,26 +301,14 @@
     },
     "link": {
       "type": "array",
-      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "grouped_lists", "io", "transitions", "media_picker", "auth_session", "numerals", "dates"] },
+      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "grouped_lists", "io", "transitions", "media_picker", "auth_session", "numerals", "dates", "sqlite", "tips", "shadows", "corners", "rotate", "text_stroke", "symbol_palette", "presence"] },
       "uniqueItems": true,
-      "description": "Capabilities a native production build links before any plan uses them, so a later bundle may: an archive otherwise links what its plan uses (and `auth_session` what its grants name) and nothing else, and a bundle that needs more is a new binary. Development links every capability but `media_picker` and `auth_session`, which it links as production would. Names are the runner's (`exact_runner::Capability::name`)."
+      "description": "Capabilities a native production build links ahead of use (LLP 1047 D8; LLP 1047.001). Otherwise the composition contains what the plan and grants use: auth.session selects auth_session, sqlite.open selects sqlite, and secret.keep with a presence policy selects presence. Adding a grant changes compatibility and requires a new binary even if its capability was linked ahead. Development links every capability except media_picker, auth_session, numerals and tips, which follow use. Names are the runner's (exact_runner::Capability::name)."
     },
     "icons": {
-      "description": "The app's raster icons, as the web manifest spells them (`src`, `sizes`, `type`, `purpose`). Apple bakes derive their icon sets from these unless host.ios.icon or host.macos.icon selects an Icon Composer project; an iOS distribution build requires either that project or a square raster of at least 512 px.",
+      "description": "The app's icons, as the web manifest spells them: PNG, SVG or ICO files under assets/. Each host picks the file a slot takes by purpose, then shape and size (LLP 1163 D5): iOS and macOS a square maskable, else any, of at least 1024 px, unless host.ios.icon or host.macos.icon selects an Icon Composer project; iOS's tinted icon a square monochrome PNG; the web's favicons the smallest square raster of at least 32 px and an SVG, and its Apple touch icon the smallest opaque square PNG of at least 180 px, else the largest. An iOS distribution build requires the iOS icon.",
       "type": "array",
-      "items": {
-        "type": "object",
-        "required": [
-          "src"
-        ],
-        "properties": {
-          "src": { "type": "string" },
-          "sizes": { "type": "string" },
-          "type": { "type": "string" },
-          "purpose": { "type": "string" }
-        },
-        "additionalProperties": false
-      }
+      "items": { "$ref": "#/$defs/icon" }
     },
     "live_activities": {
       "type": "array",
@@ -344,7 +374,7 @@
         "component": {
           "type": "string",
           "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
-          "description": "The root of the watch entry: the first component of `source`, compiled to its own live plan, which the watch app boots."
+          "description": "The root of the watch entry (LLP 1126.002 D4): the first component of `source`, compiled to its own live plan, which the watch app boots."
         }
       },
       "description": "The app's watch entry: its own live plan (state, resources, timers, handlers), the app's screen on Apple Watch. Not a widget: no families, preview props or refresh."
@@ -423,14 +453,54 @@
             },
             "description": "Optional watchOS families; defaults to the accessory families in families."
           },
-          "preview": { "type": "object" }
+          "preview": { "type": "object" },
+          "configuration": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "parameters"],
+            "description": "The person's choices in the Edit Widget sheet: WidgetKit's AppIntentConfiguration, its intent one parameter per row. A component reads the chosen values through `inject` with `snapshot_configuration: <shape>`, the shape one field per parameter (`string`, or an enum of exactly its values), at render as it reads the family's size; the refresh does not see them. Generated Swift, so a change needs a new binary.",
+            "properties": {
+              "title": { "type": "string", "description": "The intent's title (the Edit Widget sheet is headed by the widget's own title and description)." },
+              "description": { "type": "string", "description": "The intent's description; defaults to the title." },
+              "parameters": {
+                "type": "array",
+                "minItems": 1,
+                "description": "The sheet's rows, in order.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "title", "type", "values"],
+                  "properties": {
+                    "name": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*$", "description": "The configuration shape's field that carries the chosen value." },
+                    "title": { "type": "string", "description": "The row's label." },
+                    "type": { "type": "string", "enum": ["enum"], "description": "A fixed list of choices; data-backed options are not supported." },
+                    "values": {
+                      "type": "array",
+                      "minItems": 1,
+                      "description": "The choices, in the menu's order.",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["value", "title"],
+                        "properties": {
+                          "value": { "type": "string", "description": "What the render reads." },
+                          "title": { "type": "string", "description": "What the menu shows." }
+                        }
+                      }
+                    },
+                    "default": { "type": "string", "description": "One of the values: before the person chooses, and in previews. Defaults to the first." }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
     "open_url": {
       "type": "object",
       "additionalProperties": false,
-      "description": "What `openURL` hands to the system beyond http, https, mailto and tel (open a URL). Each scheme is one another app registers, such as an editor's (`vscode`, `zed`, `jetbrains`): web, macOS and iOS open a URL of a declared scheme with whatever the system has registered for it (a browser asks first); an undeclared one stays refused. Under the agent the open is journaled, not performed. Schemes the hosts handle themselves (`http`, `https`, `mailto`, `tel`, `doc`, `app`, `app-settings`) or that run or read content (`file`, `filesystem`, `javascript`, `vbscript`, `data`, `blob`, `about`, `view-source`, `jar`, `intent`, `content`) are refused here, and refused again by the hosts. `sms` may be declared: it opens the system's message composer.",
+      "description": "What `openURL` hands to the system beyond http, https, mailto and tel (LLP 1133.000 §2, open a URL). Each scheme is one another app registers, such as an editor's (`vscode`, `zed`, `jetbrains`): web, macOS and iOS open a URL of a declared scheme with whatever the system has registered for it (a browser asks first); an undeclared one stays refused. Under the agent the open is journaled, not performed. Schemes the hosts handle themselves (`http`, `https`, `mailto`, `tel`, `doc`, `app`, `app-settings`) or that run or read content (`file`, `filesystem`, `javascript`, `vbscript`, `data`, `blob`, `about`, `view-source`, `jar`, `intent`, `content`) are refused here, and refused again by the hosts. `sms` may be declared: it opens the system's message composer.",
       "properties": {
         "schemes": {
           "type": "array",
@@ -455,7 +525,7 @@
     },
     "shortcuts": {
       "type": "array",
-      "description": "The Web App Manifest's shortcuts: the app icon's menu, fixed per binary. Each opens its url at the navigation root, which the app must have. iOS shows them as Home Screen quick actions, Android as static app shortcuts, Windows as jump list tasks, Linux as the desktop entry's actions, the Mac in the Dock menu, and a browser where it supports them. The app's own list, set by setAppShortcuts, follows these.",
+      "description": "The Web App Manifest's shortcuts: the app icon's menu, fixed per binary (LLP 1133.023 D3). Each opens its url at the navigation root, which the app must have. iOS shows them as Home Screen quick actions, Android as static app shortcuts, Windows as jump list tasks, Linux as the desktop entry's actions, the Mac in the Dock menu, and a browser where it supports them. The app's own list, set by setAppShortcuts, follows these.",
       "items": {
         "type": "object",
         "required": ["name", "url"],
@@ -492,12 +562,12 @@
     },
     "intents": {
       "type": "object",
-      "description": "Faces: the app's tools offered to the system's callers, compiled into each native binary. A tool with no face is offered to none of them. A face's tool must exist; its parameters are strings, numbers or bools, and a destroys tool's face names only the apple door.",
+      "description": "Faces: the app's tools offered to the system's callers, compiled into each native binary (LLP 1133.023 D8). A tool with no face is offered to none of them. A face's tool must exist; its parameters are strings, numbers or bools, a destroys tool's face names only the apple door (D10), and a face that reaches the web door needs a tool with a description and a name of at most 128 characters (WebMCP).",
       "additionalProperties": false,
       "properties": {
         "entities": {
           "type": "object",
-          "description": "Each content-index kind a parameter may name, with its type's name as the system shows it.",
+          "description": "Each content-index kind a parameter may name, with its type's name as the system shows it (D9).",
           "additionalProperties": {
             "type": "object",
             "required": ["title"],
@@ -521,6 +591,7 @@
                   "additionalProperties": false,
                   "properties": {
                     "title": { "type": "string", "minLength": 1 },
+                    "description": { "type": "string", "minLength": 1, "description": "What the parameter means and what it takes, for a caller choosing a value: App Intents' parameter description, the input schema's description on the web." },
                     "entity": { "type": "string", "minLength": 1, "description": "A kind of intents.entities: the system offers that kind's entries, and passes the entry's id." },
                     "type": { "enum": ["integer"], "description": "A number parameter the system asks for as a whole number." }
                   }
@@ -531,7 +602,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "phrases": { "type": "array", "items": { "type": "string", "pattern": "\\$\\{applicationName\\}" }, "description": "App Shortcuts phrases; each names ${applicationName}." },
-                  "authentication": { "enum": ["required", "local", "always"], "description": "Who may run it on a locked device. Defaults to required." }
+                  "authentication": { "enum": ["required", "local", "always"], "description": "Who may run it on a locked device (D10). Defaults to required." }
                 }
               },
               "doors": {
@@ -546,7 +617,7 @@
     },
     "file_handlers": {
       "type": "array",
-      "description": "The W3C Web App Manifest's file handling declaration: what this app opens. The Apple bake derives `CFBundleDocumentTypes` from it, and a browser reads the same key.",
+      "description": "The W3C Web App Manifest's file handling declaration: what this app opens. The Apple bake derives `CFBundleDocumentTypes` from it (LLP 1033 D1), and a browser reads the same key.",
       "items": {
         "type": "object",
         "required": [
@@ -569,10 +640,10 @@
     },
     "share_target": {
       "type": "object",
-      "description": "The Web App Manifest's share target: this app in other apps' share sheets. A share arrives as one location, `action` with the shared members under the names `params` gives them; files by a token that `sharedFiles(entry, name)` reads. The Apple bake derives a share extension, Android intent filters; the published web member is always GET with the text members only.",
+      "description": "The Web App Manifest's share target: this app in other apps' share sheets (LLP 1133.024 D1). A share arrives as one location, `action` with the shared members under the names `params` gives them; files by a token that `sharedFiles(entry, name)` reads. The Apple bake derives a share extension, Android intent filters; the published web member is always GET with the text members only.",
       "required": ["action", "params"],
       "properties": {
-        "action": { "type": "string", "pattern": "^/", "description": "A path one of the app's routes matches." },
+        "action": { "type": "string", "pattern": "^/", "description": "A path one of the app's routes matches, as the router matches a location: `/share/` matches no route `/share`." },
         "method": { "enum": ["GET", "POST"] },
         "enctype": { "enum": ["application/x-www-form-urlencoded", "multipart/form-data"] },
         "params": {
@@ -599,7 +670,7 @@
         },
         "apple": {
           "type": "object",
-          "description": "Apple's words: `NSExtensionActivationRule` beats the derived rule; `postTitle` is a strings key for the compose sheet's post button.",
+          "description": "Apple's words (D6): `NSExtensionActivationRule` beats the derived rule; `postTitle` is a strings key for the compose sheet's post button.",
           "properties": {
             "NSExtensionActivationRule": { "oneOf": [{ "type": "string" }, { "type": "object" }] },
             "postTitle": { "type": "string" }
@@ -621,7 +692,7 @@
     },
     "launch_handler": {
       "type": "object",
-      "description": "The W3C Web App Manifest's launch handler: where a launch or an opened document lands. `navigate-new` opens each document in its own window with its own session; `navigate-existing`, the default, delivers it to the window in front; `focus-existing` brings that window forward and delivers nothing to a window already showing a document.",
+      "description": "The W3C Web App Manifest's launch handler: where a launch or an opened document lands. `navigate-new` opens each document in its own window with its own session (LLP 1069.010 D4); `navigate-existing`, the default, delivers it to the window in front; `focus-existing` brings that window forward and delivers nothing to a window already showing a document.",
       "properties": {
         "client_mode": {
           "oneOf": [
@@ -633,7 +704,7 @@
       "additionalProperties": false
     },
     "app": {
-      "description": "The app's identity on every platform. Required.",
+      "description": "The app's identity on every platform (LLP 1030 D2). Required.",
       "type": "object",
       "required": [
         "id",
@@ -644,7 +715,7 @@
           "description": "The reverse-DNS identity: the bundle identifier on Apple, the update stream's app id, and app.ts's `appId`. `exact new` writes com.example.<name>-<six hex digits>, unique to the app; change it before distributing.",
           "type": "string",
           "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$",
-          "x-hint": "every dot-separated part starts with a letter, since this one id is also the Android package and the Linux app id, which require that (Apple alone allows a leading digit). Put a letter before a part that starts with a digit, as in com.example.x2048, and use that id everywhere; nothing else needs changing."
+          "x-hint": "every dot-separated part starts with a letter, since the Linux app id and the default Android package require that (Apple alone allows a leading digit). Put a letter before a part that starts with a digit, as in com.example.x2048, and set host.android.id when Android needs a different package."
         },
         "name": {
           "description": "The name a native host shows: the menu bar, the app switcher, Finder.",
@@ -659,7 +730,7 @@
         "command": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9-]*$",
-          "description": "The name this app answers to on the command line: `exact install <app>` writes a shim by this name. Default: the app directory's name."
+          "description": "The name this app answers to on the command line: `exact install <app>` writes a shim by this name (LLP 1033 D2). Default: the app directory's name."
         }
       },
       "additionalProperties": false
@@ -672,6 +743,37 @@
           "description": "iOS: `minimumOS` (default 17.0), `deviceFamily` (iphone, ipad), and the keys below.",
           "type": "object",
           "properties": {
+            "infoPlist": {
+              "description": "No keys are admitted. Each refusal gives tested grant advice, points to the bundle metadata reference for a derived key, or asks for a feedback note naming a key Exact does not write.",
+              "type": "object",
+              "additionalProperties": false
+            },
+            "entitlements": {
+              "description": "No keys are admitted. Each refusal gives tested grant advice, points to the bundle metadata reference for a derived key, or asks for a feedback note naming a key Exact does not write.",
+              "type": "object",
+              "additionalProperties": false
+            },
+            "resources": {
+              "description": "Resource trees a data module reads through `bundle:/` (LLP 1133.007 D6), on iOS, iPadOS and tvOS: copied, modes kept, into the bundle's `ExactResources/` folder before it is signed, which then holds them and nothing else. Read only, through `fs.read bundle:/<to>` (`fs.read bundle:/Resources/data-files`), the line the Mac's `host.macos.resources` takes for the same `to`. A tree holds no links and no Mach-O code; changing it requires a new binary, never an update. A `from` is a directory of its own, such as `data-files/`: one under `assets/`, `deck/`, `gpu/`, `fonts/`, `strings/`, `web/`, `apple/`, `linux/`, `src/`, `data/`, `modules/`, `node_modules/`, `target/` and `dist/` (directories Exact owns) is refused, naming them (LLP 1168.000 D7.1).",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["from", "to"],
+                "additionalProperties": false,
+                "properties": {
+                  "from": { "type": "string", "description": "Separate directory relative to app.json, for example data-files. Not assets, source or output roots." },
+                  "to": { "type": "string", "description": "Private destination under Resources/, for example Resources/data-files: `bundle:/Resources/data-files`, as on the Mac." }
+                }
+              }
+            },
+            "gameMode": {
+              "type": "boolean",
+              "description": "Whether iOS may turn Game Mode on while the app runs: priority on the CPU and GPU, lower Bluetooth latency for controllers and AirPods, and less background work (LSSupportsGameMode, iOS 18.6; GCSupportsGameMode for iOS 18.0 to 18.5, written when minimumOS is below 18.6). Absent: true for a game (an Apple category of games or a game genre in categories, or a game the game shell builds), else no key. false keeps Game Mode off for a game too light to need it."
+            },
+            "increasedMemoryLimit": {
+              "type": "boolean",
+              "description": "Sign com.apple.developer.kernel.increased-memory-limit: on the iPhone and iPad models that allow it, the app may use more memory than the default limit (iOS 15). The app must still work without it; os_proc_available_memory says what it has. A device build needs a profile whose App ID has Increased Memory Limit enabled, and is refused without one. Extensions, App Clips and tvOS never take it. Absent or false: the default limit."
+            },
             "webBrowser": {
               "type": "boolean",
               "description": "Opt in to Apple's managed default-browser role for the iOS app. Requires http and https in protocol_handlers and Apple's approval of com.apple.developer.web-browser in its provisioning profile. Extensions, App Clips and tvOS never inherit this role. distribution_only on the pair also limits the entitlement to distributed builds. Absent or false: no browser entitlement and no HTTP/HTTPS registration on iOS."
@@ -679,7 +781,7 @@
             "icon": {
               "type": "string",
               "minLength": 1,
-              "description": "Primary Icon Composer .icon directory, relative to app.json and inside the app. Compiled with the app's catalogs; conflicts with an .appiconset in those catalogs are refused. Absent: use icons. tvOS does not inherit this field."
+              "description": "Primary Icon Composer .icon directory, relative to app.json and inside the app. Compiled with the app's catalogs; conflicts with an .appiconset in those catalogs are refused. Absent: use icons. The watch app takes it when its icon.json lists watchOS under supported-platforms.circles; tvOS never does."
             },
             "minimumOS": {
               "description": "The oldest iOS the app runs on, as \"17.0\"; never below 17.0.",
@@ -700,8 +802,8 @@
               }
             },
             "optimize": {
-              "enum": ["speed", "size"],
-              "description": "What a production build optimizes the Rust archive and ExactKit for: \"speed\" (opt-level 3, Swift -O) or \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2). Absent: speed for an app, size for an embed (`build.mjs --embed`). `build.mjs --optimize` overrides it."
+              "enum": ["speed", "size", "balanced"],
+              "description": "What a production build optimizes the Rust archive and ExactKit for (LLP 1047.001 D9): \"speed\" (opt-level 3, Swift -O), \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2) or \"balanced\" (size, with the crates a scrolling list spends its time in at opt-level 3, and Swift -O; on a 10,000-message chat 21.1 MB against speed's 24.3 and size's 16.5, scrolling within noise of speed). Absent: balanced for an iOS or tvOS app, size for an embed (`build.mjs --embed`); a game keeps speed. Games refuse size and balanced because their generated Cargo workspace has neither profile. tvOS shares this iOS setting. `build.mjs --optimize` overrides it."
             },
             "designRequiresCompatibility": {
               "type": "boolean",
@@ -709,7 +811,7 @@
             },
         "link": {
           "type": "array",
-          "description": "Linker arguments for the app's native-module artifact, one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
+          "description": "Linker arguments for the app's native-module artifact (LLP 1024), one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
           "items": { "type": "string" }
         },
             "deviceFamily": {
@@ -748,7 +850,7 @@
               "items": {
                 "type": "string",
                 "pattern": "^(?!(remote-notification|fetch|processing)$).*$",
-                "description": "remote-notification is refused; ActivityKit update tokens need no background mode. fetch and processing come from the grant lines device.background-sync and device.periodic-background-sync."
+                "description": "remote-notification is refused: a visible push and ActivityKit update tokens need no background mode, and a data-only push is refused (LLP 1133.004 §9 P8). fetch and processing come from the grant lines device.background-sync and device.periodic-background-sync (LLP 1133.017 D14)."
               }
             },
             "associatedDomains": {
@@ -758,7 +860,7 @@
               ]
             },
             "appClip": {
-              "description": "An App Clip (an App Clip is an app). `{}` embeds the whole app a second time at `<App>.app/AppClips/<name>.app`, with `NSAppClip` in its Info.plist, the app as its parent application and each `applinks:` domain of `associatedDomains` as an `appclips:` invocation domain (the app's entitlements list those too). A device build needs a profile for the clip's App ID, registered with the App Clip capability, of the app's profile's team and method.",
+              "description": "An App Clip (LLP 1126 D12: an App Clip is an app). `{}` embeds the whole app a second time at `<App>.app/AppClips/<name>.app`, with `NSAppClip` in its Info.plist, the app as its parent application and each `applinks:` domain of `associatedDomains` as an `appclips:` invocation domain (the app's entitlements list those too). A device build needs a profile for the clip's App ID, registered with the App Clip capability, of the app's profile's team and method.",
               "type": "object",
               "additionalProperties": false,
               "properties": {
@@ -789,7 +891,7 @@
               }
             },
             "nfc": {
-              "description": "The NFC tag reader session's lists, written to Info.plist: `iso7816Identifiers`, the ISO 7816 application identifiers (hex) a tag session selects, and `felicaSystemCodes`, the FeliCa system codes it polls for (never the wildcard FF). Core NFC reports no ISO 7816 or FeliCa tag the app does not list.",
+              "description": "The NFC tag reader session's lists (LLP 1133.035 D11), written to Info.plist: `iso7816Identifiers`, the ISO 7816 application identifiers (hex) a tag session selects, and `felicaSystemCodes`, the FeliCa system codes it polls for (never the wildcard FF). Core NFC reports no ISO 7816 or FeliCa tag the app does not list.",
               "type": "object",
               "additionalProperties": false,
               "properties": {
@@ -817,9 +919,19 @@
           "description": "macOS: `minimumOS` (default 14.0), the first window's size, and the keys below.",
           "type": "object",
           "properties": {
+            "infoPlist": {
+              "description": "No keys are admitted. Each refusal gives tested grant advice, points to the bundle metadata reference for a derived key, or asks for a feedback note naming a key Exact does not write.",
+              "type": "object",
+              "additionalProperties": false
+            },
+            "entitlements": {
+              "description": "No keys are admitted. Each refusal gives tested grant advice, points to the bundle metadata reference for a derived key, or asks for a feedback note naming a key Exact does not write.",
+              "type": "object",
+              "additionalProperties": false
+            },
             "presenter": {
               "enum": ["native", "painted"],
-              "description": "Absent: native. Painted builds the app’s <macos-crate>-painted binary as a benchmark carrier; distribution is refused until its accessibility gate passes."
+              "description": "Absent: native. Painted builds the app’s <macos-crate>-painted binary as a benchmark carrier; distribution is refused until LLP 1149’s accessibility gate."
             },
             "icon": {
               "type": "string",
@@ -827,7 +939,7 @@
               "description": "Primary Icon Composer .icon directory, relative to app.json and inside the app. Compiled with the app's catalogs; conflicts with an .appiconset in those catalogs are refused. Absent: use icons."
             },
             "resources": {
-              "description": "Native-only resource trees, copied under Contents with modes and internal relative symlinks preserved, before the bundle is sealed (a build stamp placed here is inside the seal). Excluded from plan assets and TypeScript capture; changing them requires a new binary. Mach-O code is signed with the bundle; a helper executable needing a hardened-runtime exception names it in the source's grants, as `runtime.allow-jit Helpers/node/bin/node`; the app's own executable takes none.",
+              "description": "Native-only resource trees, copied under Contents with modes and internal relative symlinks preserved, before the bundle is sealed (a build stamp placed here is inside the seal). Excluded from plan assets and TypeScript capture; changing them requires a new binary. A `from` under a directory Exact owns is refused, as `host.ios.resources`' is. Mach-O code is signed with the bundle; a helper executable needing a hardened-runtime exception names it in the source's grants, as `runtime.allow-jit Helpers/node/bin/node`; the app's own executable takes none (LLP 1069.008 D9).",
               "type": "array",
               "items": {
                 "type": "object", "required": ["from", "to"], "additionalProperties": false,
@@ -843,11 +955,15 @@
             },
             "activationPolicy": {
               "enum": ["regular", "accessory"],
-              "description": "\"accessory\": a menu-bar app, written as LSUIElement: no Dock tile and no menu bar of its own, and every launch opens no window; a `-exact-menu=\"status\"` button is how the person reaches it, and `focus()` shows its window. Absent: regular."
+              "description": "\"accessory\": a menu-bar app (LLP 1133.025 D6), written as LSUIElement: no Dock tile and no menu bar of its own, and every launch opens no window; a `-exact-menu=\"status\"` button is how the person reaches it, and `focus()` shows its window. Absent: regular."
             },
             "optimize": {
-              "enum": ["speed", "size"],
-              "description": "What a production build optimizes the Rust archive and ExactKit for: \"speed\" (opt-level 3, Swift -O) or \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2). Absent: speed for an app, size for an embed (`build.mjs --embed`). `build.mjs --optimize` overrides it."
+              "enum": ["speed", "size", "balanced"],
+              "description": "What a production build optimizes the Rust archive and ExactKit for (LLP 1047.001 D9): \"speed\" (opt-level 3, Swift -O), \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2) or \"balanced\" (size, with the crates a scrolling list spends its time in at opt-level 3, and Swift -O). Absent: speed for a Mac app, size for an embed (`build.mjs --embed`); a game keeps speed. Games refuse size and balanced because their generated Cargo workspace has neither profile. `build.mjs --optimize` overrides it."
+            },
+            "gameMode": {
+              "type": "boolean",
+              "description": "Whether macOS may turn Game Mode on while the app runs: priority on the CPU and GPU, lower Bluetooth latency for controllers and AirPods, and less background work (LSSupportsGameMode, macOS 26). Absent: true for a game (an Apple category of games or a game genre in categories, or a game the game shell builds), else no key. false keeps Game Mode off for a game too light to need it."
             },
             "oneTimeCodeAutofill": {
               "enum": ["marked"],
@@ -859,7 +975,7 @@
             },
         "link": {
           "type": "array",
-          "description": "Linker arguments for the app's native-module artifact, one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
+          "description": "Linker arguments for the app's native-module artifact (LLP 1024), one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
           "items": { "type": "string" }
         },
             "appTransportSecurity": {
@@ -917,19 +1033,49 @@
           "additionalProperties": false
         },
         "android": {
-          "description": "Android: the painter, `minimumOS` (default 12), and `certificates` for the origin's `assetlinks.json`.",
+          "description": "Android: the package `id` (default app.id), the painter, `minimumOS` (default 12), `notificationChannels`, `certificates` for the origin's `assetlinks.json`, and `maven` libraries for the app's Kotlin.",
           "type": "object",
           "properties": {
+            "id": {
+              "description": "The Android package name (Gradle applicationId), independent of the Apple bundle identifier. Defaults to app.id with hyphens replaced by underscores. Set it before publishing; a store package name is permanent.",
+              "type": "string",
+              "pattern": "^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$"
+            },
             "painter": {
               "enum": ["ink"],
-              "description": "Opt into ink; absent: the current painter, with `EXACT_PAINTER` overriding the choice, and ink refused until its Vulkan presenter is implemented."
+              "description": "Opt into ink (LLP 1149 D12); absent: the current painter, with `EXACT_PAINTER` overriding the choice, and ink refused until its Vulkan presenter is implemented."
             },
             "minimumOS": {
               "description": "The oldest Android the app runs on, as \"12\"; never below 10. Below 12 the APK carries the reader's Android 10 and 11 code (host/android/README.md, \"Android 10 and 11\"); at 12 or later it carries none.",
               "enum": ["10", "11", "12", "13", "14", "15", "16"]
             },
+            "notificationChannels": {
+              "description": "The app's notification channels (LLP 1133.004.000 D1), made by the host after the first frame and when the app is updated; valid only with `device.notifications` granted. Android keeps a channel's importance and sound once made and the person may change them, so a changed importance needs a new id. `id` `default` names and tunes the channel a post without `android.channelId` takes.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                  "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$", "description": "The NotificationChannel id, an Android resource name; `silent` is reserved." },
+                  "name": { "type": "string", "description": "A strings key (LLP 1060): the channel's name in Settings." },
+                  "description": { "type": "string", "description": "A strings key: the channel's description in Settings." },
+                  "importance": { "enum": ["min", "low", "default", "high"], "description": "The platform's IMPORTANCE_* name; `default` when absent. `high` shows a post heads-up." },
+                  "sound": { "type": "string", "pattern": "\\.(ogg|mp3|wav|OGG|MP3|WAV)$", "description": "An .ogg, .mp3 or .wav file in the app's directory, `assets/alert.wav`, which the channel plays; the platform's sound when absent." }
+                },
+                "additionalProperties": false
+              }
+            },
+            "maven": {
+              "description": "Pinned group:artifact:version coordinates on Google's Maven or Maven Central for the app's Kotlin in modules/android. Like a package implementation's maven array, these join the APK's locked, checksum-verified Gradle graph (LLP 1133.008 D8 item 5; host/android/README.md).",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:(?!(?:[Ll][Aa][Tt][Ee][Ss][Tt]|[Rr][Ee][Ll][Ee][Aa][Ss][Ee])(?:\\.|$))(?!.*-[Ss][Nn][Aa][Pp][Ss][Hh][Oo][Tt]$)[A-Za-z0-9_.-]+$(?![\\s\\S])",
+                "x-hint": "use group:artifact:version with a pinned version, without ranges, dynamic selectors, SNAPSHOTs, classifiers or repositories"
+              }
+            },
             "certificates": {
-              "description": "The SHA-256 fingerprints of every certificate that signs the app (the debug key, the upload key, Play App Signing's), as `AB:CD:…`: the origin's `/.well-known/assetlinks.json` lets each use the app's passkeys.",
+              "description": "The SHA-256 fingerprints of every certificate that signs the app (the debug key, the upload key, Play App Signing's), as `AB:CD:…`: the origin's `/.well-known/assetlinks.json` lets each use the app's passkeys (LLP 1133.011 D6).",
               "type": "array",
               "items": { "type": "string", "pattern": "^[0-9A-F]{2}(:[0-9A-F]{2}){31}$" }
             }
@@ -942,7 +1088,7 @@
           "properties": {
             "painter": {
               "enum": ["ink"],
-              "description": "Opt into ink; absent: the GPU painter when available, otherwise the CPU, with `EXACT_PAINTER` overriding the choice."
+              "description": "Opt into ink (LLP 1149 D12); absent: the GPU painter when available, otherwise the CPU, with `EXACT_PAINTER` overriding the choice."
             }
           },
           "additionalProperties": false
@@ -953,7 +1099,7 @@
           "properties": {
             "painter": {
               "enum": ["ink", "cpu"],
-              "description": "Absent: CPU for an app declaring game, otherwise ink on the DirectX 11 composition swap chain; explicit ink or cpu selects that painter, cpu keeps the softbuffer window, and EXACT_PAINTER overrides the choice."
+              "description": "Absent: CPU for an app declaring game, otherwise ink on the DirectX 11 composition swap chain (LLP 1149 D12); explicit ink or cpu selects that painter, cpu keeps the softbuffer window, and EXACT_PAINTER overrides the choice."
             },
             "window": {
               "description": "In logical pixels (effective pixels, as WinUI's). Absent: 1280 by 720, with no minimum. `EXACT_SIZE` overrides the size.",
@@ -963,7 +1109,7 @@
                 "height": { "type": "number", "minimum": 1, "maximum": 16384 },
                 "minWidth": { "type": "number", "minimum": 1, "maximum": 16384 },
                 "minHeight": { "type": "number", "minimum": 1, "maximum": 16384 },
-                "keepRunning": { "type": "boolean", "description": "Closing the window hides it while a `-exact-menu=\"status\"` button is placed in the notification area, as a tray app's does; with none placed, closing ends the app. Absent: false." }
+                "keepRunning": { "type": "boolean", "description": "Closing the window (its close button, Alt+F4, the taskbar's Close window) hides it, and the app keeps running, its session and timers alive; launching the app again (Start, its taskbar pin, a shortcut) or a bare `focus()` shows it as it was. The app's own `close()` still ends it, as does signing out. For an app with work the person expects to go on without the window, as a chat client's or a sync's. Until the notification-area icon is built (LLP 1133.025 §14), give the person a way back and a way out of their own: a global shortcut whose action calls `focus()`, and a button whose action calls `close()`. Absent or false: the app ends with its window." }
               },
               "additionalProperties": false
             }
@@ -971,15 +1117,30 @@
           "additionalProperties": false
         },
         "web": {
-          "description": "The web host has no settings yet; an empty object.",
+          "description": "The web host's settings.",
           "type": "object",
-          "additionalProperties": false
+          "additionalProperties": false,
+          "properties": {
+            "head": {
+              "description": "Tags the web build writes into the <head> of every document: the shell, each pre-rendered page and the 404 page. Each entry is one tag, {\"script\": {...}}, {\"link\": {...}} or {\"meta\": {...}}, whose value is its attributes (a string, or true for a bare one such as async); a script's `text` is its content. For what a site says once to the browser (an analytics script, a preconnect, site-wide JSON-LD); a page's own title and metas are the Contract `head` element's. The same on every page and web only.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/webHeadEntry" }
+            },
+            "csp": {
+              "description": "The app's part of the Content-Security-Policy the render server sends with each page; a static host and `exact serve` send none. Exact's policy already admits each inline script in `head` by its hash and each script `src` by its origin. Each key is a directive in lower case. A list adds its sources after Exact's for that directive (for a directive Exact does not write, after what CSP falls back to: `'self'` from `default-src`). A string replaces Exact's value, and in it the word `exact` stands for Exact's sources. false sends no policy. Beside Exact's hashes the browser ignores `'unsafe-inline'`, and `'strict-dynamic'` makes it ignore `'self'`, so Exact's app.js stops loading: either keyword goes in a string without `exact`. For example {\"script-src\": [\"https://www.googletagmanager.com\"], \"connect-src\": [\"https://*.google-analytics.com\"]}.",
+              "anyOf": [{ "const": false }, { "$ref": "#/$defs/webCsp" }]
+            },
+            "cspReportOnly": {
+              "description": "A policy sent as Content-Security-Policy-Report-Only by the render server, to try one before it is enforced: the same shape as `csp`, over a copy of Exact's policy. Absent or false, none is sent.",
+              "anyOf": [{ "const": false }, { "$ref": "#/$defs/webCsp" }]
+            }
+          }
         }
       },
       "additionalProperties": false
     },
     "deploy": {
-      "description": "How the app is delivered and updated: policy, never identity. `exact new` writes only `store`.",
+      "description": "How the app is delivered and updated (LLP 1030.000): policy, never identity. `exact new` writes only `store`.",
       "type": "object",
       "properties": {
         "origin": { "$ref": "#/$defs/cadence" },
@@ -1004,7 +1165,7 @@
           "additionalProperties": { "type": "boolean" }
         },
         "store": {
-          "description": "Per platform (web, macos, ios, linux), whether an installed app has an update store: \"0\" links none, so every change ships as a new binary; \"A\" links the store, so signed plans and assets update over the air. `exact new` writes the web's; a native verb writes its platform's the first time it runs. Signed TypeScript and Rust module delivery isn't implemented.",
+          "description": "Per platform (web, macos, ios, linux, windows, android), whether an installed app has an update store: \"0\" links none, so every change ships as a new binary; \"A\" links the store, so signed plans and assets update over the air (LLP 1030 D4). The web and Android hosts link none, so theirs can only be \"0\". `exact new` writes the web's; a native verb writes its platform's the first time it runs (LLP 1153 D1). Signed TypeScript and Rust module delivery isn't implemented.",
           "type": "object",
           "additionalProperties": {
             "type": "string",
@@ -1079,14 +1240,14 @@
             "keys": {
               "type": "object",
               "additionalProperties": { "type": "string" },
-              "description": "Verification keys by id, each an Ed25519 public key as base64 of its 32 raw bytes; baked into the binary and part of the compatibility id (1030 D3a)."
+              "description": "Verification keys by id, each an Ed25519 public key as base64 of its 32 raw bytes; baked into the binary and part of the compatibility id (LLP 1026 D11; 1030 D3a)."
             }
           },
           "additionalProperties": false
         },
         "channel": {
           "type": "string",
-          "description": "The channel this build bakes in: a key of `channels`. Default: the only key of `channels`, else \"prod\"."
+          "description": "The channel this build bakes in (LLP 1030.000 D4): a key of `channels`. Default: the only key of `channels`, else \"prod\"."
         }
       },
       "additionalProperties": false
@@ -1182,6 +1343,31 @@
               ],
               "additionalProperties": false,
               "description": "The portable logic-wrapper cdylib package exporting the Exact logic ABI. One explicit replacement unit; data/helper crates remain ordinary Cargo dependencies."
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "crate": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_-]+$",
+                  "description": "The Cargo package of the data crate, a crate beside app.json."
+                },
+                "type": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)+$",
+                  "description": "The DataSource type, by its path from the crate's library: `pinapp_data::Pins`."
+                },
+                "source": {
+                  "type": "string",
+                  "description": "The constructor when it is not `<type>::default()`: the type itself (a unit struct), or `<type>::new(…)` with literal arguments."
+                }
+              },
+              "required": [
+                "crate",
+                "type"
+              ],
+              "additionalProperties": false,
+              "description": "The Rust data crate that answers the app's sources (LLP 1153.003 D2). The host crates link it and bake the first frame through it; with app.ts beside it, it answers the sources its RUST_SOURCES names and TypeScript the rest."
             }
           },
           "additionalProperties": false
@@ -1190,7 +1376,7 @@
       "description": "Rust live replacement, enabled by default in dev and prod. Resolve root, environment, platform, then platform environment. false/off removes replacement support at bake; true/auto uses browser Wasm, iOS Wasm interpreter, native desktop, Android native dev / Wasm prod. Android and Windows hosts remain future work."
     },
     "commands": {
-      "description": "The app's own verbs for the exact.mjs `exact new` generates, by name: each a command as argv, run in the app's directory with the arguments after the verb, EXACT_APP_DIR and EXACT2 set. `\"verify\": [\"bun\", \"verify.mjs\"]` makes `bun exact.mjs verify web` run `bun verify.mjs web`. `bun exact.mjs update` rewrites exact.mjs and keeps these; a name exact.mjs already uses (test, agent, web, …) is refused.",
+      "description": "The app's own verbs for the exact.mjs `exact new` generates, by name: each a command as argv, run in the app's directory with the arguments after the verb, EXACT_APP_DIR and EXACT (and EXACT2) set. `\"verify\": [\"bun\", \"verify.mjs\"]` makes `bun exact.mjs verify web` run `bun verify.mjs web`. `bun exact.mjs update` rewrites exact.mjs and keeps these; a name exact.mjs already uses (test, agent, web, …) is refused.",
       "type": "object",
       "additionalProperties": {
         "type": "array",
@@ -1199,7 +1385,7 @@
       }
     },
     "before_build": {
-      "description": "A command, as argv, that prepares files the app's builds read and its repository does not hold, such as a script that fetches photos into a folder Git ignores (`[\"bun\", \"scripts/fetch.mjs\"]`; `bun` is the Bun that runs exact.mjs, so it runs on every host). The exact.mjs `exact new` generates runs it in the app's directory, with EXACT_APP_DIR and EXACT2 set, no input and its output on stderr, before each of its verbs that builds, runs, compiles or checks the app (app-cli.mjs lists them), and before test and agent where they build first; a failure stops the verb. It runs that often, so make it finish at once when its files are there.",
+      "description": "A command, as argv, that prepares files the app's builds read and its repository does not hold, such as a script that fetches photos into a folder Git ignores (`[\"bun\", \"scripts/fetch.mjs\"]`; `bun` is the Bun that runs exact.mjs, so it runs on every host). The exact.mjs `exact new` generates runs it in the app's directory, with EXACT_APP_DIR and EXACT (and EXACT2) set, no input and its output on stderr, before each of its verbs that builds, runs, compiles or checks the app (app-cli.mjs lists them), and before test and agent where they build first; a failure stops the verb. It runs that often, so make it finish at once when its files are there.",
       "type": "array",
       "minItems": 1,
       "items": { "type": "string", "minLength": 1 }
@@ -1216,13 +1402,13 @@
         }
       }
     },
-    "tamber": {
+    "forma": {
       "type": "string",
-      "description": "The app's design: a `.tamber` file, relative to app.json. Without it, `app.tamber` beside app.contract is the design when there is one."
+      "description": "The app's design (LLP 1121 D2): a `.forma` file, relative to app.json. Without it, `app.forma` beside app.contract is the design when there is one."
     },
     "purchases": {
       "type": "object",
-      "description": "In-app purchases. `catalog`: a JSON file of the Digital Goods API's `ItemDetails`, relative to app.json, which the synthetic store sells under the agent; its ids are the products configured in App Store Connect and Play Console.",
+      "description": "In-app purchases (LLP 1133.015 §9). `catalog`: a JSON file of the Digital Goods API's `ItemDetails`, relative to app.json, which the synthetic store sells under the agent; its ids are the products configured in App Store Connect and Play Console.",
       "properties": {
         "catalog": { "type": "string" }
       },
@@ -1230,7 +1416,7 @@
     },
     "strings": {
       "type": "object",
-      "description": "The UI's string tables: strings/<locale>.json beside app.contract, read by `t(\"key\", name=value)`.",
+      "description": "The UI's string tables (LLP 1060): strings/<locale>.json beside app.contract, read by `t(\"key\", name=value)`.",
       "additionalProperties": false,
       "properties": {
         "base": {
@@ -1241,18 +1427,28 @@
       }
     },
     "auth": {
-      "description": "Signing in through the system browser: the scope the client-metadata documents name.",
+      "description": "Signing in through the system browser (LLP 1069.006): the scope the client-metadata documents name.",
       "type": "object",
       "properties": { "scope": { "type": "string" } },
       "additionalProperties": false
     },
     "env": {
       "type": "array",
-      "description": "The settings app.ts reads at build, as `const API = import.meta.env.API_BASE_URL`, optionally `?? 'a default'`: each value comes from the environment, then `.env.local`, then `.env` beside app.json, and is inlined into the module. Every value is public: it ships in the module on every host, so a secret never belongs here. A name app.ts reads that this list lacks, or one it lists that app.ts never reads, is refused at build.",
+      "description": "The settings app.ts reads at build (LLP 1153 D4), as `const API = import.meta.env.API_BASE_URL`, optionally `?? 'a default'`: each value comes from the environment, then `.env.local`, then `.env` beside app.json, and is inlined into the module. Every value is public: it ships in the module on every host, so a secret never belongs here. A name app.ts reads that this list lacks, or one it lists that app.ts never reads, is refused at build. `{ \"name\": \"API_BASE_URL\", \"launch\": true }` marks one a launch may give (LLP 1153.002): on Apple, Linux and Windows a non-empty value in the launched process's environment replaces the build's (`SIMCTL_CHILD_API_BASE_URL`, an XCUITest's `launchEnvironment`, `devicectl`'s `--environment-variables`); Android and the web read the build's. Grants are fixed at build, so a grant over a marked name is refused, and its name may not begin with EXACT_.",
       "uniqueItems": true,
       "items": {
-        "type": "string",
-        "pattern": "^[A-Z][A-Z0-9_]*$"
+        "oneOf": [
+          { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+          {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+              "launch": { "type": "boolean" }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+          }
+        ]
       }
     },
     "typescript": {
@@ -1280,7 +1476,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Where app.ts runs: `placement` is \"main\" (the default) or \"worker\". The TypeScript module's placement, globally and per platform, and the directories it imports from outside the app."
+      "description": "Where app.ts runs: `placement` is \"main\" (the default) or \"worker\". The TypeScript module's placement (LLP 1027.002), globally and per platform, and the directories it imports from outside the app."
     },
     "verify": {
       "type": "object",
@@ -1288,13 +1484,13 @@
       "properties": {
         "accept": {
           "type": "array",
-          "description": "Findings of `verify`'s check that are the app's design (a brand palette's contrast, a reference's small keys): each names the check's finding kind (or `fixed-type`, a font size the app's Contract fixes; `fixed-symbol`, a symbol sized in points beside text; `broken-words`, `overflow-wrap: anywhere` on prose) and a node by its testId (or the testId of the control whose label it is; a trailing * matches a prefix, `mute-*`) and says why. verify prints them as accepted and does not count them.",
+          "description": "Findings of `verify`'s check that are the app's design (a brand palette's contrast, a reference's small keys): each names the check's finding kind (or `fixed-type`, a font size the app's Contract fixes; `fixed-symbol`, a symbol sized in points beside text; `broken-words`, `overflow-wrap: anywhere` on prose; or `tree --ax`'s `unnamed`, `exposed-hidden`, `outside-modal`, by the testId of the view the element joined) and a node by its testId (or the testId of the control whose label it is; a trailing * matches a prefix, `mute-*`) and says why. verify prints them as accepted and does not count them.",
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": ["finding", "node", "why"],
             "properties": {
-              "finding": { "type": "string", "enum": ["covered", "squeezed", "clipped", "overflow", "overlap", "contrast", "card", "target", "fixed-type", "fixed-symbol", "broken-words"] },
+              "finding": { "type": "string", "enum": ["covered", "squeezed", "clipped", "overflow", "overlap", "contrast", "card", "target", "fixed-type", "fixed-symbol", "broken-words", "unnamed", "exposed-hidden", "outside-modal"] },
               "node": { "type": "string", "pattern": "^[^*]+\\*?$", "description": "A testId, or a non-empty prefix of one and a single trailing *: a bare * would accept the finding on every node." },
               "why": { "type": "string", "minLength": 1 }
             }
@@ -1306,9 +1502,10 @@
       "type": "string",
       "enum": [
         "ambient",
-        "playback"
+        "playback",
+        "playback-mix"
       ],
-      "description": "The audio session the app's sounds, media and canvas audio share: ambient by default, so the ring/silent switch mutes them and other apps' audio keeps playing; playback for an app whose sound is the point (a drum machine, a player). iOS and tvOS set the AVAudioSession category; WebKit's Audio Session API takes it as navigator.audioSession.type; the Mac has no session."
+      "description": "The audio session the app's sounds, media and canvas audio share (LLP 1096 D8). On iOS and tvOS: ambient (default) mixes with other apps' audio and obeys the ring/silent switch; playback ignores the switch and interrupts other audio; playback-mix ignores the switch and mixes without ducking, for sound played over another app's audio, and is never Now Playing. On the web page initialization sets the Audio Session API's type where the browser has it: playback-mix as ambient, the other values as written, without requiring sound output. An omitted setting keeps the browser's auto. The Mac has no session."
     },
     "dev": {
       "type": "object",
@@ -1340,6 +1537,37 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "webCsp": {
+      "description": "Directives by name in lower case, each a list of sources to add to Exact's, or a string that replaces Exact's value (the word `exact` standing for Exact's sources).",
+      "type": "object",
+      "additionalProperties": { "anyOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] }
+    },
+    "icon": {
+      "type": "object",
+      "required": ["src"],
+      "properties": {
+        "src": { "type": "string", "description": "The file, relative to app.json: a PNG, SVG or ICO under assets/." },
+        "sizes": { "type": "string", "description": "As the file is, \"1024x1024\" or \"any\" for an SVG; absent, read from the file." },
+        "type": { "type": "string", "description": "image/png, image/svg+xml or image/x-icon; absent, read from the file." },
+        "purpose": {
+          "type": "string",
+          "pattern": "^(any|maskable|monochrome)( (any|maskable|monochrome))*$",
+          "description": "Space-separated W3C purposes: any (full colour), maskable (square, opaque, full-bleed, what matters inside the centred circle of 80% diameter), monochrome (a glyph whose alpha the host fills). Absent, any."
+        }
+      },
+      "additionalProperties": false
+    },
+    "webHeadEntry": {
+      "oneOf": [
+        { "type": "object", "required": ["script"], "additionalProperties": false, "properties": { "script": { "type": "object", "properties": { "text": { "type": ["string", "object", "array"], "description": "The script's content; an object or list is written as JSON (application/ld+json, importmap, speculationrules). In JSON, `<!--`, and `</script` before whitespace, `/` or `>`, are written as `\\u003C…`, which JSON reads alike. A string is written as it is, and one holding either is refused: write `\\x3C!--` or '<' + '!--' inside a string, or a space after `<` in code." } }, "additionalProperties": { "$ref": "#/$defs/webHeadAttribute" } } } },
+        { "type": "object", "required": ["link"], "additionalProperties": false, "properties": { "link": { "type": "object", "additionalProperties": { "$ref": "#/$defs/webHeadAttribute" } } } },
+        { "type": "object", "required": ["meta"], "additionalProperties": false, "properties": { "meta": { "type": "object", "additionalProperties": { "$ref": "#/$defs/webHeadAttribute" } } } }
+      ]
+    },
+    "webHeadAttribute": {
+      "description": "An attribute's value, or true for a bare attribute such as async.",
+      "oneOf": [{ "type": "string" }, { "enum": [true] }]
+    },
     "cadence": {
       "oneOf": [
         {
@@ -1527,7 +1755,7 @@
         "main",
         "worker"
       ],
-      "description": "Where the module instance runs: on the runner's thread, or on an owner of its own. A change is a new compatibility id."
+      "description": "Where the module instance runs (LLP 1027.002 D1): on the runner's thread, or on an owner of its own. A change is a new compatibility id."
     },
     "placementPolicy": {
       "type": "object",

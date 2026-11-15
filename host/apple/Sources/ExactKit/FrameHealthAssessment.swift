@@ -1,13 +1,13 @@
 import Foundation
 
-/// The v1 predicates over one window's deltas. Each result is scoped to the
+/// LLP 1079.000 §7.3's v1 predicates over one window's deltas. Each result is scoped to the
 /// reply's source and its evidence level; missing evidence never yields a pass, and callback
 /// evidence yields at most `proxy-pass`.
 enum FrameHealthAssessment {
     static let policy = "exact-frame-health-policy/2"
     /// Whether a frame finishing after `targetTimestamp` is late. The iOS 27.1 simulator dispatched
     /// 119 of 120 display-link callbacks about 0.5 ms after their own `targetTimestamp`, so there
-    /// the deadline carries no information and lateness is unknown.
+    /// the deadline carries no information and lateness is unknown (LLP 1079.000 §4.6).
     static var deadlinesObserved: Bool = {
         #if targetEnvironment(simulator)
         return false

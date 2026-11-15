@@ -1,6 +1,6 @@
-// Space presses the focused control, Return the default button; Return in a
-// single-line field sends `submit` and ends the editing; a prevented key
-// and a focus an action set always win.
+// @ref LLP 1115.000 D7.3, D7.4 — Space presses the focused control, Return
+// the default button; Return in a single-line field sends `submit` and ends
+// the editing; a prevented key and a focus an action set always win.
 #if os(macOS)
 import AppKit
 import XCTest
@@ -8,7 +8,7 @@ import XCTest
 
 /// In both of a dialog's presentations: this class paints it in the page (the
 /// driver's own chrome), and `DefaultButtonSheetMacTests` runs every case
-/// again with it in AppKit's sheet.
+/// again with it in AppKit's sheet (LLP 1115.002 D7.2).
 class DefaultButtonMacTests: XCTestCase {
     private var window: NSWindow!
     private weak var presenter: Presenter?
@@ -186,7 +186,7 @@ class DefaultButtonMacTests: XCTestCase {
     /// focused `<button>` on Enter, before the dialog's default button. A
     /// button outside that box leaves Return to the default, and with the
     /// property gone Return is the default's again; on the page the dialog
-    /// is declared under, it reaches every button in it.
+    /// is declared under, it reaches every button in it (LLP 1115.000 D7.3).
     func testReturnPressesAFocusedButtonUnderAnOptedInBoxBeforeTheDefault() throws {
         let p = fixture(opted: true)
         var pressed: [UInt32] = []

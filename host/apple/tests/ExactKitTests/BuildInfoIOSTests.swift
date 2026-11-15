@@ -7,7 +7,7 @@ class BuildInfoIOSTests: XCTestCase {
     func testTheStampedBuildReadsAsLines() {
         let now = ISO8601DateFormatter().date(from: "2026-10-08T12:00:00Z")!
         let lines = BuildInfo.lines([
-            "CFBundleDisplayName": "Bluesky Exact2", "CFBundleIdentifier": "com.example.bluesky",
+            "CFBundleDisplayName": "Bluesky Exact2", "CFBundleIdentifier": "dev.tuft.blueskyclone",
             "CFBundleShortVersionString": "0.1.0", "CFBundleVersion": "12",
             "ExactBuildTime": "2026-10-08T09:59:59.500Z", "ExactBuildKind": "archive",
             "ExactCommit": "3adf67106ead52aa2ee5221151013b06c09fd238", "ExactCommitDirty": true, "ExactBranch": "main",
@@ -15,7 +15,7 @@ class BuildInfoIOSTests: XCTestCase {
             "ExactBuildHost": "studio", "ExactBuildXcode": "Xcode 26.0 Build version 17A100",
             "ExactDistributionRevision": "12", "ExactReleaseNotes": "- the lightbox opens from its first frame",
         ], device: "iPhone17,1 · iOS 27.0", now: now)
-        XCTAssertEqual(lines[0], "Bluesky Exact2 — com.example.bluesky")
+        XCTAssertEqual(lines[0], "Bluesky Exact2 — dev.tuft.blueskyclone")
         XCTAssertEqual(lines[1], "version 0.1.0 (12)")
         let built = ISO8601DateFormatter().date(from: "2026-10-08T09:59:59Z")!
         XCTAssertEqual(lines[2], "built \(BuildInfo.local.string(from: built)) (2 h ago) on studio", "local time, whatever the zone")

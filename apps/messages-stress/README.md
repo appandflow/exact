@@ -1,6 +1,6 @@
 # Messages stress
 
-A synthetic Messages workload over the real Contract → Rust `DataSource` →
+LLP 1041's Messages workload uses the real Contract → Rust `DataSource` →
 runner → existing web/Apple host path. It never reads Messages, accounts,
 files, secrets, or network data. It declares no grants. Rust is binary-bound
 (`rust.mode = off`); this is not a worker-placement or module-reload demo.
@@ -27,10 +27,16 @@ host/web/dev.mjs --app messages-stress --port 8771` instead.
 The ordinary native wrapper is available with
 `bun host/apple/build.mjs messages-stress-apple --run` (or `--ios --run`).
 
-All three runtime entries default to `ReusableMessagesStress`. The app-local
-build selector `EXACT_MESSAGES_SOURCE=reuse|stateless` selects that source or
-the original stateless control; unset means `reuse`. Empty, unknown and
-non-Unicode values fail before Contract compilation or bake. For example:
+All three runtime entries default to `ReusableMessagesStress`, the source
+app.json's `rust.data` names, which the JS target's module runs too. The
+app-local build selector `EXACT_MESSAGES_SOURCE=reuse|stateless` selects that
+source or the original stateless control; unset means `reuse`. Empty, unknown
+and non-Unicode values fail before Contract compilation or bake. The web's
+entry must pass the manifest's source, which the JS target's module runs
+(LLP 1153.003 D2), so a web build of the stateless control also sets
+`rust.data` to
+`{ "crate": "messages-stress-data", "type": "messages_stress_data::MessagesStress", "source": "messages_stress_data::MessagesStress" }`.
+For example:
 
 ```sh
 EXACT_MESSAGES_SOURCE=stateless EXACT_WEB_DIST=target/messages-control bun host/web/build.mjs messages-stress-web
@@ -129,8 +135,9 @@ stress app's selector.
 
 Three native comparison pairs observed lower loaded advance/decode medians
 with row reuse. Timer tails still exceed 8.33 ms, resize and input results are
-mixed, and the repeat pairs have different timed revision cohorts. They do
-not establish physical 120 Hz.
+mixed, and the repeat pairs have different timed revision cohorts. See
+LLP 1041 §8.42
+for the measurements and limits; they do not establish physical 120 Hz.
 
 The existing `history` source accepts an optional `option<string>` cursor as its
 seventh argument. Omitted/`none` preserves the six-argument manual/eager controls;
@@ -195,14 +202,15 @@ shift's anchor offset, bounded supplied/keyed rows, zero-query/zero-key interior
 feedback, cursor validation, and Latest followed by a local echo. Counts are
 printed with `cargo test -p messages-stress-data --test it bounded:: -- --nocapture`.
 
-In bounded validation the runner traversed 100,000 records with at most 200
+Bounded validation, 2026-09-18: the runner traversed 100,000 records with at most 200
 supplied/keyed rows per shift, zero source queries/key evaluations for interior
 feedback, and at most 31 mounted rows. Web and Linux headless CPU drives on macOS
 reached the first message and returned to Latest, checked six exact Unicode echoes
 during streaming and the sent echo. They observed at most 45 and 10 mounted
 message rows respectively (including transient measurement windows), with 200
-supplied records or 201 with the tail echo. These are counts, not frame-rate
-measurements; macOS/AppKit and iOS were not driven.
+supplied records or 201 with the tail echo. Evidence, failed attempts and raw
+counts are under `target/bounded-answers/s1/`. These are counts, not frame-rate
+measurements; macOS/AppKit and iOS were not driven for this slice.
 
 The final browser drive (`target/messages-windowed-web-final/`) passes five
 endpoint round trips from 10,000 supplied records, exact typing, a streaming
@@ -210,7 +218,9 @@ step and actual browser pointer swipe commit/cancel. A single end jump reaches
 the last logical message. The first refinement mounts 34 rows; later top/end
 observations mount 7–8. These are functional checks, not twenty full traversals
 or frame timings. That drive predates the dedicated gesture-takeover validation
-below.
+below. The separate paired runner diagnostic in
+LLP 1010 §6.6
+covers twenty complete traversals, retained state and CPU work through 25,000 rows.
 
 ## Native hosts
 
@@ -255,8 +265,9 @@ window widths. One jump reaches the last row; appending follows the tail while
 an older reader keeps its key and offset. Final executable SHA-256:
 `427baeb90112edaf611067203b6dd7c02256f29dfeb0b72f707e360500ef3024`.
 At that checkpoint AppKit lacked the swipe recognizer: held mouse contact and
-Reply buttons did not establish native swipe continuity. iOS adapter source has
-not been compiled against its SDK or driven on a device.
+Reply buttons did not establish native swipe continuity. Twelve standalone Swift assertion
+bodies pass; full XCTest is unavailable with this machine's Command Line Tools.
+iOS adapter source has not been compiled against its SDK or driven on a device.
 
 Actual Ubuntu 24.04 ARM64 CPU-raster validation passes the windowed 10k drive:
 seven endpoints, three resizes, Unicode typing, a stream step, Reply/Cancel,
@@ -266,7 +277,14 @@ observation requests, with 5–8 numbered rows (plus the echo when present) and
 pointer or autonomous compositor timing is inferred. Native pin regressions are
 separate, within 69 passing Linux tests and strict Clippy.
 
-## Interruptible swipe
+Evidence: `/tmp/exact2-linux-endfollow-final-6840b5e9/`; final executable SHA-256
+`6810b9bda835ace10c5147622427cc5d19ffed5254aaff6159ba021d1cfe3547`.
+The source manifest and Noto CJK/emoji font identities are retained there.
+Earlier failed captures remain: an origin/range fix corrected real adapter
+errors, then a package-scoped runner rebuild removed a stale cached artifact
+without further source changes. Those failed binaries are not final acceptance.
+
+## Interruptible swipe, 2026-09-17
 
 The shared token-hold implementation now drives browser, AppKit and Linux swipe
 input. Grab a returning row, move left immediately, reverse and release; typing
@@ -279,7 +297,7 @@ AppKit's 10k native-event drive and linked lifetime/reentry/eligibility probes a
 in `target/messages-stress-native/holds/`, with exact source and executable
 identities. Browser checks include actual compiled Wasm plus DOM pointer/WAAPI
 takeover, style commits, delayed release, deletion and retained-route cancellation.
-These cover functional behavior; UIKit source
+Logs are `/tmp/exact-web-motion-*`. These cover functional behavior; UIKit source
 has not been compiled or driven against its SDK here.
 
 `target/messages-stress-native/linux-holds-vkms/report.md` records the actual

@@ -1,4 +1,4 @@
-//! A native container gives a subtree a containing
+//! LLP 1115.002 D8.2: a native container gives a subtree a containing
 //! block (`Host::set_blocks`), and the subtree's frames come back in that
 //! block's space with the block's used size. One page, two panes and a
 //! sheet: a pane that changes sends nothing for the other pane, the sheet
@@ -40,6 +40,7 @@ const PAGE: &str = r##"component Proof
 
 fn is(width: f32, height: f32) -> Option<HostBlock> {
     Some(HostBlock {
+        tactic: Default::default(),
         width: BlockAxis::Is(width),
         height: BlockAxis::Is(height),
     })
@@ -84,6 +85,7 @@ fn two_panes_and_a_sheet_of_one_page_lay_out_each_in_its_block() {
     let page = ["page", "title", "stack", "footer"].map(|name| view(&host, name));
     let stack = host.runner().kernel().node(page[2]).unwrap().frame;
     let maximum = Some(HostBlock {
+        tactic: Default::default(),
         width: BlockAxis::AtMost(480.0),
         height: BlockAxis::AtMost(400.0),
     });
@@ -161,7 +163,7 @@ fn two_panes_and_a_sheet_of_one_page_lay_out_each_in_its_block() {
     );
 }
 
-/// A popover is laid out in the viewport, a block the kernel
+/// Stage 14 B: a popover is laid out in the viewport, a block the kernel
 /// implies, whatever box it was written in. Its frame comes in that
 /// block's space, and its `block` op with the block's used size and where
 /// the popover sits in it (its margins): what the host reports it by.

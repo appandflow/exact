@@ -388,7 +388,7 @@ fn taking_the_pair_does_not_stop_unrelated_opacity_motion() {
     assert_eq!(e.spring_descriptor(NODE, Property::Opacity), Some(curve));
 }
 
-/// The pair's release velocity is the engine's own estimate
+/// LLP 1057.001 §3: the pair's release velocity is the engine's own estimate
 /// over the values each token was given (pan and pinch), gone once ended.
 #[test]
 fn a_held_pair_measures_its_own_release_velocity() {

@@ -1,4 +1,4 @@
-// Opt-in simulator integration, using the archive kit's
+// LLP 1126.000 WP5: opt-in simulator integration, using the archive kit's
 // SpringBoard driver. The caller creates/owns EXACT_SIM and supplies the kit
 // directory as EXACT_WIDGET_KIT. All products stay in this worktree's target/.
 import { test, expect } from 'bun:test';

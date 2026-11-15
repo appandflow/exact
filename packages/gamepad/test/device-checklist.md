@@ -1,10 +1,10 @@
 # @exact/gamepad: the device checklist
 
 What a person checks with real pads, which no drive here can: an agent
-never touches a controller attached to the machine it runs on. The
-drives under the agent use the declared substitute and, on Linux,
-Windows, Apple and Android, a drive's injected pad (`EXACT_AGENT_PADS`);
-these steps are the hardware half.
+never touches a controller attached to the machine it runs on (LLP
+1133.022 §21). The drives under the agent use the declared substitute and,
+on Linux, Windows, Apple and Android, a drive's injected pad
+(`EXACT_AGENT_PADS`); these steps are the hardware half.
 
 You need a DualSense (PS5) and an Xbox Wireless Controller, each paired
 over Bluetooth or plugged in by USB, and the Beacons game
@@ -45,7 +45,7 @@ step's result and the OS version.
 
 | Platform | Built here | Rumble | Light bar | Notes |
 | --- | --- | --- | --- | --- |
-| Linux (a desktop or a Windows test machine) | yes: evdev `FF_RUMBLE`, the registry in `host/linux/src/pads.rs` | yes, where `/dev/input/event*` opens read-write (the `input` group) | no: `setLight` answers `NotSupportedError` | A pad opened read-only lists no effects; check that `effects` is empty then. |
+| Linux (desktop or the NucBox) | yes: evdev `FF_RUMBLE`, the registry in `host/painted/src/pads.rs` | yes, where `/dev/input/event*` opens read-write (the `input` group) | no: `setLight` answers `NotSupportedError` | A pad opened read-only lists no effects; check that `effects` is empty then. |
 | Windows (x64, ARM64) | yes: XInput, `host/windows/src/pads.rs` | yes, on an XInput pad (the Xbox pad) | no | The DualSense is not an XInput pad: it lists no pad on Windows. |
 | Web (Chrome, Edge) | yes: `web/index.js` | yes, through `vibrationActuator` | no | Safari and Firefox list no effects. |
 | macOS, iOS, iPadOS, tvOS | yes: `apple/Gamepad.swift` over `GCController`, the slot table shared with the canvas (`ExactPads`) | yes, through each handle's Core Haptics engine (`GCDeviceHaptics`); the DualSense's triggers take `trigger-rumble` | yes on the DualSense and DualShock 4 (`GCDeviceLight`); the colour before the app's first write comes back on `setLight()`, at the background and when the session ends | The prompt shows the button's SF Symbol beside its name (step 2). An Xbox pad lists `dual-rumble` only. |

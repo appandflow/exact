@@ -1,5 +1,5 @@
 // Crypto list (../SPEC.md, "Decisions" included) on exact2, inline-SVG variant
-// The GPU app (../exact-crypto-gpu) with only the chart swapped for
+// (LLP 1055): the GPU app (../exact-crypto-gpu) with only the chart swapped for
 // an `svg` + `polyline` and CSS `@keyframes`, and the price flash as a keyed
 // CSS animation instead of the opacity-transition workaround.
 // One `list virtualized=true` with one keyed `for` carries the 5,000 coins
@@ -10,8 +10,8 @@
 // how it is drawn.
 //
 // Each coin's 48 prices are held once, as numbers in the row with their
-// minimum and maximum, and the chart maps them to SVG `points` in the view,
-// as the SwiftUI and UIKit apps build a row's path only when it
+// minimum and maximum, and the chart maps them to SVG `points` in the view
+// (LLP 1017.003), as the SwiftUI and UIKit apps build a row's path only when it
 // shows.
 
 shape Flash

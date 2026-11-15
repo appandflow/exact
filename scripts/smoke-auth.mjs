@@ -1,10 +1,10 @@
-// The auth fixture, driven: sign-in with PAR, DPoP and
+// The auth fixture, driven (LLP 1069.006 D7): sign-in with PAR, DPoP and
 // PKCE against the local fixture server (`apps/auth-fixture/fixture.mjs`),
 // on the web, macOS and iOS under the agent. Nothing opens: the request is
 // held; the smoke asks the fixture's authorize endpoint for the callback URL
 // a person's approval would produce and answers the hold with it (`type
 // @t`). A cancel, a callback for another sign-in, the pending entry's
-// disclosure rules and two loopback callbacks at once are
+// disclosure rules and two loopback callbacks at once (LLP 1133.005 D9) are
 // checked too. `smoke.mjs` runs this for `--app
 // auth-fixture`; it starts the fixture server when none answers.
 import { spawn } from 'node:child_process';
@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from './agent.mjs';
-import { DESKTOP_INPUT, chromium } from './agent-launch.mjs';
+import { DESKTOP_INPUT, chromium, quitBrowser } from './agent-launch.mjs';
 import { jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
@@ -87,9 +87,9 @@ export async function authSmoke({ host, open, check: record }) {
     st = await s.state();
     check(!JSON.stringify(st).includes('code-') && !JSON.stringify(st).includes('"at-'), 'state holds no code or token');
 
-    // A loopback callback: held on macOS as any other, its
+    // A loopback callback (LLP 1133.005 D9): held on macOS as any other, its
     // port shown, and two at once on two ports; the web answers 501 before
-    // anything opens. (iOS is `later`.)
+    // anything opens. (iOS is `later`, §8.)
     if (host === 'macos' || host === 'web') {
       await s.tap('sign-out'); await s.clock('settle');
       await s.tap('prepare-loopback'); await s.clock('settle');
@@ -123,10 +123,10 @@ export async function authSmoke({ host, open, check: record }) {
     await s.close?.();
     server?.kill();
   }
-  console.log(`${host} auth: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  console.log(`${host} auth: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s (LLP 1069.006)`);
 }
 
-// The web's real path, outside the agent: Chrome with a
+// The web's real path, outside the agent (LLP 1069.006 D4): Chrome with a
 // fresh profile, the build served on loopback, real mouse presses (user
 // activation) through CDP. The popup opens in the press's call stack; the
 // fixture's page is approved; the callback page returns by `opener`, and
@@ -138,7 +138,7 @@ export async function authPopupWeb({ webDist, check: record }) {
   const t0 = Date.now();
   const fixture = await fixtureServer();
   await fetch(`${ISSUER}/fixture/reset`);
-  // A JS-target build is served as its tree, as serve.mjs serves it.
+  // A JS-target build (LLP 1071) is served as its tree, as serve.mjs serves it.
   const js = jsTargetBuild(webDist);
   const server = createServer((req, res) => js ? serveBuildTree(webDist, req, res) : serveStatic(webDist, req, res));
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
@@ -148,6 +148,10 @@ export async function authPopupWeb({ webDist, check: record }) {
   const child = spawn(chrome, ['--headless=new', DESKTOP_INPUT, '--remote-debugging-pipe', '--window-size=500,700', `--user-data-dir=${profile}`,
     '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
   const cdp = new Cdp(child.stdio[3], child.stdio[4]);
+  const exited = new Promise(resolve => {
+    child.once('exit', () => { cdp.fail('auth popup Chrome exited'); resolve(); });
+    child.on('error', error => { if (!child.pid) { cdp.fail(error.message); resolve(); } });
+  });
   const popups = [];
   cdp.listeners.push((msg) => {
     if (msg.method === 'Target.targetCreated' && msg.params.targetInfo.type === 'page' && msg.params.targetInfo.openerId) popups.push(msg.params.targetInfo);
@@ -221,10 +225,9 @@ export async function authPopupWeb({ webDist, check: record }) {
   } catch (error) {
     check(false, error.message);
   } finally {
-    try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-    server.close();
-    fixture?.kill();
+    try { await quitBrowser(child, cdp, exited); }
+    finally { server.close(); fixture?.kill(); }
     rmSync(profile, { recursive: true, force: true });
   }
-  console.log(`web auth popup: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s (outside the agent)`);
+  console.log(`web auth popup: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s (LLP 1069.006 D4, outside the agent)`);
 }

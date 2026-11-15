@@ -1,4 +1,4 @@
-// The hostile sample host, iOS: a native UIKit app that is
+// The hostile sample host, iOS (LLP 1031 D10): a native UIKit app that is
 // not Exact's — a navigation controller whose root screen stacks a native
 // header over two sessions of the one plan the archive carries — the fixture
 // `scripts/smoke.mjs host-ios` drives over the agent socket, each request
@@ -24,9 +24,9 @@ let exact = ExactComposition.app
 /// The host's own lines go to stderr: under the agent, stdout is the protocol.
 func log(_ line: String) { FileHandle.standardError.write(Data((line + "\n").utf8)) }
 
-/// The delegate the host owns: a command is an intention.
+/// The delegate the host owns: a command is an intention (LLP 1031 D5).
 /// `setScheme("dark")` from any session pushes a native screen over session
-/// a, `setScheme("light")` pops it — after the batch that carried it.
+/// a, `setScheme("light")` pops it — after the batch that carried it (D2).
 final class HostDelegate: ExactSessionDelegate {
     var announced: Set<String> = []
     func exactSession(_ session: ExactSession, command name: String, args: [Any]) {
@@ -46,17 +46,17 @@ final class HostDelegate: ExactSessionDelegate {
 }
 let delegate = HostDelegate()
 
-/// Two sessions of the one plan, each in its own pane, each
+/// Two sessions of the one plan (LLP 1031 D1), each in its own pane, each
 /// with its own clock under the agent.
 // Session construction creates UIKit views; defer it until didFinishLaunching
-// (physical pre-UIApplicationMain delayed-touch reproduction).
+// (@ref LLP 1012, physical pre-UIApplicationMain delayed-touch reproduction).
 nonisolated(unsafe) var a: ExactSession!
 nonisolated(unsafe) var b: ExactSession!
 nonisolated(unsafe) var sessions: [(String, ExactSession)] = []
 nonisolated(unsafe) var root: RootController?
 
 /// A native screen pushed over a session: the Exact view leaves its pane
-/// (unmounted, its session alive and unmounted) while the navigation
+/// (unmounted, its session alive and unmounted, D1) while the navigation
 /// controller shows the host's own screen; a pop reverses both.
 final class NativeScreen: UIViewController {
     let label: String
@@ -229,13 +229,22 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         a = exact.makeSession(delegate: delegate, label: "a")
         b = exact.makeSession(delegate: delegate, label: "b")
+        exact.installHostEvents(applicationDelegate: nil, sceneDelegate: SceneDelegate.self)
         #if !os(tvOS)
-        exact.installNotificationClicks()
+        exact.installNotificationClicks(boot: { $0.bootForWake() }, activate: nil)
         #endif
         if ExactEnv.agentFreezes { a.clock = 0; b.clock = 0 }
         sessions = [("a", a), ("b", b)]
         return true
     }
+    #if !os(tvOS)
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        exact.registeredForRemoteNotifications(deviceToken: deviceToken)
+    }
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        exact.failedToRegisterForRemoteNotifications(error: error)
+    }
+    #endif
     // A scene, not an app-wide window: an app that adopts no scene
     // lifecycle traps at launch on iOS 27.
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
@@ -251,6 +260,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let ws = scene as? UIWindowScene else { return }
         #if !os(tvOS)
         if let response = connectionOptions.notificationResponse { exact.openNotification(response) }
+        exact.hostEvents(connectionOptions: connectionOptions)
         #endif
         let w = ExactWindow(windowScene: ws)
         let rootController = RootController()

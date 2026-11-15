@@ -1,4 +1,4 @@
-// A `video` on the JS target: the web host's own media-glue.js,
+// A `video` on the JS target (LLP 1042): the web host's own media-glue.js,
 // fetched after the first frame by a page with one (a loaded capability, as
 // on the wasm host), applies its props — `paused`, `volume`, `currentTime`,
 // `playbackRate`, `preservesPitch`, the visibility policy — and reports its
@@ -7,10 +7,10 @@
 // plan's names) and hears its reports as `exact-media` events. A node the
 // tree has ended is retired: its player stops and it reports nothing more,
 // so a late `pause`, `timeupdate` or refused play never reaches whatever now
-// holds its place.
+// holds its place (jukebox F1, F5, F6, F20).
 import { onEnd, inflight, journal, data, clock } from "./rt.js"; import { liveById } from "./navigation.js";
 
-// The media session's actions: the glue sends them as it
+// The media session's actions (LLP 1098 D2, D6): the glue sends them as it
 // sends the element's events, with `seekOffset seekTime fastSeek`.
 const SESSION = ["seekbackward", "seekforward", "seekto", "previoustrack", "nexttrack", "stop"];
 const BOOL = new Set(["autoplay", "controls", "loop", "muted", "playsinline", "disablepictureinpicture", "disableremoteplayback"]);
@@ -80,8 +80,8 @@ export function mediaProp(e, name, v) {
   install(e);
   return false;
 }
-// An `app:/` source: the app's own file, one its data
-// module wrote to `app:/data` (a downloaded episode), as an
+// An `app:/` source (LLP 1069.002 D7): the app's own file, one its data
+// module wrote to `app:/data` (a downloaded episode, podcast F19), as an
 // object URL from the web host's picker glue (`appURL`), as an `image` shows
 // one; counted in flight, so `clock settle` waits for it. A path with no
 // file is handed to the element as written, which refuses it

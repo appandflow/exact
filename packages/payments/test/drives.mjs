@@ -1,4 +1,4 @@
-// The acceptance drives under the agent, with the photo
+// LLP 1133.034 §10's acceptance drives under the agent, with the photo
 // editor's Order a Print against the print lab (apps/photo-editor/fixture/
 // prints.ts, `--agent`). The sheet is a `payment` ticket: `type` answers it
 // as the person's changes in the sheet, `tap … authorize` as Face ID, and the

@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// A header's readout (`role="status"`) over hand-built
+/// A header's readout (`role="status"`, LLP 1075.003 §9.15) over hand-built
 /// routes: what counts as one, what its face holds, and what its bar item's
 /// view does with direction, `aria-hidden` and the text size. The native
 /// fixture's readout, pushed and pressed, is NavigationBasicsIOSTests'.
@@ -75,7 +75,7 @@ final class BarReadoutIOSTests: XCTestCase {
     }
 
     /// A disabled button is UIKit's disabled bar item, shown dimmed, though
-    /// nothing presses it (a "● Clock" readout written as one); one
+    /// nothing presses it (the euxy port's "● Clock" written as one); one
     /// neither pressed nor disabled is still the page's.
     func testADisabledButtonIsADisabledItemThoughNothingPressesIt() throws {
         let button = { (id: Int, props: [String: String]) -> [String: Any] in
@@ -184,7 +184,7 @@ final class BarReadoutIOSTests: XCTestCase {
     }
 
     /// A status's symbol in a colour of its own keeps it behind a sheet or an alert, as its words
-    /// keep theirs: UIKit would grey it as the symbol's tint, which it leaves as it is (`.normal`)
+    /// keep theirs: its ink is in the original image, and its view inherits dimming.
     func testAStatusSymbolKeepsItsColourWhileDimmed() throws {
         let green: [Double] = [52, 199, 89, 255]
         let inked: [String: Any] = ["text_color": green, "written": ["text_color"]]
@@ -199,9 +199,9 @@ final class BarReadoutIOSTests: XCTestCase {
         let symbol = try XCTUnwrap(view.stack.arrangedSubviews.compactMap { $0 as? UIImageView }.first, "the readout shows its symbol")
         view.tintAdjustmentMode = .dimmed
         defer { view.tintAdjustmentMode = .automatic }
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        XCTAssertTrue(symbol.tintColor.resolvedColor(with: symbol.traitCollection).getRed(&r, green: &g, blue: &b, alpha: &a))
-        for (got, want) in zip([r, g, b, a].map { Double($0) * 255 }, green) { XCTAssertEqual(got, want, accuracy: 2, "the symbol keeps its green while dimmed") }
+        view.layoutIfNeeded()
+        XCTAssertEqual(symbol.tintAdjustmentMode, .dimmed)
+        for (got, want) in zip(try symbolInkChannels(symbol), green) { XCTAssertEqual(got, want, accuracy: 2, "the symbol keeps its green while dimmed") }
     }
 
     /// A readout's parts in the tint are UIKit's tint, which follows the bar's and greys with it:

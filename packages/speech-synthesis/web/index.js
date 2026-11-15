@@ -1,7 +1,7 @@
-// @exact/speech-synthesis on the web: the browser's
+// @exact/speech-synthesis on the web (LLP 1133.012 D2–D6, §9): the browser's
 // `speechSynthesis`, answered in the interface's shapes.
 //
-// - An utterance is an id, kept with its state and outcome until the
+// - An utterance is an id (D2), kept with its state and outcome until the
 //   page goes. The queue is this implementation's: the browser is given one
 //   utterance at a time, the next when the last ends, so a canceled or
 //   dropped utterance never reaches it and the state's `queue`, `utterance`
@@ -9,11 +9,11 @@
 // - A reply the runtime drops cancels its utterance (`dispose`): a queued
 //   one never speaks, a speaking one is interrupted.
 // - Spoken audio claims the page's Audio Session with the queue's strongest
-//   type while it speaks and is not paused; an unsaid type is `auto`,
+//   type while it speaks and is not paused (D4); an unsaid type is `auto`,
 //   which claims nothing.
 // - Leaving the foreground cancels a `transient` or `transient-solo` queue,
-//   each utterance ending `interrupted` ("The background").
-// - Under the agent nothing is spoken: each utterance is spoken on the
+//   each utterance ending `interrupted` (D4, "The background").
+// - Under the agent nothing is spoken (§9): each utterance is spoken on the
 //   session clock at 170 words a minute times `rate`, a `word` boundary at
 //   each word's start, and `end` after the last; a paused queue's clock
 //   stands still. The state is computed at each read, which the
@@ -31,7 +31,7 @@ export function words(text) {
   return out;
 }
 
-/** How long one word takes under the agent at `rate`, ms. */
+/** How long one word takes under the agent at `rate`, ms (§9). */
 export const wordMs = (rate = 1) => 60000 / (WPM * (rate > 0 ? rate : 1));
 
 export function implementation({ changed, agent, now, log, audioSession, foreground: shown = () => true }) {
@@ -42,7 +42,7 @@ export function implementation({ changed, agent, now, log, audioSession, foregro
   const say = line => log?.(`speech-synthesis: ${line}`);
   const announce = () => { changed('speech-synthesis.speechSynthesisState'); changed('speech-synthesis.speechUtterance'); };
 
-  // ------------------------------------------------------------ the claim
+  // ------------------------------------------------------------ the claim (D4)
   /** The strongest type among the utterances not yet ended, `auto` for none. */
   const strongest = () => {
     const best = Math.max(-1, ...[current, ...queue].map(id => STRENGTH.indexOf(utterances.get(id)?.type)));
@@ -57,17 +57,20 @@ export function implementation({ changed, agent, now, log, audioSession, foregro
   }
 
   // ------------------------------------------------------------ the queue
-  /** `u` begins at session time `at`: the browser is given it, or the agent's clock starts it. */
-  function begin(u, at) {
+  /** `u` begins at session time `at`: the browser is given it, or the agent's clock starts it. `later`, after
+   * one ended, gives it to the browser on a later turn: Chrome drops an utterance spoken in the turn of a
+   * `cancel()` or of its `error` event, and never ends it. */
+  function begin(u, at, later) {
     current = u.id; u.state = 'speaking'; u.began = at; u.paused = null;
     boundary = NO_BOUNDARY;
     if (agent && fail) { u.failure = fail; fail = null; }
-    if (synth) synth.speak(u.browser);
+    if (synth && later) setTimeout(() => { if (current === u.id) synth.speak(u.browser); });
+    else if (synth) synth.speak(u.browser);
     reclaim();
   }
   /** The next queued utterance begins, unless the queue is paused or one speaks. */
-  function proceed(at = now()) {
-    if (!current && queue.length && !reasons.size) begin(utterances.get(queue.shift()), at);
+  function proceed(at = now(), later = false) {
+    if (!current && queue.length && !reasons.size) begin(utterances.get(queue.shift()), at, later);
     if (!current && !queue.length) boundary = NO_BOUNDARY;
     reclaim();
   }
@@ -77,7 +80,7 @@ export function implementation({ changed, agent, now, log, audioSession, foregro
     u.state = 'ended'; u.outcome = outcome; u.error = error;
     if (outcome === 'error') say(`${u.id}: ${error}`);
     queue = queue.filter(id => id !== u.id);
-    if (current === u.id) { current = null; proceed(at); }
+    if (current === u.id) { current = null; proceed(at, true); }
     reclaim();
   }
 
@@ -97,7 +100,7 @@ export function implementation({ changed, agent, now, log, audioSession, foregro
     }
   }
 
-  /** The browser's utterance for `u` (what the call omits stays the browser's), its events written into `u`. */
+  /** The browser's utterance for `u` (D3: what the call omits stays the browser's), its events written into `u`. */
   function browser(u, args) {
     const s = new SpeechSynthesisUtterance(u.text);
     if (args.lang != null) s.lang = args.lang;
@@ -127,7 +130,7 @@ export function implementation({ changed, agent, now, log, audioSession, foregro
   };
   const utterance = u => ({ id: u.id, state: u.state === 'speaking' && reasons.size ? 'paused' : u.state, outcome: u.outcome, error: u.error });
 
-  /** Every utterance still to end ends: the queued `canceled`, the speaking `interrupted`. */
+  /** Every utterance still to end ends: the queued `canceled`, the speaking `interrupted` (D6). */
   function cancelAll() {
     advance();
     for (const id of queue) Object.assign(utterances.get(id), { state: 'ended', outcome: 'error', error: 'canceled' });
@@ -194,7 +197,7 @@ export function implementation({ changed, agent, now, log, audioSession, foregro
       return u ? utterance(u) : { error: 'NotFoundError' };
     },
     async speechSynthesisVoices() { return { voices: voices() }; },
-    /** Under the agent: `fail` makes the next utterance to begin end with that error. Each value preferred
+    /** Under the agent: `fail` makes the next utterance to begin end with that error (§9). Each value preferred
      * arms it once; the queue is first brought to now, so the one speaking is not the one that fails. */
     preferred(values) {
       const word = typeof values?.fail === 'string' ? values.fail : null;
@@ -205,10 +208,11 @@ export function implementation({ changed, agent, now, log, audioSession, foregro
       fail = word;
       say(`the next utterance fails ${fail}`);
     },
-    /** Utterances whose reply was dropped: never the app's. */
+    /** Utterances whose reply was dropped: never the app's (D2). */
     dispose(ids) {
       advance();
-      for (const id of ids) {
+      // The speaking one last: ending it begins the next queued, which must not be one dropped with it.
+      for (const id of [...ids.filter(id => id !== current), ...ids.filter(id => id === current)]) {
         const u = utterances.get(id);
         if (!u || u.state === 'ended') continue;
         say(`${id}: its reply was dropped`);
@@ -218,7 +222,7 @@ export function implementation({ changed, agent, now, log, audioSession, foregro
       }
       announce();
     },
-    /** A prompt the person can no longer see the reason for is canceled at the background. */
+    /** A prompt the person can no longer see the reason for is canceled at the background (D4). */
     foreground(visible) {
       if (visible || shown() || (!current && !queue.length)) return;
       if (strongest() !== 'playback') { say('left the foreground: the queue is canceled'); cancelAll(); }

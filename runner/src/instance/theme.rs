@@ -1,4 +1,4 @@
-//! A design's app modes in the instance tree: the tuple
+//! A design's app modes in the instance tree (LLP 1121 D5, D7): the tuple
 //! around each node, the rows that read a token, and a mode boundary's
 //! implied rows. Names resolve where a row's text is parsed
 //! (`bridge::set_plan_style`), in the theme table of the node's tuple; the
@@ -9,7 +9,7 @@ use exact_kernel::{StyleId, ViewId};
 use exact_plan::{BindingKind, NodesRow, Plan, Value};
 
 /// The inherited rows that hold a colour, which a mode boundary writes
-/// again: every one the schema marks inherited, in this order.
+/// again (D7): every one the schema marks inherited, in this order.
 pub(super) const INHERITED: [StyleId; 8] = [
     StyleId::TextColor,
     StyleId::CaretColor,
@@ -44,16 +44,26 @@ pub struct ThemedRow {
     pub text: Value,
     /// The app tuple it was set in.
     pub tuple: u32,
-    /// Its author wrote it; a boundary's implied row not.
+    /// Its author wrote it (LLP 1115.000 D2); a boundary's implied row not.
     pub written: bool,
-    /// A boundary set it (an implied row), not a binding.
+    /// A boundary set it (D7's implied row), not a binding.
     pub implied: bool,
     /// The tokens it read, as `theme::name_bit`s.
     pub tokens: u64,
 }
 
-/// A Markdown node's `atomFaces` whose colours read a token:
-/// the faces as the bridge named them, read again in their tuple when
+impl ThemedRow {
+    /// Its text parsed in `tuple`; `None` when the row refuses it there.
+    pub fn resolve_in(&self, plan: &Plan, tuple: u32) -> Option<exact_kernel::StyleProps> {
+        let mut patch = exact_kernel::StyleProps::default();
+        let _tuple = Bound::new(tuple);
+        let set = crate::bridge::set_plan_style(&mut patch, self.style as u16, &self.text, plan);
+        set.is_ok().then_some(patch)
+    }
+}
+
+/// A Markdown node's `atomFaces` whose colours read a token (LLP 1045.000
+/// D2): the faces as the bridge named them, read again in their tuple when
 /// a token changes, as a row's text is.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ThemedFaces {
@@ -81,13 +91,13 @@ pub(crate) fn newly_refused(now: &[String], set: &[String]) -> Vec<String> {
     now.iter().filter(|t| !set.contains(t)).cloned().collect()
 }
 
-/// Every row that read a token, by view and row (the token index): what a
+/// Every row that read a token, by view and row (D7's index): what a
 /// token's new value sets again, with no tree visited and no binding
 /// evaluated. One map, so a themed list's rows allocate only its growth.
 #[derive(Debug, Default)]
 pub struct ThemeIndex {
     rows: std::collections::HashMap<(ViewId, u16), ThemedRow>,
-    /// Each node's state looks that read a token: what a
+    /// Each node's state looks that read a token (LLP 1121 D8): what a
     /// token's new value resolves again, as `rows` are.
     pub(super) looks: std::collections::HashMap<ViewId, super::looks::Looks>,
     /// Each Markdown node's faces that read a token, likewise.
@@ -112,7 +122,7 @@ impl ThemeIndex {
 
     /// `view`'s `style`, set again, read `tokens` too: a token's new value
     /// may read one its old value didn't (a shadow over a base the design
-    /// sets), which an edit of that one then sets
+    /// sets, LLP 1121 stage 12 B3), which an edit of that one then sets
     /// again. The bits are added, never replaced: a row whose text no
     /// longer reads a token keeps its bit, which costs at most one re-set
     /// that changes nothing (bits are already shared by names, `name_bit`),
@@ -170,6 +180,11 @@ impl ThemeIndex {
         self.looks.iter().map(|(view, l)| (*view, l))
     }
 
+    /// `view`'s state looks, when they read a token.
+    pub fn look(&self, view: ViewId) -> Option<&super::looks::Looks> {
+        self.looks.get(&view)
+    }
+
     /// Every themed row, in no order.
     pub fn rows(&self) -> impl Iterator<Item = (ViewId, &ThemedRow)> + '_ {
         self.rows.iter().map(|((view, _), r)| (*view, r))
@@ -194,8 +209,8 @@ pub(super) fn binding_of(plan: &Plan, row: &NodesRow, style: StyleId) -> Option<
     })
 }
 
-/// Whether `row` is a mode boundary: it pins modes or sets a scheme.
-pub(super) fn boundary(plan: &Plan, row: &NodesRow) -> bool {
+/// Whether `row` is a mode boundary: it pins modes or sets a scheme (D7).
+pub(crate) fn boundary(plan: &Plan, row: &NodesRow) -> bool {
     binding_of(plan, row, StyleId::Mode).is_some()
         || binding_of(plan, row, StyleId::ColorScheme).is_some()
 }
@@ -312,7 +327,7 @@ impl super::NodeInst {
         saved
     }
 
-    /// Binding `i`'s `atomFaces`, each face's colours read
+    /// Binding `i`'s `atomFaces` (LLP 1045.000 D2), each face's colours read
     /// as a bound colour row's are, in this node's tuple
     /// (`bridge::atom_face_paint`): the value to set, or `None` to leave the
     /// faces as they are. A first read journals each colour that is none,
@@ -439,7 +454,7 @@ impl super::NodeInst {
         }
     }
 
-    /// A mode boundary's implied rows: each inherited colour row it does
+    /// A mode boundary's implied rows (D7): each inherited colour row it does
     /// not set, whose nearest ancestor's row read a token, set again from
     /// that text in this node's tuple. `force` sets them whatever they were.
     pub(super) fn boundary_rows(
@@ -459,42 +474,44 @@ impl super::NodeInst {
                 }
                 continue;
             }
-            let want = u.theme.inherited[k].clone();
+            let mut want = u.theme.inherited[k].clone();
             let implied = self.rare().implied.get_or_insert_with(Default::default);
             if want == implied[k] && !force {
                 continue;
             }
-            match &want {
-                Some(text) => {
-                    let p = patch.get_or_insert_with(Box::default);
-                    exact_kernel::style::theme::take_named();
-                    let set = crate::bridge::set_plan_style(p, style as u16, text, plan);
-                    let tokens = exact_kernel::style::theme::take_named();
-                    if set.is_ok() {
-                        u.ids.theme.put(
-                            view,
-                            ThemedRow {
-                                style,
-                                text: text.clone(),
-                                tuple,
-                                written: false,
-                                implied: true,
-                                tokens,
-                            },
-                        );
-                    }
+            if let Some(text) = &want {
+                let p = patch.get_or_insert_with(Box::default);
+                exact_kernel::style::theme::take_named();
+                let set = crate::bridge::set_plan_style(p, style as u16, text, plan);
+                let tokens = exact_kernel::style::theme::take_named();
+                if set.is_ok() {
+                    u.ids.theme.put(
+                        view,
+                        ThemedRow {
+                            style,
+                            text: text.clone(),
+                            tuple,
+                            written: false,
+                            implied: true,
+                            tokens,
+                        },
+                    );
+                    implied[k] = want;
+                    continue;
                 }
-                None if implied[k].is_some() => {
-                    let mut mask = exact_kernel::StyleMask::default();
-                    mask.set(style);
-                    u.ops.push(exact_kernel::Op::ClearStyle {
-                        id: view,
-                        mask,
-                        written: false,
-                    });
-                    u.ids.theme.drop_row(view, style);
-                }
-                None => {}
+                // Refused in this tuple: the text is left unset, so the next
+                // visit parses it again, and a row it implied before goes.
+                want = None;
+            }
+            if implied[k].is_some() {
+                let mut mask = exact_kernel::StyleMask::default();
+                mask.set(style);
+                u.ops.push(exact_kernel::Op::ClearStyle {
+                    id: view,
+                    mask,
+                    written: false,
+                });
+                u.ids.theme.drop_row(view, style);
             }
             implied[k] = want;
         }

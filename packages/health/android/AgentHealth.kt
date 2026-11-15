@@ -1,9 +1,9 @@
-// The agent's Health store on Android, as Apple's `AgentHealth.swift` is: what @exact/health reads
+// The agent's Health store on Android (LLP 1133.026 §11), as Apple's `AgentHealth.swift` is: what @exact/health reads
 // under the agent, where it makes no `HealthConnectClient`. It is the package's `fixture/health.json`, or another file
 // there the agent's `store` names, which an APK carries as the app's assets under `health-fixture/` (the reader puts an
 // app's assets at `app/assets/` in the APK): hourly samples per type and a list of workouts, from one fixture source.
 //
-// It answers as Health Connect answers: a granted type's answers are `complete` from `since`, 30 days before now
+// It answers as Health Connect answers (D5): a granted type's answers are `complete` from `since`, 30 days before now
 // unless history is granted. Buckets are calendar intervals in the session's zone (`EXACT_AGENT_TIME_ZONE`, UTC unless
 // the drive names one), anchored at `start`.
 package exact.health
@@ -22,7 +22,7 @@ internal class AgentHealth(private val assets: AssetManager) {
     companion object {
         private const val HOUR = 3_600_000.0
 
-        /** The order: ascending by `start`, then `id`. */
+        /** D8's order: ascending by `start`, then `id`. */
         val ordered = compareBy<JSONObject>({ it.optDouble("start", 0.0) }, { it.optString("id") })
 
         /** The bucket edges from [start] to [end] by [interval] in [zone], at most 400; null for more. */

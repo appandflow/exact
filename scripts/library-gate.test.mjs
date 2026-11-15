@@ -1,8 +1,8 @@
-// apps/library-gate places every exported library component
+// apps/library-gate (LLP 1139 §5 E) places every exported library component
 // once per value of each variant prop, one varied at a time (the others at
 // their first value; a bool's first is false), and a component with no
 // variant props once. The exports and their variants are the compiler's
-// (`contract tamber ir`'s `library`: its exports and their variants), not a read
+// (`contract forma ir`'s `library`: D0's exports, D5's variants), not a read
 // of the sources. Cells whose id starts `sample-` show other states and are
 // held only to naming real props. Every cell renders (no `if`, `for` or
 // `match` in the view), and every PostCard's slot holds its marker.
@@ -14,8 +14,9 @@ import { join, relative } from 'node:path';
 import { cellsFor, conditional, markedSlot, option, placements, uncommented } from './library-gate.mjs';
 import { SLOTTED } from './stage12-gate.mjs';
 import { COMPONENTS, DERIVED, EMPTY, EXPORTED_TOKENS, PARAM_TOKENS, READS, cases as restyleCases, newTokens, packageParams, readsOf } from './s13c-restyle.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const APP = join(ROOT, 'apps/library-gate/app.contract');
 
 /** The components of these packages that declare a slot, by their sources. */
@@ -35,8 +36,8 @@ function slottedIn(packages) {
 
 function ir() {
   const out = join(mkdtempSync(join(tmpdir(), 'library-gate-ir-')), 'ir.json');
-  const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'tamber', 'ir', join(ROOT, 'apps/library-gate'), '-o', out], { cwd: ROOT, encoding: 'utf8' });
-  if (r.status !== 0) throw new Error(`contract tamber ir: ${r.stderr}`);
+  const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'forma', 'ir', join(ROOT, 'apps/library-gate'), '-o', out], { cwd: ROOT, encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(`contract forma ir: ${r.stderr}`);
   return JSON.parse(readFileSync(out, 'utf8')).library.filter(c => c.library);
 }
 
@@ -76,7 +77,7 @@ test('every exported component, once per variant value, every cell rendered, eve
   expect(used.filter(n => !names.includes(n))).toEqual(['ProfileAlert']);
 }, 600_000);
 
-// `contract gallery` (the design tool's variant gallery): the same cells as this app's, by the compiler's
+// `contract gallery` (the design tool's variant gallery, LLP 1139 §9 Q2): the same cells as this app's, by the compiler's
 // own rule, each component's every cell placed (none refused), and the gallery's design the app's own.
 test("contract gallery places the cells this app does, each placed, on the app's design", () => {
   const library = ir();
@@ -91,8 +92,8 @@ test("contract gallery places the cells this app does, each placed, on the app's
   for (const c of library) {
     const cells = placed.filter(p => p.name === c.name);
     // Beside the compiler's variants, a prop the view compares with literals in an `if` is the gallery's variant too:
-    // a string's one cell a literal and the empty one, an enum's (by == or !=) one cell a
-    // declared value (VerifiedBadge's, PostCard's and PersonRow's badge): the values this app places.
+    // a string's one cell a literal and the empty one (stage 15 D4 batch 1 #2), an enum's (by == or !=) one cell a
+    // declared value (VerifiedBadge's, PostCard's and PersonRow's badge, stage 15 B batch 2): the values this app places.
     const extra = Object.keys(cells[0]?.values ?? {}).filter(k => !c.variants.some(v => v.prop === k) && new Set(cells.map(p => p.values[k])).size > 1)
       .map(prop => ({ prop, options: [...new Set(cells.map(p => option(p.values[prop])))] }));
     for (const { prop, options } of extra) expect([c.name, prop, [...options].sort()]).toEqual([c.name, prop, [...new Set(own.filter(p => p.name === c.name).map(p => option(p.values[prop])))].sort()]);
@@ -101,11 +102,11 @@ test("contract gallery places the cells this app does, each placed, on the app's
     const got = cells.map(p => JSON.stringify(Object.fromEntries(variants.map(v => [v.prop, option(p.values[v.prop])])))).sort();
     expect([c.name, got]).toEqual([c.name, want]);
   }
-  expect(JSON.parse(readFileSync(join(out, 'app.json'), 'utf8')).tamber).toBe(relative(out, join(ROOT, 'apps/library-gate/app.tamber')));
+  expect(JSON.parse(readFileSync(join(out, 'app.json'), 'utf8')).forma).toBe(relative(out, join(ROOT, 'apps/library-gate/app.forma')));
   rmSync(out, { recursive: true, force: true });
 }, 600_000);
 
-// FollowButton says following by its label alone (no
+// FollowButton says following by its label alone (theme2's 14:15 ruling, no
 // aria-pressed; contract/cli/tests/it/actions_exports.rs asserts the label in
 // both states, round too). A round one shows no text, so its label must not
 // be "", which the compiler can't see (one prop required by another's
@@ -147,7 +148,7 @@ test("every round FollowButton cell names its label, the label swapped with the 
 // text_sm and text_xs, 17 and 15 px), so it keeps its height when the icon
 // comes or goes with the state (icon "follow" or "following").
 test("a FollowButton label's line is its icon box's height, each size", () => {
-  const design = readFileSync(join(ROOT, 'packages/actions/actions.tamber'), 'utf8');
+  const design = readFileSync(join(ROOT, 'packages/actions/actions.forma'), 'utf8');
   const px = name => {
     const v = new RegExp(`^\\s+${name.replace('.', '\\.')}: length = (\\S+)`, 'm').exec(design)?.[1];
     return v?.endsWith('rem') ? Number.parseFloat(v) * 16 : Number.parseFloat(v);
@@ -178,11 +179,11 @@ test('the cells rule, and the parse refuses what could hide a cell', () => {
   expect(placements('      Card(id="a")\n', ['Card'])[0].id).toBe('a');
 });
 
-// The gate's restyle cases: every restyle token and param the packages'
-// sources add is in a case and read somewhere, so a new one with no case or
-// no read fails here; and every token the exported Avatar and VerifiedBadge
-// draw with.
-test("the restyle cases name every restyle token and param and every exported use's token, each one read", () => {
+// The gate's restyle cases (theme2 09:49 (c), 10:28 (5)): every token and
+// param stage 13 C added, by the packages' sources, is in a case and read
+// somewhere, so a new one with no case or no read fails here; and every
+// token stage 15 B's exported Avatar and VerifiedBadge draw with.
+test("the restyle cases name every stage 13 C token and param and every exported use's token, each one read", () => {
   const tokens = newTokens(), params = packageParams(), all = restyleCases();
   const app = readFileSync(APP, 'utf8');
   const named = new Set(all.flatMap(c => c.set.map(s => (c.param ? s.key : s.name))));
@@ -197,7 +198,7 @@ test("the restyle cases name every restyle token and param and every exported us
   const read = n => readsOf(n).length > 0 || params.some(p => PARAM_TOKENS[p.key] === n && readsOf(p.key).length > 0)
     || Object.entries(DERIVED).some(([d, x]) => x.from.includes(n) && readsOf(d).length > 0);
   expect([...named, ...derived].filter(n => !read(n))).toEqual([]);
-  // No read of a name that isn't a restyle token's, a param's or the exports'.
+  // No read of a name that isn't stage 13 C's or the exports'.
   expect(Object.keys(READS).filter(k => !tokens.some(t => t.name === k) && !params.some(p => p.key === k) && !EXPORTED_TOKENS.includes(k))).toEqual([]);
   // The exports' tokens are every token their sources name (a token one of
   // them comes to draw with fails here until the case sets it and a read

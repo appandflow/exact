@@ -1,5 +1,5 @@
 // A controlled value written into an editor replaces only what changed and
-// carries the selection through, on both editors.
+// carries the selection through (LLP 1045 D5), on both editors.
 import XCTest
 @testable import ExactKit
 #if os(macOS)

@@ -1,4 +1,4 @@
-//! Paint motion's seam: only a node whose `transition` or
+//! Paint motion's seam (LLP 1062): only a node whose `transition` or
 //! `animation` names a paint property owns it in the engine; its targets are
 //! computed colours resolved by the host's appearance, and an appearance
 //! change re-targets them the way a browser's computed value changes.
@@ -10,12 +10,12 @@ use exact_motion::{Engine, Property, TransitionProperty, Transitions, Value};
 fn patch(rows: &[(StyleId, &str)]) -> Box<StyleProps> {
     let mut s = StyleProps::default();
     for (id, text) in rows {
-        // An animation row names keyframes the runner resolves.
+        // An animation row names keyframes the runner resolves (LLP 1055 D5).
         if text.contains("@keyframes") {
             let row = crate::keyframed(text);
             match id {
                 StyleId::ExitAnimation => s.rare.exit_animation = row,
-                _ => s.animation = row,
+                _ => s.animation = row.into(),
             }
             s.mask.set(*id);
             continue;
@@ -149,6 +149,56 @@ fn tree() -> (Kernel, exact_kernel::CommitReceipt) {
     ];
     let receipt = k.apply(0, 1, &ops).unwrap();
     (k, receipt)
+}
+
+#[test]
+fn removing_a_paint_transition_declaration_retains_initial_property_coverage() {
+    for next in ["unset", "all 0s", "none", "opacity 1s"] {
+        let (mut k, receipt) = tree();
+        let node = motion_node(k.node(2).unwrap().key);
+        let mut engine = Engine::new();
+        let mut paint = PaintMotion::default();
+        k.motion_sync(&receipt).apply(&mut engine).unwrap();
+        paint.adopt(&k, receipt.created.iter().copied(), &mut engine);
+        let receipt = k
+            .apply(
+                0,
+                2,
+                &[Op::SetStyle {
+                    id: 2,
+                    patch: patch(&[(StyleId::BackgroundColor, "#ff0000")]),
+                }],
+            )
+            .unwrap();
+        k.motion_sync(&receipt).apply(&mut engine).unwrap();
+        paint.sync(&k, &receipt, &mut engine);
+        engine.advance(0.05).unwrap();
+        let end = engine.settle_time();
+        let change = if next == "unset" {
+            let mut mask = exact_kernel::StyleMask::EMPTY;
+            mask.set(StyleId::Transition);
+            Op::ClearStyle {
+                id: 2,
+                mask,
+                written: true,
+            }
+        } else {
+            Op::SetStyle {
+                id: 2,
+                patch: patch(&[(StyleId::Transition, next)]),
+            }
+        };
+        let receipt = k.apply(0, 3, &[change]).unwrap();
+        k.motion_sync(&receipt).apply(&mut engine).unwrap();
+        paint.sync(&k, &receipt, &mut engine);
+        let covered = matches!(next, "unset" | "all 0s");
+        assert_eq!(
+            engine.is_active(node, Property::BackgroundColor),
+            covered,
+            "{next}"
+        );
+        assert_eq!(engine.settle_time(), if covered { end } else { None });
+    }
 }
 
 #[test]
@@ -410,7 +460,7 @@ fn paint_transition_names_and_colour_keyframes_round_trip_the_wire() {
             patch: Box::new({
                 let mut s = StyleProps::default();
                 s.transition = t.clone();
-                s.animation = a.clone();
+                s.animation = a.clone().into();
                 s.mask.set(StyleId::Transition);
                 s.mask.set(StyleId::Animation);
                 s
@@ -429,7 +479,7 @@ fn paint_transition_names_and_colour_keyframes_round_trip_the_wire() {
         (to.1.w - 0.5).abs() < 1e-6 && (to.1.z - 0.5).abs() < 1e-6,
         "{to:?}"
     );
-    // A `light-dark()` colour carries its dark value.
+    // A `light-dark()` colour carries its dark value (LLP 1062 D9).
     let from = &style.animation.0[0].keyframes.0[0];
     assert_eq!(from.values[0].1.x, 1.0);
     assert_eq!(from.dark[0].0, Property::BackgroundColor);
@@ -437,8 +487,8 @@ fn paint_transition_names_and_colour_keyframes_round_trip_the_wire() {
 }
 
 /// An `-exact-exit-animation` that names a colour owns it while the node lives, so
-/// the engine has the value its exit plays over when the node leaves. A
-/// `currentcolor` side that draws is the host's to paint in the
+/// the engine has the value its exit plays over when the node leaves (LLP
+/// 1063). A `currentcolor` side that draws is the host's to paint in the
 /// presented `color`.
 #[test]
 fn an_exit_owns_its_colours_and_currentcolor_sides_follow_color() {
@@ -527,7 +577,7 @@ fn shadow_targets_preserve_wide_gamut_and_profiles_are_discrete() {
     }
 }
 
-/// Under `still` (a scrub's frame) a colour change jumps: no
+/// Under `still` (a scrub's frame, LLP 1121 D13) a colour change jumps: no
 /// transition starts, and one under way stops at the new value. Outside it
 /// the next change moves as authored.
 #[test]
@@ -675,5 +725,68 @@ fn a_still_commit_jumps_an_opacity_transition() {
         engine.value(node, Property::Opacity),
         Some(Value::scalar(0.25)),
         "moves again, from the value it jumped to"
+    );
+}
+
+/// A commit that retires one paint property keeps the node's other
+/// `currentcolor` sides: the next `color` change still has them follow the
+/// presented `color`, not start curves of their own.
+#[test]
+fn retiring_one_paint_property_keeps_the_currentcolor_sides() {
+    let mut k = Kernel::with_monospace();
+    let style = |transition: &str, color: &str| {
+        let mut s = patch(&[
+            (StyleId::TextColor, color),
+            (StyleId::BackgroundColor, "#ffffff"),
+            (StyleId::BorderStyleTop, "solid"),
+            (StyleId::Transition, transition),
+        ]);
+        s.set_dynamic(StyleId::BorderWidthTop, &StyleValue::Number(2.0))
+            .unwrap();
+        s
+    };
+    let all = "color 1s linear, border-color 200ms linear, background-color 1s linear";
+    let ops = [
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: style(all, "#000000"),
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    let receipt = k.apply(0, 1, &ops).unwrap();
+    let key = k.node(1).unwrap().key;
+    assert_eq!(k.current_color_sides(key), [Property::BorderTopColor]);
+    let node = motion_node(key);
+    let mut engine = Engine::new();
+    let mut paint = PaintMotion::default();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    paint.sync(&k, &receipt, &mut engine);
+    let mut at = 1;
+    let mut commit = |k: &mut Kernel, paint: &mut PaintMotion, engine: &mut Engine, patch| {
+        at += 1;
+        let receipt = k.apply(0, at, &[Op::SetStyle { id: 1, patch }]).unwrap();
+        k.motion_sync(&receipt).apply(engine).unwrap();
+        paint.sync(k, &receipt, engine)
+    };
+    // `color` moves, and the same commit drops `background-color`'s
+    // transition, which retires it.
+    let kept = "color 1s linear, border-color 200ms linear";
+    let retired = commit(&mut k, &mut paint, &mut engine, style(kept, "#ff0000"));
+    assert!(
+        retired.contains(&(node, Property::BackgroundColor)),
+        "{retired:?}"
+    );
+    engine.advance(0.5).unwrap();
+    commit(&mut k, &mut paint, &mut engine, style(kept, "#0000ff"));
+    engine.advance(0.6).unwrap();
+    assert!(paint.shown(&engine, node, Property::Color).is_some());
+    assert_eq!(
+        paint.shown(&engine, node, Property::BorderTopColor),
+        None,
+        "the side follows the presented color"
     );
 }

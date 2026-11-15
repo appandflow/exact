@@ -1,4 +1,4 @@
-//! `wakelock="screen"`: the display does not dim or lock for
+//! `wakelock="screen"` (LLP 1125 D11): the display does not dim or lock for
 //! idleness while any element that is mounted and displayed says so.
 //! Displayed means neither the node nor an ancestor is `display: none` or
 //! laid out as such by its host (a whole [`HostCover`]: an unopened tab, a
@@ -28,7 +28,7 @@ pub fn bound(plan: &Plan) -> bool {
 }
 
 /// Whether any node of `plan` binds `prop`: [`bound`] for another hold
-/// while displayed (`orientationlock`).
+/// while displayed (`orientationlock`, LLP 1133.029 D7).
 pub fn bound_prop(plan: &Plan, prop: PropId) -> bool {
     plan.nodes.iter().any(|node| {
         node.bindings

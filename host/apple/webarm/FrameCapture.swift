@@ -1,4 +1,4 @@
-// A picture of a frame's guest into an `app:/` file:
+// A picture of a frame's guest into an `app:/` file (@ref LLP 1020.002 D7):
 // WebDriver BiDi's `browsingContext.captureScreenshot`, answered by the
 // frame's `capture` record instead of a base64 string.
 import Foundation
@@ -17,7 +17,7 @@ extension WebArm {
     /// path the command named, which the record carries back; `file` the
     /// file it names, empty when it names none; `clip` `[x, y, width,
     /// height]` in the guest's CSS pixels relative to its viewport, or none
-    /// for the whole viewport. `done`, automation's, takes the answer
+    /// for the whole viewport. `done`, automation's (D9), takes the answer
     /// in place of the frame's record.
     func capture(_ op: [String: Any], done: ((Int, Int, String, String) -> Void)? = nil) {
         let path = op["path"] as? String ?? ""
@@ -59,7 +59,9 @@ extension WebArm {
         // the visual viewport. `WKSnapshotConfiguration.rect` is in the view's
         // points, y down.
         web.evaluateJavaScript("[visualViewport.pageLeft - scrollX, visualViewport.pageTop - scrollY, visualViewport.scale]", in: nil, in: world) { [weak self, weak web] result in
-            guard let self, let web, !self.invalidated else { return }
+            guard let self, let web, !self.invalidated, self.built === web else {
+                return answer(0, 0, "NotFoundError", "the frame went away before its picture was taken")
+            }
             let viewport = ((try? result.get()) as? [NSNumber])?.map(\.doubleValue) ?? []
             let (left, top, scale) = viewport.count == 3 ? (viewport[0], viewport[1], viewport[2]) : (0, 0, 1)
             let points = scale * Double(web.pageZoom)

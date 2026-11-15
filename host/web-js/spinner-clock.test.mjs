@@ -1,4 +1,4 @@
-// An indeterminate `progress` turns on the agent's clock ("under the agent it follows the agent's
+// An indeterminate `progress` turns on the agent's clock (LLP 1069.001: "under the agent it follows the agent's
 // clock"): two pictures of the same clock are the same bytes, however much wall time passes between them, from the
 // first one at boot on. conform's boot screenshot once caught the ring at two angles (synthetic-controls, 0.24%).
 import { test, expect } from 'bun:test';

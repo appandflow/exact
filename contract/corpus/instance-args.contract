@@ -1,4 +1,4 @@
-// Derived row state curried into an action prop.
+// @ref LLP 1017 P4a/P4c — derived row state curried into an action prop.
 routes nav
   tab home "/"
     post "/post/:post"
@@ -18,7 +18,7 @@ component App
   action save(name: string)
     send outcome = command("profile", name)
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back"
+    main navigationKey=`${top(nav).id}`
       for e in stack(nav) key=e.id
         column navigationKey=`${e.id}`
           Screen(entry=e, data=data, save=save)

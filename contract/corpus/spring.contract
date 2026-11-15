@@ -1,5 +1,5 @@
 // Accept fixture: a `-exact-spring()` transition. CSS cannot play it, so on the web
-// the host lowers it to frames; the easing beside it stays CSS.
+// the host lowers it to frames (LLP 1002 D2); the easing beside it stays CSS.
 component Pop
   state big = false
   action toggle

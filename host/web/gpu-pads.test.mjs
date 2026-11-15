@@ -1,4 +1,4 @@
-// The web host's pads (gpu-pads.js): the Gamepad API's
+// The web host's pads (gpu-pads.js, LLP 1127.003 D2): the Gamepad API's
 // standard mapping polled into the focused world, a change at a time.
 import { test, expect } from 'bun:test';
 import { padReading, padPoller } from './gpu-pads.js';

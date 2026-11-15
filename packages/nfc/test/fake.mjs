@@ -1,4 +1,4 @@
-// A fake Web NFC for Chromium's test pages: only
+// A fake Web NFC for Chromium's test pages (LLP 1133.035 §12 stage 1): only
 // Chrome on Android ships `NDEFReader`. `page.addInitScript(fake)` installs
 // it before the page loads; `__nfc.tap(records, serial)` brings a tag into
 // the field, which settles the waiting write or lock and is read by every

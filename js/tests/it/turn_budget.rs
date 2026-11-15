@@ -47,7 +47,7 @@ fn a_turn_that_waits_without_working_is_within_its_budget() {
     }
     assert_eq!(m.overruns(), 0);
     // Placed on main, where the UI waits on its thread: the hold is said, not
-    // refused; the runner's journal: below.
+    // refused (theme2's 15:57 ruling); the runner's journal: below.
     let logs = m.take_logs();
     assert!(
         logs.iter()

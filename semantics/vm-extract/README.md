@@ -65,8 +65,8 @@ of range, an arithmetic overflow, a vector past `usize::MAX`) is not proved.
      sweeps); `fetch` decodes as `Contract.Vm.decode` does, a jump's byte
      target being the instruction index there (`encIns`);
    - the resource bounds: the model's `steps`, `kept` and `concat` never
-     refuse; the runner's may (`IterationLimit`, `ValueTooLarge`,
-     `ValueTooDeep`, `StringTooLong`) — the refinement the semantics already
+     refuse; the runner's may (`IterationLimit`, `CallLimit`, `CallDepth`,
+     `ValueTooLarge`, `ValueTooDeep`, `StringTooLong`) — the refinement the semantics already
      names (`semantics/README.md`). `NativeProps` is outside the model: any
      outcome there corresponds to its `unsupported`.
 4. **Lean.** `Contract/*.lean` is compiled here at Aeneas's Lean
@@ -80,8 +80,8 @@ sh semantics/vm-extract/check.sh
 ```
 
 regenerates the extraction and checks the proofs (a few minutes; Aeneas runs
-`-sequential`). It skips, naming the missing tool, when one is absent (exit status 77). It
-is the full run's `vm-extract` check (`../README.md`).
+`-sequential`). It skips, naming the missing tool, when one is absent (exit status 77). The
+async lane's `vm-extract` check runs it.
 
 Tools, outside the repo (as installed on the build Mac):
 

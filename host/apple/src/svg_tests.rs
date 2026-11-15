@@ -1,4 +1,4 @@
-//! On the Apple host, SVG elements become one `svg` scene op,
+//! LLP 1055 D4/D7 on the Apple host: SVG elements become one `svg` scene op,
 //! never views; animations lower to CA specs; the engine keeps no frames busy.
 use super::*;
 use exact_kernel::MonospaceMeasurer;
@@ -24,6 +24,129 @@ fn scene(batch: &str) -> serde_json::Value {
         .find(|op| op["op"] == "svg")
         .expect("an svg op")["scene"]
         .clone()
+}
+
+#[test]
+fn an_inline_svg_reports_its_cost_limit_once_per_node_lifetime() {
+    let app = r##"component App
+  state shown = true
+  state limited = false
+  action toggle
+    limited = !limited
+  action replace
+    shown = !shown
+  view
+    column
+      if shown
+        svg testId="chart" width=100 height=40
+          path d=(limited ? "M0 10H100000" : "M0 10H100") stroke="#ff0000" stroke-width=4 stroke-dasharray="0.25"
+      button testId="toggle" press=toggle
+        text "Toggle limit"
+      button testId="replace" press=replace
+        text "Replace node"
+"##;
+    let (mut host, batch) = Host::boot(
+        &contract::compile(app).unwrap().encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        200.,
+        200.,
+    )
+    .unwrap();
+    let id = |host: &Host<NoData>, name: &str| {
+        let k = host.runner.kernel();
+        k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+    };
+    let warnings = |host: &Host<NoData>| {
+        host.runner
+            .journal()
+            .filter_map(|line| line.split_once(' ').map(|(_, message)| message))
+            .filter(|line| line.starts_with("svg #"))
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    };
+    assert!(!scene(&batch)["els"].as_array().unwrap().is_empty());
+    assert!(warnings(&host).is_empty());
+    host.runner.measure(true, false);
+    let chart = id(&host, "chart");
+    let toggle = id(&host, "toggle");
+    let replace = id(&host, "replace");
+    let batch = host.dispatch_at(toggle, Event::Press, 0.);
+    assert!(scene(&batch)["els"].as_array().unwrap().is_empty());
+    let expected = format!(
+        "svg #{chart}: {}; drawing nothing",
+        exact_kernel::svg::scene::Limit::Dashes
+    );
+    assert_eq!(warnings(&host).as_slice(), std::slice::from_ref(&expected));
+    let batch: serde_json::Value = serde_json::from_str(&batch).unwrap();
+    assert!(batch["journal"].to_string().contains(&expected));
+    host.svg.all_dirty();
+    host.resize(210., 210.);
+    host.svg.resend();
+    host.resize(220., 220.);
+    host.dispatch_at(toggle, Event::Press, 0.);
+    host.dispatch_at(toggle, Event::Press, 0.);
+    assert_eq!(warnings(&host), [expected]);
+    let old_key = host.runner.kernel().find_by_test_id("chart")[0];
+    host.dispatch_at(replace, Event::Press, 0.);
+    host.dispatch_at(replace, Event::Press, 0.);
+    assert_ne!(host.runner.kernel().find_by_test_id("chart")[0], old_key);
+    let chart = id(&host, "chart");
+    assert_eq!(warnings(&host).len(), 2);
+    assert!(warnings(&host)[1].starts_with(&format!("svg #{chart}: ")));
+}
+
+#[test]
+fn svg_filter_colors_follow_session_and_view_appearance() {
+    use exact_kernel::svg::filter::{Filter, Op};
+    let app = r##"component App
+  view
+    svg testId="chart" width=100 height=100 color="#000000"
+      filter id="f"
+        feFlood flood-color="light-dark(#00aa00, #ff00ff)"
+      rect width=20 height=10 filter="drop-shadow(8px 8px 0px light-dark(#00aa00, #ff00ff))"
+      rect x=40 width=20 height=10 filter="url(#f)"
+"##;
+    let (mut host, batch) = Host::boot(
+        &contract::compile(app).unwrap().encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        100.0,
+        100.0,
+    )
+    .unwrap();
+    let check = |batch: &str, expected: [f32; 4]| {
+        let s = scene(batch);
+        assert_eq!(s["els"].as_array().unwrap().len(), 2);
+        for item in s["els"].as_array().unwrap() {
+            let encoded: Vec<f32> = item["fl"]["p"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|n| n.as_f64().unwrap() as f32)
+                .collect();
+            let filter = Filter::decode(&encoded).unwrap();
+            let color = match filter.primitives[0].op {
+                Op::DropShadow(.., c) | Op::Flood(c) => c,
+                ref op => panic!("unexpected filter: {op:?}"),
+            };
+            for (actual, expected) in color.into_iter().zip(expected) {
+                assert!((actual - expected).abs() < 1e-5, "{color:?}");
+            }
+        }
+    };
+    let light = [0.0, 170.0 / 255.0, 0.0, 1.0];
+    let dark = [1.0, 0.0, 1.0, 1.0];
+    check(&batch, light);
+    check(&host.set_scheme(true), dark);
+    check(&host.set_scheme(false), light);
+    let kernel = host.runner.kernel();
+    let chart = kernel
+        .node_by_key(kernel.find_by_test_id("chart")[0])
+        .unwrap()
+        .id;
+    check(&host.set_view_scheme(chart, true), dark);
+    check(&host.set_view_scheme(chart, false), light);
 }
 
 #[test]
@@ -99,7 +222,7 @@ fn an_svg_is_one_scene_with_lowered_animations() {
     drop(host);
 }
 
-/// A gradient paint crosses as its stops, spread and
+/// LLP 1055.000 D7: a gradient paint crosses as its stops, spread and
 /// transform; a radial one as both circles.
 #[test]
 fn gradients_cross_resolved() {
@@ -123,6 +246,28 @@ fn gradients_cross_resolved() {
     // The circle is drawn about the origin, so its gradient is too.
     assert_eq!(fill["t"], serde_json::json!([64, 0, 0, 64, -32, -32]));
     assert_eq!(fill["st"][1][1], serde_json::json!([244, 63, 94, 255]));
+}
+
+/// LLP 1055.000 D17: an empty gradient draws nothing, but the fill is set,
+/// so it takes hits under `visiblePainted`; `pointer-events` decides the rest.
+#[test]
+fn a_shape_says_which_of_its_paints_take_hits() {
+    let app = "component A\n  view\n    column\n      svg width=100 height=100\n        defs\n          linearGradient id=\"empty\"\n        rect width=100 height=100 fill=\"url(#empty)\"\n        rect width=10 height=10 stroke=\"red\" pointer-events=\"visibleStroke\"\n        rect width=10 height=10 visibility=\"hidden\"\n";
+    let plan = contract::compile(app).unwrap().encode();
+    let (_, batch) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let s = scene(&batch);
+    let els = &s["els"];
+    assert_eq!(els[0]["f"], serde_json::Value::Null, "{s}");
+    assert_eq!(els[0]["hp"], serde_json::json!([1, 0]), "{s}");
+    assert_eq!(els[1]["hp"], serde_json::json!([0, 1]), "{s}");
+    assert_eq!(els[2]["hp"], serde_json::json!([0, 0]), "{s}");
 }
 
 #[test]
@@ -174,7 +319,7 @@ fn a_fixed_svg_reemits_window_geometry_after_resize() {
     assert_eq!(unscreened["els"][0]["vp"][3], 250);
 }
 
-/// A path whose `d` moves between two paths of the same
+/// LLP 1115.003 D4: a path whose `d` moves between two paths of the same
 /// commands, flat and as a gradient fill.
 const MORPH: &str = "component A\n  state up = false\n  action flip\n    up = not up\n  view\n    column\n      button testId=\"go\" press=flip\n        text \"go\"\n      svg width=100 height=100 viewBox=\"0 0 100 100\"\n        path testId=\"flat\" d=(up ? \"M0 0 Q50 100 100 0 Z\" : \"M0 50 Q50 0 100 50 Z\") fill=\"#16a34a\" transition=\"d 500ms cubic-bezier(0.77, 0, 0.175, 1) 900ms\"\n      svg width=100 height=100 viewBox=\"0 0 100 100\"\n        defs\n          linearGradient id=\"g\"\n            stop offset=0 stop-color=\"#000\"\n            stop offset=1 stop-color=\"#fff\"\n        path testId=\"served\" d=(up ? \"M0 0 L100 0\" : \"M0 50 L100 50\") stroke=\"url(#g)\" transition=\"d 400ms ease-in-out\"\n        path testId=\"solid\" d=(up ? \"M0 10 L100 10\" : \"M0 60 L100 60\") stroke=\"#000\" transition=\"d 400ms ease-in-out\"\n";
 

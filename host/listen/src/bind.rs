@@ -1,4 +1,4 @@
-//! Paths: the directory, the staging name, publication and removal.
+//! D4: the directory, the staging name, publication and removal.
 //!
 //! The parent directory is the user's own and `0700`, so nobody else can
 //! create, rename or remove an entry in it. The socket is bound under a
@@ -7,8 +7,10 @@
 //! `takeover`); the process-wide `umask` is never touched. Publication and
 //! removal run under an exclusive `flock` on `<path>.lock`, so a listener
 //! never removes a newer one's socket between its inode check and its
-//! `unlink`. A program that publishes on the path without the lock can still
-//! race that check, a declared limit.
+//! `unlink`. Staging, from clearing a leftover staging name to publishing,
+//! also holds an exclusive `flock` on the directory itself, so two listeners
+//! publishing different paths there never share a staging name. A program that publishes on the path without the lock can still
+//! race that check, a declared limit (LLP 1133.005 §10).
 use std::fs;
 use std::io;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
@@ -16,10 +18,10 @@ use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 
-/// Why binding failed, as the `error` event names it.
+/// Why binding failed, as the `error` event names it (D1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Failure {
-    /// Outside the path checks.
+    /// Outside D4's checks.
     Refused(String),
     /// A live socket holds the path and `takeover` is not set.
     AddressInUse(String),
@@ -138,6 +140,20 @@ impl Lock {
             .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
             .open(&name)
             .map_err(|e| network("cannot open", Path::new(&name), e))?;
+        Lock::exclusive(file, Path::new(&name))
+    }
+
+    /// Take the lock on the directory `dir` itself, waiting for it.
+    fn directory(dir: &Path) -> Result<Lock, Failure> {
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(dir)
+            .map_err(|e| network("cannot open", dir, e))?;
+        Lock::exclusive(file, dir)
+    }
+
+    fn exclusive(file: fs::File, name: &Path) -> Result<Lock, Failure> {
         loop {
             // SAFETY: the descriptor is open for the call.
             if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
@@ -145,7 +161,7 @@ impl Lock {
             }
             let e = io::Error::last_os_error();
             if e.kind() != io::ErrorKind::Interrupted {
-                return Err(network("cannot lock", Path::new(&name), e));
+                return Err(network("cannot lock", name, e));
             }
         }
     }
@@ -195,13 +211,18 @@ fn found(path: &Path) -> Result<Found, Failure> {
     }
 }
 
-static STAGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static STAGED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// A private staging name in `path`'s directory: `.l` and 8 hex digits.
+/// A staging name: `.l`, the whole process id and this process's count of
+/// stagings, in hex, so no two live processes stage the same name.
+fn staging_name(pid: u32, n: u64) -> String {
+    format!(".l{pid:x}.{n:x}")
+}
+
+/// A private staging name in `path`'s directory.
 fn staging(path: &Path) -> Result<PathBuf, Failure> {
     let n = STAGED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let name = format!(".l{:04x}{:04x}", std::process::id() & 0xffff, n & 0xffff);
-    let staged = path.with_file_name(name);
+    let staged = path.with_file_name(staging_name(std::process::id(), n));
     if staged.as_os_str().len() >= SUN_PATH {
         return Err(Failure::Refused(format!(
             "{} leaves no room for a staging name beside the socket",
@@ -221,7 +242,7 @@ pub struct Bound {
     pub took_over: bool,
 }
 
-/// Bind and publish at `path`, under the lock. `link` claims a free
+/// Bind and publish at `path` (D4), under the lock. `link` claims a free
 /// path; a stale socket, and a live one under `takeover`, is replaced by
 /// `rename`. Without `takeover` a live socket is `AddressInUse`. `over`: a
 /// listener of this process holds the path, so it is replaced unasked.
@@ -242,7 +263,9 @@ pub fn publish(path: &Path, takeover: bool, over: bool) -> Result<Bound, Failure
         }
     };
     let staged = staging(path)?;
-    // A staging name left by a crash is this user's, in this user's directory.
+    let _staging = Lock::directory(path.parent().unwrap_or(Path::new("/")))?;
+    // Under the directory's lock nobody else is staging, so a file under this
+    // name was left by a crashed process that had this pid.
     let _ = fs::remove_file(&staged);
     let listener = UnixListener::bind(&staged).map_err(|e| network("cannot bind", path, e))?;
     let published = fs::set_permissions(&staged, fs::Permissions::from_mode(0o600)).and_then(
@@ -273,21 +296,26 @@ pub fn publish(path: &Path, takeover: bool, over: bool) -> Result<Bound, Failure
     })
 }
 
-/// Remove `path` while it is still the file `ours`, under the lock.
-pub fn unpublish(path: &Path, ours: Identity) {
+/// Stop tracking a socket this listener no longer holds, without touching its path.
+pub(crate) fn forget(path: &Path, ours: Identity) {
     PUBLISHED
         .lock()
         .unwrap()
         .retain(|(p, i)| !(p == path && *i == ours));
+}
+
+/// Remove `path` while it is still the file `ours`, under the lock.
+pub fn unpublish(path: &Path, ours: Identity) {
+    forget(path, ours);
     let Ok(_lock) = Lock::take(path) else { return };
     if identity(path) == Some(ours) {
         let _ = fs::remove_file(path);
     }
 }
 
-/// The files this process has published and not removed: removed at its
+/// The published sockets this process still holds: removed at its
 /// exit too, so a host that exits without closing its sessions (a drive's
-/// end, `exit()`) leaves no socket behind. A crash still leaves a stale
+/// end, `exit()`) leaves no socket behind (D4). A crash still leaves a stale
 /// one, which the next listener replaces.
 static PUBLISHED: std::sync::Mutex<Vec<(PathBuf, Identity)>> = std::sync::Mutex::new(Vec::new());
 
@@ -318,6 +346,116 @@ mod tests {
         dir
     }
 
+    fn registered(path: &Path) -> Vec<Identity> {
+        PUBLISHED
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(p, i)| (p == path).then_some(*i))
+            .collect()
+    }
+
+    // Ownership transitions run synchronously here, without a poll loop or wake pipe.
+    fn listening(path: &Path) -> crate::Loop {
+        let signal = std::sync::Arc::new(crate::hold::Signal::new(|| {}));
+        let (hold, _) = crate::hold::enter(path, false, signal.clone());
+        crate::Loop {
+            config: crate::Config {
+                address: format!("unix:{}", path.display()),
+                path: path.to_path_buf(),
+                takeover: false,
+                first_line: None,
+                max_line: 64,
+                max_connections: 4,
+            },
+            sink: Box::new(|_| crate::Taken::Queued),
+            shared: std::sync::Arc::new(crate::Shared {
+                out: Default::default(),
+                signal,
+                wake: -1,
+            }),
+            wake: -1,
+            bound: Some(publish(path, false, false).unwrap()),
+            ever_bound: true,
+            hold: Some(hold),
+            watch: None,
+            conns: Default::default(),
+            next: 1,
+            stopped: false,
+        }
+    }
+
+    #[test]
+    #[ignore = "async lane: binds real unix sockets"]
+    fn displaced_sockets_leave_the_exit_registry() {
+        for external in [false, true] {
+            let d = dir(if external { "replace" } else { "displace" });
+            let path = d.join("a.sock");
+            let mut first = listening(&path);
+            let second = publish(&path, true, false).unwrap();
+            if external {
+                first.look();
+            } else {
+                first.displace();
+            }
+            assert_eq!(registered(&path), vec![second.identity]);
+            first.teardown();
+            assert_eq!(identity(&path), Some(second.identity));
+            assert!(UnixStream::connect(&path).is_ok());
+            unpublish(&path, second.identity);
+            assert!(registered(&path).is_empty());
+            fs::remove_dir_all(&d).unwrap();
+        }
+    }
+
+    #[test]
+    #[ignore = "async lane: binds real unix sockets"]
+    fn missing_sockets_leave_the_exit_registry() {
+        let d = dir("missing");
+        let path = d.join("a.sock");
+        let mut listener = listening(&path);
+        fs::remove_file(&path).unwrap();
+        listener.look();
+        let rebound = listener.bound.as_ref().unwrap().identity;
+        assert_eq!(registered(&path), vec![rebound]);
+        assert_eq!(identity(&path), Some(rebound));
+        assert!(UnixStream::connect(&path).is_ok());
+        listener.teardown();
+        assert!(registered(&path).is_empty());
+        assert!(!path.exists());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn staging_names_differ_by_the_whole_pid_and_count() {
+        // Pids and counts equal in their low 16 bits
+        assert_ne!(staging_name(0x1_2345, 0), staging_name(0x2_2345, 0));
+        assert_ne!(staging_name(7, 0x1_0000), staging_name(7, 0));
+    }
+
+    #[test]
+    #[ignore = "async lane: binds real unix sockets"]
+    fn staging_waits_for_the_directory_lock() {
+        let d = dir("staging");
+        prepare(&d.join("a.sock")).unwrap();
+        let held = Lock::directory(&d).unwrap();
+        let path = d.join("b.sock");
+        let publishing = std::thread::spawn({
+            let path = path.clone();
+            move || publish(&path, false, false).unwrap()
+        });
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(
+            identity(&path).is_none(),
+            "published while the directory was locked"
+        );
+        drop(held);
+        let bound = publishing.join().unwrap();
+        assert_eq!(identity(&path), Some(bound.identity));
+        unpublish(&path, bound.identity);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
     #[test]
     fn writable_ancestors_must_be_sticky() {
         let d = dir("ancestor-permissions");
@@ -335,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "binds real unix sockets; `cargo test -- --ignored` runs it"]
+    #[ignore = "async lane: binds real unix sockets"]
     fn a_missing_directory_is_made_private() {
         let d = dir("make");
         let path = d.join("a.sock");
@@ -351,7 +489,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "binds real unix sockets; `cargo test -- --ignored` runs it"]
+    #[ignore = "async lane: binds real unix sockets"]
     fn a_symlinked_or_plain_file_is_refused() {
         let d = dir("refuse");
         fs::create_dir(&d).unwrap();
@@ -371,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "binds real unix sockets; `cargo test -- --ignored` runs it"]
+    #[ignore = "async lane: binds real unix sockets"]
     fn live_stale_and_takeover() {
         let d = dir("live");
         let path = d.join("a.sock");

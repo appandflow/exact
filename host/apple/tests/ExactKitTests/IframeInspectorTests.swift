@@ -4,7 +4,7 @@ import XCTest
 #if os(macOS)
 import AppKit
 
-/// `openDevTools(id)` through the web arm's C ABI:
+/// `openDevTools(id)` through the web arm's C ABI (@ref LLP 1020.002 D11):
 /// Safari's Web Inspector for the frame's guest opens detached, in a window
 /// of its own, and a second call brings the same one forward. A frame with
 /// no web page, or a WebKit without the inspector's selectors, is refused in
@@ -152,7 +152,7 @@ final class IframeInspectorTests: XCTestCase {
         XCTAssertEqual(settledWindowCount(), windows)
     }
 
-    /// A local PDF is PDFKit's view, not a web page: nothing to inspect.
+    /// A local PDF is PDFKit's view, not a web page (D10): nothing to inspect.
     func testAPDFFrameIsRefusedInTheLog() throws {
         let arm = try arm()
         let handle = mount(arm, configuration: ["pdf": true], src: "app:/tmp/doc.pdf", document: Self.document())

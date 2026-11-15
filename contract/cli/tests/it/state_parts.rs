@@ -37,8 +37,7 @@ fn refused(src: &str) -> String {
 fn colour(r: &Runner<NoData>, id: &str, style: StyleId) -> String {
     let key = r.kernel().find_by_test_id(id)[0];
     match r.kernel().node_by_key(key).unwrap().computed(style) {
-        RowValue::ColorValue(ColorValue::Fixed(c)) | RowValue::Color(c) => hex(c),
-        RowValue::Color2(c) => hex(c[0]),
+        RowValue::ColorValue(ColorValue::Fixed(c)) => hex(c),
         other => format!("{other:?}"),
     }
 }
@@ -71,6 +70,61 @@ fn checked_folds_under_disabled() {
     assert_eq!(colour(&r, "t", StyleId::BackgroundColor), "#0000ff");
     press(&mut r, "hold");
     assert_eq!(colour(&r, "t", StyleId::BackgroundColor), "#ff0000");
+}
+
+fn checked_aria_tokens(part_on_node: bool) {
+    let mut src = String::from(
+        "style Toggle\n  background-color = \"#ff0000\"\n  :checked\n    background-color = \"#00ff00\"\n\ncomponent App\n  view\n    column\n",
+    );
+    let mut expected = Vec::new();
+    for (attr, role) in [
+        ("aria-checked", "checkbox"),
+        ("aria-selected", "tab"),
+        ("aria-pressed", "button"),
+    ] {
+        for value in ["\"true\"", "\"false\"", "true", "false", "\"mixed\""] {
+            if value == "\"mixed\"" && attr != "aria-pressed" {
+                continue;
+            }
+            let id = format!("case-{}", expected.len());
+            let base = if part_on_node {
+                "background-color=\"#ff0000\""
+            } else {
+                "class=Toggle"
+            };
+            src.push_str(&format!(
+                "      button role=\"{role}\" {attr}={value} {base} testId=\"{id}\"\n"
+            ));
+            if part_on_node {
+                src.push_str("        :checked\n          background-color = \"#00ff00\"\n");
+            }
+            src.push_str("        text \"toggle\"\n");
+            let colour = if matches!(value, "true" | "\"true\"") {
+                "#00ff00"
+            } else {
+                "#ff0000"
+            };
+            expected.push((id, attr, value, colour));
+        }
+    }
+    let r = booted(&src);
+    for (id, attr, value, expected) in expected {
+        assert_eq!(
+            colour(&r, &id, StyleId::BackgroundColor),
+            expected,
+            "{attr}={value}"
+        );
+    }
+}
+
+#[test]
+fn checked_parts_in_a_style_take_aria_boolean_tokens() {
+    checked_aria_tokens(false);
+}
+
+#[test]
+fn checked_parts_on_a_node_take_aria_boolean_tokens() {
+    checked_aria_tokens(true);
 }
 
 /// A state's `border-color` overrides each side the base wrote, through
@@ -135,7 +189,7 @@ fn a_state_part_is_refused_where_it_cannot_be() {
         "lower-state-row"
     );
     assert_eq!(
-        refused(&node(":hover\n          color = \"#000000\"")),
+        refused(&node(":hover\n          -exact-tint-color = \"#000000\"")),
         "lower-state-row"
     );
     assert_eq!(
@@ -181,7 +235,7 @@ fn fmt_keeps_a_state_part() {
 /// A `:hover` look is recorded on its node, its class's and its own rows
 /// composed by longhand, each a literal row; `:active` lowers to the press
 /// paint on the node, its class's then its own (the node's wins), with no
-/// look.
+/// look (LLP 1121 D8 as amended 2026-10-18).
 #[test]
 fn a_host_states_look_is_recorded_one_a_state() {
     let src = "style Card\n  background-color = \"#ffffff\"\n  :active\n    background-color = \"#eeeeee\"\n    opacity = 0.9\n  :hover\n    border-color = \"#cccccc\"\n\ncomponent App\n  state on = false\n  action go\n    on = !on\n  view\n    column class=Card press=go testId=\"card\"\n      :active\n        background-color = \"#dddddd\"\n        color = \"#ff0000\"\n      text \"c\"\n";
@@ -303,8 +357,9 @@ fn a_state_its_node_never_meets_is_linted() {
 }
 
 /// A node's own `:active` where it has no `press` never holds: the host's
-/// press needs one; a lint. A link with no `press` is linted as unreliable:
-/// only Apple presses it.
+/// press needs one (theme2's 07:06 question); a lint. A pressable link with
+/// no `press` is pressed on every host, as CSS's `:active` holds on a link
+/// (LLP 1121 D8), and is not linted; a `text` link is.
 #[test]
 fn an_active_part_without_a_press_is_linted() {
     let src = "component App\n  state n = 0\n  state url = \"https://example.com\"\n  action go\n    n = n + 1\n  view\n    column\n      column testId=\"dead\"\n        :active\n          opacity = 0.5\n        text \"d\"\n      column press=go testId=\"live\"\n        :active\n          opacity = 0.5\n        text \"l\"\n      text \"link\" href=\"https://example.com\"\n        :active\n          opacity = 0.5\n      link href=\"https://example.com\"\n        :active\n          opacity = 0.5\n        text \"l\"\n      link href=url\n        :active\n          opacity = 0.5\n        text \"b\"\n";
@@ -314,26 +369,15 @@ fn an_active_part_without_a_press_is_linted() {
         .iter()
         .filter(|w| w.id == "lower-state-dead")
         .collect();
-    // The column and the `text` link never hold; the pressable links are unreliable.
-    assert_eq!(dead.len(), 4, "{warnings:?}");
-    let at = |line| {
-        dead.iter()
-            .find(|w| w.span.line == line)
-            .unwrap_or_else(|| panic!("{dead:?}"))
-    };
-    assert!(at(10).message.contains("never holds"), "{dead:?}");
-    assert!(
-        at(18).message.contains("never holds"),
-        "a text link: {dead:?}"
-    );
-    assert!(at(21).message.contains("only on Apple"), "{dead:?}");
-    assert!(
-        at(25).message.contains("only on Apple"),
-        "a bound href: {dead:?}"
-    );
+    // The column and the `text` link never hold; the pressable links do.
+    assert_eq!(dead.len(), 2, "{warnings:?}");
+    let mut lines: Vec<_> = dead.iter().map(|w| w.span.line).collect();
+    lines.sort();
+    assert_eq!(lines, [10, 18], "{dead:?}");
+    assert!(dead.iter().all(|w| w.message.contains("never holds")));
 }
 
-/// A state that leaves a row unwritten in some arm keeps
+/// Review round 1: a state that leaves a row unwritten in some arm keeps
 /// the base's; a link keeps its colour, an `hr` its separator, unless the
 /// state holds; a `:checked` row is no disabled look.
 #[test]
@@ -405,16 +449,16 @@ fn round_one_refusals_and_typing() {
     assert_eq!(contract_syntax::fmt::format(&once).unwrap(), once);
 }
 
-/// A state row that computes a token's name keeps every colour token, as
-/// the node's own computed row does.
+/// Review round 1 (Astra): a state row that computes a token's name keeps
+/// every colour token, as the node's own computed row does (D7).
 #[test]
 fn a_computed_state_row_keeps_the_tokens_it_may_name() {
     let dir = std::env::temp_dir().join(format!("exact2-state-retained-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
-        dir.join("app.tamber"),
-        "tamber t\n\ntheme\n  brand-on = #0a7aff\n  brand-off = #888888\n",
+        dir.join("app.forma"),
+        "forma t\n\ntheme\n  brand-on = #0a7aff\n  brand-off = #888888\n",
     )
     .unwrap();
     std::fs::write(dir.join("app.contract"), "component App\n  state suffix = \"on\"\n  state busy = false\n  view\n    column disabled=busy\n      :disabled\n        background-color=`brand-${suffix}`\n      text \"b\"\n").unwrap();
@@ -428,7 +472,7 @@ fn a_computed_state_row_keeps_the_tokens_it_may_name() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A grouped list's implied ground stays implied under a
+/// Review round 2: a grouped list's implied ground stays implied under a
 /// state; a `match` with no value in an arm and no base is said; a `match`
 /// arm with no value over a base keeps it; a refused look leaves a source
 /// map's sites in step.
@@ -460,7 +504,7 @@ fn round_two_edges() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A swipe row is still a row; a grouped section's header
+/// Review round 3: a swipe row is still a row; a grouped section's header
 /// text is none; a `match` binding the name its base reads keeps the base;
 /// an author's state colour over an implied one is written.
 #[test]
@@ -490,8 +534,8 @@ fn round_three_edges() {
     );
 }
 
-/// A param read only by a state part is reached (`PostButton.pressed`,
-/// read by `:active` alone), kept by the plan, and
+/// Stage 8 F: a param read only by a state part is reached (D15's
+/// `PostButton.pressed`, read by `:active` alone), kept by the plan, and
 /// named by the look's row as a static row names a token; one read by
 /// `:disabled` folds into the node's row.
 #[test]
@@ -500,8 +544,8 @@ fn a_param_read_only_by_a_state_part_is_reached() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
-        dir.join("app.tamber"),
-        "tamber t\n\ntheme\n  accent.fill = #0a7aff\n  ink = #111111\n",
+        dir.join("app.forma"),
+        "forma t\n\ntheme\n  accent.fill = #0a7aff\n  ink = #111111\n",
     )
     .unwrap();
     std::fs::write(
@@ -561,14 +605,14 @@ fn a_param_read_only_by_a_state_part_is_reached() {
     assert!(o.contains("0.6") || o.contains("0.59999"), "{o}");
     // In a style's state part, which another component applies too, a
     // param is out of scope, as in a style's row; one component alone
-    // applying it reads its params.
+    // applying it reads its params (LLP 1139 D3).
     std::fs::write(dir.join("app.contract"), "component App\n  view\n    PostButton()\n    column class=Look\n      text \"x\"\n\nstyle Look\n  :active\n    background-color = \"param.fill\"\n\ncomponent PostButton\n  params\n    fill: color = \"accent.fill\"\n  view\n    column class=Look background-color=\"param.fill\"\n      text \"Post\"\n").unwrap();
     let e = contract::compile_path(&dir.join("app.contract")).unwrap_err();
-    assert_eq!(e.id, "tamber-param-scope", "{e:?}");
+    assert_eq!(e.id, "forma-param-scope", "{e:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A run inside a paragraph has no box of its own on
+/// theme2's 08:13 ruling: a run inside a paragraph has no box of its own on
 /// every host, so a host-known part on it is `lower-state-target`; a
 /// runner-known one folds as on any node.
 #[test]

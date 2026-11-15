@@ -1,4 +1,4 @@
-//! Colours in a profile's space: `color(--name c…)`, a
+//! Colours in a profile's space (LLP 1100 D1, D3): `color(--name c…)`, a
 //! standard space (`exact_color::PROFILES`) or an app's `@color-profile`.
 //! Only the platform converts them: no sRGB fallback exists.
 
@@ -97,7 +97,7 @@ pub fn parse_profiled(text: &str) -> Option<ColorValue> {
             })
         })?
     };
-    let n = exact_color::number_text;
+    let n = exact_num::js;
     let mut canonical = format!("color({name}");
     for c in &components {
         canonical.push(' ');

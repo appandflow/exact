@@ -19,7 +19,7 @@ pub struct Live {
     history: ReusableMessagesStress,
     jobs: Jobs,
     events: events::Events,
-    /// The same progress over a WebSocket.
+    /// The same progress over a WebSocket (LLP 1069.004 slice 3).
     frames: events::Events,
     runbook: runbook::Runbook,
 }

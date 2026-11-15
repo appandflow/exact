@@ -292,6 +292,81 @@ fn view_words(mask: u32, regions: &[f32], tail: &[u32]) -> Vec<u8> {
     words.iter().flat_map(|w| w.to_le_bytes()).collect()
 }
 
+#[test]
+fn a_view_lays_out_its_viewport_and_owner_blocks_once() {
+    let plan = contract::compile(
+        "component App\n  view\n    column width=\"100%\" height=\"100%\"\n      column testId=\"route\" width=\"100%\" height=\"100%\"\n        box width=\"50vw\" height=10\n",
+    ).unwrap().encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&plan, Dot, Hooks::none(), 402., 874.);
+    let host = bridge.host.as_ref().unwrap();
+    let kernel = host.runner().kernel();
+    let id = kernel
+        .node_by_key(kernel.find_by_test_id("route")[0])
+        .unwrap()
+        .id;
+    let before = host.layout_calls;
+    let mut wire = view_words(8 | 32 | 64, &[], &[200.0f32.to_bits()]);
+    wire[28..36].copy_from_slice(&[380.0f32.to_le_bytes(), 700.0f32.to_le_bytes()].concat());
+    for word in [id, 4, 360.0f32.to_bits(), 600.0f32.to_bits(), 0, 0, 228] {
+        wire.extend(word.to_le_bytes());
+    }
+    let len = bridge.input_write(&wire);
+    let len = bridge.view(len);
+    let batch = output(&bridge, len);
+    assert!(batch["error"].is_null(), "{batch}");
+    let host = bridge.host.as_ref().unwrap();
+    assert_eq!(host.layout_calls - before, 1);
+    let frame = host.runner().kernel().node(id).unwrap().frame;
+    assert_eq!((frame.width, frame.height), (360., 600.));
+    assert_eq!(host.runner().viewport().keyboard_height, 200.);
+    assert_eq!(host.runner().kernel().env().viewport_width, 380.);
+    // Taking the block back without a viewport change still lays out once.
+    let before = host.layout_calls;
+    let len = bridge.input_write(&view_words(64, &[], &[id, 5, 0, 0, 0, 0]));
+    let len = bridge.view(len);
+    assert!(output(&bridge, len)["error"].is_null());
+    let host = bridge.host.as_ref().unwrap();
+    assert_eq!(host.layout_calls - before, 1);
+    assert!(host.runner().kernel().host_block(id).is_none());
+    assert_eq!(host.runner().kernel().node(id).unwrap().frame.width, 380.);
+}
+
+#[test]
+fn a_view_refuses_truncated_or_non_owner_records_before_changing_geometry() {
+    // A block without its tactic word, or with one that is no permutation
+    for tail in [
+        vec![1, 4],
+        vec![1, 4, 0, 0, 0, 0],
+        vec![1, 4, 0, 0, 0, 0, 0],
+        vec![1, 6, 0, 0, 0, 0],
+        vec![1, 2, 0, 0, 0, 0],
+    ] {
+        preserves_state(
+            |bridge, _| {
+                let mut bytes = view_words(8 | 64, &[], &tail);
+                bytes[28..36]
+                    .copy_from_slice(&[300.0f32.to_le_bytes(), 500.0f32.to_le_bytes()].concat());
+                let len = bridge.input_write(&bytes);
+                let len = bridge.view(len);
+                assert_eq!(
+                    bridge
+                        .host
+                        .as_ref()
+                        .unwrap()
+                        .runner()
+                        .kernel()
+                        .env()
+                        .viewport_width,
+                    390.
+                );
+                len
+            },
+            "view:",
+        );
+    }
+}
+
 /// The segments' rects (mask 16) without their count, or with a count the
 /// buffer does not hold or holds more than, are refused, never read past
 /// the buffer.
@@ -346,6 +421,39 @@ fn a_view_carries_a_keyboards_segment_rects() {
             exact_kernel::Rect::new(0., 440., 402., 15.)
         );
         assert_eq!(env.viewport_height, 455.);
+        // The keyboard's overlap (mask 32) is the last word, after the rects.
+        let mut tail = vec![2];
+        tail.extend(rects(15.));
+        tail.push(419.0f32.to_bits());
+        let len = bridge.input_write(&view_words((mask & !8) | 32, &regions, &tail));
+        let out = bridge.view(len);
+        let batch = std::str::from_utf8(bridge.output_bytes(out as usize)).unwrap();
+        assert!(!batch.contains("\"error\":\""), "{batch}");
+        assert_eq!(
+            bridge
+                .host
+                .as_ref()
+                .unwrap()
+                .runner()
+                .viewport()
+                .keyboard_height,
+            419.
+        );
+        // Without that word, mask 32 is malformed and changes nothing.
+        let len = bridge.input_write(&view_words(32, &regions, &[]));
+        let out = bridge.view(len);
+        let batch = std::str::from_utf8(bridge.output_bytes(out as usize)).unwrap();
+        assert!(batch.contains("view: malformed"), "{batch}");
+        assert_eq!(
+            bridge
+                .host
+                .as_ref()
+                .unwrap()
+                .runner()
+                .viewport()
+                .keyboard_height,
+            419.
+        );
     }
 }
 
@@ -459,6 +567,148 @@ fn a_same_clock_signed_zero_change_refuses_the_stale_candidate() {
 }
 
 #[test]
+fn mode_batches_carry_presenter_work_after_inspection() {
+    let plan = contract::compile(
+        r#"shape ID
+  id: string
+shape State
+  title: string
+component App
+  mutation sent as shape ID
+  action start
+    send sent = startActivity("train", State(title="Train"))
+  view
+    text "Train"
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.link_activities();
+    bridge.boot(&plan, Dot, Hooks::none(), 390., 844.);
+    bridge
+        .host
+        .as_mut()
+        .unwrap()
+        .runner_mut()
+        .act("start", vec![])
+        .unwrap();
+
+    let len = bridge.input_write(b"?");
+    let len = bridge.set_mode(len);
+    assert_eq!(output(&bridge, len), json!({"modes": {}}));
+    let len = bridge.input_write(b"https://example.com/train");
+    let len = bridge.location_of(len);
+    assert_eq!(bridge.output_bytes(len as usize), b"/train");
+
+    let len = bridge.input_write(b"");
+    let len = bridge.set_mode(len);
+    let reply = output(&bridge, len);
+    assert_eq!(reply["modes"], json!({}));
+    assert_eq!(reply["error"], Json::Null);
+    let ops = reply["ops"].as_array().unwrap();
+    assert_eq!(ops.len(), 1);
+    assert_eq!(ops[0]["op"], "activity");
+    assert_eq!(ops[0]["request"]["command"], "startActivity");
+    assert!(bridge.request_active(ops[0]["ticket"].as_u64().unwrap()));
+}
+
+#[test]
+fn live_batches_flush_presenter_and_executor_work() {
+    struct Work(std::sync::mpsc::Sender<()>);
+    impl DataSource for Work {
+        fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(name.into()))
+        }
+        fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+            Ok(Answer::Later(exact_runner::Request::continuation(1)))
+        }
+        fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+            let ran = self.0.clone();
+            Some(Box::new(move || {
+                ran.send(()).unwrap();
+                Outcome::Storage(vec![])
+            }))
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            Ok(Answer::Now(Value::record(vec![Value::str("saved")])))
+        }
+    }
+    let plan = contract::compile(
+        r#"shape ID
+  id: string
+shape State
+  title: string
+component App
+  mutation sent as shape ID
+  mutation saved as shape ID
+  action start
+    send sent = startActivity("train", State(title="Train"))
+    send saved = write()
+  view
+    text "Train"
+"#,
+    )
+    .unwrap();
+    let tokens = exact_runner::design::tokens(&plan);
+    let design = exact_runner::design::digest(&tokens);
+    let snapshot = exact_runner::design::snapshot(&exact_runner::design::shape(&plan), &tokens);
+    let mut batch = snapshot.clone();
+    batch.base = Some(design.clone());
+    let mut stale = batch.clone();
+    stale.base = Some("stale".into());
+    let (ran, received) = std::sync::mpsc::channel();
+    let mut bridge = Bridge::new();
+    bridge.link_activities();
+    bridge.boot(&plan.encode(), Work(ran), Hooks::none(), 390., 844.);
+    for (frame, status) in [(batch, "applied"), (snapshot, "applied"), (stale, "stale")] {
+        bridge
+            .host
+            .as_mut()
+            .unwrap()
+            .runner_mut()
+            .act("start", vec![])
+            .unwrap();
+        let len = bridge.input_write(b"{}");
+        let len = bridge.design_rows(len);
+        let invalid: Json = serde_json::from_slice(bridge.output_bytes(len as usize)).unwrap();
+        assert_eq!(invalid["error"], "live: not a forma batch or snapshot");
+        assert!(received.try_recv().is_err());
+
+        let len = bridge.input_write(frame.json().as_bytes());
+        let len = bridge.design_rows(len);
+        let reply: Json = serde_json::from_slice(bridge.output_bytes(len as usize)).unwrap();
+        assert_eq!(reply["live"], status);
+        assert_eq!(reply["unsupported"], false);
+        assert_eq!(reply["design"], design);
+        let ops = reply["ops"].as_array().unwrap();
+        let activity = ops.iter().find(|op| op["op"] == "activity");
+        let work = received.recv_timeout(std::time::Duration::from_secs(5));
+        assert!(
+            activity.is_some() && work.is_ok(),
+            "{reply}; executor: {work:?}"
+        );
+        let activity = activity.unwrap();
+        assert_eq!(activity["request"]["command"], "startActivity");
+        assert!(bridge.request_active(activity["ticket"].as_u64().unwrap()));
+
+        let len = bridge.pump(0.);
+        let reply: Json = serde_json::from_slice(bridge.output_bytes(len as usize)).unwrap();
+        assert!(reply["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|op| op["op"] != "activity"));
+    }
+}
+
+#[test]
 fn a_clock_only_change_refuses_a_candidate_that_would_rewind_time() {
     let plan = contract::compile("component App\n  state value = 0\n  view\n    text `${value}`\n")
         .unwrap()
@@ -488,4 +738,37 @@ fn a_clock_only_change_refuses_a_candidate_that_would_rewind_time() {
     let len = bridge.commit_plan();
     assert_ne!(output(&bridge, len)["pending"], true);
     assert_eq!(bridge.host.as_ref().unwrap().carry().now_ms, latest.now_ms);
+}
+
+#[test]
+fn a_pick_after_preparation_refuses_a_candidate_that_would_reuse_its_path() {
+    let plan = contract::compile("component App\n  view\n    text \"Pick\"\n")
+        .unwrap()
+        .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&plan, Dot, Hooks::none(), 390., 844.);
+    bridge.input_write(&plan);
+    bridge.prepare_plan(plan.len(), Dot, Hooks::none(), 390., 844.);
+    let path = bridge
+        .host
+        .as_mut()
+        .unwrap()
+        .runner_mut()
+        .picked_path("photo.jpg");
+    let len = bridge.check_prepared();
+    assert_eq!(output(&bridge, len)["pending"], true);
+    assert!(bridge.prepared.is_none());
+    bridge.input_write(&plan);
+    bridge.prepare_plan(plan.len(), Dot, Hooks::none(), 390., 844.);
+    let len = bridge.commit_plan();
+    assert_ne!(output(&bridge, len)["pending"], true);
+    assert_ne!(
+        bridge
+            .host
+            .as_mut()
+            .unwrap()
+            .runner_mut()
+            .picked_path("photo.jpg"),
+        path
+    );
 }

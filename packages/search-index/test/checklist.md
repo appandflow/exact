@@ -1,8 +1,9 @@
 # @exact/search-index: drives by hand
 
 What the agent cannot drive: the system's search over the app's index on
-a phone, and the system asking the app to index again. Record the date,
-the OS version and what happened beside each step when you run it.
+a phone, and the system asking the app to index again (LLP 1133.023 §11,
+§14 stage 2). Record the date, the OS version and what happened beside
+each step when you run it.
 
 The app is Shelf (`apps/shelf`): its `index` task sets the books, each
 of kind `book`, title the book's title and description its author.

@@ -1,6 +1,6 @@
 //! The cell grid: what the painter draws into and the writer diffs.
 //!
-//! Each cell holds a grapheme (or the continuation of a
+//! @ref LLP 1101 D7 — each cell holds a grapheme (or the continuation of a
 //! wide one), its colours and attributes. The writer emits only sequences it
 //! constructs itself; app text reaches it already stripped of controls.
 
@@ -28,7 +28,7 @@ pub struct Style {
     pub underline: bool,
     /// SGR 9.
     pub strike: bool,
-    /// SGR 7: the UA focus indicator.
+    /// SGR 7: the UA focus indicator (LLP 1101 D6).
     pub reverse: bool,
     /// A hyperlink, by its index in the grid's links (0: none): written as
     /// OSC 8, which a terminal opens on Cmd- or Ctrl-click with no mouse
@@ -149,15 +149,41 @@ impl Grid {
         Some(&mut self.cells[y as usize * self.cols + x as usize])
     }
 
-    /// Paint a background over a rectangle, within a clip.
-    pub fn fill(&mut self, rect: CellRect, clip: CellRect, bg: Rgb) {
+    // A partially overwritten cluster cannot occupy the remaining cells.
+    // Clear it whole, including outside the paint clip, but keep its background.
+    fn clear_cluster(&mut self, x: i32, y: i32) {
+        if self.cell_mut(x, y).is_none() {
+            return;
+        }
+        let row = &mut self.cells[y as usize * self.cols..(y as usize + 1) * self.cols];
+        let mut start = x as usize;
+        let mut end = start + 1;
+        while start > 0 && row[start].text.is_empty() {
+            start -= 1;
+        }
+        while end < row.len() && row[end].text.is_empty() {
+            end += 1;
+        }
+        for cell in &mut row[start..end] {
+            cell.text = " ".into();
+            cell.style = Style {
+                bg: cell.style.bg,
+                ..Style::default()
+            };
+        }
+    }
+
+    /// Blank a rectangle, within a clip, in `bg` or the terminal's default
+    /// background.
+    pub fn fill(&mut self, rect: CellRect, clip: CellRect, bg: Option<Rgb>) {
         let r = rect.intersect(clip);
         for y in r.y..r.y + r.h {
             for x in r.x..r.x + r.w {
+                self.clear_cluster(x, y);
                 if let Some(c) = self.cell_mut(x, y) {
                     c.text = " ".into();
                     c.style = Style {
-                        bg: Some(bg),
+                        bg,
                         ..Style::default()
                     };
                 }
@@ -168,8 +194,11 @@ impl Grid {
     /// Draw a cluster taking `cols` columns, keeping the background beneath
     /// when the style has none.
     pub fn put(&mut self, x: i32, y: i32, text: &str, cols: usize, style: Style, clip: CellRect) {
-        if !(0..cols as i32).all(|i| clip.contains(x + i, y)) {
+        if !self.bounds().contains(x, y) || !(0..cols as i32).all(|i| clip.contains(x + i, y)) {
             return;
+        }
+        for i in 0..cols as i32 {
+            self.clear_cluster(x + i, y);
         }
         let Some(cell) = self.cell_mut(x, y) else {
             return;
@@ -187,7 +216,7 @@ impl Grid {
 
     /// Whether a cell shows the same as `other`'s at the same place: text,
     /// style and link target — links compared by URL, since each grid
-    /// numbers its links itself.
+    /// numbers its links itself (LLP 1101.002 §0).
     fn same(&self, x: usize, y: usize, other: &Grid) -> bool {
         let (a, b) = (self.cell(x, y), other.cell(x, y));
         a.text == b.text
@@ -663,5 +692,121 @@ mod tests {
         let bytes = g.diff(Some(&before));
         assert!(bytes.contains("\x1b[1;3H"), "{bytes:?}");
         assert!(!bytes.contains('日'), "unchanged cells are not rewritten");
+    }
+
+    fn assert_wide_overlap(grid: &Grid, before: &Grid, expected: [&str; 5]) {
+        let mut relative = String::from("\x1b[H");
+        grid.diff_relative(before, &mut relative);
+        for (writer, initial, bytes) in [
+            ("ansi", String::new(), grid.ansi()),
+            ("row_sgr", String::new(), grid.row_sgr(0)),
+            ("full diff", String::new(), grid.diff(None)),
+            ("diff", before.diff(None), grid.diff(Some(before))),
+            ("relative diff", before.diff(None), relative),
+        ] {
+            let mut vt = vt100::Parser::new(2, 5, 0);
+            vt.process(initial.as_bytes());
+            vt.process(bytes.as_bytes());
+            for (x, text) in expected.iter().enumerate() {
+                let cell = vt.screen().cell(0, x as u16).unwrap();
+                assert_eq!(cell.contents(), *text, "{writer}, column {x}");
+                assert_eq!(cell.is_wide_continuation(), text.is_empty());
+                assert_eq!(grid.cell(x, 0).text, *text, "grid, column {x}");
+                // vt100 stores a wide glyph's attributes on its lead only.
+                if !text.is_empty() {
+                    let bg = grid.cell(x, 0).style.bg.unwrap();
+                    assert_eq!(
+                        cell.bgcolor(),
+                        vt100::Color::Rgb(bg.0, bg.1, bg.2),
+                        "{writer}, column {x}"
+                    );
+                }
+            }
+        }
+    }
+
+    fn wide_row() -> Grid {
+        let mut grid = Grid::new(5, 1);
+        let style = Style {
+            bg: Some(Rgb(10, 20, 30)),
+            ..Style::default()
+        };
+        for (x, text, width) in [(0, "日", 2), (2, "🚀", 2), (4, "x", 1)] {
+            grid.put(x, 0, text, width, style, grid.bounds());
+        }
+        grid
+    }
+
+    #[test]
+    fn drawing_over_part_of_a_wide_cluster_keeps_the_row_aligned() {
+        for (x, text, width, expected) in [
+            (0, "a", 1, ["a", " ", "🚀", "", "x"]),
+            (1, "a", 1, [" ", "a", "🚀", "", "x"]),
+            (2, "a", 1, ["日", "", "a", " ", "x"]),
+            (3, "a", 1, ["日", "", " ", "a", "x"]),
+            (0, "本", 2, ["本", "", "🚀", "", "x"]),
+            (1, "本", 2, [" ", "本", "", " ", "x"]),
+            (3, "本", 2, ["日", "", " ", "本", ""]),
+        ] {
+            let before = wide_row();
+            let mut grid = before.clone();
+            grid.put(x, 0, text, width, Style::default(), grid.bounds());
+            assert_wide_overlap(&grid, &before, expected);
+            for x in 0..5 {
+                assert_eq!(grid.cell(x, 0).style.bg, before.cell(x, 0).style.bg);
+            }
+        }
+    }
+
+    #[test]
+    fn filling_part_of_a_wide_cluster_keeps_the_row_aligned() {
+        for (x, width, expected) in [
+            (0, 1, [" ", " ", "🚀", "", "x"]),
+            (1, 1, [" ", " ", "🚀", "", "x"]),
+            (2, 1, ["日", "", " ", " ", "x"]),
+            (3, 1, ["日", "", " ", " ", "x"]),
+            (1, 2, [" ", " ", " ", " ", "x"]),
+        ] {
+            let before = wide_row();
+            let mut grid = before.clone();
+            let clip = CellRect {
+                x,
+                y: 0,
+                w: width,
+                h: 1,
+            };
+            grid.fill(grid.bounds(), clip, Some(Rgb(40, 50, 60)));
+            assert_wide_overlap(&grid, &before, expected);
+            for x in 0..5 {
+                let bg = if clip.contains(x, 0) {
+                    Some(Rgb(40, 50, 60))
+                } else {
+                    before.cell(x as usize, 0).style.bg
+                };
+                assert_eq!(grid.cell(x as usize, 0).style.bg, bg);
+            }
+        }
+    }
+
+    #[test]
+    fn a_clipped_wide_cluster_does_not_erase_existing_text() {
+        let before = wide_row();
+        let mut grid = before.clone();
+        let clip = CellRect {
+            x: 1,
+            y: 0,
+            w: 1,
+            h: 1,
+        };
+        grid.put(1, 0, "本", 2, Style::default(), clip);
+        assert_eq!(grid, before);
+        let clip = CellRect {
+            x: -1,
+            y: 0,
+            w: 2,
+            h: 1,
+        };
+        grid.put(-1, 0, "本", 2, Style::default(), clip);
+        assert_eq!(grid, before);
     }
 }

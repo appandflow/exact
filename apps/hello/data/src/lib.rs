@@ -1,4 +1,4 @@
-//! Hello's data source: it answers nothing.
+//! Hello's data source: it answers nothing (LLP 1047.001 D8).
 
 #![deny(missing_docs)]
 

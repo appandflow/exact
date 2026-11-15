@@ -1,4 +1,4 @@
-//! Web admission of the fixed photo pair.
+//! Web admission of the fixed photo pair. @ref LLP 1041 §8.5 / LLP 1002 D4.
 //!
 //! Frozen wire v2 is EXACTLY 120 LE bytes: version/op u32 at 0/4;
 //! runtime/handle/target/clip/geometry-sequence u64 at 8/16/24/32/40;
@@ -7,7 +7,7 @@
 //! Ops 10 geometry=[bw,bh,pw,ph,0,0], 11 begin=[x,y,s,0,0,0],
 //! 12 move=[x,y,s,0,0,0], 13 action=[x,y,s,0,0,0], 14 invalidate=[0;6].
 //! Op 13's velocities are the engine's own, measured over every value the
-//! pair was given; the reply carries them as `velocity`.
+//! pair was given (LLP 1057.001 §3); the reply carries them as `velocity`.
 //! Ops 10/11/14 require zero token fields. Every unused value must equal zero
 //! (+0/-0 accepted; NaN/nonzero refused). Single-property v1 ends remain ends.
 //! Stale identity/sequence/tokens refuse before incoming values/time; malformed
@@ -57,7 +57,7 @@ pub(super) struct TransformDrags {
 impl TransformDrags {
     pub fn new() -> Result<Self, HostError> {
         let runtime = NEXT_RUNTIME
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
             .map_err(|_| HostError::RuntimeIdExhausted)?;
         Ok(Self {
             runtime,
@@ -236,6 +236,21 @@ impl<D: DataSource> Host<D> {
         (a.receipts, a.error.map(|e| format!("{e:?}")))
     }
 
+    /// After input preflight, adopt overdue commits before its sample seeks
+    /// motion. Keep their DOM operations for the input's final batch.
+    pub(super) fn commit_input_timers(&mut self, now_ms: f64) -> (Batch, Option<String>, bool) {
+        self.now_ms = now_ms;
+        let (receipts, error) = self.advance_for_input(now_ms);
+        let mut batch = Batch::new();
+        if !receipts.is_empty() {
+            let _roles = self.runner.bind_roles();
+            self.sync_runtime_font_names();
+            self.emit_receipts(&receipts, &mut batch);
+            self.emit_springs(&mut batch, &[], now_ms / 1000.0);
+        }
+        (batch, error, !receipts.is_empty())
+    }
+
     /// The event after [`Host::advance_for_input`], its commit last, unless
     /// the timers just fired ended its gesture (`still` false: they changed
     /// or removed the binding the input was validated against). The commits,
@@ -374,24 +389,29 @@ impl<D: DataSource> Host<D> {
                 self.finish(batch, None)));
         }
         let active = active.expect("paired operation");
-        if !self
-            .springs
-            .update_transform_hold(active.held, input.samples(), input.now_ms / 1000.0)
-            .map_err(|_| "transform move refused")?
+        let (batch, early_error, _) = if input.op == 13 {
+            self.commit_input_timers(input.now_ms)
+        } else {
+            (Batch::new(), None, false)
+        };
+        let still = self.transform_active_valid(active);
+        if still
+            && !self
+                .springs
+                .update_transform_hold(active.held, input.samples(), input.now_ms / 1000.0)
+                .map_err(|_| "transform move refused")?
         {
             return Ok(self.transform_stale());
         }
         if input.op == 12 {
             return Ok(accepted(self.hold_batch(input.now_ms)));
         }
-        self.transform_drags
-            .pairs
-            .get_mut(&input.tokens[0])
-            .expect("active pair")
-            .action_fired = true;
+        if let Some(pair) = self.transform_drags.pairs.get_mut(&input.tokens[0]) {
+            pair.action_fired = true;
+        }
         self.now_ms = input.now_ms;
         // The release velocity is the engine's, over every value the pair was
-        // given; finite samples give a finite slope.
+        // given (LLP 1057.001 §3); finite samples give a finite slope.
         let now_s = input.now_ms / 1000.0;
         let [translate, scale] = [active.held.translate(), active.held.scale()].map(|s| {
             self.springs
@@ -404,18 +424,11 @@ impl<D: DataSource> Host<D> {
         } else {
             [0.0; 3]
         });
-        // All six values/time passed preflight, both old holds are live, and the
-        // action executes while both still own presentation. Do not lower first.
-        let (early, early_error) = self.advance_for_input(input.now_ms);
-        let still = early.is_empty()
-            || self
-                .runner
-                .kernel()
-                .transform_drag_binding(input.binding.handle)
-                == Some(input.binding);
+        // Timers may have retired the pair. Otherwise the action executes
+        // while both original holds still own presentation.
         let (receipts, error, committed) =
-            self.deliver_after(view, input.event(), early, early_error, still);
-        let batch = self.batch_for(&receipts, error.as_deref());
+            self.deliver_after(view, input.event(), Vec::new(), early_error, still);
+        let batch = self.batch_from(batch, &receipts, error.as_deref());
         Ok(format!(
             "{{\"accepted\":true,\"dispatched\":true,\"committed\":{committed},\"velocity\":[{},{},{}],\"batch\":{batch}}}",
             input.values[3], input.values[4], input.values[5]
@@ -444,27 +457,27 @@ impl<D: DataSource> Host<D> {
             }
             return Err("geometry sequence cannot change its facts");
         }
-        let handle = self
-            .transform_drags
-            .handles
-            .get_mut(&view)
-            .expect("registered handle");
-        handle.geometry.sequence = input.sequence;
-        handle.geometry.ready = input.op == 10 && dimensions.into_iter().all(|v| v > 0.0);
         let changed = input.op == 10 && previous.dimensions != Some(dimensions);
-        if input.op == 10 {
-            handle.geometry.dimensions = Some(dimensions);
+        let dispatch = changed && self.transform_drags.handles[&view].geometry_handler;
+        let (mut batch, early_error, had_timers) = self.commit_input_timers(input.now_ms);
+        // A timer can replace the binding; its geometry needs a fresh observation.
+        if self.transform_drag_binding(view) != Some(input.binding) {
+            let (receipts, error, committed) =
+                self.deliver_after(view, input.event(), Vec::new(), early_error, false);
+            return Ok(admitted(
+                self.batch_from(batch, &receipts, error.as_deref()),
+                committed,
+            ));
         }
-        let dispatch = changed && handle.geometry_handler;
-        // Mapping changes invalidate the Engine pair BEFORE feedback, not only
-        // the JS contact. First adopt current authoring/time while still held,
-        // then cancel originals. A geometry action can retarget at the same
-        // clock; its receipt performs the sole dirty-frame lowering.
-        self.now_ms = input.now_ms;
-        let mut batch = Batch::new();
-        // Timers due by the observation fire first, so the authoring adopted
-        // below while held, and the cancellation, are what they left.
-        let (early, early_error) = self.advance_for_input(input.now_ms);
+        if let Some(handle) = self.transform_drags.handles.get_mut(&view) {
+            handle.geometry.sequence = input.sequence;
+            handle.geometry.ready = input.op == 10 && dimensions.into_iter().all(|v| v > 0.0);
+            if input.op == 10 {
+                handle.geometry.dimensions = Some(dimensions);
+            }
+        }
+        // Adopt current authoring while the pair is held, then cancel before
+        // geometry feedback. Its action can retarget at this same clock.
         let synced = self.springs.synchronize_transform(
             self.runner.kernel(),
             input.binding.target,
@@ -481,14 +494,8 @@ impl<D: DataSource> Host<D> {
             self.retire_transform_pair(serial, &mut batch);
         }
         if dispatch {
-            let still = early.is_empty()
-                || self
-                    .runner
-                    .kernel()
-                    .transform_drag_binding(input.binding.handle)
-                    == Some(input.binding);
             let (receipts, error, committed) =
-                self.deliver_after(view, input.event(), early, early_error, still);
+                self.deliver_after(view, input.event(), Vec::new(), early_error, true);
             if !committed {
                 Self::emit_lowered(&mut batch, self.springs.lower_current(self.runner.kernel()));
             }
@@ -498,11 +505,11 @@ impl<D: DataSource> Host<D> {
             ))
         } else {
             Self::emit_lowered(&mut batch, self.springs.lower_current(self.runner.kernel()));
-            if early.is_empty() && early_error.is_none() {
+            if !had_timers && early_error.is_none() {
                 Ok(accepted(self.finish(batch, None)))
             } else {
                 Ok(admitted(
-                    self.batch_from(batch, &early, early_error.as_deref()),
+                    self.batch_from(batch, &[], early_error.as_deref()),
                     true,
                 ))
             }
@@ -555,7 +562,7 @@ impl<D: DataSource> Host<D> {
             for (target, view) in valid {
                 if target != owner && self.transform_drags.reported_targets.insert(target) {
                     self.log(&format!(
-                        "transformDragFor: target view #{view} passed over for owner view #{owner_view}; one owner (first valid, never stolen)"
+                        "transformDragFor: target view #{view} passed over for owner view #{owner_view}; one owner (first valid, never stolen; LLP 1071)"
                     ));
                 }
             }

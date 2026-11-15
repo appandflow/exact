@@ -1,4 +1,4 @@
-//! The device's GPU tier: `low`, `mid` or `high`, chosen
+//! The device's GPU tier (LLP 1139.003 D2): `low`, `mid` or `high`, chosen
 //! once, before the device is made, from what the adapter says it is, else
 //! from the size of the screen. Never from a clock: a frame drawn under the
 //! agent must not depend on how loaded the machine is. A surface reads it
@@ -181,6 +181,7 @@ impl crate::Module {
             inst.dirty = true;
             if let Some(gpu) = &self.gpu {
                 inst.surface.device_ready(gpu.device.features());
+                inst.report_color_space();
                 if let Some(config) = &inst.config {
                     inst.surface.prepare_assets(
                         &gpu.device,

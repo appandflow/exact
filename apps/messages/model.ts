@@ -35,7 +35,7 @@ export function reveal(pulled: number): number { return pulled > 0 ? 66 * (1 - 1
 // What a message row shows that the clock does not decide. The date's part
 // (its time, the receipt, the arrival and receipt motion) is the view's, from
 // `exactTime()`, so this answer is the same at every date and the bake keeps it
-// for the first frame.
+// for the first frame (LLP 1027.000.000 D2).
 export function presentation(thread: Thread) {
   return thread.messages.map((m, i, rows) => {
     const outgoing = m.from === 'me', previous = rows[i - 1], next = rows[i + 1];

@@ -1,4 +1,4 @@
-//! The JS target's motion capability: springs, holds and a
+//! The JS target's motion capability (LLP 1071 §7): springs, holds and a
 //! pan's release velocity from the one `exact_motion` Engine every host runs.
 //!
 //! The page (`host/web-js/motion.js`) is the kernel seam here: it tells the
@@ -14,7 +14,7 @@ use exact_motion::{
     Change, Engine, EngineError, HoldEnd, HoldToken, Property, SpringDescriptor, TransformHold,
     Transitions, Value, VelocityTracker,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The compositor properties the seam feeds, in the page's order.
 pub const TARGETS: [Property; 4] = [
@@ -29,10 +29,11 @@ pub const TARGETS: [Property; 4] = [
 pub struct Motion {
     engine: Engine,
     holds: BTreeMap<u64, HoldToken>,
-    playing: BTreeMap<(u64, Property), SpringDescriptor>,
+    playing: BTreeMap<(u64, Property), (SpringDescriptor, f64)>,
     pan: Option<(u32, VelocityTracker)>,
     /// Transform pairs by their translate serial.
     pairs: BTreeMap<u64, TransformHold>,
+    enabled_translate: BTreeSet<u64>,
 }
 
 impl Default for Motion {
@@ -43,7 +44,7 @@ impl Default for Motion {
 
 impl Motion {
     /// Empty, at clock zero; the browser runs CSS transitions and
-    /// animations itself, so the engine lowers only springs.
+    /// animations itself (LLP 1055 D7), so the engine lowers only springs.
     pub fn new() -> Motion {
         let mut engine = Engine::new();
         engine.set_lowered(true);
@@ -53,6 +54,7 @@ impl Motion {
             playing: BTreeMap::new(),
             pan: None,
             pairs: BTreeMap::new(),
+            enabled_translate: BTreeSet::new(),
         }
     }
 
@@ -60,23 +62,41 @@ impl Motion {
         self.engine.advance(now.max(self.engine.now()))
     }
 
-    /// A node's `transition` row as CSS text; text the grammar refuses is
-    /// no transition, as an invalid CSS declaration is.
+    /// A node's `transition` row as CSS text. Empty, unset and invalid rows
+    /// take CSS's initial `all 0s` coverage.
     pub fn transitions(&mut self, node: u64, text: &str) -> bool {
-        let parsed = Transitions::parse(text);
+        let parsed = if text.trim().is_empty() || text.trim().eq_ignore_ascii_case("unset") {
+            Ok(Transitions::initial())
+        } else {
+            Transitions::parse(text)
+        };
+        let was = self.engine.has_spring_transition(node, Property::Translate);
         let ok = parsed.is_ok();
-        self.engine
-            .set_transitions(node, parsed.unwrap_or_default())
-            .is_ok()
-            && ok
+        let applied = self
+            .engine
+            .set_transitions(node, parsed.unwrap_or_else(|_| Transitions::initial()))
+            .is_ok();
+        if !was && self.engine.has_spring_transition(node, Property::Translate) {
+            self.enabled_translate.insert(node);
+        } else {
+            self.enabled_translate.remove(&node);
+        }
+        applied && ok
     }
 
     /// A node's targets after a commit, at `now`: translate x and y, its x
     /// and y percentages of the box, scale, rotate (degrees), opacity. The
     /// first observation of a node is taken as it is (nothing transitions),
     /// as the kernel's `adopt` does.
-    pub fn observe(&mut self, node: u64, values: [f64; 7], now: f64) -> Result<(), EngineError> {
+    pub fn observe(
+        &mut self,
+        node: u64,
+        values: [f64; 7],
+        velocity: Option<Value>,
+        now: f64,
+    ) -> Result<(), EngineError> {
         self.seek(now)?;
+        let enabled = self.enabled_translate.remove(&node);
         let [x, y, px, py, scale, rotate, opacity] = values;
         let targets = [
             Value::four(x, y, px, py),
@@ -89,7 +109,13 @@ impl Motion {
                 node,
                 property,
                 value,
-                velocity: None,
+                velocity: if property == Property::Translate
+                    && (enabled || self.engine.target(node, property) != Some(value))
+                {
+                    velocity
+                } else {
+                    None
+                },
             })?;
         }
         Ok(())
@@ -117,6 +143,7 @@ impl Motion {
     /// A node left the tree: forgotten, with its springs.
     pub fn remove(&mut self, node: u64) {
         self.engine.remove(node);
+        self.enabled_translate.remove(&node);
         self.playing.retain(|(n, _), _| *n != node);
         self.holds.retain(|_, token| token.node() != node);
     }
@@ -153,8 +180,8 @@ impl Motion {
         Ok(Some((start.token.serial(), start.value)))
     }
 
-    /// Capture a node's translate and scale as one pair (the photo pair):
-    /// the two serials and the values taken.
+    /// Capture a node's translate and scale as one pair (the photo pair,
+    /// LLP 1057.001 §4): the two serials and the values taken.
     pub fn begin_pair(
         &mut self,
         node: u64,
@@ -207,14 +234,14 @@ impl Motion {
         }
     }
 
-    /// Record what a constrained display shows for a hold.
+    /// Record what a constrained display shows for a hold (LLP 1057.001 §3).
     pub fn track(&mut self, serial: u64, now: f64, shown: Value) -> bool {
         self.token(serial)
             .is_some_and(|token| self.engine.track_hold(token, now, shown))
     }
 
     /// The engine's velocity over a hold's values, where the platform
-    /// measures none.
+    /// measures none (LLP 1057.001 §3).
     pub fn measured(&self, serial: u64, now: f64) -> Value {
         self.token(serial)
             .and_then(|token| self.engine.hold_velocity(token, now))
@@ -257,7 +284,7 @@ impl Motion {
 
     /// Seek to `now` and lower what changed, as the wasm host's batch ops
     /// (`Springs::lower_current`, `Host::emit_lowered`): a spring that
-    /// started is its frames, one that stopped short of its target is
+    /// started is its frames, one that stopped before its end is
     /// cancelled. Each op is numbers in `out`: `[1, node, property, at,
     /// delay, duration, n, x0, y0, …]` (seconds) or `[2, node, property]`.
     pub fn lower(&mut self, now: f64, out: &mut Vec<f64>) -> Result<(), EngineError> {
@@ -272,13 +299,14 @@ impl Motion {
             }
             match self.engine.spring_descriptor(p.node, p.property) {
                 Some(descriptor) => {
-                    if self.playing.get(&key) == Some(&descriptor) {
+                    if self.playing.get(&key).map(|(d, _)| d) == Some(&descriptor) {
                         continue;
                     }
                     let Some(frames) = self.engine.spring_frames(p.node, p.property) else {
                         continue;
                     };
-                    self.playing.insert(key, descriptor);
+                    self.playing
+                        .insert(key, (descriptor, frames.start + frames.duration));
                     out.extend([
                         1.0,
                         p.node as f64,
@@ -295,8 +323,8 @@ impl Motion {
                     }
                 }
                 None => {
-                    if let Some(previous) = self.playing.remove(&key) {
-                        if p.value != previous.target {
+                    if let Some((previous, end)) = self.playing.remove(&key) {
+                        if now < end || p.value != previous.target {
                             out.extend([2.0, p.node as f64, index(p.property)]);
                         }
                     }
@@ -306,8 +334,8 @@ impl Motion {
         Ok(())
     }
 
-    /// A pan's pointer sample at `ms`, the event's own time
-    /// (`host/web/src/pan_velocity.rs`); `first` begins the contact on `view`.
+    /// A pan's pointer sample at `ms`, the event's own time (LLP 1057 §10.6,
+    /// `host/web/src/pan_velocity.rs`); `first` begins the contact on `view`.
     pub fn pan_sample(&mut self, view: u32, first: bool, x: f64, y: f64, ms: f64) {
         if first || self.pan.as_ref().is_none_or(|(v, _)| *v != view) {
             self.pan = Some((view, VelocityTracker::new()));

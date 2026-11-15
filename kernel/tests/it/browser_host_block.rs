@@ -1,4 +1,5 @@
-//! A containing block a host gives a subtree, against literal Chrome.
+//! A containing block a host gives a subtree (LLP 1115.002 D8.2 and its
+//! proof, D8.3), against literal Chrome.
 //!
 //! Chrome 155, 2026-10-12, by the method of `browser_cases.rs` and
 //! `browser_position.rs`: the page is plain HTML/CSS inside an 800 by 600
@@ -91,6 +92,7 @@ fn cases(fixture: &str) -> Vec<Case<'_>> {
                     let (id, size) = part.split_once(':').unwrap();
                     let (width, height) = size.split_once('x').unwrap();
                     let block = HostBlock {
+                        tactic: Default::default(),
                         width: axis(width),
                         height: axis(height),
                     };
@@ -131,7 +133,7 @@ fn fresh(k: &Kernel) -> Vec<(u32, [u32; 6], bool)> {
     published(&fresh)
 }
 
-/// A percentage child, an
+/// The fixtures of D8.3 and the semantics of D8.2: a percentage child, an
 /// absolutely positioned child, a form whose height depends on its width,
 /// content that overflows a maximum, a block inside a block, and a block
 /// that goes away. Each case is laid out without its blocks, then given
@@ -233,6 +235,7 @@ fn route_fit_keeps_authored_sizes_and_css_constraints() {
         k.set_host_block(
             2,
             Some(HostBlock {
+                tactic: Default::default(),
                 width: BlockAxis::Fit(400.0),
                 height: BlockAxis::Fit(200.0),
             }),

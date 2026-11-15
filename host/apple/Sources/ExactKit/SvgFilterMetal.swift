@@ -1,4 +1,4 @@
-// A live filter picture's chain in Metal (iOS).
+// @ref LLP 1055.000 D14 — a live filter picture's chain in Metal (iOS).
 // Core Image builds, tiles and binds a graph for every render: at a frame
 // each, F3's CSS chain (blur, drop-shadow, saturate, hue-rotate) cost 5 ms of
 // CPU a draw on the M1 iPad Pro and held ~300 MB of intermediates. Here the
@@ -28,7 +28,7 @@ final class SvgFilterMetal {
     /// a make still running), and run every step once on a tiny picture, so
     /// Metal Performance Shaders has made its blur's too. The first picture
     /// is drawn in the commit that shows it, ~25 ms after boot on an iPhone
-    /// 13 Pro Max (first ink); the library is compiled at
+    /// 13 Pro Max (LLP 1055.000, first ink); the library is compiled at
     /// build, and the GPU's own compile of each pipeline is what remains.
     static func prewarm() {
         guard !prewarming else { return }

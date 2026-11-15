@@ -1,5 +1,5 @@
 //! The generated seam is checked by the actual pinned TypeScript compiler.
-//! A wrong-shaped answer is a build refusal.
+//! @ref LLP 1027 D5 — a wrong-shaped answer is a build refusal.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -70,12 +70,12 @@ async function storageTypes() {
   await database.query('SELECT ?', [{unexpected: true}]);
   // @ts-expect-error SQLite row IDs are bigint, never lossy numbers
   const lossy: number = batch[0].lastInsertRowid;
-  // `fs.compressImage` as the docs give it: options in, the record out.
+  // `fs.compressImage` as the docs give it (LLP 1069.002 A1): options in, the record out.
   const image = await storage.fs.compressImage(path, storage.fs.directories.cache + '/out.jpg', {maxDimension: 1024, maxBytes: 1_000_000});
-  const shrunk: {path: string; type: 'image/jpeg'; size: number; width: number; height: number} = image;
+  const shrunk: {path: string; type: 'image/jpeg' | 'image/png'; size: number; width: number; height: number} = image;
   // @ts-expect-error the engine's positional binding is not the app interface
   await storage.fs.compressImage(path, path, 1024, 1_000_000);
-  // `fs.transformImage`: the edit in, what was written out.
+  // `fs.transformImage` (LLP 1133.019 D14): the edit in, what was written out.
   const edit = await storage.fs.transformImage(path, storage.fs.directories.temporary + '/edit', {rotate: 90, crop: {x: 0, y: 0, width: 10, height: 10}, metadata: 'no-location'});
   const kept: {path: string; type: string; colorSpace: 'srgb' | 'display-p3' | 'other'; hdr: boolean; metadata: 'keep' | 'no-location' | 'none'} = edit;
   await storage.fs.compressImage(path, path, {maxDimension: 512, maxBytes: 100_000, rotate: 90, flip: 'horizontal'});
@@ -136,11 +136,22 @@ impl Drop for Fixture {
     }
 }
 
-/// The app interface of `storage.fs.compressImage` as docs/reference.md
-/// gives it: the declaration apps type-check against says options in and the
-/// record out. Kept outside the tsc check, which the default checks skip, so
-/// a vendor refresh that replaces the declaration with the engine's
-/// positional binding fails here.
+/// The app interface of `storage.fs.compressImage` (LLP 1069.002 A1) as
+/// docs/reference.md gives it: the declaration apps type-check against says
+/// options in and the record out. Kept beside the tsc check (the async lane),
+/// which the default checks skip: an Ibex refresh once replaced the
+/// declaration with the engine's positional binding and nothing failed.
+#[test]
+fn generated_request_init_names_cache_modes_and_preloads() {
+    let declarations = contract::typescript(&contract::compile(CONTRACT).unwrap()).unwrap();
+    assert!(declarations.contains("exactPreload?: string;"));
+    assert!(declarations.contains("exactPrefetch?: boolean;"));
+    assert!(declarations.contains(
+        "Checked on every host; the request is made as written. No host holds its reply yet."
+    ));
+    assert!(declarations.contains("cache?: \"default\" | \"no-store\" | \"reload\" | \"no-cache\" | \"force-cache\" | \"only-if-cached\";"));
+}
+
 #[test]
 fn compress_image_is_declared_as_the_docs_give_it() {
     let declared = include_str!("../../../../vendor/ibex/crates/ibex2/src/bindings/storage.d.ts");
@@ -171,7 +182,7 @@ fn compress_image_is_declared_as_the_docs_give_it() {
 }
 
 #[test]
-#[ignore = "typechecks generated signatures with tsc; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: typechecks generated signatures with tsc; bun scripts/async.mjs runs it"]
 fn generated_signatures_check_real_sync_and_async_providers_and_the_dispatcher() {
     let plan = contract::compile(CONTRACT).unwrap();
     let declarations = contract::typescript(&plan).unwrap();
@@ -210,7 +221,7 @@ fn generated_signatures_check_real_sync_and_async_providers_and_the_dispatcher()
 }
 
 #[test]
-#[ignore = "typechecks Caltrain with tsc; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: typechecks Caltrain with tsc; bun scripts/async.mjs runs it"]
 fn caltrain_types_follow_its_real_plan_without_requiring_the_host_owned_source() {
     let plan = contract::compile_path(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/caltrain/app.contract"),
@@ -239,10 +250,92 @@ const wrong: Result<'board'> = [{ id: 'mv', name: 'Mountain View', zone: 4, dist
 }
 
 #[test]
-#[ignore = "typechecks the guides' TypeScript examples with tsc; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: typechecks mixed providers with tsc"]
+fn mixed_providers_require_only_the_typescript_half() {
+    let plan = contract::compile(CONTRACT).unwrap();
+    let fixture = Fixture::new();
+    let rust = vec!["save".into(), "search".into()];
+    let declarations = contract::typescript_exporting(&plan, None, &rust).unwrap();
+    fixture.write("app.contract.d.ts", &declarations);
+    let mixed = r#"
+import type { TypeScriptAnswer, TypeScriptSources, Args, Sources } from './app.contract.d.ts';
+const sources: TypeScriptSources = { find: () => null };
+export const answer: TypeScriptAnswer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
+const rustArgs: Args<'save'> = ['Palo', true];
+declare const complete: Sources;
+complete.save(rustArgs, {} as any, {} as any);
+// @ts-expect-error Rust sources remain outside the TypeScript dispatcher
+answer('save', rustArgs, {} as any, {} as any);
+"#;
+    let output = fixture.check(mixed);
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let summary = declarations.split("\n\n").next().unwrap();
+    assert!(summary.contains("//   find:"));
+    assert!(!summary.contains("//   save:") && !summary.contains("//   search:"));
+    for (bad, missing) in [
+        (mixed.replace("{ find: () => null }", "{}"), "find"),
+        (
+            mixed.replace("sources: TypeScriptSources", "sources: Sources"),
+            "search",
+        ),
+    ] {
+        let output = fixture.check(&bad);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains(missing));
+    }
+    fixture.write(
+        "app.contract.d.ts",
+        &contract::typescript_exporting(&plan, None, &["search".into()]).unwrap(),
+    );
+    let output = fixture.check(mixed);
+    assert!(
+        !output.status.success(),
+        "moving save to TypeScript must require it"
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("save"));
+
+    fixture.write("app.contract.d.ts", &contract::typescript(&plan).unwrap());
+    let output = fixture.check(
+        &VALID
+            .split("\ndeclare const store:")
+            .next()
+            .unwrap()
+            .replace("Sources", "TypeScriptSources")
+            .replace("Answer", "TypeScriptAnswer"),
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    fixture.write(
+        "app.contract.d.ts",
+        &contract::typescript_exporting(
+            &plan,
+            None,
+            &["save".into(), "search".into(), "find".into()],
+        )
+        .unwrap(),
+    );
+    let output = fixture.check("import type { TypeScriptSource, TypeScriptSources, Sources } from './app.contract.d.ts';\nconst sources: TypeScriptSources = {};\n// @ts-expect-error all sources belong to Rust\nconst source: TypeScriptSource = 'find';\n// @ts-expect-error Sources still requires every provider\nconst complete: Sources = {};\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[test]
+#[ignore = "async lane: typechecks the guides' TypeScript examples with tsc; bun scripts/async.mjs runs it"]
 fn every_typescript_example_in_the_guides_checks_against_its_contracts_types() {
-    // Each `ts` block after a `contract` block in the same section is
-    // checked against that Contract's `contract types` output.
+    // LLP 1086 D10: each `ts` block after a `contract` block in the same
+    // section is checked against that Contract's `contract types` output.
     let mut failures = Vec::new();
     let mut checked = 0;
     for block in crate::docs::blocks() {
@@ -260,6 +353,9 @@ fn every_typescript_example_in_the_guides_checks_against_its_contracts_types() {
             }
         };
         fixture.write("app.contract.d.ts", &contract::typescript(&plan).unwrap());
+        for (name, body) in &block.files {
+            fixture.write(name, body);
+        }
         let output = fixture.check(&block.body);
         if !output.status.success() {
             failures.push(format!(
@@ -357,7 +453,7 @@ fn router_shapes_are_already_named_by_the_plan_type_generator() {
     }
 }
 
-// A builder reads the top of app.contract.d.ts, not its declarations.
+// LLP 1116.006 D7: a builder reads the top of app.contract.d.ts, not its declarations.
 #[test]
 fn the_file_opens_with_what_app_ts_writes_one_line_each() {
     let declaration = contract::typescript(&contract::compile(CONTRACT).unwrap()).unwrap();
@@ -408,6 +504,73 @@ fn the_file_opens_with_what_app_ts_writes_one_line_each() {
 }
 
 #[test]
+fn the_summary_preserves_enum_members_and_array_precedence() {
+    for (field_type, summary_type) in [
+        (r#"enum<"open", "done">"#, r#""open" | "done""#),
+        (r#"enum<"open", "done">[]"#, r#"("open" | "done")[]"#),
+        (
+            r#"option<enum<"open", "done">>"#,
+            r#""open" | "done" | null"#,
+        ),
+        (
+            r#"option<enum<"open", "done">[]>"#,
+            r#"("open" | "done")[] | null"#,
+        ),
+        (
+            r#"option<enum<"open", "done">>[]"#,
+            r#"("open" | "done" | null)[]"#,
+        ),
+        (r#"enum<"open", "done">[][]"#, r#"("open" | "done")[][]"#),
+        (r#"enum<"open">[]"#, r#""open"[]"#),
+        (
+            r#"enum<"say \"hi\"", "back\\slash">"#,
+            r#""say \"hi\"" | "back\\slash""#,
+        ),
+        ("enum<\"a\u{2028}b\">", r#""a\u2028b""#),
+        ("enum<\"a\u{2029}b\">", r#""a\u2029b""#),
+    ] {
+        let source = format!(
+            "shape Item\n  id: string\n  kind: {field_type}\n\n\
+             component App\n  resource item = load() as shape Item\n  view\n    text \"hi\"\n"
+        );
+        let declaration = contract::typescript(&contract::compile(&source).unwrap()).unwrap();
+        let summary = declaration.split("\n\n").next().unwrap();
+        let expected = format!("//   Item = {{ id: string; kind: {summary_type} }}");
+        assert!(
+            summary.lines().any(|line| line == expected),
+            "{expected} is missing for {field_type}:\n{summary}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "async lane: typechecks enum line separators with tsc; bun scripts/async.mjs runs it"]
+fn enum_line_separators_remain_inside_summary_comments() {
+    let source = "shape Item\n  kind: enum<\"a\u{2028}b\", \"a\u{2029}b\">\n\n\
+                  component App\n  resource item = load() as shape Item\n  view\n    text \"hi\"\n";
+    let fixture = Fixture::new();
+    fixture.write(
+        "app.contract.d.ts",
+        &contract::typescript(&contract::compile(source).unwrap()).unwrap(),
+    );
+    let output = fixture.check(
+        r#"
+import type { Result } from './app.contract.d.ts';
+const line: Result<'load'> = { kind: "a\u2028b" };
+const paragraph: Result<'load'> = { kind: "a\u2029b" };
+// @ts-expect-error escaping preserves the literal value, not a backslash followed by u2028
+const escaped: Result<'load'> = { kind: "a\\u2028b" };
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn a_contract_without_sources_has_no_summary() {
     let declaration = contract::typescript(
         &contract::compile("component App\n  view\n    text \"hi\"\n").unwrap(),
@@ -421,7 +584,7 @@ fn a_contract_without_sources_has_no_summary() {
 }
 
 #[test]
-#[ignore = "checks the stream handle with tsc; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: checks the stream handle with tsc"]
 fn generated_socket_handle_types_text_binary_and_close_events() {
     let plan = contract::compile(CONTRACT).unwrap();
     let fixture = Fixture::new();
@@ -459,6 +622,44 @@ function mutation() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn build_names_a_missing_bun_without_blame_on_app_ts() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "app.contract",
+        "component App\n  view\n    text \"Hello\"\n",
+    );
+    fixture.write("app.ts", "export const answer = () => 7;\n");
+    for explicit in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_contract"));
+        command
+            .args(["build", "app.contract", "--json"])
+            .current_dir(&fixture.0)
+            .env("HOME", &fixture.0)
+            .env("USERPROFILE", &fixture.0)
+            .env("PATH", &fixture.0)
+            .env_remove("BUN");
+        let program = if explicit {
+            let missing = fixture.0.join("missing-bun");
+            command.env("BUN", &missing);
+            missing.to_string_lossy().into_owned()
+        } else {
+            "bun".into()
+        };
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        let found: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0]["id"], "analyze-ambient-api");
+        assert_eq!(
+            found[0]["message"],
+            format!("ambient API check: {program}: not found; the bake runs Bun (install it, put ~/.bun/bin on PATH, or name it with BUN)"),
+            "{found:?}"
+        );
+        assert!(found[0]["file"].is_null(), "{found:?}");
+    }
 }
 
 #[test]
@@ -669,17 +870,18 @@ fn types_check_is_read_only_and_build_reports_only_changed_declarations() {
     );
 }
 
-/// A data module returning one of the design's colour tokens checks, and one
-/// returning a name the design lacks fails `tsc`.
+/// LLP 1121 D12 (stage 5 commit 4): a data module returning one of the
+/// design's colour tokens checks, and one returning a name the design lacks
+/// fails `tsc` (the stage 5 gate line).
 #[test]
-#[ignore = "typechecks the design's token union with tsc; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: typechecks the design's token union with tsc; bun scripts/async.mjs runs it"]
 fn a_data_module_returning_an_unknown_token_fails_tsc() {
     let dir = std::env::temp_dir().join(format!("exact-types-tokens-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
-        dir.join("app.tamber"),
-        "tamber t\n\ntheme\n  brand = #c8102e\n  surface.card = #ffffff\n  space.row = 12px\n",
+        dir.join("app.forma"),
+        "forma t\n\ntheme\n  brand = #c8102e\n  surface.card = #ffffff\n  space.row = 12px\n",
     )
     .unwrap();
     std::fs::write(
@@ -704,7 +906,7 @@ fn a_data_module_returning_an_unknown_token_fails_tsc() {
     let output = fixture.check(&module("\"surface.nonesuch\""));
     assert!(!output.status.success(), "an unknown token passed tsc");
     assert!(String::from_utf8_lossy(&output.stdout).contains("error TS"));
-    // Each kind its own union; a colour is no length.
+    // Stage 6 G: each kind its own union; a colour is no length.
     let length = |token: &str| {
         format!("import type {{ LengthToken }} from './app.contract';\nexport const gap = (): LengthToken => {token};\n")
     };

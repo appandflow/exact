@@ -1,4 +1,4 @@
-//! The shared-elements example's data: a dozen photos for the
+//! The shared-elements example's data (LLP 1013.000): a dozen photos for the
 //! grid, two hundred for the virtualized list, three cards and five tasks.
 //! Deterministic, so every host shows the same thing.
 

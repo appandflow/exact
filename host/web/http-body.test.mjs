@@ -1,4 +1,4 @@
-import {expect,test} from 'bun:test';
+import {expect,spyOn,test} from 'bun:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -6,7 +6,7 @@ import {dirname,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {boundedHttpBody as readBody, longPollTiming, request, waitForInflight} from './http-body.js';
-import {admittingGrant, scopedGrantSet} from './grant-admission.js';
+import {admittingGrant, createGrantSet, grantError, scopedGrantSet} from './grant-admission.js';
 import {createRequestExecutor} from '../web-js/admission.js';
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'../..'),sets=new Map();
@@ -21,6 +21,17 @@ function normalized(spec){
   const set=JSON.parse(result.stdout);sets.set(spec,set);return set;
 }
 
+function responseAt(url, body, init) {
+  return Object.defineProperty(new Response(body, init), 'url', { value: String(url) });
+}
+
+// LLP 1153.002 D2: the bake's line for a setting a launch may give is exact2's own; the page admits the set, and the
+// line grants nothing there.
+test('an env.launch line is admitted as an exact-only line and grants no I/O',()=>{
+  const set=createGrantSet(structuredClone(normalized('net.fetch https://api.example\nenv.launch API_BASE_URL')));
+  expect(grantError(set)).toBeNull();
+  expect(set.entries[1]).toEqual([2,'env.launch API_BASE_URL',null,null]);
+});
 test('independent HTTP collects only a bounded complete response',async()=>{
   assert.deepEqual(await readBody(new Response('four'),4),new TextEncoder().encode('four'));
   assert.deepEqual(await readBody(new Response(null),4),new Uint8Array());
@@ -42,7 +53,7 @@ test('settlement returns after completions and refuses a never-settling request 
   assert.equal(await waitForInflight(all, performance.now()), false);
 });
 
-test('work the runner let go of stops holding the wait', async () => {
+test('work the runner let go of stops holding the wait (LLP 1016 D5)', async () => {
   // A hung read, and an answer whose commit forgets it: the hung one is still in flight, no longer counted.
   const inflight = new Set(), counted = new Set(), hung = new Promise(() => {});
   const answer = Promise.resolve().then(() => { counted.delete(hung); inflight.delete(answer); });
@@ -64,7 +75,7 @@ test('ordered HTTP defaults to the native ceiling and cancels oversized bodies',
   assert.equal(pulls, 65);
 });
 
-test('the event-stream parser reads lines, fields and cursors as HTML does', async () => {
+test('the event-stream parser reads lines, fields and cursors as HTML does (LLP 1016.000)', async () => {
   const { eventStream } = await import('./http-body.js');
   const parse = eventStream(1024), enc = (s) => new TextEncoder().encode(s);
   const got = [
@@ -83,9 +94,55 @@ test('the event-stream parser reads lines, fields and cursors as HTML does', asy
   // A multi-byte character split across reads is one character.
   const split = eventStream(64), bytes = enc('data: é\n\n');
   assert.deepEqual([...split(bytes.slice(0, 7)), ...split(bytes.slice(7))], [{ event: '', id: '', data: 'é' }]);
+  // The ceiling counts UTF-8 bytes, as the native parser does (host/executor/src/stream.rs `EventStream`):
+  // an event's data as delivered, the line feeds joining its fields included, and any line up to the ceiling and
+  // 64 bytes more.
+  const accepts = (s) => { try { eventStream(16)(enc(s)); return true; } catch (e) { assert.match(e.message, /ceiling/); return false; } };
+  assert.deepEqual([
+    `data: ${'é'.repeat(7)}a\n\n`, `data: ${'é'.repeat(8)}\n\n`, `data: ${'語'.repeat(5)}\n\n`, `data: ${'😀'.repeat(4)}\n\n`,
+    `data: ${'é'.repeat(4)}\ndata: ${'é'.repeat(4)}\n\n`, `x: ${'語'.repeat(25)}\n`, `x: ${'語'.repeat(26)}\n`,
+    `data: ${'é'.repeat(7)}\ndata: a\n\n`, `data: ${'é'.repeat(8)}\ndata:\n\n`,
+  ].map(accepts), [true, true, true, true, false, true, false, true, false]);
 });
 
-test('a stream delivers each read as its newest event, then its end', async () => {
+test('the event-stream line ceiling counts a leading BOM before stripping it', async () => {
+  const { eventStream } = await import('./http-body.js');
+  const enc = s => new TextEncoder().encode(s);
+  for (const size of [77, 78]) {
+    const bytes = enc(`\ufeff${'a'.repeat(size)}\ndata: ok\n\n`);
+    for (const step of [1, bytes.length]) {
+      const parse = eventStream(16), out = [];
+      const run = () => { for (let i = 0; i < bytes.length; i += step) out.push(...parse(bytes.subarray(i, i + step))); };
+      if (size === 77) { run(); assert.deepEqual(out, [{ event: '', id: '', data: 'ok' }]); }
+      else assert.throws(run, /ceiling/);
+    }
+  }
+  assert.deepEqual(eventStream(16)(enc('\ufeffdata: ok\n\n')), [{ event: '', id: '', data: 'ok' }]);
+});
+
+test('the event-stream line ceiling counts invalid UTF-8 as received bytes', async () => {
+  const { eventStream } = await import('./http-body.js');
+  const enc = s => new TextEncoder().encode(s);
+  for (const size of [30, 79, 80]) {
+    const bytes = new Uint8Array([58, ...new Uint8Array(size).fill(0xff), ...enc('\r\ndata: ok\n\n')]);
+    for (const step of [1, bytes.length]) {
+      const parse = eventStream(16), out = [];
+      const run = () => { for (let i = 0; i < bytes.length; i += step) out.push(...parse(bytes.subarray(i, i + step))); };
+      if (size <= 79) { run(); assert.deepEqual(out, [{ event: '', id: '', data: 'ok' }]); }
+      else assert.throws(run, /ceiling/);
+    }
+  }
+  // Data still counts the decoded replacement characters and the joining LF.
+  for (const size of [5, 6]) {
+    const parse = eventStream(16), bytes = new Uint8Array([...enc('data: '), ...new Uint8Array(size).fill(0xff), 10, 10]);
+    if (size === 5) assert.deepEqual(parse(bytes), [{ event: '', id: '', data: '\ufffd'.repeat(5) }]);
+    else assert.throws(() => parse(bytes), /ceiling/);
+  }
+});
+
+// LLP 1016.000 D4: every event, in order; those of one read are one batch,
+// each but its last marked `more`.
+test('a stream delivers every event of each read as one batch, then its end', async () => {
   const { request } = await import('./http-body.js');
   let push;
   const body = new ReadableStream({ start(c) { push = c; } });
@@ -93,8 +150,8 @@ test('a stream delivers each read as its newest event, then its end', async () =
   const op = { method: 'GET', url: 'https://example.test/events', headers: [], body: '', stream: true, maxResponseBytes: 64 };
   const done = request(op, {
     grantSet: normalized('net.fetch https://example.test'), controllers: new Set(),
-    moduleLoader: { claim: (url, init) => { sent.push(init.headers); return Promise.resolve(new Response(body, { headers: { 'content-type': 'text/event-stream' } })); } },
-    message: (m) => sent.push(m),
+    moduleLoader: { claim: (url, init) => { sent.push(init.headers); return Promise.resolve(responseAt(url, body, { headers: { 'content-type': 'text/event-stream' } })); } },
+    message: ({ received, ...m }) => { assert.equal(typeof received, 'number'); sent.push(m); },
   });
   const enc = (s) => new TextEncoder().encode(s);
   const tick = () => new Promise((r) => setTimeout(r, 5));
@@ -108,15 +165,17 @@ test('a stream delivers each read as its newest event, then its end', async () =
   assert.deepEqual(sent, [
     [['accept', 'text/event-stream']],
     { event: '', id: '1', data: 'a', coalesced: 0 },
-    { event: '', id: '4', data: 'd', coalesced: 2 },
+    { event: '', id: '2', data: 'b', coalesced: 0, more: true },
+    { event: '', id: '3', data: 'c', coalesced: 0, more: true },
+    { event: '', id: '4', data: 'd', coalesced: 0 },
   ]);
   assert.equal(end.kind, 1);
   assert.equal(new TextDecoder().decode(end.body), 'the event stream ended');
 });
 
-// The byte stream: reads that land before the page's next task
+// LLP 1016.000's byte stream: reads that land before the page's next task
 // join into one ArrayBuffer; nothing is dropped; the end follows; a read past
-// the bound delivers what waits and refuses. Without `bytes` (a Rust
+// the bound pauses the read until delivery. Without `bytes` (a Rust
 // source) the body is the one answer.
 test('a TypeScript stream reads a body that is not events as joined bytes, then its end', async () => {
   const { request } = await import('./http-body.js');
@@ -125,7 +184,7 @@ test('a TypeScript stream reads a body that is not events as joined bytes, then 
     const body = new ReadableStream({ start(c) { push = c; } });
     const done = request({ method: 'GET', url: 'https://example.test/screen.avcc', headers: [], body: '', stream: true, maxResponseBytes }, {
       grantSet: normalized('net.fetch https://example.test'), controllers: new Set(), protocol,
-      moduleLoader: { claim: () => Promise.resolve(new Response(body, { headers: { 'content-type': 'application/octet-stream' } })) },
+      moduleLoader: { claim: url => Promise.resolve(responseAt(url, body, { headers: { 'content-type': 'application/octet-stream' } })) },
       message: (m) => sent.push([...new Uint8Array(m.data)]),
     });
     return { done, push: (bytes) => push.enqueue(new Uint8Array(bytes)), close: () => push.close() };
@@ -145,10 +204,10 @@ test('a TypeScript stream reads a body that is not events as joined bytes, then 
   const over = [], o = open(8, { bytes: true }, over);
   await tick();
   o.push([1, 1, 1, 1, 1]); o.push([2, 2, 2, 2, 2]);
-  const refused = await o.done;
-  assert.deepEqual(over, [[1, 1, 1, 1, 1]]);
-  assert.equal(refused.kind, 2);
-  assert.equal(new TextDecoder().decode(refused.body), 'byte stream receive queue exceeds the response ceiling');
+  o.close();
+  const ended = await o.done;
+  assert.deepEqual(over, [[1, 1, 1, 1, 1], [2, 2, 2, 2, 2]]);
+  assert.equal(ended.kind, 1);
 
   // One browser read longer than the bound goes in pieces of it, at once.
   const big = [], b = open(8, { bytes: true }, big);
@@ -167,7 +226,55 @@ test('a TypeScript stream reads a body that is not events as joined bytes, then 
   assert.deepEqual([whole, answer.status, [...answer.body]], [[], 200, [9]]);
 });
 
-// A local WebSocket peer: `/three` sends `a`, then at
+test('four MiB through a slow byte drain stays bounded and in order', async () => {
+  for (const bound of [1048576, 32768]) {
+    const expected = Uint8Array.from({ length: 4 << 20 }, (_, i) => i % 251), got = [];
+    let at = 0, waiting = 0, peak = 0, pulls = 0;
+    const body = new ReadableStream({ pull(c) {
+      pulls++;
+      if (at === expected.length) return c.close();
+      // Include a read larger than the bound, which only browsers can return.
+      const end = Math.min(at + 1500000, expected.length);
+      c.enqueue(expected.subarray(at, end)); at = end;
+    } }, { highWaterMark: 0 });
+    const end = await request({ method: 'GET', url: 'https://example.test/bytes', headers: [], stream: true, maxResponseBytes: bound }, {
+      grantSet: normalized('net.fetch https://example.test'), controllers: new Set(), protocol: { bytes: true },
+      moduleLoader: { claim: url => Promise.resolve(responseAt(url, body)) },
+      message: async m => {
+        waiting += m.data.byteLength; peak = Math.max(peak, waiting);
+        assert.ok(waiting <= bound);
+        const before = pulls;
+        await new Promise(resolve => setTimeout(resolve, 0));
+        assert.equal(pulls, before, 'no pull while delivery waits');
+        got.push(new Uint8Array(m.data)); waiting -= m.data.byteLength;
+      },
+    });
+    const actual = new Uint8Array(got.reduce((n, p) => n + p.length, 0));
+    let offset = 0;
+    for (const p of got) { actual.set(p, offset); offset += p.length; }
+    assert.deepEqual(actual, expected);
+    assert.ok(peak <= bound);
+    assert.equal(end.kind, 1);
+  }
+});
+
+test('abort releases a byte reader waiting for delivery', async () => {
+  const controller = new AbortController(), { promise: entered, resolve: enter } = Promise.withResolvers();
+  let cancelled = false, calls = 0;
+  const body = new ReadableStream({ pull(c) { c.enqueue(new Uint8Array(16)); }, cancel() { cancelled = true; } }, { highWaterMark: 0 });
+  const done = request({ method: 'GET', url: 'https://example.test/bytes', headers: [], stream: true, maxResponseBytes: 8 }, {
+    grantSet: normalized('net.fetch https://example.test'), controllers: new Set(), controller, protocol: { bytes: true },
+    moduleLoader: { claim: url => Promise.resolve(responseAt(url, body)) },
+    message: () => { calls++; enter(); return new Promise(() => {}); },
+  });
+  await entered;
+  controller.abort(); // Forgetting a source and retiring its host use this same signal.
+  assert.equal((await done).kind, 4);
+  assert.equal(cancelled, true);
+  assert.equal(calls, 1);
+});
+
+// A local WebSocket peer (LLP 1069.004 slice 3): `/three` sends `a`, then at
 // each `next('/three')` `b c d` in one write, then a close; `/binary` a binary
 // frame; `/hold` one message, then waits for the client to go.
 async function socketPeer() {
@@ -194,7 +301,7 @@ async function socketPeer() {
   return { url: `ws://127.0.0.1:${server.address().port}`, closed, next: path => steps.get(path).shift()(), close: () => server.close() };
 }
 
-test('a socket delivers text messages, coalescing a burst, then its close', async () => {
+test('a socket delivers every text message, a burst as one batch, then its close (LLP 1069.004)', async () => {
   const { request } = await import('./http-body.js');
   const peer = await socketPeer();
   const open = (path, sent, controller = new AbortController()) => request(
@@ -205,10 +312,9 @@ test('a socket delivers text messages, coalescing a burst, then its close', asyn
   try {
     // The burst once `a` is delivered, and the close once `d` is, so that neither arrives with what came before
     const sent = [];
-    const end = await open('/three', { push: (m) => { sent.push(m); if (m.data === 'a' || m.data === 'd') peer.next('/three'); } });
-    assert.deepEqual(sent[0], { event: '', id: '', data: 'a', coalesced: 0 });
-    assert.equal(sent.at(-1).data, 'd', 'the newest of a burst');
-    assert.equal(sent.reduce((n, m) => n + 1 + m.coalesced, 0), 4, 'every message delivered or counted');
+    const end = await open('/three', { push: ({ received, ...m }) => { sent.push(m); if (m.data === 'a' || m.data === 'd') peer.next('/three'); } });
+    assert.deepEqual(sent[0], { event: '', id: '', data: 'a', coalesced: 0, protocol: '' });
+    assert.deepEqual(sent.map(m => [m.data, m.coalesced, !!m.more]), [['a', 0, false], ['b', 0, true], ['c', 0, true], ['d', 0, false]], 'every message, in order');
     assert.deepEqual([end.kind, text(end)], [1, 'the socket closed (1000)']);
     const binary = await open('/binary', []);
     assert.deepEqual([binary.kind, text(binary)], [2, "a binary message: a socket's messages are text"]);
@@ -223,18 +329,18 @@ test('a socket delivers text messages, coalescing a burst, then its close', asyn
   } finally { peer.close(); }
 }, 30_000); // hang bound
 
-// The JS target's stream (`streamed`): a source's request run
+// The JS target's stream (`streamed`, LLP 1016.000): a source's request run
 // as the wasm host runs it, so a socket is admitted by `net.websocket` alone
 // and a `net.fetch` grant does not open one (the web module's fetch
-// once refused a socket as `net.fetch`).
+// refused a socket as `net.fetch`, x2apps dash diary).
 test('the JS target opens a socket under net.websocket, never net.fetch', async () => {
   const { streamed } = await import('./http-body.js');
   const peer = await socketPeer();
   const text = (r) => new TextDecoder().decode(r.body);
   try {
     const sent = [];
-    const end = await streamed({ method: 'GET', url: `${peer.url}/three`, headers: [], maxResponseBytes: 64 }, normalized(`net.websocket ${peer.url}`), (m) => { sent.push(m); if (m.data === 'a' || m.data === 'd') peer.next('/three'); }, new AbortController());
-    assert.deepEqual(sent[0], { event: '', id: '', data: 'a', coalesced: 0 });
+    const end = await streamed({ method: 'GET', url: `${peer.url}/three`, headers: [], maxResponseBytes: 64, origin: 'app' }, normalized(`net.websocket ${peer.url}`), ({ received, ...m }) => { sent.push(m); if (m.data === 'a' || m.data === 'd') peer.next('/three'); }, new AbortController());
+    assert.deepEqual(sent[0], { event: '', id: '', data: 'a', coalesced: 0, protocol: '' });
     assert.deepEqual([end.kind, text(end)], [1, 'the socket closed (1000)']);
     const refused = await streamed({ url: `${peer.url}/three`, maxResponseBytes: 64 }, normalized(`net.fetch ${peer.url.replace('ws:', 'http:')}`), () => {}, new AbortController());
     assert.deepEqual([refused.kind, text(refused)], [2, "outside the app's grants (net.websocket)"]);
@@ -252,7 +358,7 @@ test('a source-scoped POST can return through an app-granted middle origin', asy
   try {
     for (const run of [
       () => request({ method: 'POST', url: `${origin.url}start`, headers: [], body: btoa('payload'), scope }, { grantSet: app, controllers: new Set(), moduleLoader: null }),
-      () => js({ method: 'POST', url: `${origin.url}start`, headers: [], raw: 'payload', scope }),
+      () => js({ method: 'POST', url: `${origin.url}start`, headers: [], raw: 'payload', scope, origin: 'app' }),
     ]) {
       const result = await run();
       expect([result.failed ?? result.kind ?? 0, new TextDecoder().decode(result.body)]).toEqual([0, 'accepted']);
@@ -273,13 +379,15 @@ test('the wasm early GET follows a return chain and is claimed at the granted fi
   try {
     const op = { method: 'GET', url: `${origin.url}start`, headers: [], scope };
     const source = scopedGrantSet(app, scope);
+    for (const cache of ['no-store', 'reload', 'no-cache', 'force-cache', 'only-if-cached'])
+      expect(fetchEarly({ ...op, cache }, source)).toBe(null);
     expect(fetchEarly(op, source)).toBeFunction();
     const response = await request(op, { grantSet: app, controllers: new Set(), moduleLoader: { claim } });
     expect([response.kind, new TextDecoder().decode(response.body), middleHits, finalHits]).toEqual([0, 'accepted', 1, 1]);
   } finally { origin.stop(true); middle.stop(true); final.stop(true); }
 });
 
-test('a tool\'s request to the local network from a public page waits for the person, sent by neither path', async () => {
+test('a tool\'s request to the local network from a public page waits for the person, sent by neither path (LLP 1133.036 D6)', async () => {
   globalThis.exact ??= {};
   const { fetchEarly } = await import('./module-glue.js');
   const was = globalThis.location, sent = [], real = globalThis.fetch;
@@ -320,7 +428,7 @@ test('a scheme line admits every origin of its scheme, and a request names the l
   expect([unreachable.kind, admitted.grant]).toEqual([1, 'net.fetch http:']);
 });
 
-// A long poll against a stand-in. Each request takes the
+// LLP 1016.000 D8: a long poll against a stand-in. Each request takes the
 // next answer in the queue; `hold` keeps it open until the client lets go.
 function standIn(answers) {
   const asked = [], held = [];
@@ -395,6 +503,29 @@ test('a long poll waits out Retry-After, shows retrying, and a drop ends the wai
   s.server.stop(true);
 });
 
+test('a long poll sets its cursor where it is, or appends it, and keeps every other parameter as written', async () => {
+  // As the native hosts' `with_query_value` does (host/executor/src/longpoll.rs): the value is
+  // %XX outside the unreserved set, and no other pair is re-serialised as a form.
+  const cases = [
+    ['?wait=25&path=/a/b&tags=x,y&q=hello%20world&flag', 'a b', '?wait=25&path=/a/b&tags=x,y&q=hello%20world&flag&since=a%20b'],
+    ['?since=0&wait=25&since=1', "7!'()*", '?since=7%21%27%28%29%2A&wait=25'],
+    ['?%73ince=0&wait=25', '-_.~', '?since=-_.~&wait=25'],
+    // Empty fields stay, and a name that begins with U+FEFF is not the cursor's.
+    ['?&wait=25&&flag&since=0&', '1', '?&wait=25&&flag&since=1&'],
+    ['?%EF%BB%BFsince=0&since=0', '1', '?%EF%BB%BFsince=0&since=1'],
+    ['?%EF%BB%BFsince=0&since=0', '1', '?%EF%BB%BFsince=1&since=0', '\uFEFFsince'],
+    ['?wait=25&', '1', '?wait=25&&since=1'],
+  ];
+  for (const [query, next, expected, cursor = 'since'] of cases) {
+    const s = standIn([{ body: JSON.stringify({ seq: next }) }]);
+    const controller = new AbortController(), sent = [];
+    const done = longPoll(s, controller, sent, { cursor }, { url: `${s.origin}/changes${query}`, maxResponseBytes: 256 });
+    await until(() => s.held.length === 1);
+    assert.deepEqual(s.asked, [query, expected]);
+    controller.abort(); await done; s.server.stop(true);
+  }
+});
+
 test('what is not a poll reply ends a long poll, and only a bodiless GET is one', async () => {
   const cases = [
     [{ status: 404, body: 'gone', headers: {} }, (e) => e.kind === 0 && e.status === 404],
@@ -450,7 +581,7 @@ test('a retry asks no sooner than the floor, a busy body is never read, and a cu
   } finally { longPollTiming.heartbeatMs = 1000; }
 });
 
-// An upload: Fetch tells no bytes
+// LLP 1016.000, an upload (D10): Fetch tells no bytes
 // sent, so the page sends it by XMLHttpRequest. Each `upload` progress event is
 // a message of the bytes sent; the reply, any status, read whole within the
 // ceiling, is the outcome; nothing asks for events. A redirect out of the
@@ -480,7 +611,7 @@ test('an upload goes by XMLHttpRequest: its bytes sent are messages, its reply t
     xhr.upload.onprogress({ lengthComputable: true, loaded: 8, total: 8 });
     xhr.answer(201, '{"id":"a1"}');
     const end = await done;
-    // Its start, just before it went out, then its bytes sent.
+    // Its start, just before it went out, then its bytes sent (LLP 1016.000 D10).
     assert.deepEqual(sent, [['exact:sending', ''], ['exact:progress', '{"loaded":4,"total":8}'], ['exact:progress', '{"loaded":8,"total":8}']]);
     assert.deepEqual([end.kind, end.status, end.headers, decode(end)], [0, 201, 'content-type: application/json', '{"id":"a1"}']);
 
@@ -502,5 +633,68 @@ test('an upload goes by XMLHttpRequest: its bytes sent are messages, its reply t
 
     const late = await request({ ...op, timeoutMs: 20 }, host([]));
     assert.deepEqual([late.kind, decode(late)], [10, 'the request timed out after 20 ms']);
+  } finally { globalThis.XMLHttpRequest = saved; }
+});
+
+test('a render upload keeps HTTP error replies and enforces its byte ceiling, abort and deadline', async () => {
+  const saved = { fetch: globalThis.fetch, render: Object.getOwnPropertyDescriptor(globalThis, '__exactRender') };
+  globalThis.__exactRender = true;
+  const grantSet = normalized('net.fetch https://example.test'), controllers = new Set(), sent = [];
+  const op = { method: 'POST', url: 'https://example.test/upload', headers: [], body: btoa('ab'), stream: true, upload: true, maxResponseBytes: 4 };
+  const host = { grantSet, controllers, message: m => sent.push([m.event, m.data]) };
+  const decode = o => new TextDecoder().decode(o.body);
+  try {
+    globalThis.fetch = async (_url, init) => {
+      expect([...init.body]).toEqual([97, 98]);
+      expect(init.redirect).toBe('follow');
+      return responseAt(_url, 'busy', { status: 503 });
+    };
+    const reply = await request(op, host);
+    expect([reply.kind, reply.status, decode(reply)]).toEqual([0, 503, 'busy']);
+    expect(sent).toEqual([['exact:sending', ''], ['exact:progress', '{"loaded":2,"total":2}']]);
+    sent.length = 0;
+    globalThis.fetch = async url => responseAt(url, 'large');
+    const large = await request({ ...op, body: '' }, host);
+    expect([large.kind, decode(large)]).toEqual([2, 'HTTP response exceeds limit']);
+    expect(sent).toEqual([['exact:sending', '']]);
+
+    let started = Promise.withResolvers();
+    globalThis.fetch = (_url, { signal }) => new Promise((_, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      started.resolve();
+    });
+    const controller = new AbortController(), aborted = request(op, { ...host, controller });
+    await started.promise;
+    controller.abort();
+    const stopped = await aborted;
+    expect([stopped.kind, decode(stopped)]).toEqual([4, 'request aborted']);
+    const deadline = new AbortController(), timeout = spyOn(AbortSignal, 'timeout').mockReturnValueOnce(deadline.signal);
+    try {
+      started = Promise.withResolvers();
+      const waiting = request({ ...op, timeoutMs: 20 }, host);
+      await started.promise;
+      expect(timeout).toHaveBeenCalledWith(20);
+      deadline.abort(new DOMException('The operation timed out.', 'TimeoutError'));
+      const late = await waiting;
+      expect([late.kind, decode(late)]).toEqual([10, 'the request timed out after 20 ms']);
+    } finally { timeout.mockRestore(); }
+    expect(controllers.size).toBe(0);
+  } finally {
+    globalThis.fetch = saved.fetch;
+    if (saved.render) Object.defineProperty(globalThis, '__exactRender', saved.render); else delete globalThis.__exactRender;
+  }
+});
+
+test('a cache-only upload fails without constructing an XMLHttpRequest or telling sending', async () => {
+  const saved = globalThis.XMLHttpRequest, messages = [], controllers = new Set();
+  let made = 0;
+  globalThis.XMLHttpRequest = class { constructor() { made++; throw new Error('upload contacted the network'); } };
+  try {
+    const outcome = await request({ method: 'POST', url: 'https://example.test/upload', headers: [], body: btoa('bytes'), stream: true, upload: true, cache: 'only-if-cached' },
+      { grantSet: normalized('net.fetch https://example.test'), controllers, message: m => messages.push(m) });
+    assert.equal(outcome.kind, 1);
+    assert.equal(made, 0);
+    assert.deepEqual(messages, []);
+    assert.equal(controllers.size, 0);
   } finally { globalThis.XMLHttpRequest = saved; }
 });

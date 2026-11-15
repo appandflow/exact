@@ -1,11 +1,11 @@
-# Steps by a person
+# Steps by a person (LLP 1133.026 §15, stages 1 and 3)
 
 What no tool can do here: walk with a phone, answer the Motion & Fitness
 prompt and the Physical activity prompt, and leave the app in a pocket.
 The suites drive the rest under the agent: `linux.mjs` on the Linux host,
 `apps/fieldnotes/walk.drives.mjs` on an iOS simulator, macOS and the web.
 A simulator and an emulator have no step counter, so every step below is a
-real phone's. Use dedicated test phones, never a personal one. Write
+real phone's. Use LLP 1133.020's test phones, never a personal one. Write
 down the commit, the phone and its OS version beside each result.
 
 Two apps carry the module:
@@ -27,7 +27,7 @@ Two apps carry the module:
    the line "Walking · 0 min" shows, with steps and height as they come.
    Record that only one alert showed, and that the fixture's
    `steps-status` and `height-status` then both read `true granted`
-   (the two statuses read one decision).
+   (the two statuses read one decision, D15).
 2. **A walk.** Walk for ten minutes with the phone in hand, up a flight of
    stairs or a hill if one is near. The steps rise every few seconds; the
    height reads "↑ N m" and rises on the stairs; "· N.N km" shows where
@@ -46,7 +46,7 @@ Two apps carry the module:
    Fieldnotes: no summary, and no note mentions the walk.
 7. **A start older than a week.** In the fixture, the steps' `since` is
    the first ask's moment. Record what `count` reads after the phone's
-   date is moved eight days ahead in Settings (whether Core Motion
+   date is moved eight days ahead in Settings (D12: whether Core Motion
    moves `startDate`); move it back after.
 
 ## Android phone, API 29 or later
@@ -62,7 +62,7 @@ Two apps carry the module:
 3. **The sensor path.** On a phone without Google Play services (or with
    it disabled), repeat 2: in the foreground the count rises; after the
    background walk `since` moves to the return and the count restarts
-   from 0 (no steps it could not have seen).
+   from 0 (D12: no steps it could not have seen).
 4. **The hidden poll.** With the app's activity in the background for ten
    minutes, return: the count shows at once, never an error line
    (`count-error` empty).

@@ -1,15 +1,15 @@
-//! A design token edited while the app runs: the rows
+//! A design token edited while the app runs (LLP 1121 D7, D13): the rows
 //! that read it are set again from their text in their own tuple, with no
 //! tree visited and no binding evaluated; a colour row so set moves no
 //! geometry, so the commit paints. A token that overrides a role sets the
-//! session's overrides too, which its host re-presents.
+//! session's overrides too (stage 5), which its host re-presents.
 
 use super::{DataSource, Runner, RunnerError};
 use exact_kernel::{CommitReceipt, Op, StyleProps};
 
 impl<D: DataSource> Runner<D> {
     /// Edit token `name`: its default tuple's value and, when it varies,
-    /// every tuple's (the editor's edit). Each row the index keeps that
+    /// every tuple's (the editor's edit, D13). Each row the index keeps that
     /// read it is set again in one commit; how many is the second value.
     pub fn set_token(
         &mut self,
@@ -21,7 +21,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Edit several tokens as [`set_token`](Self::set_token) does one, in
-    /// one commit (a live batch). Nothing is set when any
+    /// one commit (a live batch, LLP 1121 stage 4). Nothing is set when any
     /// is refused.
     pub fn set_tokens(
         &mut self,
@@ -41,7 +41,7 @@ impl<D: DataSource> Runner<D> {
                 .find(|t| self.plan.str(t.name) == name)
                 .ok_or_else(|| refused("is no token this plan keeps"))?;
             // A role's value also crosses to the hosts and the kernel's own
-            // defaults: the session's overrides take it.
+            // defaults (LLP 1095 D4's reach): the session's overrides take it.
             let role = self.plan.str(token.role);
             if let Some(id) = exact_kernel::style::roles::role(role) {
                 let colour = crate::bridge::role_colour(value)
@@ -60,7 +60,7 @@ impl<D: DataSource> Runner<D> {
         for &(name, value, slices) in edits {
             moved |= crate::bridge::edit_token(&self.plan, name, value, slices);
         }
-        // What a binding reads moved (`Tamber::inputs`), if a value did.
+        // What a binding reads moved (`Forma::inputs`), if a value did.
         if moved {
             self.design_moves += 1;
         }
@@ -108,7 +108,7 @@ impl<D: DataSource> Runner<D> {
             .into_iter()
             .map(|(id, patch)| Op::SetStyle { id, patch })
             .collect();
-        // A node's state looks that read one, whole.
+        // A node's state looks that read one, whole (LLP 1121 D8).
         let mut looks: Vec<_> = self
             .ids
             .theme
@@ -128,7 +128,7 @@ impl<D: DataSource> Runner<D> {
             self.ids.theme.looks_read(view, tokens);
         }
         // A Markdown node's faces that read one, read again in their own
-        // tuple, as a row is. Faces the edit leaves with a
+        // tuple (LLP 1045.000 D2), as a row is. Faces the edit leaves with a
         // colour that is none, where the faces as set took it, keep their
         // old value, as a row its parse refuses does, and the journal names
         // it; a colour the faces as set refused is refused again silently.

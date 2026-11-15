@@ -1,7 +1,7 @@
 //! A bake run outside Cargo is told its target by `TARGET` alone
 //! (`exact-js-bake --cargo`), and a module binding answers `supports` for
 //! that target's OS: false on tvOS, which none of `@exact/clipboard`'s
-//! implementations names, the declared types on iOS. The
+//! implementations names, the declared types on iOS (LLP 1133.006 D7). The
 //! binding goes through `tsc` and Rolldown as an app's does.
 use exact_js_bake::{bake, Tools};
 use std::path::{Path, PathBuf};

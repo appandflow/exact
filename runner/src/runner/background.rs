@@ -1,4 +1,4 @@
-//! The module's background work: storage an answer started
+//! The module's background work (LLP 1097 D5): storage an answer started
 //! and did not await, finished after the answer under one ticket of its
 //! own. The ticket is a request in flight, so `holds`, `has_pending` and
 //! `clock settle` see it on every native host, but it is no target's: it
@@ -11,6 +11,7 @@ use crate::request::{Outcome, Request, RequestOut};
 /// The round out for the module's background work, if any.
 #[derive(Default)]
 pub(super) struct Background {
+    module: Option<super::ModuleInstance>,
     /// The runner ticket of the round the host holds.
     ticket: Option<u64>,
     /// Rounds delivered since the work began: `background: done (N operations)`.
@@ -52,12 +53,21 @@ impl<D: DataSource> Runner<D> {
         let ticket = self.next_ticket;
         self.next_ticket += 1;
         self.background.ticket = Some(ticket);
+        self.background.module = self.data.module_identity("").map(|m| m.instance());
         self.requests.push(RequestOut {
+            class: crate::RequestClass::Ordered,
             ticket,
             target: NAME.into(),
             request,
             forced: false,
         });
+    }
+
+    pub(super) fn failed_background(&self) -> Option<(u64, String)> {
+        Some((
+            self.background.ticket?,
+            self.background.module.as_ref()?.failure()?.to_owned(),
+        ))
     }
 
     /// The host's admission refusal of the round out, if any, that
@@ -100,12 +110,12 @@ impl<D: DataSource> Runner<D> {
                 | super::DataError::BadArguments(m)
                 | super::DataError::Unavailable(m)
                 | super::DataError::Interface(m)
-                | super::DataError::DeferredAtBake(m)
+                | super::DataError::DeferredAtBake { message: m, .. }
                 | super::DataError::Overrun(m)
                 | super::DataError::Failed(_, m, _),
             ) => {
                 // The executor's own failure, not a failed operation (those
-                // are the module's `storage failed:` lines).
+                // are the module's `storage failed:` lines, D8).
                 self.background.rounds = 0;
                 self.log(exact_num::text!("background failed: {}", m));
             }
@@ -114,7 +124,7 @@ impl<D: DataSource> Runner<D> {
 
     /// `poison()`: the round goes with the other requests. What the store
     /// already has completes on disk; what still waits in the module is
-    /// named.
+    /// named (D5).
     pub(super) fn drop_background(&mut self) {
         if self.background.ticket.take().is_some() {
             let waiting = self.data.background_state().map_or(0, |s| s.queued);
@@ -126,23 +136,25 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// The module's journal lines, into the journal.
+    /// The module's journal lines (LLP 1097 D8), into the journal; its
+    /// `console` lines also queued for the host (LLP 1027.009 D2).
     pub(super) fn take_data_logs(&mut self) {
         self.hear_aborted();
         for line in self.data.take_logs() {
-            self.log(line);
+            self.journal_module_line(line);
         }
     }
 
     /// The module's storage operations queued or in flight: the
-    /// `background` count a `clock` reply carries beside `inflight`.
+    /// `background` count a `clock` reply carries beside `inflight` (LLP
+    /// 1097 D9).
     pub fn background_operations(&self) -> u64 {
         self.data
             .background_state()
             .map_or(0, |s| s.queued + s.in_flight)
     }
 
-    /// `state.background`, or `None` for a source with no
+    /// `state.background` (LLP 1097 D8), or `None` for a source with no
     /// background storage.
     pub fn background_state(&self) -> Option<crate::BackgroundState> {
         self.data.background_state()

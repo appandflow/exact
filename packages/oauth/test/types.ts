@@ -1,4 +1,4 @@
-// index.d.ts declares what index.ts implements, read as an app's
+// index.d.ts declares what index.ts implements (LLP 1146 D5), read as an app's
 // checker reads it, through the package's `types` export: beside index.ts, an
 // import of `../index.d.ts` resolves to index.ts itself. Each pair is one type,
 // as `Same` compares them: a member either side lacks, an optional one too,

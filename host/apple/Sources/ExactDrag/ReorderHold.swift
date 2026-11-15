@@ -1,4 +1,4 @@
-// Arrange (`reorderFor` / `reorderdrop`) on the Apple hosts.
+// Arrange (`reorderFor` / `reorderdrop`, LLP 1041 §8.5) on the Apple hosts.
 // The platform recognizes the contact (a handle drag or long press on iOS, a
 // mouse drag on macOS); Rust holds the lifted row and asks the collection for
 // the gap; this maps the pointer, keeps the handle's interaction pin until the

@@ -1,13 +1,13 @@
-//! Which components are an app's library's. In each package the app links that
-//! is `"private": true` and ships a design, each component its entry (`exports`
-//! "." or `index.contract`) declares, and each its entry re-exports: a name a
-//! `use` in it brings from another file of the package, through any chain of
-//! such files and renames (`use Card as Fancy`), a `use` naming the package
-//! itself by a subpath too. Read from the package's files on disk, so a
-//! component an app reaches by a subpath, past the entry, is the library's all
-//! the same; each file read is a build input. A file of another package nested
-//! inside it (vendored, its own `node_modules`) is that package's, never this
-//! one's.
+//! LLP 1139 D0: which components are an app's library's. In each package
+//! the app links that is `"private": true` and ships a design, each
+//! component its entry (`exports` "." or `index.contract`) declares, and
+//! each its entry re-exports: a name a `use` in it brings from another file
+//! of the package, through any chain of such files and renames (`use Card
+//! as Fancy`), a `use` naming the package itself by a subpath too. Read
+//! from the package's files on disk, so a component an app reaches by a
+//! subpath, past the entry, is the library's all the same; each file read
+//! is a build input. A file of another package nested inside it (vendored,
+//! its own `node_modules`) is that package's, never this one's.
 
 use super::{home, packages, Sources};
 use crate::resolve::{package_design, package_entry, package_subpath, Origin};

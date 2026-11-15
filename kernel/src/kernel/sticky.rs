@@ -1,4 +1,4 @@
-//! `position: sticky`: what a host needs to place a sticky box as
+//! `position: sticky` (LLP 1083): what a host needs to place a sticky box as
 //! its scroller scrolls. Layout places the box as a relative one with no
 //! offset (`style.rs`); each frame the host scrolls, it shifts the box by
 //! [`StickyConstraint::offset`], as a browser does (CSS Positioned Layout 3
@@ -91,7 +91,7 @@ impl Kernel {
         let arena = &self.arena;
         let slot = arena.resolve(key)?;
         let style = arena.effective_style(slot);
-        // In a multi-column flow, sticky is relative.
+        // @ref LLP 1093 D10.6 — in a multi-column flow, sticky is relative.
         // Sticky for layout: a popover's platform start's sticky is not.
         if crate::style::top_layer::layout_position(arena, slot) != PositionType::Sticky
             || crate::fragment::in_flow(arena, slot)
@@ -101,7 +101,7 @@ impl Kernel {
         self.laid_out_frame(key)?;
         let tree = self.layout.as_deref().and_then(LayoutMirror::tree_ref)?;
         let parent = arena.parent(slot)?;
-        // A host's containing block is a root's: the
+        // A host's containing block is a root's (LLP 1115.002 D8.2): the
         // scrollport when nothing inside it scrolls, and its own root's
         // parent is in another space.
         if arena.blocks.holds(slot) {
@@ -154,7 +154,8 @@ impl Kernel {
         }
         let port = content(scroller)?;
         let (w, h) = (port[2] - port[0], port[3] - port[1]);
-        let env = arena.env();
+        // An inset may read the safe area where the box is (LLP 1123 D9)
+        let env = &*super::owner::env_for(arena, slot, &style);
         Some(StickyConstraint {
             scroller: arena.local_id(scroller),
             natural: at(slot),
@@ -166,10 +167,10 @@ impl Kernel {
             ],
             port,
             insets: [
-                length(style.top, h, env),
-                length(style.right, w, env),
-                length(style.bottom, h, env),
-                length(style.left, w, env),
+                length(style.top.clone(), h, env),
+                length(style.right.clone(), w, env),
+                length(style.bottom.clone(), h, env),
+                length(style.left.clone(), w, env),
             ],
         })
     }

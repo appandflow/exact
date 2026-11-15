@@ -1,10 +1,11 @@
-// The parity page for CSS backdrop blur and saturation, the browser the
+// LLP 1053.000's parity page: CSS backdrop blur and saturation, the browser the
 // oracle. A backdrop of hard-edged colour bars, and over it four glass boxes:
 // a small and a large blur, the feed's glass (blur 20, rounded, a translucent
 // white tint) and a blur across a black/white edge, which is what measures a
 // host's Gaussian. `none` is the control: it must leave the bars sharp.
 // Chrome's picture (the web host at 1×) is backdrop.web.png; Linux's raster
-// test holds both painters to it.
+// test holds both painters to it, and LLP 1053.000 §3 records how far each
+// Apple mapping lands from it.
 // The lower bars add grayscale, saturation above one, both function orders,
 // rounded tinted glass, and identity. A red child stays outside the filter.
 component Backdrop

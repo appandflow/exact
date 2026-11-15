@@ -1,8 +1,8 @@
-//! In a grouped section, a `button` or `link` that holds the row's title, with
-//! a later text beside it, is the row's title: it grows, its face is leading
-//! and centred in the row's height, and the later text is the value at the far
-//! edge (a grocery list's rows). A lone button row stays an action cell, and an
-//! authored `text-align` wins.
+//! LLP 1116.021 D4: in a grouped section, a `button` or `link` that holds
+//! the row's title, with a later text beside it, is the row's title: it
+//! grows, its face is leading and centred in the row's height, and the later
+//! text is the value at the far edge (round 19's grocery-list). A lone button
+//! row stays an action cell, and an authored `text-align` wins.
 
 use exact_kernel::{Kernel, Offer, StyleMask, TextAlign};
 use exact_runner::{DataError, DataSource, Runner, Value};
@@ -112,9 +112,39 @@ fn a_button_holding_the_title_is_the_title_and_the_later_text_its_value() {
     );
 }
 
-/// A row of columns its author sized (`flex=1` each, event-rsvp's counts over
-/// captions) is laid out as CSS lays it: no column is squeezed under its
-/// caption's width, so no caption runs into the next.
+/// A mark shown by `if` before the button, or a name the button chooses
+/// with `if`, leaves the button the title, as a literal one does.
+#[test]
+fn a_title_chosen_by_if_is_still_the_title() {
+    let r = boot(
+        r#"list appearance="auto" testId="list" flex=1
+  section
+    row testId="item" gap=8 align-items="center"
+      if 1 > 0
+        image "symbol:star"
+      button press=go testId="toggle" display="flex" min-height=44
+        if 1 > 0
+          text "Bananas" testId="name"
+        else
+          image "symbol:star"
+      text "× 1" testId="qty""#,
+    );
+    let k = r.kernel();
+    let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+    let (row, button, qty) = (frame("item"), frame("toggle"), frame("qty"));
+    assert!(
+        row.x + row.width - (qty.x + qty.width) <= 17.0 && qty.width < row.width / 4.0,
+        "the value trails: {qty:?} in {row:?}"
+    );
+    assert!(
+        button.x + button.width >= qty.x - 9.0,
+        "the title grows to the value: {button:?}, {qty:?}"
+    );
+}
+
+/// A row of columns its author sized (`flex=1` each, event-rsvp's counts
+/// over captions, round 21) is laid out as CSS lays it: no column is
+/// squeezed under its caption's width, so no caption runs into the next.
 #[test]
 fn columns_the_author_sized_keep_their_words_width() {
     let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row padding-top=14 padding-bottom=14\n      column flex=1 align-items=\"center\" testId=\"c0\"\n        text \"1\"\n        text \"Going\" testId=\"t0\"\n      column flex=1 align-items=\"center\" testId=\"c1\"\n        text \"1\"\n        text \"Maybe\" testId=\"t1\"\n      column flex=1 align-items=\"center\" testId=\"c2\"\n        text \"0\"\n        text \"Can’t go\" testId=\"t2\"";
@@ -143,12 +173,13 @@ fn columns_the_author_sized_keep_their_words_width() {
 
 /// A `column` around the title's one text is the title as a bare text is:
 /// it grows, and the text after it is the value at the far edge, not a
-/// second title sharing the row (grocery-list's quantity mid-row).
+/// second title sharing the row (grocery-list's quantity mid-row, round 24).
 /// Where the two do not fit one line the value goes under the title, at its
 /// leading edge, and the title takes the row's width, as UIKit's value cell
 /// stacks them (iOS 27): a long title at the default size, both at the
 /// largest. The row is a custom cell, so a word longer than the title's line
-/// breaks at a letter, as a UILabel's does, and not between syllables.
+/// breaks at a letter, as a UILabel's does, and not between syllables (LLP
+/// 1141.001 D5).
 #[test]
 fn a_column_holding_the_title_is_the_title_and_the_later_text_its_value() {
     for (name, root, beside) in [
@@ -199,7 +230,7 @@ fn a_column_holding_the_title_is_the_title_and_the_later_text_its_value() {
     }
 }
 
-/// The standard cell's texts hyphenate, as
+/// LLP 1141.001 D5: the standard cell's texts hyphenate, as
 /// UIListContentConfiguration's labels do (a title, a title and its value,
 /// the subtitle cell, `RowText`'s stand-in for it, a swipe's row of that
 /// shape). An author's own content in a row (Hackers' feed row: a thumbnail
@@ -250,11 +281,11 @@ fn only_the_standard_cells_texts_hyphenate() {
     }
 }
 
-/// A swipe's row is carried as a custom row, so its bare title and value stack
-/// as the value cell's do where they do not fit (grocery-list: "heirloo/m"
-/// beside its quantity at the largest size). A row of two bare texts with no
-/// swipe is the value cell the platform's list draws, which stacks them itself:
-/// the sheet keeps them side by side.
+/// A swipe's row is carried as a custom row, so its bare title and value
+/// stack as the value cell's do where they do not fit (round 26's
+/// grocery-list: "heirloo/m" beside its quantity at the largest size). A row
+/// of two bare texts with no swipe is the value cell the platform's list
+/// draws, which stacks them itself: the sheet keeps them side by side.
 #[test]
 fn a_swipe_rows_bare_title_and_value_stack_where_they_do_not_fit() {
     for (swipe, under) in [(" delete=go", true), ("", false)] {
@@ -321,7 +352,7 @@ fn a_rows_trailing_button_goes_under_its_text_where_the_text_would_be_squeezed()
 /// A row whose one part is a box of the author's (a button's face laid out
 /// in a `row`) fills the cell, as a hand-built cell pins its stack to its
 /// content view's edges: a bar in it is a share of the row's width, not of
-/// its label's (polls: two 50% bars of different lengths).
+/// its label's (round 29's polls: two 50% bars of different lengths).
 #[test]
 fn a_rows_one_box_fills_the_row() {
     let option = |n: &str, label: &str, mark: &str| {
@@ -357,8 +388,8 @@ fn a_rows_one_box_fills_the_row() {
 /// A bare title before two values (a lap, its time and its total) is no
 /// value cell: it is boxed with them, and each value wraps under the one
 /// before where they do not fit, as a hand-built cell's labels stack at the
-/// accessibility sizes, so the title beside the two is not squeezed to no
-/// width at the largest size, nor the total run past the row (stopwatch).
+/// accessibility sizes. Beside the two at the largest size the title was
+/// squeezed to no width and the total ran past the row (stopwatch, round 30).
 #[test]
 fn a_bare_title_before_two_values_keeps_its_words_and_they_stack() {
     for (root, beside) in [(17.0f32, true), (53.0, false)] {
@@ -399,8 +430,8 @@ fn a_bare_title_before_two_values_keeps_its_words_and_they_stack() {
 
 /// A box its author grows before any text is the title's room, and a text
 /// after it, shown or not by an `if`, the value at the far edge:
-/// water-tracker's day row, whose "Goal met" would otherwise take half the
-/// row from its bar as a second title.
+/// water-tracker's day row (round 33), whose "Goal met" took half the row
+/// from its bar as a second title.
 #[test]
 fn a_grown_box_before_the_text_keeps_the_room_and_the_text_trails() {
     let r = boot(

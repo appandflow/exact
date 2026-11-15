@@ -1,8 +1,9 @@
-//! Storage that finishes after the answer: an answer replies when
+//! Storage that finishes after the answer (LLP 1097): an answer replies when
 //! its value is ready, the storage it started and did not await finishes as
 //! the module's background work under one round at a time, every operation
 //! of the module runs in one queue in the order issued, and what fails is
 //! journaled.
+#![cfg(exact_js_engine)]
 use super::storage::{args, call, plan, text, Root, GRANTS};
 use exact_js::Module;
 use exact_kernel::{Kernel, PropId};
@@ -14,8 +15,8 @@ use exact_runner::{
 };
 use std::collections::{HashMap, VecDeque};
 
-/// What a native host does with background work after each call:
-/// each round's continuation runs on a worker and comes back, until no
+/// What a native host does with background work after each call (LLP 1097
+/// D5): each round's continuation runs on a worker and comes back, until no
 /// round is due. The rounds it ran.
 pub(crate) fn rounds(m: &mut Module, s: &Store) -> usize {
     let mut rounds = 0;
@@ -219,7 +220,7 @@ impl Host {
     }
 }
 
-/// No spin. A background write, an answer's read queued
+/// D3's first test: no spin. A background write, an answer's read queued
 /// behind it, and an idle module: each storage continuation round the host
 /// runs ends with exactly one delivery (two operations, two rounds), the
 /// read waits with the module rather than on the store, and an idle module
@@ -275,7 +276,7 @@ fn background_rounds_equal_deliveries_and_an_idle_module_hands_out_none() {
     assert_eq!(read_file(&root, "song"), "one");
 }
 
-/// An answer that starts a write and does not await it replies in its
+/// D1: an answer that starts a write and does not await it replies in its
 /// own turn; the write lands under the background round. One that awaits
 /// its write replies after it.
 #[test]
@@ -302,7 +303,7 @@ fn an_unawaited_write_lands_after_the_reply_and_an_awaited_one_before() {
     assert_eq!(done, ["awaited"]);
 }
 
-/// Storage keeps one order, the order issued. Two unawaited edits, then
+/// D3: storage keeps one order, the order issued. Two unawaited edits, then
 /// a read, with no settle between: the read sees the second edit. Chained
 /// on a promise, the second edit is issued only when the first lands, so the
 /// read, issued before it, sees the first; the file ends as the second.
@@ -334,7 +335,7 @@ fn two_unawaited_edits_then_a_read_see_the_second_edit_and_a_chain_its_first() {
     assert_eq!(read_file(&root, "song"), "four");
 }
 
-/// Liveness: an answer awaiting a promise chained on background work
+/// D2's liveness: an answer awaiting a promise chained on background work
 /// waits with the module, and replies after the work lands.
 #[test]
 fn an_answer_awaiting_background_work_waits_for_it() {
@@ -356,7 +357,7 @@ fn an_answer_awaiting_background_work_waits_for_it() {
     assert_eq!(done, ["saved one", "after "]);
 }
 
-/// The bound: with 256 operations waiting behind the one in flight, the
+/// D3's bound: with 256 operations waiting behind the one in flight, the
 /// next call is refused at once with `full`, and the refusal is journaled.
 #[test]
 fn the_258th_operation_is_refused_full_and_journaled() {
@@ -379,7 +380,7 @@ fn the_258th_operation_is_refused_full_and_journaled() {
     );
 }
 
-/// Background work may not fetch or call the native module: each is
+/// D2: background work may not fetch or call the native module: each is
 /// refused to the app's promise and journaled, and no answer claims a
 /// request for it.
 #[test]
@@ -403,7 +404,23 @@ fn background_work_cannot_fetch_or_call_native() {
     assert_eq!(m.in_flight(), 0, "no answer claimed a request");
 }
 
-/// A failing background write rejects the app's own promise and is
+/// LLP 1069.005 D3: background work draws randomness, through a combinator and
+/// a database's step as directly (host/web-js/seeded-entropy.test.mjs).
+#[test]
+fn background_work_may_draw_randomness() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    for op in ["save-then-draw", "save-all-then-draw", "query-then-draw"] {
+        assert_eq!(call(&mut m, &mut s, op, "a"), "saved a");
+        rounds(&mut m, &s);
+        assert_eq!(call(&mut m, &mut s, "last-error", ""), "36/4", "{op}");
+        assert_eq!(call(&mut m, &mut s, "reset-error", ""), "reset");
+    }
+}
+
+/// D8: a failing background write rejects the app's own promise and is
 /// journaled, with `state.background` counting it; an unhandled rejection
 /// is journaled through the engine's tracker.
 #[test]
@@ -432,7 +449,7 @@ fn background_failures_and_unhandled_rejections_are_journaled() {
     );
 }
 
-/// The host does not close a database for work
+/// D7 (Charlie, 2026-10-07): the host does not close a database for work
 /// that failed (an app may keep or share a handle); a database still open
 /// after a failure in the background work that opened it is journaled with
 /// the fix.
@@ -459,7 +476,7 @@ fn a_database_left_open_by_failed_background_work_is_journaled() {
     );
 }
 
-/// A value given at once, its save chained in
+/// drums R10 and R11 together: a value given at once, its save chained in
 /// the answer's checkpoint, lands; the next edit's answer does not wait for
 /// it.
 #[test]
@@ -491,7 +508,7 @@ impl DataSource for Quiet {
     }
 }
 
-/// The composers: every round, the first and the next, reaches the host's
+/// D5's composers: every round, the first and the next, reaches the host's
 /// requests through `Storage`, `Mixed` and `Placed` on `Main`, and the
 /// module's journal through each `take_logs`.
 #[test]
@@ -549,7 +566,7 @@ fn rounds_and_journal_lines_pass_through_the_composers() {
         .any(|l| l.ends_with("data: unhandled rejection: lost x")));
 }
 
-/// No answer waits for another to begin. One asked while another's
+/// D4.5: no answer waits for another to begin. One asked while another's
 /// awaited write is in flight begins and replies at once; two that await
 /// interleave at their awaits, in the order their operations were issued,
 /// as two async calls do on the web (`write1`, `writeB`, `write2`).
@@ -580,7 +597,7 @@ fn answers_begin_at_once_and_interleave_at_their_awaits() {
     assert_eq!(read_file(&root, "song"), "now");
 }
 
-/// A dev restart or a reload unloads the module; what its answers left
+/// D10: a dev restart or a reload unloads the module; what its answers left
 /// is finished first, within a second.
 #[test]
 fn unloading_finishes_what_the_answers_left() {
@@ -653,54 +670,66 @@ fn a_let_go_chain_behind_a_background_write_finishes() {
     assert!(!host.runner.has_pending());
 }
 
-/// A storage continuation that fails (the 30s timeout, here passed in)
-/// settles the head. The answer fails, the failure is journaled, and a
-/// later storage call is issued instead of waiting on that promise.
+/// A storage wait's failure rejects the answer, while its operation stays
+/// owned by the module until actual completion. Later writes keep their order.
 #[test]
-fn a_failed_storage_continuation_releases_the_queue() {
-    let root = Root::new();
-    let mut m = root.module();
-    m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
-    let a = args("file", "first");
-    assert!(matches!(
-        m.answer(&mut s, "work", &a).unwrap(),
-        Answer::Later(_)
-    ));
-    let err = m
-        .parse(
-            &mut s,
-            "work",
-            &a,
-            Outcome::Failed {
-                kind: FailureKind::Aborted,
-                message: "storage continuation timed out".into(),
-            },
-        )
-        .unwrap_err();
-    // A storage call's failure the module let through.
-    let DataError::Failed(FailureCode::Storage, message, _) = err else {
-        panic!("{err:?}");
-    };
-    assert!(message.contains("timed out"), "{message}");
-    let logs = DataSource::take_logs(&mut m);
-    assert!(
-        logs.iter()
-            .any(|l| l.contains("storage failed:") && l.contains("timed out")),
-        "{logs:?}"
-    );
-    let saved = args("save", "after");
-    assert!(matches!(
-        m.answer(&mut s, "work", &saved).unwrap(),
-        Answer::Now(_)
-    ));
-    // The timed-out write's task can still complete. Its delivery is ignored
-    // (`op.settled`); the save, issued after the head was cleared, lands in
-    // a later round.
-    assert!(rounds(&mut m, &s) >= 1, "the save was never delivered");
-    assert_eq!(read_file(&root, "song"), "after");
-    let state = m.background_state().unwrap();
-    assert_eq!(state.queued + state.in_flight, 0);
+fn a_failed_storage_continuation_keeps_in_flight_work_owned() {
+    for unload in [false, true] {
+        let root = Root::new();
+        let mut m = root.module();
+        m.activate().unwrap();
+        let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+        let a = args("timeout-queue", "first");
+        assert!(matches!(
+            m.answer(&mut s, "work", &a).unwrap(),
+            Answer::Later(_)
+        ));
+        let err = m
+            .parse(
+                &mut s,
+                "work",
+                &a,
+                Outcome::Failed {
+                    kind: FailureKind::Aborted,
+                    message: "storage continuation timed out".into(),
+                },
+            )
+            .unwrap_err();
+        // A storage call's failure the module let through (LLP 1109 D3).
+        let DataError::Failed(FailureCode::Storage, message, _) = err else {
+            panic!("{err:?}");
+        };
+        assert!(message.contains("timed out"), "{message}");
+        let state = m.background_state().unwrap();
+        assert_eq!((state.queued, state.in_flight, state.failed), (0, 1, 2));
+        let logs = DataSource::take_logs(&mut m);
+        assert!(
+            logs.iter()
+                .any(|l| l.contains("storage failed:") && l.contains("timed out")),
+            "{logs:?}"
+        );
+        let saved = args("save", "after");
+        assert!(matches!(
+            m.answer(&mut s, "work", &saved).unwrap(),
+            Answer::Now(_)
+        ));
+        assert!(m.background_state().unwrap().in_flight > 0);
+        if unload {
+            m.unload();
+        } else {
+            // The first round delivers the timed-out write before the save starts.
+            assert!(rounds(&mut m, &s) >= 1, "the save was never delivered");
+            let state = m.background_state().unwrap();
+            assert_eq!(state.queued + state.in_flight, 0);
+        }
+        assert_eq!(read_file(&root, "song"), "after");
+        for name in ["song-orphan", "song-reaction"] {
+            assert!(
+                !root.0.join("data").join(name).exists(),
+                "{name} was issued"
+            );
+        }
+    }
 }
 
 #[test]

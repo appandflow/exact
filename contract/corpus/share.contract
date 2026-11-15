@@ -1,6 +1,6 @@
-// `share`: a link, text alone, a refused relative URL, and a
+// `share` (LLP 1069.003): a link, text alone, a refused relative URL, and a
 // menu item, beside the `canShare` fact that decides whether to offer it;
-// and `files=`: an app file, a picture of the card, and a
+// and `files=` (LLP 1125 D12): an app file, a picture of the card, and a
 // file no grant covers.
 shape Page
   visibilityState: string

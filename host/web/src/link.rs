@@ -1,5 +1,8 @@
 //! What this artifact links beyond the core.
 //!
+//! @ref LLP 1047 D3 (the generated entry links what the plan uses)
+//! @ref LLP 1047 D6 (using an unlinked capability is a named refusal)
+//!
 //! The core host never names a capability's crate. It reaches one only
 //! through [`Linked`], which the app's generated entry fills with the
 //! capabilities its plan uses (`exact-web-capabilities` holds them), and
@@ -14,14 +17,14 @@ use std::cell::Cell;
 /// The capabilities an artifact links: one registration per capability.
 #[derive(Clone, Copy)]
 pub struct Linked {
-    /// Markdown: a source, its `atoms` and its `atomFaces`
+    /// Markdown: a source, its `atoms` and its `atomFaces` (LLP 1045.000)
     /// as the batch's `markupPieces` JSON.
     pub markup: Option<fn(&str, &str, &str) -> String>,
     /// Motion: the spring engine a host holds instead of
     /// [`crate::motion::Still`].
     pub motion: Option<fn() -> Box<dyn crate::motion::Motion>>,
     /// Lists the host windows: the runner's engines for them, and their
-    /// exports (`list_exports!`) are in.
+    /// exports (`list_exports!`) are in (LLP 1047.000 §9).
     pub collections: Option<&'static exact_runner::ListLinks>,
     /// Drags: the host's hooks for them, which the entry passes as
     /// [`crate::HostLinks::of`] this set.
@@ -29,60 +32,70 @@ pub struct Linked {
     /// GPU canvas surfaces: the runner's answer for a surface's record, and
     /// their exports (`surface_exports!`) are in.
     pub surface_answer: exact_runner::SurfaceAnswer,
-    /// Canvas 2D, linked with surfaces: a canvas with a surface
+    /// Canvas 2D (LLP 1056), linked with surfaces: a canvas with a surface
     /// is a 2D one when its source draws it.
     pub canvas: exact_runner::CanvasLink,
-    /// The router: the runner's routing for a plan with routes.
+    /// The router (LLP 1038): the runner's routing for a plan with routes.
     pub router: exact_runner::RouterLink,
-    /// `formatDate` and `formatNumber`: the runner's
+    /// `formatDate` and `formatNumber` (LLP 1054.000.003 D8): the runner's
     /// bodies for a plan that calls one.
     pub format: exact_runner::FormatLink,
-    /// Inspection: the agent API's reads. Not a plan's use: the
-    /// entry links it by policy, in production too.
+    /// Inspection (LLP 1012): the agent API's reads. Not a plan's use: the
+    /// entry links it by policy, in production too (LLP 1047 §10, Q3).
     pub inspection: bool,
-    /// The wide colour forms, linked when the plan or the
+    /// The wide colour forms (LLP 1056 §8.2), linked when the plan or the
     /// data crate's source names one: registered at [`link`].
     pub wide_colors: Option<fn()>,
-    /// `backgroundMaterial`: a material's CSS variables
+    /// `backgroundMaterial` (LLP 1053.000 D4): a material's CSS variables
     /// appended to a node's style, and the line to log, once, for a name
     /// the table lacks.
     pub materials: Option<Materials>,
-    /// `backdrop-filter`'s grammar: linked at [`link`].
+    /// `backdrop-filter`'s grammar (LLP 1053.000 D1): linked at [`link`].
     pub backdrop: Option<fn()>,
-    /// `openAuthSession`: linked when the app grants
+    /// `openAuthSession` (LLP 1069.006): linked when the app grants
     /// `auth.session`; [`crate::HostLinks::of`] reads it.
     pub auth: bool,
-    /// `share(…)`.
+    /// `share(…)` (LLP 1069.003).
     pub share: bool,
-    /// `saveFile` and the file pickers.
+    /// `saveFile` and the file pickers (LLP 1069.010).
     pub documents: bool,
-    /// `input type="file"` and `showPicker`: a file input's
+    /// `input type="file"` and `showPicker` (LLP 1069.002): a file input's
     /// `change` payload, read.
     pub picker: Option<PickedPayload>,
-    /// Drag timelines' grammar: linked at [`link`].
+    /// Drag timelines' grammar (LLP 1057.003): linked at [`link`].
     pub timelines: Option<fn()>,
-    /// `text-transform`'s case mapping: linked at [`link`].
+    /// `text-transform`'s case mapping (LLP 1064 D5): linked at [`link`].
     pub text_transform: Option<fn()>,
-    /// `filter`'s and `clip-path`'s grammars:
+    /// `filter`'s and `clip-path`'s grammars (LLP 1055.000 D10, D14):
     /// linked at [`link`].
     pub effects: Option<fn()>,
-    /// CSS animations: their grammars, linked at [`link`],
+    /// CSS animations (LLP 1055 D5): their grammars, linked at [`link`],
     /// and the page's CSS for them.
     pub animations: Option<AnimationsLink>,
-    /// `background-image`'s gradient grammar: linked at [`link`].
+    /// `background-image`'s gradient grammar (LLP 1066): linked at [`link`].
     pub gradients: Option<fn()>,
     /// CSS grid's grammar, validation and serialization: linked at [`link`]
     /// when any grid row is bound.
     pub grid: Option<fn()>,
-    /// `env(viewport-segment-*)`'s grammar: linked at [`link`].
+    /// Shadow grammars (LLP 1077 D3, D4), linked at [`link`].
+    pub shadows: Option<fn()>,
+    /// Corner shape grammar (LLP 1077 D1), linked at [`link`].
+    pub corners: Option<fn()>,
+    /// Rotation grammars (LLP 1077 D8), linked at [`link`].
+    pub rotate: Option<fn()>,
+    /// Text stroke grammar (LLP 1077 D7), linked at [`link`].
+    pub text_stroke: Option<fn()>,
+    /// Symbol palette grammar (LLP 1077 D10), linked at [`link`].
+    pub symbol_palette: Option<fn()>,
+    /// `env(viewport-segment-*)`'s grammar (LLP 1078 D3): linked at [`link`].
     pub segments: Option<fn()>,
-    /// `frame` and `measure`: the page's answers, through
+    /// `frame` and `measure` (LLP 1051.000 D4): the page's answers, through
     /// one import `geometry-glue.js` answers.
     pub geometry: exact_runner::GeometryLink,
-    /// `data-*` words: a `dataset` row's pairs, each
+    /// `data-*` words (LLP 1075.003 §3.3): a `dataset` row's pairs, each
     /// written as its own attribute.
     pub dataset: Option<DatasetPairs>,
-    /// A navigation root's tabs: its routes as each
+    /// A navigation root's tabs (LLP 1075.003 §3.7): its routes as each
     /// tab's stack shows them.
     pub tabs: Option<crate::document::TabRoutes>,
 }
@@ -94,10 +107,10 @@ pub type DatasetPairs = fn(&str) -> Vec<(String, String)>;
 /// style, and the line to log, once, for a name the table lacks.
 pub type Materials = (fn(&mut String, &str), fn(&str) -> Option<String>);
 
-/// CSS animations on the page, which only an artifact that
+/// CSS animations on the page (LLP 1055 D5, D7), which only an artifact that
 /// animates carries: the grammars' link, a node's `animation` list as CSS
 /// and each entry's `@keyframes` rule, by name and body. `bool` is whether the
-/// node's press feedback composes through `--exact-scale`.
+/// node's press feedback composes through `--exact-scale` (LLP 1061).
 #[derive(Clone, Copy)]
 pub struct AnimationsLink {
     /// Link the grammars.
@@ -117,7 +130,7 @@ pub struct AnimationsLink {
 pub type PickedPayload = fn(&str) -> Option<Vec<exact_runner::Picked>>;
 
 impl Linked {
-    /// The runner's device capabilities this names: each
+    /// The runner's device capabilities this names (LLP 1047 D3): each
     /// linked one's entries, [`exact_runner::DeviceLinks::CORE`]'s none for
     /// the rest.
     pub const fn device_links<D: exact_runner::DataSource>(self) -> exact_runner::DeviceLinks<D> {
@@ -158,6 +171,11 @@ impl Linked {
         animations: None,
         gradients: None,
         grid: None,
+        shadows: None,
+        corners: None,
+        rotate: None,
+        text_stroke: None,
+        symbol_palette: None,
         geometry: None,
         segments: None,
         dataset: None,
@@ -167,16 +185,19 @@ impl Linked {
     /// The capabilities registered here.
     pub fn uses(&self) -> Uses {
         // A grouped list is its authored nodes on the web, and the browser
-        // does its own I/O and plays CSS's transitions; its
-        // numerals roll in the runtime's text, and its date
-        // and time controls are its own pickers:
-        // nothing to link for any of them.
+        // does its own I/O and plays CSS's transitions (LLP 1047.001 D2); its
+        // numerals roll in the runtime's text (LLP 1077 D15), its date
+        // and time controls are its own pickers (LLP 1115.001.000 D2), and
+        // it shows no tips (LLP 1035.006.000 D4): nothing to link for any
+        // of them.
         let mut uses = Uses::NONE
             .with(Capability::GroupedLists)
             .with(Capability::Io)
             .with(Capability::Transitions)
             .with(Capability::Numerals)
-            .with(Capability::Dates);
+            .with(Capability::Dates)
+            .with(Capability::Sqlite)
+            .with(Capability::Tips);
         if self.markup.is_some() {
             uses = uses.with(Capability::Markdown);
         }
@@ -232,6 +253,21 @@ impl Linked {
         if self.grid.is_some() {
             uses = uses.with(Capability::Grid);
         }
+        if self.shadows.is_some() {
+            uses = uses.with(Capability::Shadows);
+        }
+        if self.corners.is_some() {
+            uses = uses.with(Capability::Corners);
+        }
+        if self.rotate.is_some() {
+            uses = uses.with(Capability::Rotate);
+        }
+        if self.text_stroke.is_some() {
+            uses = uses.with(Capability::TextStroke);
+        }
+        if self.symbol_palette.is_some() {
+            uses = uses.with(Capability::SymbolPalette);
+        }
         if self.geometry.is_some() {
             uses = uses.with(Capability::Geometry);
         }
@@ -283,6 +319,21 @@ pub fn link(linked: Linked) {
     if let Some(link) = linked.grid {
         link();
     }
+    if let Some(link) = linked.shadows {
+        link();
+    }
+    if let Some(link) = linked.corners {
+        link();
+    }
+    if let Some(link) = linked.rotate {
+        link();
+    }
+    if let Some(link) = linked.text_stroke {
+        link();
+    }
+    if let Some(link) = linked.symbol_palette {
+        link();
+    }
     if let Some(link) = linked.segments {
         link();
     }
@@ -321,7 +372,7 @@ pub(crate) fn runner_links() -> exact_runner::RunnerLinks {
         canvas: linked().canvas,
         format: linked().format,
         geometry: linked().geometry,
-        // The browser's grants are I/O it does itself.
+        // The browser's grants are I/O it does itself (LLP 1047.001).
         grants: exact_runner::RunnerLinks::ALL.grants,
         keyframes: linked().animations.map(|a| a.keyframes),
         // The browser plays a font axis's CSS transition itself.
@@ -329,8 +380,7 @@ pub(crate) fn runner_links() -> exact_runner::RunnerLinks {
     }
 }
 
-/// Admit a plan only if this artifact links everything it uses; using an
-/// unlinked capability is a named refusal.
+/// Admit a plan only if this artifact links everything it uses (D6).
 pub(crate) fn admit(plan: &exact_plan::Plan) -> Result<(), HostError> {
     let missing = exact_runner::uses(plan).beyond(linked().uses());
     if missing.is_empty() {
@@ -343,6 +393,72 @@ pub(crate) fn admit(plan: &exact_plan::Plan) -> Result<(), HostError> {
 #[cfg(test)]
 mod tests {
     use crate::{Host, HostError};
+
+    #[test]
+    fn decoration_shadows_are_refused_when_unlinked_and_emitted_when_linked() {
+        let plan = contract::compile(
+            "decoration glow text-shadow=\"0 0 1px #000\"\ncomponent A\n  view\n    textarea decorations=TextDecorations(value=\"a\", spans=[TextDecorationSpan(name=\"glow\", start=0, end=1)])\n",
+        )
+        .unwrap();
+        crate::link(crate::Linked::CORE);
+        let refused = Host::boot(&plan.encode(), (), Default::default(), "/").map(|_| ());
+        assert!(
+            matches!(&refused, Err(HostError::Unlinked(names)) if names == "shadows"),
+            "{refused:?}"
+        );
+        let mut linked = crate::Linked::CORE;
+        linked.shadows = Some(exact_kernel::style::link_shadows);
+        crate::link(linked);
+        let (_, batch) = Host::boot(&plan.encode(), (), Default::default(), "/").unwrap();
+        assert!(
+            batch.contains("text-shadow:0px 0px 1px #000000ff"),
+            "{batch}"
+        );
+    }
+
+    #[test]
+    fn visual_grammars_are_refused_before_literal_or_computed_bindings_run() {
+        for (row, value, capability) in [
+            ("box-shadow", "0 2px 4px #000", "shadows"),
+            ("text-shadow", "1px 2px #000", "shadows"),
+            ("corner-shape", "squircle", "corners"),
+            ("rotate", "y 30deg", "rotate"),
+            ("-webkit-text-stroke", "1px #f00", "text_stroke"),
+            ("-exact-symbol-palette", "#f00 #00f", "symbol_palette"),
+        ] {
+            for expression in [format!("\"{value}\""), "paint".into()] {
+                crate::link(crate::Linked::CORE);
+                let plan = contract::compile(&format!(
+                    "component A\n  state paint = \"{value}\"\n  view\n    text \"a\" {row}={expression}\n"
+                ))
+                .unwrap();
+                let refused = Host::boot(&plan.encode(), (), Default::default(), "/").map(|_| ());
+                assert!(
+                    matches!(&refused, Err(HostError::Unlinked(names)) if names == capability),
+                    "{row}={expression}: {refused:?}"
+                );
+                let mut linked = crate::Linked::CORE;
+                match capability {
+                    "shadows" => linked.shadows = Some(exact_kernel::style::link_shadows),
+                    "corners" => linked.corners = Some(exact_kernel::style::link_corners),
+                    "rotate" => linked.rotate = Some(exact_kernel::style::link_rotate),
+                    "text_stroke" => {
+                        linked.text_stroke = Some(exact_kernel::style::link_text_stroke)
+                    }
+                    "symbol_palette" => {
+                        linked.symbol_palette = Some(exact_kernel::style::link_symbol_palette);
+                    }
+                    _ => unreachable!(),
+                }
+                crate::link(linked);
+                let (_, batch) = Host::boot(&plan.encode(), (), Default::default(), "/").unwrap();
+                assert!(
+                    batch.contains("\"error\":null"),
+                    "{row}={expression}: {batch}"
+                );
+            }
+        }
+    }
 
     /// The core alone on this test's thread, whatever an earlier test on
     /// it linked (the test harness may reuse a thread).
@@ -371,7 +487,7 @@ mod tests {
         .unwrap();
         assert!(exact_runner::uses(&rolls).has(exact_runner::Capability::Numerals));
         assert!(Host::boot(&rolls.encode(), (), Default::default(), "/").is_ok());
-        // A segment length is linked by use; the fold's fields are the core's.
+        // LLP 1078 D3: a segment length is linked by use; the fold's fields are the core's.
         let segments = contract::compile(
             "component A\n  view\n    column width=\"env(viewport-segment-width 0 0)\"\n",
         )
@@ -394,7 +510,7 @@ mod tests {
             matches!(&refused, Err(HostError::Unlinked(names)) if names == "motion, drag"),
             "{refused:?}"
         );
-        // `formatNumber` is `format`'s; `formatTime` the core's.
+        // LLP 1054.000.003 D8: `formatNumber` is `format`'s; `formatTime` the core's.
         let count =
             contract::compile("component A\n  view\n    text formatNumber(1250, \"compact\")\n")
                 .unwrap()

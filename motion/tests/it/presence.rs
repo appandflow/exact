@@ -1,4 +1,4 @@
-//! Exit animations and layout transitions in the engine.
+//! Exit animations and layout transitions in the engine (LLP 1063).
 
 use crate::keyframed;
 use exact_motion::{AnimationError, Change, Engine, Property, Transitions, Value};
@@ -204,7 +204,7 @@ fn an_exit_must_end() {
     close(a.end_time(), 0.5);
 }
 
-/// Under `still` (a scrub's frame) a layout change jumps, and
+/// Under `still` (a scrub's frame, LLP 1121 D13) a layout change jumps, and
 /// one moving stops at the new box; outside it the next moves again.
 #[test]
 fn a_still_layout_change_jumps_and_stops_one_moving() {

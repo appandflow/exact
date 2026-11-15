@@ -1,6 +1,6 @@
-//! A retiring list row rebound to the item the window needs shows exactly what
-//! a row built for that item shows, under its new key, epoch and place, and
-//! every view of it is renewed for motion and the host.
+//! LLP 1078: a retiring list row rebound to the item the window needs shows
+//! exactly what a row built for that item shows, under its new key, epoch and
+//! place, and every view of it is renewed for motion and the host.
 use exact_kernel::{Kernel, NodeKey, PropId, ViewId};
 use exact_plan::Value;
 use exact_runner::{CollectionFeedback, DataError, DataSource, Runner};
@@ -399,7 +399,7 @@ fn a_limited_report_rebinds_the_rows_it_would_keep() {
 }
 
 /// Travel of two viewports between passes, under a lead (a host that waits
-/// for its pass): the rows behind are all two viewports past the
+/// for its pass, LLP 1078): the rows behind are all two viewports past the
 /// port when a pass sees them, and its first slice builds only its limit.
 /// The rest wait for the slices after it, which rebind them: once the window
 /// has grown to its lead, no row is built from nothing.

@@ -1,22 +1,22 @@
-// @exact/speech-recognition on the web: the
+// @exact/speech-recognition on the web (LLP 1133.012 D7–D10, §9): the
 // browser's `SpeechRecognition` (or `webkitSpeechRecognition`), answered in
 // the interface's shapes.
 //
-// - Inputs: `track=` is a consumer of a track `@exact/media-capture`
+// - Inputs (D8): `track=` is a consumer of a track `@exact/media-capture`
 //   opened, holding its lease like a recorder, where the browser takes one
 //   (desktop Chrome 135 and later, `start(audioTrack)`); its start is an
 //   app's explicit start, which reopens an idle track, never a tool's or a
 //   wake's. `microphone=true` is `start()`, under an exclusive hold of the
 //   session's microphone (the track table's `hold`), since the browser's
 //   recognizer opens its own capture. The web transcribes no file.
-// - A recognition is an id, its state a value: final results numbered
+// - A recognition is an id (D7), its state a value: final results numbered
 //   from 0, the last `history` of them (20 by default, 200 at most, 256 KB at
 //   most) with the interim one. Every final goes, as it arrives, to the
 //   `transcript=` directory as JSON Lines files of at most 1 MiB, the
 //   directory emptied when the recognition starts.
 // - A reply the runtime drops aborts its recognition; leaving the foreground
-//   aborts every one, its finals so far kept.
-// - Under the agent no browser API is used: the status is the runner's,
+//   aborts every one (D10), its finals so far kept.
+// - Under the agent no browser API is used (§9): the status is the runner's,
 //   and a recognition hears what the drive says it hears (`heard`), one word
 //   as an interim result every 300 ms of the session clock from the moment
 //   the phrase is set and the final 500 ms after the last word; a
@@ -32,17 +32,21 @@ const AGENT_STATUS = { available: true, state: 'granted', inputs: ['track', 'mic
 const NO_INFO = { id: '', leavesDevice: false, finalCount: 0, transcript: null, files: 0, error: null };
 const NO_RECOGNITION = { id: '', state: 'ended', audio: false, sound: false, speech: false, results: [], finalCount: 0, interim: null, leavesDevice: false, error: null, message: null };
 
-/** A final result's text in pieces of at most 16 KB, split at a word boundary. */
+/** A final result's text in pieces of at most 16 KB of UTF-8, preferring a word boundary (D7). */
 export function pieces(text) {
-  const out = [];
+  const out = [], encoder = new TextEncoder(), buffer = new Uint8Array(SPLIT);
   let rest = text;
-  while (new TextEncoder().encode(rest).length > SPLIT) {
-    let cut = rest.lastIndexOf(' ', SPLIT);
-    if (cut <= 0) cut = SPLIT;
+  while (true) {
+    // encodeInto reads only whole code points that fit in the byte buffer.
+    const { read } = encoder.encodeInto(rest, buffer);
+    if (read === rest.length) break;
+    let cut = rest.lastIndexOf(' ', read);
+    if (cut <= 0) cut = read;
     out.push(rest.slice(0, cut));
     rest = rest.slice(cut).trimStart();
   }
-  out.push(rest);
+  // An empty input still represents a result: nomatch has no alternatives (D7).
+  if (rest || !out.length) out.push(rest);
   return out;
 }
 
@@ -60,7 +64,7 @@ export function implementation({ changed, agent, now, log, tracks, files, foregr
   const say = line => log?.(`speech-recognition: ${line}`);
   const announce = () => changed('speech-recognition.speechRecognitionState');
 
-  // ------------------------------------------------------------ the status
+  // ------------------------------------------------------------ the status (D7, D8, D11)
   /** What the browser's recognizer takes: a track on desktop Chrome 135 and later; elsewhere the microphone. */
   function browserStatus() {
     if (!Recognition) return { available: false, state: 'unknown', inputs: [], local: false, apple: null, android: null };
@@ -71,8 +75,12 @@ export function implementation({ changed, agent, now, log, tracks, files, foregr
     return { available: true, state: track ? 'granted' : 'unknown', inputs: track ? ['track', 'microphone'] : ['microphone'], local: 'processLocally' in Recognition.prototype, apple: null, android: null };
   }
   const status = () => agent ? { ...AGENT_STATUS, ...overlay } : browserStatus();
+  /** Whether this recognition's audio may leave the device (D9). Only `processLocally=true` makes the browser keep it
+   * there: with it false or omitted the browser may choose its remote service, though `status.local` says it could
+   * run on the device (Web Speech API, `processLocally`). The agent's recognizer is local where its status says so. */
+  const leaves = (args, s) => !args.processLocally && (!agent || !s.local);
 
-  // ------------------------------------------------------------ results and the transcript
+  // ------------------------------------------------------------ results and the transcript (D7)
   const info = r => ({ id: r.id, leavesDevice: r.leavesDevice, finalCount: r.finalCount, transcript: r.transcript, files: r.files, error: r.state === 'ended' ? r.error : null });
   const shape = r => ({
     id: r.id, state: r.state, audio: r.audio, sound: r.sound, speech: r.speech,
@@ -83,8 +91,8 @@ export function implementation({ changed, agent, now, log, tracks, files, foregr
   function final(r, alternatives, start = null, end = null) {
     const best = alternatives[0]?.transcript ?? '';
     const parts = pieces(best);
-    parts.forEach((text, i) => {
-      const result = { index: r.finalCount++, alternatives: i === 0 && parts.length === 1 ? alternatives : [{ transcript: text, confidence: alternatives[0]?.confidence ?? 0 }], start, end, apple: null };
+    parts.forEach(text => {
+      const result = { index: r.finalCount++, alternatives: parts.length === 1 && text === best ? alternatives : [{ transcript: text, confidence: alternatives[0]?.confidence ?? 0 }], start, end, apple: null };
       r.results.push(result);
       if (r.results.length > MAX_HISTORY) r.results.shift();
       write(r, JSON.stringify(result) + '\n');
@@ -102,7 +110,7 @@ export function implementation({ changed, agent, now, log, tracks, files, foregr
       r.fileSize += bytes.byteLength;
     }).catch(e => { if (!r.failed) { r.failed = true; say(`${r.transcript}: not written: ${e.message}`); } });
   }
-  /** `r` ends (with `error`): its input let go, its files finished; sticky. */
+  /** `r` ends (with `error`): its input let go, its files finished; sticky (D7). */
   function finish(r, error = null, message = null) {
     if (r.state === 'ended') return r.done;
     r.state = 'ended'; r.error ??= error; r.message ??= message;
@@ -115,7 +123,7 @@ export function implementation({ changed, agent, now, log, tracks, files, foregr
     return r.done;
   }
 
-  // ------------------------------------------------------------ the agent's hearing
+  // ------------------------------------------------------------ the agent's hearing (§9)
   /** `r` moved to the session clock's now: the words of each phrase heard since it began. */
   function advance(r) {
     if (!agent || r.state !== 'listening' || r.file) return;
@@ -139,7 +147,7 @@ export function implementation({ changed, agent, now, log, tracks, files, foregr
     if (!r.continuous && !r.finalCount && t - r.began >= NO_SPEECH_MS) finish(r, 'no-speech');
   }
 
-  // ------------------------------------------------------------ the browser's recognizer
+  // ------------------------------------------------------------ the browser's recognizer (D9)
   function browser(r, args) {
     const s = new Recognition();
     if (args.lang != null) s.lang = args.lang;
@@ -177,14 +185,14 @@ export function implementation({ changed, agent, now, log, tracks, files, foregr
     const r = {
       id: `recognition-${++next}`, input, state: 'starting', audio: false, sound: false, speech: false, results: [], finalCount: 0, interim: null,
       error: null, message: null, continuous: !!args.continuous, interimResults: !!args.interimResults,
-      history: Math.max(1, Math.min(MAX_HISTORY, args.history ?? HISTORY)), leavesDevice: args.processLocally ? false : !s.local,
+      history: Math.max(1, Math.min(MAX_HISTORY, args.history ?? HISTORY)), leavesDevice: leaves(args, s),
       transcript: args.transcript ?? null, files: 0, fileSize: 0, writing: Promise.resolve(), began: now(), cursor: now(), heard: 0, seen: 0, file: input === 'file',
     };
     if (input === 'track') {
       const entry = tracks.lookup(args.track);
       if (entry?.kind !== 'audio') return { error: 'InvalidStateError' };
     }
-    // `processLocally` where the recognizer cannot keep audio on the device opens nothing.
+    // `processLocally` where the recognizer cannot keep audio on the device (D9) opens nothing.
     const refused = args.processLocally && !s.local;
     if (input === 'microphone' && !refused) {
       try { r.release = tracks.hold('audio'); } catch (e) { return { error: e.code ?? 'NotReadableError' }; }
@@ -215,7 +223,7 @@ export function implementation({ changed, agent, now, log, tracks, files, foregr
     announce();
     return info(r);
   }
-  /** `r` consumes `track`: its lease, as a recorder holds one; its start an app's explicit start.
+  /** `r` consumes `track`: its lease, as a recorder holds one; its start an app's explicit start (D8, D10).
    * False for a track that has ended. The browser's recognizer starts on the capture's source (`r.live`). */
   function subscribe(r, track) {
     let source = null, ended = false, begin = null;
@@ -293,14 +301,14 @@ export function implementation({ changed, agent, now, log, tracks, files, foregr
         announce();
       }
     },
-    /** Recognitions whose reply was dropped: aborted, never the app's. */
+    /** Recognitions whose reply was dropped: aborted, never the app's (D7). */
     dispose(ids) {
       for (const id of ids) {
         const r = recognitions.get(id);
         if (r && r.state !== 'ended') { say(`${id}: its reply was dropped; aborted`); r.interim = null; r.recognizer?.abort(); finish(r, 'aborted'); }
       }
     },
-    /** Recognition is a foreground activity: leaving the foreground aborts every one. */
+    /** Recognition is a foreground activity: leaving the foreground aborts every one (D10). */
     foreground(visible) {
       if (visible || shown()) return;
       for (const r of recognitions.values()) {

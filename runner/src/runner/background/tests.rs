@@ -1,4 +1,4 @@
-//! The background ticket, the runner half: a scripted module
+//! The background ticket, the runner half (LLP 1097 D5): a scripted module
 //! whose background work is a count of rounds, no engine.
 use super::super::*;
 use crate::{Outcome, Request, Response, Store};

@@ -1,4 +1,4 @@
-// The conformance fixture: every name of
+// The conformance fixture (LLP 1133.001 D7; LLP 1133.035 §12): every name of
 // @exact/nfc, read and sent as an app would, each answer shown by testId for
 // the suite. A reading's records with their bytes, a write of bytes and the
 // tier 2 commands are data code's (app.ts).

@@ -1,5 +1,5 @@
 // Portable Rust storage operations use the same filesystem and SQLite services
-// as TS. Handles never cross this boundary.
+// as TS. Handles never cross this boundary. @ref LLP 1027.001 D2.
 import { bodyTarget, createFileSystem, requestBody } from './storage-fs.js';
 import { createSqlite } from './storage-sqlite.js';
 import { agentStorageRefusal, storageKey } from './storage-environment.js';
@@ -30,12 +30,12 @@ const wire = value => {
   return value;
 };
 const result = r => ({changes:String(r.changes),lastInsertRowid:String(r.lastInsertRowid)});
-// `compressImage`'s edit from a request's record; a null field is an absent one.
+// `compressImage`'s edit from a request's record (LLP 1133.019 D15); a null field is an absent one.
 const edit = args => Object.fromEntries(['rotate','flip','crop'].filter(k=>args[k]!=null).map(k=>[k,args[k]]));
 function base64(bytes) { let text='';for (let i=0;i<bytes.length;i+=16384)text+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(text); }
 export function createStorageRequests(appId, admitted) {
   const services = new Map(), key = storageKey(appId); let disposed = false;
-  // What the app keeps across launches is read back before a request reaches it.
+  // What the app keeps across launches is read back before a request reaches it (LLP 1069.010.000 D4).
   const kept = globalThis.exact.documents.keeping(appId, admitted);
   // Each database's requests take turns. The worker opens a database under
   // its file's exclusive lock, in one queue per page: a second open waiting
@@ -53,6 +53,20 @@ export function createStorageRequests(appId, admitted) {
   };
   const check = () => { if(disposed)throw new Error('storage source unloaded'); };
   return {
+    /** A canvas capture's encoded file at `path` (LLP 1056 D9, as amended for #188), as `fs.atomicWriteFile`
+     *  writes it, under `scope` (the app's grants, or a source's narrower ones). */
+    async writeCapture(path, bytes, scope = null, active = () => true) {
+      check();
+      scope ??= admitted;
+      const invalid = grantError(scope); if (invalid) throw new Error(invalid);
+      if (key == null) throw Object.assign(new Error(agentStorageRefusal), { code: 'agent' });
+      const target = await bodyTarget(appId, scope, path);
+      const refusal = () => {
+        check();
+        return active() ? undefined : new DOMException("the capture's ticket is no longer held", 'AbortError');
+      };
+      return target.put(new Response(bytes), bytes.byteLength, null, refusal, refusal);
+    },
     async run(payload, scope = null) {
       try {
         check();
@@ -60,15 +74,15 @@ export function createStorageRequests(appId, admitted) {
         const request=JSON.parse(payload), {op,args}=request;
         scope ??= admitted;
         const invalid=grantError(scope);if(invalid)throw new Error(invalid);
-        // `fs.recentDocuments` and `fs.forgetDocument`: the page's kept handles.
+        // `fs.recentDocuments` and `fs.forgetDocument` (LLP 1069.010.000 D5): the page's kept handles.
         if (op==='fs.recentDocuments'||op==='fs.forgetDocument') {
           await kept;
           const value=op==='fs.recentDocuments'?await globalThis.exact.documents.recent(scope):await globalThis.exact.documents.forget(args?.path,scope);
           return encoder.encode(JSON.stringify(value??null));
         }
-        // Two app files, never a document: refused before the document branch.
+        // Two app files, never a document (LLP 1069.002 A1.1): refused before the document branch.
         if ((op==='fs.compressImage'||op==='fs.transformImage') && ![args?.path,args?.destination].every(p=>typeof p==='string'&&p.startsWith('app:/'))) throw new Error(op.slice(3)+': needs app:/ paths');
-        // A document the person chose is not app storage.
+        // A document the person chose is not app storage (LLP 1069.010 D1).
         // A document copied into an app file needs app storage too (documents-glue.js `copyFile`).
         const copiesIn=op==='fs.copyFile'&&typeof args?.path==='string'&&args.path.startsWith('doc:/')&&typeof args.destination==='string'&&args.destination.startsWith('app:/');
         if (request.version===1 && typeof args?.path==='string' && args.path.startsWith('doc:/') && !copiesIn) {
@@ -78,7 +92,7 @@ export function createStorageRequests(appId, admitted) {
           return encoded;
         }
         if (key == null) {
-          // The first refused read or write is said once, as on every host: the page's console reaches the driver's logs.
+          // The first refused read or write is said once, as on every host (trivia F7): the page's console reaches the driver's logs.
           if (!toldAgent) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); }
           throw new Error(agentStorageRefusal);
         }
@@ -88,6 +102,8 @@ export function createStorageRequests(appId, admitted) {
         const {fs,sqlite}=services.get(scopeKey); let value;
         if (op==='sqlite' || op==='sqlite.transaction') {
           if (!Array.isArray(args.commands) || args.commands.length>10000) throw new Error('invalid SQLite commands');
+          // As data/host/src/native.rs refuses it: a request has no foreignKeys mode.
+          if (Object.hasOwn(args,'foreignKeys')) throw new Error('storage: a Rust source\'s SQLite request has no foreignKeys mode; run the migration from app.ts with transaction(statements, { foreignKeys: "check" })');
           const commands=args.commands.map(c=>{
             if (!c || !['execute','query'].includes(c.kind) || typeof c.sql!=='string' || !Array.isArray(c.params)) throw new Error('invalid SQLite command');
             return {...c,params:c.params.map(sqlValue)};
@@ -119,7 +135,7 @@ export function createStorageRequests(appId, admitted) {
             case 'fs.compressImage':
               value=await fs.compressImage(args.path,args.destination,{...edit(args),maxDimension:args.maxDimension,maxBytes:args.maxBytes,...(args.type==null?{}:{type:args.type})});break;
             case 'fs.transformImage': {
-              // The record is the edit's options beside the two paths.
+              // The record is D14's options beside the two paths (LLP 1133.019 D17).
               const {path,destination,...options}=args;
               value=await fs.transformImage(path,destination,options);break;
             }

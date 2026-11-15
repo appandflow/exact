@@ -1,6 +1,7 @@
-//! A virtualized list in a virtualized list's row. It lives and dies with
-//! the row, keeps its position across the row's retirement by default, pins
-//! its outer row, and builds only what it owes while the outer list moves.
+//! LLP 1070 stage 4: a virtualized list in a virtualized list's row. It
+//! lives and dies with the row (N1), keeps its position across the row's
+//! retirement by default (Q1), pins its outer row (N5), and builds only what
+//! it owes while the outer list moves (F2).
 use exact_kernel::Kernel;
 use exact_plan::Value;
 use exact_runner::{
@@ -333,7 +334,7 @@ fn an_inner_list_first_builds_what_its_own_size_shows() {
 /// Items above a kept position that were measured apart from their estimate
 /// (80 against 100) come back as estimates in a new list: their difference is
 /// spread over those estimates, so the kept item starts where it did and the
-/// offset comes back exactly, not only the item.
+/// offset comes back exactly, not only the item (LLP 1070 §4.2).
 #[test]
 fn a_kept_position_comes_back_at_the_same_offset_over_measured_items() {
     let mut r = boot(STRIP, 100);

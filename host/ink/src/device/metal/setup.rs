@@ -311,7 +311,7 @@ pub(super) fn cache_path(device: &ProtocolObject<dyn MTLDevice>) -> Option<PathB
         .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(|p| PathBuf::from(p).join("exact")))
         .or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".cache/exact")))?;
     // Metal's driver ships with the OS. The key includes its build, the device
-    // and AIR; v2 identifies this pipeline and vertex layout.
+    // and AIR; v2 identifies this pipeline and vertex layout. @ref LLP 1149 D14.
     let os = NSProcessInfo::processInfo()
         .operatingSystemVersionString()
         .to_string();

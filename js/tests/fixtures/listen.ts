@@ -1,4 +1,4 @@
-// A local listener: the mapper answers a bad line at once on
+// A local listener (LLP 1133.005): the mapper answers a bad line at once on
 // its own connection and keeps each connection's handle, so a mutation
 // answers a good one later; a mutation cannot listen.
 

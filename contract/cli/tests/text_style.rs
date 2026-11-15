@@ -1,10 +1,11 @@
-//! A text style carries its weight and its leading, per platform, when
-//! `font-weight` and `line-height` are unsaid. Named through the `font`
-//! shorthand (or a heading) the style resets both, beating an inherited value;
-//! named by a bare `font-size` it fills only what nothing above says. Per
-//! longhand: written on the node, a shorthand's style, inherited, a bare
-//! style's, CSS's default. The Mac's `headline` is bold and its styles carry
-//! their own leading. One test, its own process: the column is the process's.
+//! LLP 1115.000 D12.2: a text style carries its weight and its leading, per
+//! platform, when `font-weight` and `line-height` are unsaid. Named through
+//! the `font` shorthand (or a heading) the style resets both, beating an
+//! inherited value; named by a bare `font-size` it fills only what nothing
+//! above says. Per longhand: written on the node, a shorthand's style,
+//! inherited, a bare style's, CSS's default. The Mac's `headline` is bold
+//! and its styles carry their own leading. One test, its own process: the
+//! column is the process's.
 use exact_kernel::style::metrics::{set_column, Column};
 use exact_kernel::{Kernel, RowValue, StyleId};
 use exact_runner::{DataError, DataSource, Runner, Value};

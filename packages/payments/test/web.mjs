@@ -1,4 +1,4 @@
-// @exact/payments on the web, real: the fixture
+// @exact/payments on the web, real (LLP 1133.034 §12 stage 2): the fixture
 // app built for the web, outside the agent, in Playwright's Chromium, Firefox
 // and WebKit. No wallet is signed in to any of them, so what runs is what a
 // browser answers without one:

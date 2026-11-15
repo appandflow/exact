@@ -1,4 +1,4 @@
-//! Subtract the union of filled projections in each band.
+//! @ref LLP 1043.000 §3 D6 — subtract the union of filled projections in each band.
 use crate::FlowShape;
 
 /// Clear `out` and return sorted free intervals in `[0,width)` for `[top,bottom)`.

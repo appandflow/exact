@@ -1,5 +1,5 @@
-# The resolved SVG filter chain and its wire form.
-# A leaf below the kernel, so the island rasterizer
+# The resolved SVG filter chain and its wire form (LLP 1055.000 D14).
+# @ref LLP 1036.000 §12 — a leaf below the kernel, so the island rasterizer
 # (a loaded module on Apple) reads a chain without compiling the kernel.
 # No dependency.
 [package]

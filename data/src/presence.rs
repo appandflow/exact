@@ -1,4 +1,4 @@
-//! A presence secret's calls from Rust data code:
+//! A presence secret's calls from Rust data code (LLP 1133.010 D5, D14):
 //! `store.has` and `store.locked` are the [`exact_runner::Store`]'s own; the
 //! calls that wait on the host's backend are a request a source returns as
 //! `Answer::Later` from `answer` and reads in `parse`, as the module calls
@@ -34,7 +34,7 @@ pub fn unprotect(name: &str, reason: &str) -> Request {
 }
 
 /// A presence call's reply: `unlock`'s value (`None` when nothing is kept),
-/// `None` for `protect` and `unprotect`; else the error's code and message.
+/// `None` for `protect` and `unprotect`; else D1's code and message.
 pub fn reply(outcome: Outcome) -> Result<Option<String>, ModuleError> {
     let Outcome::Response(response) = outcome else {
         return Err(ModuleError::new("UnknownError", outcome.summary()));

@@ -4,9 +4,9 @@ import XCTest
 @testable import ExactKit
 @testable import ExactMarkdown
 
-/// CSS `direction` is a plain field's paragraph base direction,
+/// LLP 1001 §1: CSS `direction` is a plain field's paragraph base direction,
 /// as it is Apple text's (`TextEngine.setBaseDirection`) and the Markdown
-/// editor's: an `input` (plain, password, search), a
+/// editor's (LLP 1045 D11): an `input` (plain, password, search), a
 /// `textarea` of either appearance, and a Markdown editor's text once its
 /// `markup` goes. No first strong character picks it. An unsaid
 /// `text-align` is `start`, the right under `rtl`, as on the web.

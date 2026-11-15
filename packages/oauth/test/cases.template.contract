@@ -1,4 +1,4 @@
-// @exact/oauth's app cases, for an app that signs in to one
+// @exact/oauth's app cases (LLP 1146 D6), for an app that signs in to one
 // profile of the fixture server (`fixture.ts`). `cases.mjs` writes one test
 // file per profile from this template: `{{PROFILE}}` is the profile, and
 // `{{CHOOSE}}` the step that picks it in an app that offers several (empty

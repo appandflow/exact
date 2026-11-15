@@ -1,4 +1,4 @@
-// @exact/store-review on Android: Play's In-App Review. `requestReviewFlow`, then
+// @exact/store-review on Android (LLP 1133.015 D12): Play's In-App Review. `requestReviewFlow`, then
 // `launchReviewFlow` over the activity in front; Play says nothing of whether the dialog showed, so the request
 // answers nothing and journals that it was made. The flow's task completes when it has finished, shown or not, which
 // is when the request answers. Under the agent it asks Play for nothing and journals each request.

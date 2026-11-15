@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// The I-beam shows over text a drag would select, as over
+/// LLP 1115.000 D7.9: the I-beam shows over text a drag would select, as over
 /// an `NSTextView`, and nowhere else: not over a control's label, the
 /// chrome's, text the author made unselectable, a link, or anything with a
 /// cursor of its own. It comes from the page's one tracking area: a

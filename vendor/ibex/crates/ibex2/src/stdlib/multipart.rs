@@ -4,6 +4,8 @@
 //! `ArrayBuffer`s. Only the final wire encoding crosses into this module. A
 //! Rust consumer uses the same [`FormData`] value directly, without an engine
 //! or a bindings handle table.
+//!
+//! @ref LLP 0057.000#l6--blob-file-formdata — JS shapes over bytes, multipart encoding in Rust
 
 use std::{error::Error, fmt};
 
@@ -68,6 +70,7 @@ impl FormDataEntry {
 /// The host ABI's entry list. Strings and file bytes remain borrowed from the
 /// inbound [`crate::boundary::HostArg`] spans until the final payload is
 /// written, so the ABI adds no intermediate file-byte copy.
+// @ref LLP 0059.000#12-what-by-handle-requires — inbound ArrayBuffers remain borrowed for the host call
 #[derive(Debug, Default)]
 #[cfg(feature = "bindings")]
 pub(crate) struct BorrowedFormData<'a> {

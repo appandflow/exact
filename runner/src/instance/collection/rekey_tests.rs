@@ -1,5 +1,5 @@
 //! Keying a changed answer from the previous keys where items are the same
-//! objects equals a full re-key: the same keys, repeats,
+//! objects equals a full re-key (LLP 1053 §0 G8): the same keys, repeats,
 //! identity texts, retained heights and measurement generations, and the
 //! same window. Each case reports how many rows it keyed.
 use super::*;

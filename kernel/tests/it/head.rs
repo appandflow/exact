@@ -1,4 +1,4 @@
-//! A document's metadata (`head`) takes no space: in a
+//! A document's metadata (`head`, LLP 1048.003 D1) takes no space: in a
 //! gapped row it is as if absent, whatever display rows it is given.
 use exact_kernel::{Kernel, NodeType, Offer, Op, StyleId, StyleProps, StyleValue, ViewId};
 

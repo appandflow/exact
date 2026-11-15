@@ -3,7 +3,7 @@
 The Extra Heavy feed (`../SPEC.md`) on exact2, bundle `dev.exact.xheavy.exact2`, built against the
 checkout this directory is in (the Cargo paths and `app.json`'s `$schema` are relative to it). One app
 serves iOS, macOS (`../mac/`) and the web (`../web/`). All 19 kinds are built (the nested `filmstrip`
-and `inbox` since origin/main `50a00477`).
+and `inbox` since LLP 1070 stage 4, origin/main `50a00477`).
 
 | path | what |
 |---|---|
@@ -53,10 +53,10 @@ The benchmark builds are signed archives with the probe embedded: `../ios/build-
 | 15 | live | the 1 Hz `secs` drives `Updated`, the countdown and `0:0X`; rings are SVG circles with `pathLength=1` and a per-base `@keyframes` on `stroke-dashoffset` (phase by negative delay); the playhead is a clipping window and its content translated against each other in `steps(48, jump-start)` over 12 s |
 | 16 | thread | `line-clamp=(open ? 0 : 3)` in a box whose `height` moves between `54px` and `auto` with `interpolate-size="allow-keywords" transition="height 250ms ease-in-out"`; expansion and the draft live in the DataSource keyed by row id (`toggle`, `draft`), `input value=… change=setDraft(id)` |
 | 17 | webview | `iframe src="assets/embed/<id>[-paused].html"` in a bordered rounded clipping box (no `srcdoc`) |
-| 18 | filmstrip | a nested horizontal virtualized list over the feed's shared 2,000 indices (`height=136`, `estimated-item-width=120`); each item computes its image and caption from the row's `img0`/`imgStep`/`num0`; the offset is kept across the row's retirement by the runner (the default) |
+| 18 | filmstrip | a nested horizontal virtualized list over the feed's shared 2,000 indices (`height=136`, `estimated-item-width=120`); each item computes its image and caption from the row's `img0`/`imgStep`/`num0`; the offset is kept across the row's retirement by the runner (LLP 1070 Q1 default) |
 | 19 | inbox | a nested vertical virtualized list (`height=399` in a bordered 400 pt box, `estimated-item-height=63`) over the shared 1,000 indices; message j is found in the 997-message pool with `first(filter(pool, p => p.i == …))` (Contract has no list indexing); the offset is kept by the runner |
 
 Freeze, live and start index come from `config()` on a 1 ms `after` at mount. BENCH_START_INDEX
-is `scrollIntoView("feed", key)` 400 ms after mount; `config()` names the key of the
+is `scrollIntoView("feed", key)` (LLP 1070.000) 400 ms after mount; `config()` names the key of the
 n-th row as the list shows it. BENCH_KINDS (`17`, or a kind list for the per-kind breakdown) filters
 the feed the launch asks for, so the first frame is already the filtered feed, as in SwiftUI's app.

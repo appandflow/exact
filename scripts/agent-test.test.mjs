@@ -1,16 +1,17 @@
 // Authored expects over a tree (agent-test.mjs): a node the tree carries but the
 // shipped app does not show — a header node the iOS navigation bar leaves out,
-// which the agent's own chrome still paints — fails, and says why.
+// which the agent's own chrome still paints — fails, and says why (LLP 1116 D2).
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { backendFetchPrefixes, churnLines, disabledExpectation, nativeFetchOrigins, NO_FAILURES, perfExpectation, propertyHolds, testMutationClock, refusalExpectation, refuseDisabled, runTests, serverRequest, testScope, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
+import { backendFetchPrefixes, churnLines, disabledExpectation, focusedExpectation, nativeFetchOrigins, NO_FAILURES, perfExpectation, pickHint, propertyHolds, testMutationClock, refusalExpectation, refuseDisabled, runTests, stateHolds, serverRequest, testScope, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
 import { axFindings } from './agent-ax.mjs';
 import { withEpoch } from './agent-launch.mjs';
 import { serveBuildTree } from '../host/web/serve.mjs';
+import { fileURLToPath } from 'node:url';
 
 test('always predicates preserve JSON types, option kinds and the previous state', () => {
   const state = { slots: { n: 2, flag: false, absent: null, answer: { ok: true }, empty: [], text: '2' }, derives: { doubled: 4 } };
@@ -80,7 +81,7 @@ test "reload is observed"
   tap "enable"
   reload
 `);
-  const root = new URL('..', import.meta.url).pathname;
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
   const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
   expect(compile.status, compile.stderr).toBe(0);
@@ -89,7 +90,12 @@ test "reload is observed"
   const server = createServer((req, res) => serveBuildTree(dist, req, res));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
-    const r = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/` });
+    // Each step is said before it runs and each result as it lands, in order (agent.mjs prints them as they come).
+    const heard = [];
+    const r = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/`,
+      atLine: ({ index, line, last, op }) => heard.push(`${index} ${line}/${last} ${op}`), atResult: (t) => heard.push(`= ${t.name}`) });
+    expect(heard).toEqual(['0 14/16 tap', '0 15/16 type', '0 16/16 clock', '= the three observations', '1 18/18 type', '= a fresh history', '2 20/21 tap', '2 21/21 reload', '= reload is observed']);
+    expect(heard.filter(h => h.startsWith('= ')).length).toBe(r.results.length);
     expect([r.passed, r.failed]).toEqual([1, 2]);
     const failures = r.results[0].failures.join('\n');
     expect(failures).toContain('PROPERTY "ready stays" is false on web');
@@ -109,9 +115,90 @@ test "boot only"
 `);
     const boot = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/` });
     expect(boot.failed).toBe(1);
+    writeFileSync(file, `test "bounded clock"
+  clock +100
+  expect state n >= 1
+  expect state n <= 1
+  expect state n in 0 1
+  expect state textValue in "" "ok"
+test "wrong lower bound"
+  expect state n >= 1
+`);
+    const bounds = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/` });
+    expect([bounds.passed, bounds.failed]).toEqual([1, 1]);
+    expect(bounds.results[1].failures.join('\n')).toContain('n is 0, expected >= 1');
+
     expect(boot.results[0].failures.join('\n')).toContain('at step 0: boot');
   } finally { server.close(); rmSync(dir, { recursive: true, force: true }); }
 }, 180_000);
+
+test('the fetch-loading-error recipe passes its own test', async () => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const dir = mkdtempSync(join(root, 'target/fetch-recipe-'));
+  const previousApp = process.env.EXACT_APP_DIR;
+  const dist = join(dir, 'dist'), file = join(dir, 'app.test.contract');
+  const posts = Array.from({ length: 10 }, (_, i) => ({ title: `Post ${i}` }));
+  let requests = 0;
+  const server = createServer((req, res) => {
+    if (req.url === '/posts?_limit=10') {
+      requests++;
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify(posts));
+    } else serveBuildTree(dist, req, res);
+  });
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const recipe = readFileSync(join(root, 'docs/recipes/fetch-loading-error.md'), 'utf8')
+      .replaceAll('https://jsonplaceholder.typicode.com', origin);
+    for (const [language, name] of [['contract', 'app.contract'], ['ts', 'app.ts'], ['contract-test', 'app.test.contract']]) {
+      const blocks = [...recipe.matchAll(new RegExp('^```' + language + '\\n([\\s\\S]*?)^```$', 'gm'))];
+      expect(blocks.length, language).toBe(1);
+      writeFileSync(join(dir, name), blocks[0][1]);
+    }
+    writeFileSync(join(dir, 'app.json'), JSON.stringify({
+      name: 'Fetch Recipe', app: { id: 'test.fetch-recipe', name: 'Fetch Recipe' }, host: { web: {} }, rust: false,
+    }));
+    const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'fetch-recipe', '--out', dist, '--render', 'none'], {
+      cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, encoding: 'utf8',
+    });
+    expect(build.status, build.stdout + build.stderr).toBe(0);
+    const result = await runTests({
+      host: 'web', app: dir, file, webDist: dist, url: `${origin}/`, env: { XDG_CACHE_HOME: join(dir, 'cache') },
+    });
+    expect(result.results.map(t => t.failures)).toEqual([[]]);
+    expect([result.passed, result.failed]).toEqual([1, 0]);
+    expect(requests).toBe(2);
+  } finally {
+    if (previousApp === undefined) delete process.env.EXACT_APP_DIR;
+    else process.env.EXACT_APP_DIR = previousApp;
+    await new Promise(resolve => server.close(resolve));
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 180_000);
+
+test('a pick with no picker held names the step that holds one on its host', () => {
+  expect(pickHint('web')).toContain('tap the visible file input or a button');
+  for (const host of ['macos', 'ios', 'linux']) {
+    expect(pickHint(host)).not.toContain('tap the visible file input');
+    expect(pickHint(host)).toContain('tap a button whose action calls showPicker("<input id>")');
+  }
+});
+
+test('modal ancestors remain structural while exposed siblings are findings', () => {
+  const elements = [
+    { i: 0, parent: null, id: 10, via: 'self', role: 'main', name: '' },
+    { i: 1, parent: 0, id: 11, via: 'self', role: 'group', name: '' },
+    { i: 2, parent: 1, id: 12, via: 'self', role: 'dialog', name: 'Setup' },
+    { i: 3, parent: 2, id: 13, via: 'self', role: 'button', name: 'Save' },
+    { i: 4, parent: 1, id: 14, via: 'self', role: 'button', name: 'Behind' },
+    { i: 5, parent: 0, id: 15, via: 'self', role: 'group', name: 'Sidebar' },
+  ];
+  for (const source of ['chrome-cdp', 'appkit']) {
+    const ax = { source, elements, modal: { present: true, element: 2 } };
+    expect(axFindings({ ax }).filter(f => f.kind === 'outside-modal').map(f => f.id)).toEqual([14, 15]);
+  }
+});
 
 test('a presented popover belongs to its AppKit modal for outside-modal findings', () => {
   const elements = [
@@ -152,7 +239,16 @@ test('present means shown in the app; missing is the tree\'s', () => {
   expect(treeExpectation(nodes, 'tagline', false).message).toBe('expected testId "tagline" absent, it was present');
 });
 
-// A disabled control is asserted, and pressing one fails the step.
+test('expect focused reads the node every host\'s tree marks focused, and names what holds the focus instead', () => {
+  const tree = [{ id: 1, type: 'Pressable', props: { testId: 'picker' } }, { id: 2, type: 'Pressable', props: { testId: 'row' }, focused: true }, { id: 3, type: 'Pressable', props: { testId: 'row' } }, { id: 4, type: 'View', props: {} }];
+  expect(focusedExpectation(tree, 'row')).toBeNull();
+  expect(focusedExpectation(tree, 'picker').message).toBe('expected "picker" focused, "row" has it');
+  expect(focusedExpectation(tree, 'gone').message).toBe('expected "gone" focused, no view carries that testId');
+  expect(focusedExpectation([tree[0], { ...tree[3], focused: true }], 'picker').message).toBe('expected "picker" focused, View#4 has it');
+  expect(focusedExpectation([tree[0]], 'picker').message).toBe('expected "picker" focused, nothing has the focus');
+});
+
+// LLP 1116.010 D3 (chat-rooms and password-generator, round 12): a disabled control is asserted, and pressing one fails the step.
 test('expect disabled and enabled read the prop every host\'s tree carries; a press is refused while context eligibility follows the element type', async () => {
   const tree = [{ id: 1, type: 'Pressable', props: { testId: 'send', disabled: true } }, { id: 2, props: { testId: 'arm' } }, { id: 3, props: { testId: 'native', disabled: 'true' } }, { id: 4, props: { testId: 'update', accessibilityDisabled: true } },
     { id: 5, type: 'View', props: { disabled: true } }, { id: 6, type: 'Pressable', props: { disabled: true, href: '/help' } },
@@ -184,7 +280,7 @@ test('an active screen\'s node is read before a covered one\'s', () => {
   expect(textExpectation(covered, 'count', '2 items left')).toBeNull();
 });
 
-// A test's `request` line is the driver calling the app's server, the persona's name its bearer token.
+// LLP 1116.006 D8: a test's `request` line is the driver calling the app's server, the persona's name its bearer token.
 test('a request line sends the method, the JSON body and the persona\'s token under the server URL; a refusal says its status and body', async () => {
   const seen = [];
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
@@ -200,7 +296,7 @@ test('a request line sends the method, the JSON body and the persona\'s token un
     await expect(serverRequest(base, { method: 'PATCH', path: '/refused', body: '{}', as: 'mallory' })).rejects.toThrow(`request PATCH ${base}/refused as mallory: the server answered 401 {"error":"Sign in again."}`);
     await expect(serverRequest(base, { method: 'DELETE', path: '/gone', body: null, as: 'bob' })).rejects.toThrow(`request DELETE ${base}/gone as bob: the server answered 404`);
     await expect(serverRequest(null, { method: 'GET', path: '/items', body: null, as: null })).rejects.toThrow('app.ts calls no local server');
-    // `expect <status>` passes on that status and fails on any other, a success included.
+    // LLP 1116.010 D3 (polls, round 12): `expect <status>` passes on that status and fails on any other, a success included.
     await serverRequest(base, { method: 'DELETE', path: '/gone', body: null, as: 'bob', expect: 404 });
     await serverRequest(base, { method: 'PATCH', path: '/refused', body: '{}', as: 'mallory', expect: 401 });
     await expect(serverRequest(base, { method: 'DELETE', path: '/gone', body: null, as: 'bob', expect: 409 })).rejects.toThrow(`request DELETE ${base}/gone as bob: the server answered 404, expected 409`);
@@ -209,8 +305,8 @@ test('a request line sends the method, the JSON body and the persona\'s token un
   await expect(serverRequest(base, { method: 'GET', path: '/items', body: null, as: null })).rejects.toThrow(/nothing answered/);
 });
 
-// A `reload` relaunches at the virtual time the test had reached (the date it launched at plus every
-// `clock +N`), not at its launch date: a phone restarted at 9:05 does not wake at 9:00.
+// LLP 1116.009 D1: a `reload` relaunches at the virtual time the test had reached (the date it launched at plus every
+// `clock +N`), not at its launch date: a phone restarted at 9:05 does not wake at 9:00 (habit-tracker, rounds 10 and 11).
 test('the page address a reload loads takes the date it relaunches at, and keeps the rest', () => {
   const href = 'http://127.0.0.1:9/detail/3?agent=1&seed=1&epoch=1773489600000&timeZone=UTC&q=a';
   expect(new URL(withEpoch(href, 1773576000000)).searchParams.get('epoch')).toBe('1773576000000');
@@ -251,7 +347,7 @@ component Day
   reload
   expect text "day" == "2026-03-16"
 `);
-  const root = new URL('..', import.meta.url).pathname;
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
   const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
   expect(compile.status, compile.stderr).toBe(0);
@@ -272,6 +368,101 @@ component Day
   }
 }, 180_000);
 
+
+test('a web reload preserves browser history and a new test isolates it', async () => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const dir = mkdtempSync(join(root, 'target/reload-history-'));
+  const contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist'), file = join(dir, 'app.test.contract');
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'History', app: { id: 'test.exact.history', name: 'History' }, host: {}, deploy: {} }));
+  writeFileSync(contract, `routes nav
+  home "/"
+    item "/item/:id"
+
+component App
+  action navigate(url: string)
+    nav = go(nav, url)
+  derive url = top(nav).url
+  derive depth = stack(nav).length
+  view
+    main testId="root" navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=navigate
+      for e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\`
+          text e.url
+`);
+  writeFileSync(file, `test "reload keeps earlier visits" on web
+  type "root" "/item/one"
+  expect state depth == 2
+  type "root" "/item/two"
+  expect state depth == 3
+  tap "root" history -1
+  expect state url == "/item/one"
+  tap "root" history 1
+  expect state url == "/item/two"
+  clock +60000
+  reload
+  expect state url == "/item/two"
+  expect state depth == 2
+  tap "root" history -1
+  expect state url == "/item/one"
+  tap "root" history -1
+  expect state url == "/"
+  tap "root" history 2
+  expect state url == "/item/two"
+  tap "root" history -1
+  expect state url == "/item/one"
+  reload
+  tap "root" history 1
+  expect state url == "/item/two"
+test "a separate test has its own history" on web
+  expect state url == "/"
+`);
+  const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
+  let server;
+  try {
+    const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
+    expect(compile.status, compile.stderr).toBe(0);
+    const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'history', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, encoding: 'utf8' });
+    expect(build.status, build.stderr).toBe(0);
+    server = createServer((request, response) => serveBuildTree(dist, request, response));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const histories = [], ends = [];
+    const result = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/`,
+      atStep: async (s, step) => { if (['type', 'reload'].includes(step.op)) histories.push(await s.carrier.call('Page.getNavigationHistory')); },
+      atEnd: async (s, t) => {
+        ends.push(await s.carrier.call('Page.getNavigationHistory'));
+        if (t.index === 0) {
+          await s.carrier.reset({ session: true });
+          ends.push(await s.carrier.call('Page.getNavigationHistory'));
+        }
+        return {};
+      },
+    });
+    expect(result.results.map(t => t.failures)).toEqual([[], []]);
+    expect(result.results.map(t => t.end)).toEqual([{}, {}]);
+    const paths = h => h.entries.map(e => new URL(e.url).pathname);
+    expect(paths(histories[0])).toEqual(['/', '/item/one']);
+    expect(paths(histories[1])).toEqual(['/', '/item/one', '/item/two']);
+    for (const history of histories.slice(2)) {
+      expect(paths(history)).toEqual(paths(histories[1]));
+      expect(history.entries.map(e => e.id)).toEqual(histories[1].entries.map(e => e.id));
+    }
+    expect(histories.map(h => h.currentIndex)).toEqual([1, 2, 2, 1]);
+    expect(paths(ends[1])).toEqual(['/']);
+    expect(paths(ends[2])).toEqual(['/']);
+    const { open } = await import('./agent.mjs');
+    const session = await open({ host: 'web', url: `http://127.0.0.1:${server.address().port}/item/7#moves` });
+    try {
+      expect((await session.state()).derives.url).toBe('/item/7');
+      await session.carrier.evaluate('globalThis.beforeSessionReset = true');
+      await session.carrier.reset({ session: true });
+      expect(await session.carrier.evaluate('globalThis.beforeSessionReset ?? false')).toBe(false);
+      expect((await session.state()).derives.url).toBe('/item/7');
+      const history = await session.carrier.call('Page.getNavigationHistory');
+      expect(history.currentIndex).toBe(0);
+      expect(history.entries.map(e => new URL(e.url).pathname + new URL(e.url).hash)).toEqual(['/item/7#moves']);
+    } finally { await session.close(); }
+  } finally { server?.close(); rmSync(dir, { recursive: true, force: true }); }
+}, 180_000);
 
 test('expect refusal asserts an observed mutation failure and preserves unrelated wiring findings', async () => {
   const {refusalsOf} = await import('./verify.mjs');
@@ -369,7 +560,7 @@ test "an expected refusal before reload does not accept the next journal"
   clock data
   expect text "error" == "DENIED"
 `);
-  const root=new URL('..',import.meta.url).pathname;
+  const root=fileURLToPath(new URL('..',import.meta.url));
   const build=spawnSync(process.execPath,['host/web-js/build.mjs','refusal','--out',dist,'--render','none'],{cwd:root,env:{...process.env,EXACT_APP_DIR:dir},encoding:'utf8'});
   expect(build.status,build.stderr).toBe(0);
   const server=createServer((req,res)=>serveBuildTree(dist,req,res));
@@ -446,8 +637,24 @@ test "page facts are outside the test media grammar"
 
 test "a failure does not stop the next test"
   expect text "scheme" == "dark"
+
+test "large text at launch survives reload"
+  prefer root-font-size "24"
+  expect text "scheme" == "dark"
+  reload
+
+test "large text can change between steps"
+  expect text "scheme" == "dark"
+  prefer root-font-size "28px"
+  reload
+
+test "invalid text size"
+  prefer root-font-size "0"
+
+test "text size does not leak into another test"
+  expect text "scheme" == "dark"
 `);
-  const root = new URL('..', import.meta.url).pathname;
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const compile = spawnSync(join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract'), ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
   expect(compile.status, compile.stderr).toBe(0);
   const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: root, encoding: 'utf8' });
@@ -460,20 +667,29 @@ test "a failure does not stop the next test"
       if (t.failures.length) return {};
       const dark = t.launch.media['prefers-color-scheme'] === 'dark';
       expect(await s.carrier.evaluate("matchMedia('(prefers-color-scheme: dark)').matches")).toBe(dark);
+      const fontSize = parseFloat(t.launch.media['root-font-size'] ?? '16');
+      const rootSize = () => s.carrier.evaluate('parseFloat(getComputedStyle(document.documentElement).fontSize)');
+      expect(await rootSize()).toBe(fontSize);
       await t.restart();
       expect(textExpectation((await s.tree()).nodes, 'scheme', dark ? 'dark' : 'light')).toBeNull();
+      expect(await rootSize()).toBe(fontSize);
       ends.push(t.launch.media);
       return {};
     } });
-    expect(r.results.map(t => t.end?.error)).toEqual(Array(7).fill(undefined));
-    expect(r.results.map(t => t.failures.length)).toEqual([0, 0, 1, 1, 1, 1, 0]);
+    expect(r.results.map(t => t.end?.error)).toEqual(Array(11).fill(undefined));
+    expect(r.results.map(t => t.failures.length)).toEqual([0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 0]);
     for (const [index, line, name, value] of [[2, 24, 'prefers-color-scheme', 'banana'], [3, 28, 'unknown', 'dark'], [4, 33, 'prefers-color-scheme', 'banana']]) {
-      expect(r.results[index].failures[0]).toContain(`line ${line}: prefer: ${name} ${value}: expected`);
+      const hint = name === 'unknown' ? 'did you mean `prefer prefers-color-scheme dark`? ' : '';
+      expect(r.results[index].failures[0]).toContain(`line ${line}: prefer: ${name} ${value}: ${hint}expected`);
     }
     expect(r.results[5].failures[0]).toContain('test prefer: expected a CSS media feature');
+    expect(r.results[9].failures[0]).toContain('prefer: root-font-size 0: expected');
     expect(ends).toEqual([
       { 'prefers-color-scheme': 'light', 'prefers-reduced-motion': 'reduce' },
       { 'prefers-color-scheme': 'light', 'prefers-reduced-motion': 'reduce' },
+      { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce' },
+      { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce', 'root-font-size': '24' },
+      { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce', 'root-font-size': '28px' },
       { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce' },
     ]);
   } finally { server.close(); rmSync(dir, { recursive: true, force: true }); }
@@ -505,7 +721,7 @@ test "nothing holds after toggling off"
   tap "toggle"
   expect wakelock held
 `);
-  const root = new URL('..', import.meta.url).pathname;
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
   try {
     const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
@@ -525,7 +741,7 @@ test "nothing holds after toggling off"
 }, 180_000);
 
 // docs/recipes/navigation-stack.md, "A screen open twice" (issues/closed/20261021-repeated-routes-share-root-state.md):
-// a route drawn by its own component has `state` per stack entry, so two entries of one route keep
+// a route drawn by its own component has `state` per stack entry (LLP 1017.000 P4c), so two entries of one route keep
 // separate state, and the entry a pop removed takes its state with it: the next one opens fresh. The two entries have
 // different URLs, since a push of the location already on top is no new visit (route/src/router.rs `push`).
 test('a screen open twice keeps state per entry, and a popped entry\'s is gone', async () => {
@@ -586,7 +802,7 @@ component Finder
   clock settle
   expect text "pick-3" == ""
 `);
-  const root = new URL('..', import.meta.url).pathname;
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
   try {
     const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
@@ -602,7 +818,7 @@ component Finder
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 180_000);
 
-// What failed that the test did not arrange.
+// LLP 1146 D4: what failed that the test did not arrange.
 test('a failure is unarranged unless a fetch fault fired or an expect refusal names it', () => {
   const now = { ...NO_FAILURES, failures: { gateway: 2 }, failed: { gateway: 'turn 868 ms over 100 ms' }, mutations: { vote: { code: 'refused', message: 'no' }, send: { code: 'network', message: 'down' } } };
   expect(unarranged(NO_FAILURES, now, { refusals: ['vote'] })).toEqual(['resource gateway was refused 2 times (turn 868 ms over 100 ms)', 'send send failed (network: down)']);
@@ -614,7 +830,7 @@ test('a failure is unarranged unless a fetch fault fired or an expect refusal na
   expect(unarranged(NO_FAILURES, NO_FAILURES, { churn })).toEqual(churn);
 });
 
-// An `expect perf` line against a block's counts.
+// LLP 1146 D3: an `expect perf` line against a block's counts.
 test('expect perf reads a resource\'s asks and a component\'s or a view\'s work', () => {
   const site = (component, created, evaluated, line) => ({ site: line, created, rowConstructed: 0, evaluated, source: { status: 'compatible', component, file: '/a/app.contract', line } });
   const measured = { line: 3, components: new Set(['MemberRow', 'Rail', 'Sheet']), whole: { resources: [{ name: 'channelList', asked: 1 }], sites: [site('Rail', 2, 9, 10), site('Rail', 1, 4, 12)] }, under: new Map([['member-sheet', { sites: [site('Sheet', 5, 0, 40)] }]]) };
@@ -629,6 +845,8 @@ test('expect perf reads a resource\'s asks and a component\'s or a view\'s work'
   expect(at('built', 'Ghost', '==', 0)).toContain('names no component');
   expect(perfExpectation(null, { subject: 'query', target: 'a', compare: '==', value: 0 })).toContain('no `perf` block');
   expect(perfExpectation({ ...measured, whole: { sites: [] } }, { subject: 'query', target: 'a', compare: '==', value: 0 })).toContain('counts no resource asks');
+  measured.whole.resources = [1, 5].map((asked, i) => ({ name: 'channelList', member: `channelList[${i + 1}]`, asked }));
+  expect(at('query', 'channelList', '==', 6)).toBeNull();
 });
 
 test('a test scoped on macos runs under the mac alias and the sample host too', () => {
@@ -650,7 +868,7 @@ test('always observes each mutation-clock configuration, including the sixteenth
   expect(seen).toEqual(Array.from({ length: 17 }, (_, i) => i));
 });
 
-// A native run has no web build's grants to read. The site pattern's API is a setting, so its `/planets`
+// LLP 1153 D4: a native run has no web build's grants to read. The site pattern's API is a setting, so its `/planets`
 // fault resolves against the grant app.ts names as the build evaluates it, `.env.local`'s port over `.env`'s.
 test('a native run resolves a fetch fault under the API a setting names', async () => {
   const { createApp, applyPattern } = await import('../game/new.mjs');
@@ -666,12 +884,12 @@ test('a native run resolves a fetch fault under the API a setting names', async 
     expect(nativeFetchOrigins(dir, { ...env, API_BASE_URL: 'http://127.0.0.1:7000' })).toEqual(['http://127.0.0.1:7000']);
     // The backend a build selected, and a scaffold's literal origin, still come first.
     expect(nativeFetchOrigins(dir, { ...env, EXACT_BACKEND_ORIGIN: 'http://127.0.0.1:4411' })).toEqual(['http://127.0.0.1:4411']);
-    writeFileSync(join(dir, 'app.ts'), "const origin = 'http://127.0.0.1:4410';\n");
+    writeFileSync(join(dir, 'app.ts'), "// const origin = 'http://comment.invalid';\nexport const origin = ('http://127.0.0.1:4410' satisfies string);\n");
     expect(nativeFetchOrigins(dir, env)).toEqual(['http://127.0.0.1:4410']);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
-// A fault on a path is the API's. The driver arms it under the one origin the grants name, and the host
+// LLP 1103: a fault on a path is the API's. The driver arms it under the one origin the grants name, and the host
 // matches that as a prefix of the whole URL, so `fail fetch "/planets"` fails the site's absolute fetch of a planet.
 test('a fault on a path is armed under the API, and fails that API\'s absolute URL', async () => {
   const { faultOp, takeFault } = await import('../host/web/faults.js');
@@ -683,3 +901,115 @@ test('a fault on a path is armed under the API, and fails that API\'s absolute U
     expect(takeFault('http://127.0.0.1:4791/planets/5')).toBe(false);
   } finally { delete globalThis.__exactFaults; }
 });
+
+test('script state comparisons use inclusive numeric bounds and typed literal membership', () => {
+  const holds=(got,comparison,value)=>stateHolds(got,{comparison,value});
+  expect(holds(-2,'at-least',-2)).toBe(true); expect(holds(2,'at-most',2)).toBe(true);
+  expect(holds(-3,'at-least',-2)).toBe(false); expect(holds(3,'at-most',2)).toBe(false);
+  for (const got of ['2',null,false,[],{}]) { expect(holds(got,'at-least',1)).toBe(false); expect(holds(got,'at-most',3)).toBe(false); }
+  for (const got of [-2,'ready',false,null,[]]) expect(holds(got,'in',[-2,'ready',false,null,[]])).toBe(true);
+  expect(holds('2','in',[2])).toBe(false); expect(holds(2,'in',['2'])).toBe(false);
+  expect(holds([],'equal',[])).toBe(true);
+});
+
+// Run with a private module registry: only the carrier is stubbed, not compilation or backend resets.
+test('fresh resets Snapback beside an owned app server, with file and test seeds', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-mixed-fresh-'));
+  const script = join(dir, 'check.mjs'), module = fileURLToPath(new URL('./agent-test.mjs', import.meta.url));
+  writeFileSync(script, `
+    import assert from 'node:assert/strict';
+    import { mkdirSync, writeFileSync } from 'node:fs';
+    import { mock } from 'bun:test';
+    const dir = ${JSON.stringify(dir)};
+    writeFileSync(dir + '/app.contract', 'component App\\n  view\\n    text \"Test\"\\n');
+    const resets = [], probes = [];
+    const rest = Bun.serve({port: 0, fetch: req => { probes.push(new URL(req.url).pathname); return Response.json({items: []}); }});
+    const snapback = Bun.serve({port: 0, fetch: async req => {
+      if (new URL(req.url).pathname === '/dev/status') return Response.json({storeId: 'fixture'});
+      resets.push(await req.text()); return Response.json({reset: true, seeded: 1, generation: resets.length});
+    }});
+    mkdirSync(dir + '/dist/.gen', {recursive: true});
+    writeFileSync(dir + '/dist/.gen/admission-data.js', JSON.stringify(['net.fetch http://127.0.0.1:' + rest.port, 'net.fetch http://127.0.0.1:' + snapback.port]));
+    writeFileSync(dir + '/seed.json', '[{"table":"items","row":{"title":"Seed"}}]');
+    const file = dir + '/app.test.contract';
+    writeFileSync(file, 'fresh\\ntest "file reset"\\n  expect state ready == true\\ntest "seeded reset"\\n  fresh "seed.json"\\n  expect state ready == true\\n');
+    let starts = 0, opens = 0;
+    mock.module(${JSON.stringify(fileURLToPath(new URL('./agent.mjs', import.meta.url)))}, () => ({open: async () => {
+      assert.equal(resets.length, ++opens, 'reset precedes opening');
+      return {host:'linux', now:0, op:async()=>({clock:0, lines:[]}), clock:async()=>({}), state:async()=>({mutationRequests:0,slots:{ready:true}}), logs:async()=>({lines:[]}), close:async()=>{}};
+    }}));
+    const {runTests} = await import(${JSON.stringify(module)});
+    try {
+      const r = await runTests({host:'linux', app:dir, file, webDist:dir + '/dist', running:{beforeTest:async()=>{starts++}, check(){}}});
+      assert.equal(r.failed, 0, JSON.stringify(r));
+      assert.equal(r.passed, 2);
+      assert.equal(starts, 2);
+      assert.deepEqual(resets, ['', '[{"table":"items","row":{"title":"Seed"}}]']);
+      assert.deepEqual(probes, ['/dev/status', '/dev/status'], 'the REST origin is probed and left alone');
+      console.log('completed');
+    } finally {rest.stop(true); snapback.stop(true);}
+  `);
+  try {
+    const r = spawnSync(process.execPath, [script], {encoding:'utf8', timeout:30000});
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toContain('completed');
+  } finally {rmSync(dir, {recursive:true, force:true});}
+}, 30000);
+
+test('replay selects the original ordinal among duplicate names and host variants', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-test-ordinal-')), script = join(dir, 'check.mjs');
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "Test"\n');
+  writeFileSync(join(dir, 'app.test.contract'), 'test "same" on web\n  expect state ready == false\ntest "same" on linux\n  expect state ready == true\ntest "same"\n  expect state ready == false\n');
+  writeFileSync(script, `
+    import assert from 'node:assert/strict';
+    import {mock} from 'bun:test';
+    let opened = 0;
+    mock.module(${JSON.stringify(fileURLToPath(new URL('./agent.mjs', import.meta.url)))}, () => ({open: async () => {
+      opened++;
+      return {host:'linux', now:0, op:async()=>({clock:0,lines:[]}), clock:async()=>({}), state:async()=>({mutationRequests:0,slots:{ready:true}}), logs:async()=>({lines:[]}), close:async()=>{}};
+    }}));
+    const {runTests} = await import(${JSON.stringify(fileURLToPath(new URL('./agent-test.mjs', import.meta.url)))});
+    const r = await runTests({host:'linux', app:${JSON.stringify(dir)}, file:${JSON.stringify(join(dir, 'app.test.contract'))}, testIndex:1,
+      atEnd:async(s,t)=>{assert.equal(t.index,1);return {keep:true};}});
+    assert.equal(r.failed,0,JSON.stringify(r));
+    assert.equal(r.passed,1); assert.equal(r.results.length,1); assert.equal(opened,1);
+    assert.equal(r.results[0].index,1);
+    console.log('completed');
+  `);
+  try {
+    const r = spawnSync(process.execPath, [script], {encoding:'utf8', timeout:30000});
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toContain('completed');
+  } finally {rmSync(dir, {recursive:true, force:true});}
+}, 30000);
+
+test('the APK carrier skips a test that names a size, saying why, and refuses a drive\'s --size (#547)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-test-apk-size-')), script = join(dir, 'check.mjs');
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "Test"\n');
+  writeFileSync(join(dir, 'app.test.contract'), 'test "wide"\n  size 1280x800\n  expect state ready == true\ntest "phone"\n  expect state ready == true\n');
+  writeFileSync(script, `
+    import assert from 'node:assert/strict';
+    import {mock} from 'bun:test';
+    const sizes = [];
+    mock.module(${JSON.stringify(fileURLToPath(new URL('./agent.mjs', import.meta.url)))}, () => ({open: async (o) => {
+      sizes.push(o.size);
+      return {host:'android', now:0, op:async()=>({clock:0,lines:[]}), clock:async()=>({}), state:async()=>({mutationRequests:0,slots:{ready:true}}), logs:async()=>({lines:[]}), close:async()=>{}};
+    }}));
+    const {runTests} = await import(${JSON.stringify(fileURLToPath(new URL('./agent-test.mjs', import.meta.url)))});
+    const file = ${JSON.stringify(join(dir, 'app.test.contract'))};
+    const r = await runTests({host:'android', reader:true, app:${JSON.stringify(dir)}, file});
+    assert.equal(r.failed, 0, JSON.stringify(r));
+    assert.equal(r.passed, 1);
+    assert.equal(r.results[0].skipped, "size 1280x800: the APK runs at the phone's size; --headless takes it");
+    assert.deepEqual(sizes, [undefined], 'only the phone-sized test opens the app');
+    await assert.rejects(runTests({host:'android', reader:true, app:${JSON.stringify(dir)}, file, size:[1280, 800]}), /--size does not reach the APK/);
+    const headless = await runTests({host:'android', reader:false, app:${JSON.stringify(dir)}, file});
+    assert.equal(headless.passed, 2, '--headless takes the size');
+    console.log('completed');
+  `);
+  try {
+    const r = spawnSync(process.execPath, [script], {encoding:'utf8', timeout:60000});
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toContain('completed');
+  } finally {rmSync(dir, {recursive:true, force:true});}
+}, 60000);

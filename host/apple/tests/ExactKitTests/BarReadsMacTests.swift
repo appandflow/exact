@@ -1,4 +1,4 @@
-// The window's bar is presented again only by a batch
+// @ref LLP 1115.002 D2 — the window's bar is presented again only by a batch
 // that touches what it read (ToolbarReadsMac.swift). The three cases that
 // kept an exclusion by list ancestry from landing (a toolbar made or sitting
 // in a row, a header button's popover living in a row, a native button's
@@ -167,7 +167,7 @@ final class BarReadsMacTests: XCTestCase {
         XCTAssertEqual(p.toolbar.presents, before + 1, "the navigation's pass moved the route: the bar follows")
         XCTAssertEqual(window.title, "Library")
     }
-    // What is read while the rule refuses the bar.
+    // Round 1's findings (Astra, Grok).
 
     /// A header the rule refused is still read: its heading losing its role
     /// and then taking it back presents both times.
@@ -251,7 +251,7 @@ final class BarReadsMacTests: XCTestCase {
         XCTAssertTrue(p.toolbar.reads.names.contains("mark"), "the guard's own present recorded over it")
         XCTAssertEqual(p.toolbar.inputs, inputs)
     }
-    // These run with the guard off, which would present the bar itself.
+    // Round 2's findings (Astra, Grok). The guard is off in these: it would present the bar itself.
     private func unguarded(_ body: () throws -> Void) rethrows {
         let was = ShadowCheck.on
         ShadowCheck.on = false
@@ -342,7 +342,7 @@ final class BarReadsMacTests: XCTestCase {
             XCTAssertFalse(p.toolbar.concerns(wireBatch([["op": "sound", "voices": []], ["op": "collections", "windows": []]])))
         }
     }
-    // What the host hides and makes inert, with no op.
+    // Round 3's findings (Astra): what the host hides and makes inert, with no op.
 
     /// A header button opens an `alertdialog` popover that lives under a
     /// second navigation root's route, placed by its page box: AppKit can

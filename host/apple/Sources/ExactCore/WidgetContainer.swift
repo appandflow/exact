@@ -1,4 +1,4 @@
-// The app publishes, an extension pins and only reads.
+// @ref LLP 1126 D8 — the app publishes, an extension pins and only reads.
 import Foundation
 #if EXACT_WIDGET_RELOAD
 import WidgetKit
@@ -34,8 +34,9 @@ public enum WidgetContainer {
             setenv("EXACT_WIDGET_WRITER", appID, 1)
         }
     }
-    public static var updateBase: URL? { root?.appendingPathComponent("Library/Application Support", isDirectory: true) }
-    /// The baked compatibility id: the cohort a generation belongs to.
+    /// The updater holds lifetime file locks; only published generations belong in the App Group.
+    public static var updateBase: URL? { FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first }
+    /// The baked compatibility id (LLP 1030 D3a): the cohort a generation belongs to.
     package static var compatibility: String {
         let object = (try? JSONSerialization.jsonObject(with: Runtime.bakedCompat())) as? [String: Any]
         return object?["id"] as? String ?? ""
@@ -50,8 +51,8 @@ public enum WidgetContainer {
         return hash.map { String(format: "%02x", $0) }.joined()
     }
     /// No lock, selection, repair or network access: read the pointer once and
-    /// keep its immutable directory for this entire invocation. Every
-    /// published generation is kept; reclamation needs cross-process leases first.
+    /// keep its immutable directory for this entire invocation. Stage 1 keeps
+    /// all published generations; reclamation needs cross-process leases first.
     public static func pin(generation: String? = nil) throws -> URL {
         guard let root else { throw HeadlessSession.Failure(description: "widget App Group is unavailable") }
         return try pin(root: root, generation: generation, compatibility: compatibility, embedded: embeddedGeneration)
@@ -118,7 +119,7 @@ public enum WidgetContainer {
     /// WidgetCenter's call run on main. A failed signal stays pending on disk.
     /// The widget kinds a bundle declares, or nil for one with no entry of either kind: the build writes
     /// `ExactWidgetKinds` only for an app with widgets or Live Activities, empty with activities alone, so the
-    /// key's presence gates publication and its contents are the kinds a generation must hold.
+    /// key's presence gates publication and its contents are the kinds a generation must hold (LLP 1126.001 WP13).
     package static func entryKinds(of bundle: Bundle = .main) -> [String]? {
         bundle.object(forInfoDictionaryKey: "ExactWidgetKinds") as? [String]
     }

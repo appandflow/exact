@@ -3,7 +3,7 @@ import XCTest
 @testable import ExactKit
 import UIKit
 
-/// The layout regions: the session reports UIKit's regions of
+/// The layout regions (LLP 1123 D10): the session reports UIKit's regions of
 /// the view controller's root view that holds it, from the layout viewport's
 /// safe area, and the agent's facts name them.
 final class LayoutRegionsIOSTests: XCTestCase {

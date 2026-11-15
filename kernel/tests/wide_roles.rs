@@ -1,4 +1,4 @@
-//! A session's role overrides hold their wide colours:
+//! A session's role overrides hold their wide colours (LLP 1121 stage 5):
 //! kept through every sweep while the session's [`Roles`] live, freed after
 //! it goes. One test, in its own process: the table is the process's.
 

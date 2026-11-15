@@ -57,6 +57,8 @@ and choose **Restart**; setup runs again and play resumes from the beginning.
 the tick only retargets the tween. The scene steps `Follow` after your tick.
 `scene::follow(w)` remains optional when you need to choose an earlier ordering.
 
+![Starter proof capture](artifacts/web/game.png)
+
 The critter sleeps until the player comes within 2.5 m. Awake, it keeps 3 m from a
 lit beacon (`steer::flee`), else follows the player and stops 1.2 m short
 (`steer::arrive`), else wanders (`steer::wander`). A `Spawner` in it drops a coin

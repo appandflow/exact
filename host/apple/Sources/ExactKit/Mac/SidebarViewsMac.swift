@@ -1,4 +1,4 @@
-// The sidebar's views: a split view controller
+// @ref LLP 1115.002 D3, D1 — the sidebar's views: a split view controller
 // whose first item is a real sidebar holding AppKit's source list, one row a
 // root tab, and whose other item holds the session's view. What is AppKit's
 // is used and left alone: the list has the system's row size style, so its
@@ -7,16 +7,16 @@
 // (the symbols in the accent, as it draws a sidebar's). Nothing here sets a
 // row height, an inset, a font or a selection colour.
 //
-// On a narrow window the split view does what AppKit does (measured): the
-// page narrows to its minimum, then the sidebar to
+// On a narrow window the split view does what AppKit does (measured,
+// LLP 1115.002 §1): the page narrows to its minimum, then the sidebar to
 // its own, and then the window stops. The one number given is the page's
 // minimum width, which the window had.
 #if os(macOS)
 import AppKit
 
 /// The window's content while the app's root tab bar is its sidebar, or a
-/// stack of it shows a list beside its detail (SplitMac.swift): the
-/// sidebar, the page, and the detail's pane. The
+/// stack of it shows a list beside its detail (LLP 1115.002 D4,
+/// SplitMac.swift): the sidebar, the page, and the detail's pane. The
 /// window's owner makes one when `ExactView.wantsWindowSidebar` or
 /// `wantsWindowSplit` and installs it (`install(in:)`); `release()` gives
 /// the view back. The page's pane is the list's column while a stack
@@ -110,7 +110,8 @@ public final class ExactSidebarController: NSSplitViewController {
     /// window. One that enters a window whose content stops under the title
     /// bar is given 10 points above its first row and keeps them when the
     /// bar comes over it afterwards; one that enters a full-size-content
-    /// window starts under the bar, as a hand-built app's does (measured).
+    /// window starts under the bar, as a hand-built app's does (measured,
+    /// LLP 1115.002 §1).
     public func install(in window: NSWindow) {
         if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
         // The window takes its content's size: the one it has.
@@ -171,10 +172,10 @@ public final class ExactSidebarController: NSSplitViewController {
         if !hiddenForApp, sidebarItem != nil { super.toggleSidebar(sender) }
     }
 
-    // MARK: A list and its detail
+    // MARK: A list and its detail (LLP 1115.002 D4)
 
-    /// AppKit's minimum for a content list's column (measured:
-    /// `NSSplitViewItem(contentListWithViewController:)`, 200 points at
+    /// AppKit's minimum for a content list's column (measured, LLP 1115.002
+    /// §1: `NSSplitViewItem(contentListWithViewController:)`, 200 points at
     /// holding priority 255), given to the page's pane while it is a list's
     /// column. The item itself stays the page's: a split view item's kind
     /// is said when it is made, and a content list has a maximum, which the
@@ -182,7 +183,7 @@ public final class ExactSidebarController: NSSplitViewController {
     static let listMinimum: CGFloat = 200
     /// The list column's width where neither the author (`navigationSplit`)
     /// nor the person (a drag of the divider) has said one: the shared
-    /// rule's own, as an AppKit list opens at the width
+    /// rule's own (LLP 1116.004 D1.2), as an AppKit list opens at the width
     /// its view names.
     static let listWidth: CGFloat = 320
     /// Whether the detail's pane shows beside the list's column.
@@ -274,8 +275,8 @@ final class SplitDetail: NSViewController {
         let view = NSView()
         ground.frame = view.bounds
         ground.autoresizingMask = [.width, .height]
-        ground.drawsBackground = true
-        ground.backgroundColor = presenter?.pageBackground ?? .windowBackgroundColor
+        ground.drawsBackground = presenter?.viewport.drawsBackground ?? true
+        ground.backgroundColor = presenter?.viewport.backgroundColor ?? .windowBackgroundColor
         ground.hasVerticalScroller = false
         ground.hasHorizontalScroller = false
         view.addSubview(ground)
@@ -351,8 +352,9 @@ final class SplitDetail: NSViewController {
     /// What the pane says while it shows no route.
     var saysNothing: String? { isViewLoaded && !nothing.isHidden ? nothing.stringValue : nil }
     func groundChanged() {
-        guard isViewLoaded, let color = presenter?.pageBackground, ground.backgroundColor != color else { return }
-        ground.backgroundColor = color
+        guard isViewLoaded, let page = presenter?.viewport else { return }
+        if ground.backgroundColor != page.backgroundColor { ground.backgroundColor = page.backgroundColor }
+        if ground.drawsBackground != page.drawsBackground { ground.drawsBackground = page.drawsBackground }
     }
 }
 

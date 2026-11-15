@@ -1,5 +1,5 @@
-// The design tool's length, shadow, font-weight, duration and icon tokens on a real dev loop (split from
-// design-tool-scrub.test.mjs, so it runs in parallel with the others).
+// Stage 6's kinds in the design tool on a real dev loop (split from design-tool-scrub.test.mjs, so a lane runs it
+// beside the others).
 import { expect, onTestFinished, test } from 'bun:test';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,12 +10,12 @@ import { DRIVEN, HEARTBEAT_RACE, ROOT, TOOL_ORIGIN, edit, lines, signals, stop, 
 toolTurns();
 
 /** Signal 0 of `looked` once the server lists the frame's build running a design and the plan it runs (the loop's
- * check of a live edit reads it), so a live edit is proposed live (polled until the drive ends). */
+ * check of a live edit reads it, LLP 1122 T2b), so a live edit is proposed live (polled until the drive ends). */
 function framed(looked) {
   let done = false;
   const polling = (async () => {
     while (!done) {
-      const listed = await fetch(`${TOOL_ORIGIN}/__tamber/token`).then(r => r.json()).then(({ token }) => fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).then(r => r.json()).catch(() => null);
+      const listed = await fetch(`${TOOL_ORIGIN}/__forma/token`).then(r => r.json()).then(({ token }) => fetch(`${TOOL_ORIGIN}/__forma`, { method: 'POST', headers: { 'x-exact-forma-token': token }, body: '{"method":"hello"}' })).then(r => r.json()).catch(() => null);
       if (listed?.ok?.builds?.some(b => b.host === 'web-js' && b.design && b.planDigest)) { looked.fire(0); return; }
       await Bun.sleep(100);
     }
@@ -28,7 +28,7 @@ function framed(looked) {
  * open already, its push (`clock held`: the next reply, the push or, landed already, a 3 s heartbeat). */
 const ready = looked => [looked.pause(4000, 0), 'clock +1', 'clock data', 'clock +1', 'clock data', 'clock held changes 10s'];
 
-/** Those token kinds in the tool on the JS target's dev loop: a theme-fixture
+/** Stage 6's kinds in the tool on the JS target's dev loop: a theme-fixture
  * copy whose card reads a length, a shadow, a font-weight number and a
  * duration token, with an icon. A typed length field's scrub previews on the
  * frame's build with no reload and no file written, and Keep writes one
@@ -38,7 +38,7 @@ const ready = looked => [looked.pause(4000, 0), 'clock +1', 'clock data', 'clock
  * copy can't run there: the natives' half is the clone's gate.) */
 async function kindsOnTheJsLoop() {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-kinds-'));
-  for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
+  for (const f of ['app.contract', 'app.forma', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
   const contract = readFileSync(join(app, 'app.contract'), 'utf8');
   const card = contract
     .replace('transition="background-color 400ms" padding=12', 'transition="background-color duration.card" padding="space.card"')
@@ -46,7 +46,7 @@ async function kindsOnTheJsLoop() {
     .replace('text "A card" color="text.label"', 'text "A card" color="text.label" font-weight="weight.title"');
   expect(card.match(/space\.card|shadow\.card|weight\.title|duration\.card/g)?.length).toBe(4);
   writeFileSync(join(app, 'app.contract'), card);
-  writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('  AccentColor = #1d9bf0\n', [
+  writeFileSync(join(app, 'app.forma'), readFileSync(join(app, 'app.forma'), 'utf8').replace('  AccentColor = #1d9bf0\n', [
     '  AccentColor = #1d9bf0',
     '  space.card = 12px',
     '  shadow.card: box-shadow = 0px 2px 8px border.hairline, inset 0px 0px 0px 1px border.hairline',
@@ -57,7 +57,7 @@ async function kindsOnTheJsLoop() {
     '  icon.star = icon(sf "star", material "star")',
     '',
   ].join('\n')));
-  const original = readFileSync(join(app, 'app.tamber'), 'utf8');
+  const original = readFileSync(join(app, 'app.forma'), 'utf8');
   const listener = (await import('node:http')).createServer();
   await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
   const port = listener.address().port;
@@ -69,10 +69,10 @@ async function kindsOnTheJsLoop() {
     const base = `http://127.0.0.1:${port}`;
     const devSaid = lines(dev);
     await devSaid.until(l => l.includes(`127.0.0.1:${port}/`), 600_000);
-    // Its design reader built: before it is, a live edit is proposed as a rebuild, and this test scrubs.
+    // Its design reader built: before it is, a live edit is proposed as a rebuild (theme2 10:01), and this test scrubs.
     await devSaid.until(l => l === 'design reader ready', 600_000);
-    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
-    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
+    tool = spawnOwned(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'forma', 'tool', app, '--via', base, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__forma/tool/`), 600_000);
     const seen = [];
     const connects = () => devSaid.seen.filter(l => l.startsWith('page connected')).length;
     // The frame's build and the file, once the frame runs the design the
@@ -82,12 +82,12 @@ async function kindsOnTheJsLoop() {
       for (;;) {
         const design = await fetch(`${base}/__dev/design`);
         const snapshot = design.status === 200 ? await design.json() : null;
-        const builds = (await (await fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': (await (await fetch(`${TOOL_ORIGIN}/__tamber/token`)).json()).token }, body: '{"method":"hello"}' })).json()).ok.builds;
+        const builds = (await (await fetch(`${TOOL_ORIGIN}/__forma`, { method: 'POST', headers: { 'x-exact-forma-token': (await (await fetch(`${TOOL_ORIGIN}/__forma/token`)).json()).token }, body: '{"method":"hello"}' })).json()).ok.builds;
         const frame = builds.find(b => b.host === 'web-js');
         // Before any edit the loop has no snapshot to give (204): the frame runs the build's own design.
         const synced = !!frame && (snapshot ? frame.design === snapshot.design : design.status === 204 && !!frame.design);
         if (synced || Date.now() > end) {
-          seen.push({ synced, connects: connects(), snapshot, frame, file: readFileSync(join(app, 'app.tamber'), 'utf8') });
+          seen.push({ synced, connects: connects(), snapshot, frame, file: readFileSync(join(app, 'app.forma'), 'utf8') });
           return;
         }
         await Bun.sleep(100);
@@ -155,4 +155,4 @@ async function kindsOnTheJsLoop() {
   }
 }
 
-test('length, shadow, weight and motion tokens on the JS loop: a typed length scrubs live and Keep writes one line, motion says Rebuilds first, an inline font-weight token rebuilds, icons listed', () => kindsOnTheJsLoop(), 900_000);
+test('stage 6 kinds on the JS loop: a typed length scrubs live and Keep writes one line, motion says Rebuilds first, an inline font-weight token rebuilds, icons listed', () => kindsOnTheJsLoop(), 900_000);

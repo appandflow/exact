@@ -1,6 +1,6 @@
 //! The `animation` row's bytes (grammar: `schema.json` `_animations`).
 //!
-//! Each entry travels with its resolved keyframes, so a
+//! @ref LLP 1055 D5 — each entry travels with its resolved keyframes, so a
 //! decoded row is complete without the plan.
 
 use super::codec::{Reader, Writer};
@@ -62,7 +62,7 @@ impl Reader<'_> {
                     }
                     values.push((p, Value::four(c[0], c[1], c[2], c[3])));
                     // A colour then says whether a `light-dark()` pair's dark
-                    // value follows.
+                    // value follows (LLP 1062 D9).
                     if p.is_color() {
                         match self.u8()? {
                             0 => {}

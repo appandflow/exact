@@ -1,19 +1,20 @@
-//! A page's activation: the route's, or for an undeclared
-//! route the one its render implies.
+//! A page's activation (LLP 1071 D6): the route's, or for an undeclared
+//! route the one its render implies (LLP 1048.007 D1).
 
 use exact_plan::Plan;
 use exact_web::document::route_at;
 use std::sync::Mutex;
 
-/// The page's activation and, for one that waits for the
+/// The page's activation (LLP 1071 D6) and, for one that waits for the
 /// reader, its viewport comparisons ([`Rendered::wake`]): the route's,
 /// unless a partial document or a continuous handler needs the host's
 /// ordinary boot. An undeclared route waits when its render left the
-/// runtime nothing to do before the reader acts (as
+/// runtime nothing to do before the reader acts (LLP 1048.007 D1, as
 /// `render.mjs` `infer` decides it): nothing in the plan only the runtime
-/// keeps (`exact_runner::activation`), no answer pending, nothing due on
-/// the clock, no handler the capture script can neither replay nor wake
-/// for.
+/// keeps (`exact_runner::activation`), no answer pending, no stream to
+/// subscribe again, nothing due on the clock, no handler the capture script
+/// can neither replay nor wake for. Such a page is `idle` instead when the
+/// plan offers tools to a browser's agent, which only the runtime registers.
 pub(crate) fn activation(
     plan: &Plan,
     location: &str,
@@ -29,11 +30,15 @@ pub(crate) fn activation(
         let inference = inference(plan);
         let waits = !inference.never_waits()
             && state.pending.is_empty()
+            && state.open.is_empty()
             && !clocked
             && handlers
                 .values()
                 .flatten()
                 .all(|kind| REPLAYED.contains(kind) || WOKEN.contains(kind));
+        if waits && inference.tools {
+            return (exact_plan::ActivatePolicy::Idle, String::new());
+        }
         if let Some(media) = inference.media.as_deref().filter(|_| waits) {
             let wake = if media.is_empty() {
                 String::new()
@@ -86,6 +91,9 @@ pub(crate) struct Inference {
     media: Option<Vec<exact_runner::viewport_reads::Media>>,
     /// The plan holds something only its runtime keeps.
     kept: bool,
+    /// The plan offers tools to a browser's agent: a page that would wait
+    /// for the reader is `idle` instead.
+    tools: bool,
 }
 
 impl Inference {
@@ -108,6 +116,7 @@ pub(crate) fn inference(plan: &Plan) -> std::sync::Arc<Inference> {
     let found = std::sync::Arc::new(Inference {
         media: exact_runner::activation::wake(plan),
         kept: exact_runner::activation::runtime_kept(plan),
+        tools: exact_runner::activation::offers_tools(plan),
     });
     if known.len() == 4 {
         known.remove(0);

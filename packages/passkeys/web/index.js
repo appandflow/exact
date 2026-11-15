@@ -1,21 +1,21 @@
-// @exact/passkeys on the web: `navigator.credentials` and
+// @exact/passkeys on the web (LLP 1133.011): `navigator.credentials` and
 // `PublicKeyCredential`, in WebAuthn's JSON forms. The page runtime
 // (host/web-js/modules.js) calls it outside the agent; under the agent the
 // declared substitute answers and this is never loaded.
 //
-// - The options and answers are the JSON forms: `parse…FromJSON` and
+// - The options and answers are the JSON forms (D1): `parse…FromJSON` and
 //   `toJSON()` where the browser has them, else the same algorithms here
-//   (WebAuthn §5.1.8, §5.1.9; every buffer a base64url string).
-// - No answer carries a PRF output: `clientExtensionResults.prf.results`
+//   (§5.1.8, §5.1.9; every buffer a base64url string).
+// - No answer carries a PRF output (D10): `clientExtensionResults.prf.results`
 //   is removed and `prf.enabled` kept.
-// - A lock's credential (a user handle beginning `exact-lock:`)
+// - A lock's credential (§7 item 3, a user handle beginning `exact-lock:`)
 //   is never registered, delivered or signalled from here.
-// - One ceremony at a time: a modal ceremony, or a second conditional
+// - One ceremony at a time (D9): a modal ceremony, or a second conditional
 //   `get`, ends a pending conditional `get` with `AbortError` first, as a
 //   browser allows one pending request.
 // - `getClientCapabilities` is the browser's, else the two older feature
 //   tests, and is asked again when the page returns to the foreground.
-// - `dispose` tells the browser a registration the runtime dropped is
+// - `dispose` (D11) tells the browser a registration the runtime dropped is
 //   unknown to the relying party, where it has `signalUnknownCredential`.
 
 const MARK = new TextEncoder().encode('exact-lock:');
@@ -35,7 +35,7 @@ const marked = id => {
   if (typeof id !== 'string') return false;
   try { const bytes = unb64(id); return MARK.every((b, i) => bytes[i] === b); } catch { return false; }
 };
-/** A ceremony's failure: its `DOMException`'s name, and what it says. */
+/** A ceremony's failure: its `DOMException`'s name (D1), and what it says. */
 const failure = e => ({ error: typeof e?.name === 'string' && /Error$/.test(e.name) ? e.name : 'NotAllowedError', ...(e?.message ? { message: e.message } : {}) });
 
 /** Binary extension inputs in the WebAuthn JSON conversion algorithms. */
@@ -63,7 +63,7 @@ function creation(json) {
   };
 }
 
-/** `PublicKeyCredentialRequestOptionsJSON` as the browser takes it (WebAuthn §5.1.9). */
+/** `PublicKeyCredentialRequestOptionsJSON` as the browser takes it (§5.1.9). */
 function request(json) {
   if (typeof PublicKeyCredential.parseRequestOptionsFromJSON === 'function') return PublicKeyCredential.parseRequestOptionsFromJSON(json);
   return {
@@ -74,7 +74,7 @@ function request(json) {
   };
 }
 
-/** Client extension results with every buffer base64url, and no PRF output. */
+/** Client extension results with every buffer base64url, and no PRF output (D10). */
 function extensions(results) {
   const json = v => v instanceof ArrayBuffer || ArrayBuffer.isView(v) ? b64(v) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, json(x)])) : v;
   const out = json(results ?? {});
@@ -82,7 +82,7 @@ function extensions(results) {
   return out;
 }
 
-/** The credential's `toJSON()` (WebAuthn §5.1.10's `RegistrationResponseJSON`, `AuthenticationResponseJSON`). */
+/** The credential's `toJSON()` (§5.1.10's `RegistrationResponseJSON`, `AuthenticationResponseJSON`). */
 function response(credential) {
   const r = credential.response;
   const own = typeof credential.toJSON === 'function' ? credential.toJSON() : {
@@ -103,7 +103,7 @@ function response(credential) {
 
 export function implementation({ changed, log = () => {} }) {
   const present = typeof PublicKeyCredential === 'function' && typeof navigator === 'object' && !!navigator.credentials;
-  // The pending conditional `get`, which a newer ceremony ends.
+  // The pending conditional `get`, which a newer ceremony ends (D9).
   let conditional = null;
   // Each registration's RP ID by credential id, for `dispose`.
   const made = new Map();
@@ -126,7 +126,7 @@ export function implementation({ changed, log = () => {} }) {
         'relatedOrigins', 'signalAllAcceptedCredentials', 'signalCurrentUserDetails', 'signalUnknownCredential'];
       return {
         available: true, ...Object.fromEntries(known.map(k => [k, typeof caps[k] === 'boolean' ? caps[k] : null])),
-        // A declared deviation: not a Level 3 key, and the web has no such request.
+        // A declared deviation (D1): not a Level 3 key, and the web has no such request.
         preferImmediatelyAvailableCredentials: false,
         extensions: { prf: extension('prf'), largeBlob: extension('largeBlob'), credProps: extension('credProps') },
         android: null,
@@ -151,7 +151,7 @@ export function implementation({ changed, log = () => {} }) {
       try {
         const credential = await navigator.credentials.get({ publicKey: request(publicKey), ...(mediation ? { mediation } : {}), signal: abort.signal });
         const answer = response(credential);
-        // A lock's assertion, or one with no user handle where it must have one, is never delivered.
+        // A lock's assertion, or one with no user handle where it must have one, is never delivered (§7 item 3).
         const discoverable = !(publicKey.allowCredentials?.length);
         if (marked(answer.response.userHandle) || (discoverable && !answer.response.userHandle)) return { error: 'NotAllowedError' };
         return answer;
@@ -161,7 +161,7 @@ export function implementation({ changed, log = () => {} }) {
     signalUnknownCredential: options => signal('signalUnknownCredential', options),
     signalAllAcceptedCredentials: options => marked(options.userId) ? { error: 'NotAllowedError' } : signal('signalAllAcceptedCredentials', options),
     signalCurrentUserDetails: options => marked(options.userId) ? { error: 'NotAllowedError' } : signal('signalCurrentUserDetails', options),
-    /** Registrations the runtime dropped before data code had them. */
+    /** Registrations the runtime dropped before data code had them (D11). */
     dispose(ids) {
       for (const id of ids) {
         const rpId = made.get(id) ?? location.hostname;

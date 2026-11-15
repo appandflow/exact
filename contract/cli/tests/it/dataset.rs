@@ -1,4 +1,4 @@
-//! `data-*`: the app's own words on any element,
+//! `data-*` (LLP 1075.003 §3.3, Q2): the app's own words on any element,
 //! one `dataset` row of sorted strings; a module tag's words are its
 //! dataset, not module props; a word a host writes, or one HTML does not
 //! spell, is refused; and a word `app.json` does not declare fails the bake.
@@ -213,8 +213,8 @@ fn a_word_the_manifest_does_not_declare_fails_the_bake_by_name() {
     assert!(errors[0].message.contains("listed twice"), "{errors:?}");
 }
 
-/// `hatch` is one literal word on a node that is not a module view, lowered to
-/// its own row.
+/// LLP 1075.003.000 §3.1: `hatch` is one literal word on a node that is not a
+/// module view, lowered to its own row.
 #[test]
 fn a_hatch_is_one_literal_word_on_a_node_lowered_to_its_row() {
     let r = boot("component A\n  view\n    column\n      column testId=\"a\" hatch=\"avatar\" data-size=\"small\"\n      text \"x\" testId=\"t\"\n");
@@ -267,8 +267,9 @@ fn a_hatch_word_the_manifest_does_not_declare_fails_the_bake_by_name() {
     );
 }
 
-/// `hatches` may give each word the platforms whose module handles it. Every
-/// word is declared for the Contract; each platform is told only its own.
+/// LLP 1075.003.000.001 §5: `hatches` may give each word the platforms whose
+/// module handles it. Every word is declared for the Contract; each platform
+/// is told only its own.
 #[test]
 fn a_hatch_word_may_name_the_platforms_that_handle_it() {
     let app = App::new(
@@ -288,7 +289,7 @@ fn a_hatch_word_may_name_the_platforms_that_handle_it() {
         3,
         "a word no platform handles is still a word the Contract may mark"
     );
-    // The plan carries the same rows, under its signature.
+    // The plan carries the same rows, under its signature (§4.3).
     let (plan, _) = contract::compile_path_all(&app.0.join("app.contract"), false).unwrap();
     let plan = exact_plan::Plan::decode(&plan.encode()).unwrap();
     assert!(plan.handles_hatch("dot", "ios") && plan.handles_hatch("dot", "web"));
@@ -321,9 +322,9 @@ fn a_hatch_word_may_name_the_platforms_that_handle_it() {
     }
 }
 
-/// A painting host's hatches are the app's own `modules/linux/*.rs`, included
-/// by its generated entry beside a typed key of only the words the platform
-/// handles.
+/// LLP 1075.003.000.001 §5: a painting host's hatches are the app's own
+/// `modules/linux/*.rs`, included by its generated entry beside a typed key
+/// of only the words the platform handles.
 #[test]
 fn a_painting_hosts_entry_includes_the_apps_hatches_with_its_platforms_typed_key() {
     let app = App::new(
@@ -368,13 +369,58 @@ fn a_painting_hosts_entry_includes_the_apps_hatches_with_its_platforms_typed_key
     assert!(!windows.contains("Dot"), "{windows}");
 }
 
+/// The Linux and Windows crates `exact new` generates run the app's hatches
+/// as an authored crate does: the bake writes `exact_hatches()` beside the
+/// plan, naming each file by its absolute path, since the entry is read from
+/// OUT_DIR.
+#[test]
+fn a_generated_painting_hosts_bake_writes_the_apps_hatches_install() {
+    let app = App::new(
+        "bakedhatches",
+        r#","hatches":["dot"]"#,
+        r#"column hatch="dot""#,
+    );
+    let out = app.0.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    let write = |platform: &str| {
+        contract::native::write_desktop_hatches(platform, &app.0, "x86_64-unknown-linux-gnu", &out)
+            .unwrap();
+        std::fs::read_to_string(out.join("hatches.rs")).unwrap_or_default()
+    };
+    let none = "fn exact_hatches() -> Option<::exact_painted::hatches::Install> {\n    None\n}\n";
+    assert_eq!(write("linux"), none);
+    let modules = app.0.join("modules/linux");
+    std::fs::create_dir_all(&modules).unwrap();
+    std::fs::write(modules.join("hatches.rs"), "pub type ExactHatches = ();\n").unwrap();
+    let text = write("windows");
+    assert!(
+        text.contains(
+            "Some(::exact_painted::hatches::install::<hatches::ExactHatches>(HatchKey::WORDS))"
+        ),
+        "{text}"
+    );
+    let file = std::fs::canonicalize(modules.join("hatches.rs")).unwrap();
+    assert!(
+        text.contains(&format!("include!({:?});", file.display().to_string())),
+        "{text}"
+    );
+    // A platform the shells compose no packages for is not written.
+    std::fs::remove_file(out.join("hatches.rs")).unwrap();
+    assert_eq!(write("macos"), "");
+}
+
 /// A game's compiler reads `.shells/app.json`, which the bake resolves from its
 /// `app.json`; edited since, the refusal says the copy is stale and how to
-/// regenerate it. The record is the authored file's content.
+/// regenerate it (LLP 1139.004 D2). The record is the authored file's content.
 #[test]
 fn a_word_added_to_a_game_app_json_after_its_shells_names_the_stale_copy() {
     use sha2::{Digest, Sha256};
-    let app = App::new("stale", "", r#"column data-pointer-lock="on""#);
+    let app = App::new(
+        "stale",
+        "",
+        r#"column data-pointer-lock="on" hatch="avatar"
+      my-view"#,
+    );
     let generated = app.0.join(".shells");
     std::fs::create_dir_all(&generated).unwrap();
     std::fs::copy(app.0.join("app.json"), generated.join("app.json")).unwrap();
@@ -384,27 +430,40 @@ fn a_word_added_to_a_game_app_json_after_its_shells_names_the_stale_copy() {
     };
     record(&app);
     let current = app.compile().unwrap_err();
+    assert_eq!(current.len(), 3, "{current:?}");
     assert!(
-        current[0].message.contains("declares no data-* words")
-            && !current[0].message.contains("stale"),
+        current
+            .iter()
+            .any(|e| e.message.contains("declares no data-* words"))
+            && current.iter().all(|e| !e.message.contains("stale")),
         "{current:?}"
     );
     let authored = std::fs::read_to_string(app.0.join("app.json")).unwrap();
     std::fs::write(
         app.0.join("app.json"),
-        authored.replacen('{', r#"{"data":["pointer-lock"],"#, 1),
+        authored.replacen(
+            '{',
+            r#"{"data":["pointer-lock"],"hatches":["avatar"],"modules":["my-view"],"#,
+            1,
+        ),
     )
     .unwrap();
     let stale = app.compile().unwrap_err();
-    assert_eq!(stale[0].id, "bake-undeclared-data", "{stale:?}");
-    assert!(
-        stale[0].message.contains(".shells/app.json is stale")
-            && stale[0]
-                .message
-                .contains("`bun exact.mjs shells` regenerates it"),
-        "{}",
-        stale[0].message
-    );
+    assert_eq!(stale.len(), 3, "{stale:?}");
+    for id in [
+        "bake-undeclared-data",
+        "bake-undeclared-hatch",
+        "bake-unknown-module",
+    ] {
+        let error = stale.iter().find(|e| e.id == id).unwrap();
+        assert!(
+            error.message.contains(".shells/app.json is stale")
+                && error
+                    .message
+                    .contains("`bun exact.mjs shells` regenerates it"),
+            "{error}"
+        );
+    }
     // Regenerated (the bake copies the resolved file and records its source), it builds.
     std::fs::copy(app.0.join("app.json"), generated.join("app.json")).unwrap();
     record(&app);

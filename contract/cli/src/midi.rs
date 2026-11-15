@@ -1,4 +1,4 @@
-//! `exactMIDI()`'s shape: the runner answers `state`,
+//! `exactMIDI()`'s shape (LLP 1125 D6): the runner answers `state`,
 //! `inputs`, `outputs` and `sent`, each port's `id`, `name`, `manufacturer`
 //! and `state`, and each sent message's `output`, `data` and `timeStamp`, so
 //! a declared field it does not know would refuse every boot; it is refused

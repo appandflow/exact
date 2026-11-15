@@ -1,4 +1,4 @@
-//! Identical filled and excluded polygon vertices.
+//! @ref LLP 1043.000 §3 D1/D8 — identical filled and excluded polygon vertices.
 //! The sines, arctangents and hypotenuses are the `libm` crate's, so a wasm page and a
 //! native host compute the same bits; std's call the platform's libm, whose last digits
 //! differ.

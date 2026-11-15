@@ -1,7 +1,7 @@
 //! HTML's top layer on kernel hosts: an open popover is `position: fixed`
 //! in the UA sheet, out of its parent's flow, so opening one moves nothing
-//! around where it was written. A host lifts and places it, so an
-//! element written after it, such as a chat composer, never jumps by its
+//! around where it was written. A host lifts and places it; on iOS
+//! Harmony's room composer, a popover written after it, had jumped up by its
 //! height. A closed one is covered whole (`display: none`).
 use crate::arena::NodeArena;
 use crate::PositionType;
@@ -38,6 +38,14 @@ pub(crate) fn lifted(arena: &NodeArena, slot: u32) -> bool {
         && layout_position(arena, slot) == PositionType::Absolute
 }
 
+/// Whether `slot` is a top-layer box, laid out apart from its parent's
+/// subtree. An inline run or image that says `popover` is lifted but
+/// stays in its paragraph's text: `Kernel::imply_blocks` gives it
+/// no block, and a content region publishes it with its paragraph.
+pub(crate) fn is_box(arena: &NodeArena, slot: u32) -> bool {
+    arena.top_layer_slots.contains(slot) && !arena.in_paragraph(slot)
+}
+
 /// A top-layer box's engine style: absolute, out of flow, its insets
 /// offsets (a platform start's sticky row had laid them out as `auto`).
 /// Its containing block is the viewport, a block the kernel implies
@@ -47,7 +55,8 @@ pub(crate) fn lifted(arena: &NodeArena, slot: u32) -> bool {
 pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     if layout_position(arena, slot) == PositionType::Absolute {
         s.position = taffy::style::Position::Absolute;
-        let (style, env) = (arena.effective_style(slot), arena.env());
+        let (style, env) = (arena.effective_style(slot), arena.env_of(slot));
+        let env = &*env;
         s.inset = taffy::geometry::Rect {
             top: style.top.to_lpa(env),
             right: style.right.to_lpa(env),

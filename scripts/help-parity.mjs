@@ -1,4 +1,4 @@
-// The helps against the scripts they describe, read from source with no browser
+// The helps against the scripts they describe (LLP 1116 D4, LLP 1116.009 D6), read from source with no browser
 // and no build: each verb's help names exactly the flags its script parses, every row it names is shown, each help
 // and the index stay short, and the index's forms name only flags their verb parses. scripts/help.test.mjs asserts
 // these and more (the helps' wording and the index's forms, which no flag edit moves); caps.mjs runs
@@ -33,17 +33,17 @@ export function scriptFlags(root) {
   };
   const exact = read('scripts/exact.mjs'), between = (from, to) => slice('scripts/exact.mjs', exact, from, to);
   const readiness = slice('scripts/app-cli.mjs', read('scripts/app-cli.mjs'), "if (verb === 'status'", 'if (!verbs[verb]');
-  // The dev loops read `--pair-ttl` through pairTtlOf; the rest of that module is `tamber pair`'s.
-  const pairTtl = slice('scripts/tamber-pairing.mjs', read('scripts/tamber-pairing.mjs'), 'export function pairTtlOf(', '\n}\n');
+  // The dev loops read `--pair-ttl` through stage 10 A's pairTtlOf; the rest of that module is `forma pair`'s.
+  const pairTtl = slice('scripts/forma-pairing.mjs', read('scripts/forma-pairing.mjs'), 'export function pairTtlOf(', '\n}\n');
   const apple = parsed(read('host/apple/build.mjs'), read('host/apple/devices.mjs'), read('host/apple/link.mjs'), read('host/apple/bundle.mjs'));
   const agent = parsed(read('scripts/agent-launch.mjs'), read('scripts/agent-widget.mjs'));
   return [
-    ['web', parsed(read('host/web/dev.mjs'), read('scripts/install-page.mjs'), read('scripts/tamber-remote.mjs'), read('scripts/tamber-relay.mjs'), pairTtl, readiness)],
+    ['web', parsed(read('host/web/dev.mjs'), read('scripts/install-page.mjs'), read('scripts/forma-remote.mjs'), read('scripts/forma-relay.mjs'), pairTtl, readiness)],
     ['web-build', parsed(read('host/web/build.mjs'))],
     ['serve', parsed(read('host/web/serve.mjs'))],
     ['agent', agent], ['test', agent], ['verify', parsed(read('scripts/verify.mjs'))],
     ['ios', apple], ['mac', apple],
-    ['linux', parsed(read('scripts/build-linux.mjs'))], ['android', parsed(read('scripts/agent-android.mjs'))],
+    ['linux', parsed(read('scripts/build-linux.mjs'))], ['android', parsed(read('scripts/agent-android.mjs'))], ['windows', parsed(read('host/windows/build.mjs'))],
     ['feedback', parsed(read('scripts/feedback.mjs'))],
     ['hatch', parsed(between('export function hatch(', '\nexport function pattern('))],
     ['add', parsed(between('export function add(', '\n/** `exact hatch'))],

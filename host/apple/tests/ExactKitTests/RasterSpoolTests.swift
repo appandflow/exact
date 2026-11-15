@@ -51,7 +51,7 @@ final class RasterSpoolTests: XCTestCase {
     }
 
     /// A lock file that cannot be opened (here: unreadable) says nothing of
-    /// its owner, so the directory stays.
+    /// its owner, so the directory stays (Astra's review, finding 1).
     func testALockThatCannotBeOpenedKeepsItsDirectory() throws {
         let held = try spool("held", lock: true)
         let owner = hold(held)
@@ -71,7 +71,7 @@ final class RasterSpoolTests: XCTestCase {
         let spool = RasterSpool(tmp: root)
         let mine = try spool.directory()
         XCTAssertEqual(mine.deletingLastPathComponent().standardizedFileURL, base.standardizedFileURL)
-        XCTAssertFalse(fm.fileExists(atPath: dead.path), "the first spool sweeps an abandoned directory")
+        XCTAssertFalse(fm.fileExists(atPath: dead.path), "the first spool sweeps an abandoned directory (Astra r3 finding 2)")
         XCTAssertTrue(fm.fileExists(atPath: outside.path), "outside the spool root: not swept")
         RasterSpool.sweep(base)
         XCTAssertTrue(fm.fileExists(atPath: mine.path), "this process's lock is held")
@@ -84,7 +84,7 @@ final class RasterSpoolTests: XCTestCase {
     }
 
     /// A spool root that cannot be made throws, nothing is kept, and once it
-    /// can be made the next spool makes it.
+    /// can be made the next spool makes it (Astra's r2 finding 4).
     func testAFailedSpoolIsTriedAgain() throws {
         XCTAssertEqual(chmod(root.path, 0o500), 0)
         let spool = RasterSpool(tmp: root)
@@ -99,7 +99,7 @@ final class RasterSpoolTests: XCTestCase {
     /// Another process holding the namespace lock (a creator between its
     /// directory and its lock) makes a spool give up, without sweeping, after
     /// its bounded attempts, never wait; the next spool succeeds once it is
-    /// released.
+    /// released (Astra's r2 finding 2).
     func testAHeldNamespaceIsNotWaitedFor() throws {
         let base = root.appendingPathComponent("exact-raster")
         try fm.createDirectory(at: base, withIntermediateDirectories: true)
@@ -111,7 +111,7 @@ final class RasterSpoolTests: XCTestCase {
         let spool = RasterSpool(tmp: root)
         let started = Date()
         XCTAssertThrowsError(try spool.directory())
-        XCTAssertTrue(fm.fileExists(atPath: creating.path), "no sweep without the namespace lock")
+        XCTAssertTrue(fm.fileExists(atPath: creating.path), "no sweep without the namespace lock (Grok r2)")
         XCTAssertLessThan(Date().timeIntervalSince(started), 5, "bounded, not a blocking wait")
         close(other)
         XCTAssertNoThrow(try spool.directory())
@@ -119,7 +119,8 @@ final class RasterSpoolTests: XCTestCase {
 
     /// A symlink is never followed: an entry that links elsewhere is left
     /// alone; a root that is a link is unlinked and made real, while a real
-    /// root (another launch's, just repaired) keeps its live spools.
+    /// root (another launch's, just repaired) keeps its live spools (Grok r1
+    /// finding 2, Astra r2 finding 1).
     func testSymlinksAreNeverFollowed() throws {
         let elsewhere = fm.temporaryDirectory.appendingPathComponent("raster-elsewhere-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
@@ -160,7 +161,8 @@ final class RasterSpoolTests: XCTestCase {
     }
 
     /// A link in the root's place that cannot be unlinked (its directory is
-    /// read-only) is not followed: nothing is created in its target.
+    /// read-only) is not followed: nothing is created in its target (Grok r3
+    /// finding 1).
     func testALinkThatCannotBeUnlinkedIsNotFollowed() throws {
         let elsewhere = fm.temporaryDirectory.appendingPathComponent("raster-elsewhere-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
@@ -175,7 +177,7 @@ final class RasterSpoolTests: XCTestCase {
 
     /// Two launches both see the symlinked root; the second is paused there
     /// while the first repairs it and spools, then resumes its own repair:
-    /// the first's live spool survives.
+    /// the first's live spool survives (Astra r2 finding 1, r3 finding 1).
     func testAConcurrentRepairKeepsTheOtherLaunchsSpool() throws {
         let elsewhere = fm.temporaryDirectory.appendingPathComponent("raster-elsewhere-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)

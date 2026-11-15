@@ -1,4 +1,4 @@
-//! On the web host, a control's spacing and size are the
+//! LLP 1115.000 D10 on the web host: a control's spacing and size are the
 //! plan's, the same on every host, so the page is told nothing a native host
 //! is not.
 
@@ -29,7 +29,7 @@ fn css_of(host: &Host<NoData>, batch: &str, id: &str) -> String {
     css[..css.find('"').expect("the css ends")].to_owned()
 }
 
-/// A checkbox, a radio and a range reach the page with no margin of
+/// D10.1: a checkbox, a radio and a range reach the page with no margin of
 /// their own (lowering wrote Chrome's UA margins inline until 2026-10-11),
 /// and one the author writes is the control's.
 #[test]
@@ -53,7 +53,7 @@ fn a_checkbox_a_radio_and_a_range_carry_no_margin() {
     assert!(spaced.contains("margin-left:6px"), "{spaced}");
 }
 
-/// A range and a determinate `progress` reach the page `width: 100%`,
+/// D10.2: a range and a determinate `progress` reach the page `width: 100%`,
 /// the row lowering implies, so the browser makes them as wide as what holds
 /// them by CSS and the host fills nothing itself. An authored `width` is the
 /// only one sent; an indeterminate `progress` gets none.
@@ -88,7 +88,7 @@ fn a_range_and_a_determinate_progress_are_sent_full_width() {
     assert!(!spinner.contains("width:100%"), "{spinner}");
 }
 
-/// An `hr` reaches the page as one hairline with no margin, a solid
+/// D10.3: an `hr` reaches the page as one hairline with no margin, a solid
 /// top edge one device pixel thick. The wasm page's kernel is told the
 /// page's `devicePixelRatio` (`exact_set_display_scale`) and writes the
 /// pixels: 1px until it is, half a pixel on a 2x display, and the batch that
@@ -205,7 +205,7 @@ fn svg_hairline_attributes_follow_the_display_scale() {
 }
 
 #[test]
-fn svg_font_lengths_keep_computed_points() {
+fn svg_font_lengths_keep_authored_units() {
     let (host, first) = boot(
         r#"component App
   view
@@ -216,7 +216,7 @@ fn svg_font_lengths_keep_computed_points() {
 "#,
     );
     let first: serde_json::Value = serde_json::from_str(&first).unwrap();
-    for (name, height) in [("em", "40"), ("rem", "32"), ("compact", "10")] {
+    for (name, height) in [("em", "2em"), ("rem", "2rem"), ("compact", "10")] {
         let op = first["ops"]
             .as_array()
             .unwrap()

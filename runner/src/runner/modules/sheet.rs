@@ -1,4 +1,4 @@
-//! A sheet that asks the app while it is up:
+//! A sheet that asks the app while it is up (LLP 1133.034 §9, D16 item 3):
 //! a ceremony whose substitute declares `asks` holds one ticket for the
 //! wallet's sheet, which the agent answers as the person would, and the app's
 //! own handlers answer the sheet as they would the platform's.
@@ -8,8 +8,8 @@
 //!   `{"paymentMethod": {…}}` each call the handler its `asks` entry names
 //!   through `invoke` (`run_handler`), and lay its `PaymentDetailsUpdate`
 //!   over the ticket's `args`. `tap @t authorize` calls the final handler
-//!   with a synthetic payment in the method's own shape, and its answer
-//!   is shown as this target's sheet shows it. On the web with Apple
+//!   with a synthetic payment in the method's own shape (D7), and its answer
+//!   is shown as D6's table shows it on this target. On the web with Apple
 //!   Pay, merchant validation is asked first.
 //! - **One at a time.** While a handler runs, the sheet takes no other
 //!   answer, as Apple's delegate waits for each before the next.
@@ -57,7 +57,7 @@ enum Phase {
     Validating,
     Editing,
     Authorizing,
-    /// Let go where the platform cannot close the sheet.
+    /// Let go where the platform cannot close the sheet (D6 phase 3).
     Abandoned,
 }
 
@@ -109,7 +109,7 @@ struct Sheet {
     /// Each handler's name, duration and answer kind (`state.extensions`).
     handled: Vec<Json>,
     budget: f64,
-    /// The words the result names the card by (`apple`, `android`).
+    /// The words the result names the card by (`apple`, `android`, D10).
     card: Json,
 }
 
@@ -149,7 +149,7 @@ fn amount_refused(amount: &Json, what: &str) -> Option<(&'static str, String)> {
 
 impl<D: DataSource> Runner<D> {
     /// The method this target pays with: the first of `args`'s method data
-    /// whose declared `targets` name it.
+    /// whose declared `targets` name it (D4).
     fn method_here(&self, row: &ModulesRow, args: &Json) -> Option<String> {
         let methods = self.substitute(row)["methods"].clone();
         let target = self.host_target();
@@ -162,8 +162,8 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A payment call's method data, details and amounts, as the W3C's
-    /// constructor and each method's dictionaries check them: the code and
-    /// why it is refused, if it is.
+    /// constructor and each method's dictionaries check them (D10, D16 item
+    /// 4): the code and why it is refused, if it is.
     pub(super) fn methods_admitted(
         &self,
         row: &ModulesRow,
@@ -307,7 +307,7 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// The ticket's `args`: never an address, a payer or a token.
+    /// The ticket's `args` (§9): never an address, a payer or a token.
     fn args_shown(&self, sheet: &Sheet) -> Json {
         let o = &sheet.options;
         json!({
@@ -540,7 +540,7 @@ impl<D: DataSource> Runner<D> {
         });
     }
 
-    /// The authorization's result, as this target's sheet shows it.
+    /// The authorization's result, as D6's table shows it on this target.
     fn sheet_result(&mut self, token: u64, result: &str, message: Option<&str>, data: Json) {
         let android = self.host_target() == "android";
         let closes = result == "success" || !android;
@@ -578,7 +578,7 @@ impl<D: DataSource> Runner<D> {
         self.reopen(token);
     }
 
-    /// The send's `PaymentResult`: the response without its payment.
+    /// The send's `PaymentResult`: the response without its payment (D7).
     fn payment_result(&self, token: u64) -> Json {
         let s = &self.extensions.sheets.open[&token];
         let o = &s.options;
@@ -625,7 +625,7 @@ impl<D: DataSource> Runner<D> {
         self.extensions.sheets.open.remove(&token);
     }
 
-    /// The send answers `answer` while its sheet stays up (an Android
+    /// The send answers `answer` while its sheet stays up (D6: an Android
     /// sheet whose authorization timed out).
     fn answer_send(&mut self, token: u64, answer: Json) {
         let hold = self.extensions.sheets.open[&token].hold;
@@ -721,7 +721,7 @@ impl<D: DataSource> Runner<D> {
             return self.reopen(token);
         };
         let s = self.sheet_mut(token);
-        // A request whose call ended calls the app no more.
+        // A request whose call ended calls the app no more (D6).
         let abandoned = s.phase == Phase::Abandoned;
         let (id, method) = (s.request_id.clone(), s.method.clone());
         let (ask, keyword, arg) = if let Some(address) = value.get("shippingAddress") {
@@ -771,7 +771,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The `PaymentResponse` the final handler is given: a synthetic payment
-    /// in the method's own shape, never a card's.
+    /// in the method's own shape, never a card's (§9).
     fn payment_response(&mut self, token: u64) -> Json {
         self.extensions.sheets.payments += 1;
         let n = self.extensions.sheets.payments;
@@ -862,7 +862,7 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// Contract sends let go: held while authorizing, closed where the
+    /// Contract sends let go (§9): held while authorizing, closed where the
     /// platform can close the sheet, else abandoned.
     pub(super) fn sheets_let_go(&mut self) {
         let gone: Vec<u64> = (self.extensions.held.iter())
@@ -906,7 +906,7 @@ impl<D: DataSource> Runner<D> {
             .is_some_and(|s| s.let_go)
     }
 
-    /// Handlers past their budget on the session's clock.
+    /// Handlers past their budget on the session's clock (D5).
     pub(super) fn sheet_deadlines(&mut self, now_ms: f64) {
         self.finals_due(now_ms);
         let due: Vec<u64> = (self.extensions.sheets.open.iter())
@@ -940,7 +940,7 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// The sheet's entry in `state.extensions`, when the
+    /// The sheet's entry in `state.extensions` (§9's disclosure), when the
     /// call held under `token` is a sheet's.
     pub(super) fn sheet_entry(&self, token: u64, outcome: &str) -> Option<Json> {
         let s = self.extensions.sheets.open.get(&token)?;

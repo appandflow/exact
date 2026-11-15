@@ -2,7 +2,7 @@ import XCTest
 import ExactCore
 @testable import ExactKit
 
-/// `exactViewport().pointer` and `.hover` by device class, an
+/// LLP 1132 D10: `exactViewport().pointer` and `.hover` by device class, an
 /// iPad with a trackpad or mouse answering as the pointing device, and the
 /// agent's `prefer pointer` and `prefer hover` reaching the runtime.
 final class PrimaryInputTests: XCTestCase {

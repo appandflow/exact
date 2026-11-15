@@ -1,4 +1,4 @@
-// When each image arrived, and which arrived late. The
+// @ref LLP 1145 D2 — when each image arrived, and which arrived late. The
 // loader stamps each view's image at the stage boundaries it passes; the
 // frame sampler marks the first frame its box showed with no pixels. An image
 // that showed blank is counted when its pixels land or its row retires, so a

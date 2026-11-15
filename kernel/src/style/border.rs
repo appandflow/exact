@@ -1,6 +1,6 @@
 //! A box's border as it paints: the widths that occupy space and the colour
-//! of each side, `inset`'s two shades included (HTML's `hr` is an inset
-//! rule).
+//! of each side, `inset`'s two shades included (LLP 1001 §1, "Border
+//! semantics"; LLP 1021 D1 — HTML's `hr` is an inset rule).
 
 use super::{Color, ColorValue};
 use crate::generated::{BorderStyle, StyleProps};
@@ -23,7 +23,7 @@ impl StyleProps {
     }
 
     /// Used widths for layout and paint: whole device pixels on a graphical
-    /// host that sets `border_scale`, or one cell on a terminal.
+    /// host that sets `border_scale`, or one cell on a terminal (LLP 1101.001 P13).
     pub fn border_widths_in(&self, env: &super::Env) -> [f32; 4] {
         let widths = self.border_widths();
         if env.cell_borders {
@@ -103,6 +103,7 @@ fn shade(value: ColorValue, shadowed: bool) -> ColorValue {
                     space: exact_color::Space::SrgbLinear,
                     c,
                     alpha: w.alpha,
+                    missing: [false; 4],
                 }
                 .css()
             };

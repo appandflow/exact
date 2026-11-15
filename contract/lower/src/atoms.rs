@@ -1,5 +1,5 @@
-//! Inline atoms' declarations and a Markdown node's `atoms` and `atomFaces`:
-//! the forms and paint as compiled tables, the faces as
+//! Inline atoms' declarations and a Markdown node's `atoms` and `atomFaces`
+//! (LLP 1045.000 D3): the forms and paint as compiled tables, the faces as
 //! a typed record list.
 use super::*;
 use exact_kernel::PropId;
@@ -30,7 +30,7 @@ pub(super) fn check_field(tag: &str, attrs: &[Attr]) -> Result<(), LowerError> {
         return err(
             "lower-atom-field",
             format!(
-                "`{}` belongs on a `text` or `textarea` with `markup=\"markdown\"`: an atom is a span of Markdown source",
+                "`{}` belongs on a `text` or `textarea` with `markup=\"markdown\"`: an atom is a span of Markdown source (LLP 1045.000)",
                 atom.name
             ),
             atom.span,
@@ -212,7 +212,7 @@ impl Lowerer<'_> {
                     return err(
                         "lower-atom-duplicate",
                         format!(
-                            "`{other}` and `{name}` in one `atoms` list both match `{form}=\"{value}\"`: every span has at most one kind"
+                            "`{other}` and `{name}` in one `atoms` list both match `{form}=\"{value}\"`: every span has at most one kind (LLP 1045.000 D1)"
                         ),
                         attr.span,
                     );

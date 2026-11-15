@@ -1,5 +1,5 @@
-// A key a `keycapture` handler prevented has no default on the
-// Mac: the focus stays where it is, as on the web.
+// @ref LLP 1115.000 D7 — a key a `keycapture` handler prevented has no
+// default on the Mac: the focus stays where it is, as on the web.
 #if os(macOS)
 import AppKit
 import XCTest

@@ -1,18 +1,20 @@
-// @exact/calendar on the web: no calendar store, and no
+// @exact/calendar on the web (LLP 1133.018 D15): no calendar store, and no
 // API that adds an event, so the editor is an `.ics` file (RFC 5545) the
 // browser downloads and the system offers to its calendar. Its answer is
-// `unknown`: the page never learns whether the person added it. Every
+// `unknown`: the page never learns whether the person added it (D4). Every
 // store name is refused by the page runtime before it reaches here.
 //
-// Under the agent nothing is downloaded: the sheet's `save` answers
+// Under the agent (§10) nothing is downloaded: the sheet's `save` answers
 // `unknown`, as production does, and adds to no store.
 
 const STATUS = { available: false, state: 'unknown', access: 'unknown', editor: true, apple: null, android: null };
 
-/** RFC 5545 §3.3.11's TEXT escapes. */
-const text = s => String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+/** RFC 5545 §3.3.11's TEXT escapes; any line break, a lone CR too, is `\n`. */
+const text = s => String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r\n?|\n/g, '\\n');
+/** A value that is not TEXT on one content line: without CR and LF, as the URL Standard's parser drops them. */
+const line = s => String(s).replace(/[\r\n]/g, '');
 
-/** A content line folded at 75 octets (RFC 5545 §3.1), each continuation led by a space. */
+/** A content line folded at 75 octets (§3.1), each continuation led by a space. */
 function fold(line) {
   const bytes = new TextEncoder().encode(line);
   if (bytes.length <= 75) return line;
@@ -50,7 +52,7 @@ function zoned(p, zone) {
 const pad = (n, w = 2) => String(n).padStart(w, '0');
 const utc = ms => { const d = new Date(ms); return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`; };
 
-/** The event as an iCalendar object: a zoned start in UTC (RFC 5545 §3.3.5 form 2, so no VTIMEZONE is needed), a floating
+/** The event as an iCalendar object: a zoned start in UTC (§3.3.5 form 2, so no VTIMEZONE is needed), a floating
  * one as local time (form 1), an all-day one as a DATE (§3.3.4). */
 export function ics(event, now = Date.now()) {
   const p = parts(event.start);
@@ -60,13 +62,14 @@ export function ics(event, now = Date.now()) {
     : `DTSTART:${p[0]}${pad(p[1])}${pad(p[2])}T${pad(p[3])}${pad(p[4])}${pad(p[5])}`;
   const lines = [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Exact//@exact/calendar//EN', 'BEGIN:VEVENT',
-    `UID:${event.uid ?? `${now.toString(36)}-${Math.random().toString(36).slice(2)}@exact`}`,
-    `DTSTAMP:${utc(now)}`, start, `DURATION:${event.duration || (event.showWithoutTime ? 'P1D' : 'PT1H')}`,
+    // UID is TEXT (§3.8.4.7).
+    `UID:${event.uid != null ? text(event.uid) : `${now.toString(36)}-${Math.random().toString(36).slice(2)}@exact`}`,
+    `DTSTAMP:${utc(now)}`, start, `DURATION:${line(event.duration || (event.showWithoutTime ? 'P1D' : 'PT1H'))}`,
     `SUMMARY:${text(event.title)}`,
   ];
   if (event.description) lines.push(`DESCRIPTION:${text(event.description)}`);
   if (event.location) lines.push(`LOCATION:${text(event.location)}`);
-  if (event.url) lines.push(`URL:${event.url}`);
+  if (event.url) lines.push(`URL:${line(event.url)}`);
   if (event.status) lines.push(`STATUS:${event.status.toUpperCase()}`);
   if (event.freeBusyStatus) lines.push(`TRANSP:${event.freeBusyStatus === 'free' ? 'TRANSPARENT' : 'OPAQUE'}`);
   lines.push('END:VEVENT', 'END:VCALENDAR');

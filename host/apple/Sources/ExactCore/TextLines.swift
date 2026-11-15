@@ -3,7 +3,7 @@ import CoreText
 import CExact
 
 extension TextEngine {
-    /// Each line box's bottom, in content coordinates, of
+    /// @ref LLP 1093 D6 — each line box's bottom, in content coordinates, of
     /// the paragraph `request` answers: the one the presenter paints.
     package func lineBottoms(_ request: ExactMeasureRequest) -> [CGFloat] {
         guard request.width >= 0, request.exclusion_count == 0, request.markup == 0 else { return [] }

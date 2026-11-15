@@ -1,10 +1,10 @@
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
 // Press feedback in a real browser: the shell's CSS and the input glue,
-// driven by CDP mouse and key events. A declared press goes by
+// driven by CDP mouse and key events. A declared press (LLP 1061 D3) goes by
 // UIKit's rule, not `:active`'s: only the innermost pressable shows it, only
 // while the pointer is inside its box, including under reduced motion. A
-// pressable that declares none dims by the same rule.
+// pressable that declares none dims by the same rule (LLP 1115.000 D6).
 import { test, expect, beforeAll, afterAll } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { decodePng } from '../../../scripts/png.mjs';
@@ -12,8 +12,9 @@ import { cdpBrowser, chromium, suiteBrowser } from '../../../scripts/agent-launc
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
@@ -40,7 +41,7 @@ const page = sheet + `
   window.ready = true;
 </script>`;
 
-// Nodes as both web targets write them: pressables that
+// LLP 1115.000 D6, nodes as both web targets write them: pressables that
 // declare no feedback (a box, one that hears `hover`, a custom button, a
 // link, a card holding a button and a field), those whose press is the
 // author's (a scale, `pointerdown`, an `opacity` of its own), native
@@ -102,7 +103,7 @@ const unsaid = sheet + `
   window.ready = true;
 </script>`;
 
-// The pressed paint as both web targets write it: a card holding
+// LLP 1061 D7, the pressed paint as both web targets write it: a card holding
 // a box that dims to half its own opacity and turns blue with red text (one
 // span inheriting the colour, one writing its own), a box that only recolours
 // its text, a button that also scales, and a row of a cell list. `?agent`
@@ -193,9 +194,9 @@ check('only the innermost pressable shows the press, and only while inside', asy
     await mouse('mouseReleased', button);
     expect(await pressed()).toBe('');
 
-    // The innermost pressable has no row: it dims (the test
+    // The innermost pressable has no row: it dims (LLP 1115.000 D6; the test
     // below), and its card, pressed through it, shows nothing.
-    // Its `-exact-press-haptic` plays at the press, as `haptic()`'s length.
+    // Its `-exact-press-haptic` plays at the press, as `haptic()`'s length (LLP 1077 D14).
     const vibrations = () => evaluate('vibrations.join()');
     const opacity = (id) => evaluate(`(globalThis.exact?.pressShown?.(document.getElementById('${id}')) ?? getComputedStyle(document.getElementById('${id}'))).opacity`);
     expect(await vibrations()).toBe('');
@@ -231,7 +232,7 @@ check('only the innermost pressable shows the press, and only while inside', asy
     await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 }); // off it: a pointer left over it is its hover
     await settle(); // it eases out of the highlight (the test below)
     expect([await fill(), await face()]).toEqual([rest, '1']);
-    // The keyboard shows the same state: Space holds a
+    // The keyboard shows the same state (LLP 1115.000 D4.14): Space holds a
     // native button's highlight, and a button's `-exact-press-scale`, until
     // its keyup.
     const space = (type) => call('Input.dispatchKeyEvent', { type, key: ' ', code: 'Space', windowsVirtualKeyCode: 32, ...(type === 'keyDown' ? { text: ' ' } : {}) });
@@ -332,7 +333,7 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
       return seen;
     };
     expect(await shown('box', 'custom', 'link', 'off')).toBe('1,1,1,0.5'); // at rest only a disabled custom button is dimmed
-    expect(await shown('ownoff')).toBe('1'); // not one whose author styles its own disabled state (Contract's mark)
+    expect(await shown('ownoff')).toBe('1'); // not one whose author styles its own disabled state (Contract's mark, LLP 1115.000 D6)
 
     // This piece's mark, not the browser's `:active`: gone at the release, and while the pointer is off the box.
     expect(await held('box', 'box')).toBe('0.65');
@@ -350,12 +351,12 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect(await shown('custom')).toBe('0.65');
     await mouse('mouseReleased', custom);
     expect(await faded('custom')).toBe('1');
-    // A link without a `press` handler shows nothing under a mouse when it declares its own feedback; otherwise
-    // it dims. A finger shows the authored feedback (below). The hosts do not yet agree on this.
+    // A link without a `press` handler is pressed as CSS's `:active` holds on it, under a mouse as under a finger:
+    // it shows the feedback it declares, and dims where it declares none (LLP 1121 D8).
     await evaluate(`document.getElementById('away').insertAdjacentHTML('beforebegin', '<a id="bare" data-view="" href="#there" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.9">bare</a>')`);
     const bare = () => evaluate(`document.getAnimations().forEach(a => a.finish()), [parseFloat(getComputedStyle(document.getElementById('bare')).scale) || 1, (globalThis.exact?.pressShown?.(document.getElementById('bare')) ?? getComputedStyle(document.getElementById('bare'))).opacity].join()`);
     await mouse('mousePressed', await centre('bare'));
-    expect(await bare()).toBe('1,1');
+    expect(await bare()).toBe('0.9,1');
     await mouse('mouseReleased', await centre('bare'));
     // Only the innermost: a button or a field in a card takes the press, and the card's own area dims the card.
     expect(await held('inner', 'inner', 'outer')).toBe('0.65,1');
@@ -399,7 +400,7 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect(await held('action', 'action')).toBe('1');
     expect(await held('off', 'off')).toBe('0.5');
 
-    // A row of a list whose rows are cells (`data-listrows`, Contract's mark) never dims: what
+    // A row of a list whose rows are cells (LLP 1115.000 D16: `data-listrows`, Contract's mark) never dims: what
     // presses in it shows the look's pressed wash over its own ground, wherever in the row it is (the list's child, a
     // windowed list's row in its wrapper, the content a swipe container holds, a link of text), and an authored press
     // still replaces it. A grouped list's row in its section keeps its own. A list that is no cell list (the author's
@@ -528,8 +529,8 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect(await pressedAfter('bare')).not.toBe(null);
     expect(await bare()).toBe('0.9,1');
     await finger('touchEnd');
-    // A person's scroll under a press ends it (the browser takes the touch to pan: `pointercancel`), and a touch that
-    // stops a list a person set moving is no press.
+    // A person's scroll under a press ends it (the browser takes the touch to pan: `pointercancel`).
+    // The test with a controlled clock below times recent-scroll suppression: CDP round trips can outlast its window.
     await evaluate(`document.getElementById('away').insertAdjacentHTML('beforebegin', '<div id="scroller" style="position:fixed;top:0;left:0;width:300px;height:40px;overflow:auto"><div id="deep" data-exact-on="press" style="height:200px">deep</div><div id="next" data-exact-on="press" style="height:100px">next</div></div>')`);
     const scrollTop = () => evaluate(`document.getElementById('scroller').scrollTop`);
     const [across] = await centre('scroller');
@@ -537,10 +538,6 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     for (const y of [28, 21, 14, 7]) await finger('touchMove', [across, y]);
     expect([await marked('deep', 'data-pressed'), await scrollTop() > 0]).toEqual([false, true]);
     await finger('touchEnd');
-    await finger('touchStart', [across, 20]);
-    if (await evaluate('at.down - at.scrolled < 150')) expect(await pressedAfter('deep')).toBe(null);
-    await finger('touchEnd');
-    await released('deep');
     // The page moving itself (an app's `scrollTop`) is no person's scroll, as UIKit's `setContentOffset` cancels no
     // touch: a touch just after it presses, and a press it moves goes on, shown while its target is under the finger.
     await evaluate(`new Promise(ok => { const poll = setInterval(() => { if (performance.now() - at.scrolled > 150) { clearInterval(poll); ok(); } }, 10); })`);
@@ -929,7 +926,7 @@ check('the pressed paint shows by the press rule, eased, and replaces the platfo
     await evaluate('new Promise(ok => setTimeout(ok, 0))');
     await evaluate(`document.getAnimations().filter(a => !(a instanceof CSSTransition)).forEach(a => a.finish())`);
     // The paint shows over the authored transition, which runs on beneath it, as authored, on its way to green
-    // (the node's transitions are left alone, under the paint's layer).
+    // (LLP 1061: the node's transitions are left alone, under the paint's layer).
     expect(await evaluate(`document.getElementById('inked').getAnimations().filter(a => a instanceof CSSTransition).map(a => a.transitionProperty + ' ' + a.effect.getKeyframes().at(-1).backgroundColor).join()`)).toBe('background-color rgb(0, 255, 0)');
     expect(await evaluate(`rgb((globalThis.exact?.pressShown?.(document.getElementById('inked')) ?? getComputedStyle(document.getElementById('inked'))).backgroundColor)`)).toBe('rgb(0, 0, 255)');
     await mouse('mouseReleased', inked);
@@ -1149,7 +1146,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the pai
 
 // Every engine, the final pass's three: (1) under a declared transition, a node's own opacity or colour changed
 // while held, or its pressed colour cleared, takes effect at once (the paint goes on from the new look beneath; the
-// node's transition times the base's move), not at the release; (2) with no images of its own, the paint's layer
+// node's transition times the base's move, D8), not at the release; (2) with no images of its own, the paint's layer
 // takes the node's own background-clip and -origin, so a content-box background stays content-box; (3) a transition
 // on a position axis (background-position-x) leaves the layer out, as one on the position does.
 for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a held press follows the node's own changes; the layer keeps its clip and axis`, async () => {
@@ -1369,13 +1366,18 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: press f
     // A document's scroll is reported on Document, outside the element ancestor chain. The page scrolling itself is
     // no person's scroll, and takes no press.
     // A wheel elsewhere makes no other scroller's own scrolling a person's.
-    for (const [name, scroll] of [['movingPage', 'person'], ['appScroll', 'app'], ['wheelElsewhere', 'wheel']]) {
+    // The scroll-stopping touch lands just inside the 150 ms window; a deliberate touch after the rest presses.
+    for (const [name, scroll] of [['movingPage', 'person'], ['movingPort', 'port'], ['restedPort', 'rest'], ['appScroll', 'app'], ['wheelElsewhere', 'wheel']]) {
       await page.evaluate(scroll => {
         if (scroll === 'person') personScroll(document);
+        else if (scroll === 'port' || scroll === 'rest') personScroll(document.getElementById('port'));
         else if (scroll === 'wheel') { document.getElementById('authored').dispatchEvent(new WheelEvent('wheel', { bubbles: true })); document.getElementById('port').dispatchEvent(new Event('scroll')); }
         else document.dispatchEvent(new Event('scroll'));
-        pointer('moving', 'pointerdown');
       }, scroll);
+      if (scroll === 'port' || scroll === 'rest') await page.clock.runFor(scroll === 'port' ? 149 : 151);
+      // Once scrolls have rested for the delay, a later scroll is no longer tied to the cancelled touch.
+      if (scroll === 'rest') await page.evaluate(() => document.getElementById('port').dispatchEvent(new Event('scroll')));
+      await page.evaluate(() => pointer('moving', 'pointerdown'));
       await page.clock.runFor(151);
       seen[name] = await page.evaluate(() => {
         const marked = document.getElementById('moving').hasAttribute('data-pressed');
@@ -1412,7 +1414,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: press f
       el.click();
       return clicked;
     });
-    expect(seen).toEqual({ authoredButton: '0.4', movingPage: false, appScroll: true, wheelElsewhere: true, afterScrollEnd: true, fixedBar: [true, true], scriptClick: true });
+    expect(seen).toEqual({ authoredButton: '0.4', movingPage: false, movingPort: false, restedPort: true, appScroll: true, wheelElsewhere: true, afterScrollEnd: true, fixedBar: [true, true], scriptClick: true });
     // Ignore delayed feedback if the target is disabled or removed before its timer fires
     await page.clock.runFor(151);
     for (const change of ['disabled', 'removed']) {

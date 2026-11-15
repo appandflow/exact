@@ -1,4 +1,4 @@
-import { viewParent, viewChildren } from './navigation.js';
+import { viewParent, viewChildren } from './navigation/lists.js';
 // Issue #110: an aria-keyshortcuts chord whose key types no Latin character
 // (Korean 2-Set's ㅠ on KeyB, Russian, Greek) is its physical key's (`code`),
 // as web apps match; a Latin character is the key wherever it is (AZERTY,
@@ -63,7 +63,7 @@ test('the fallback keeps the chord\'s modifiers and refuses keys it cannot name'
   expect(p.clicks).toEqual(['Control+B']);
 });
 
-// A Back control the bar stands for is not shown, and its chord still presses it; a button that is
+// LLP 1116.000 D4: a Back control the bar stands for is not shown, and its chord still presses it; a button that is
 // not shown otherwise takes none.
 test('a Back control the bar stands for keeps its chord', () => {
   const hidden = page(['Meta+['], { shown: false }), marked = page(['Meta+['], { shown: false, marked: true });

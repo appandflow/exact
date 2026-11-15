@@ -1,7 +1,8 @@
 //! Paint servers: `linearGradient` and `radialGradient`, resolved for one
 //! shape into stops, a spread and one transform to the shape's user space.
 //!
-//! Defaults, `href` templates and object bounding boxes as SVG 2 §14.2 (gradients), §14.2.3
+//! @ref LLP 1055.000 D3 (references), D7 (servers: defaults, `href`
+//! templates, object bounding boxes); SVG 2 §14.2 (gradients), §14.2.3
 //! (template inheritance)
 
 use super::length::{Length, Viewport};
@@ -172,12 +173,12 @@ pub fn resolve(
             y2: coord(prop(PropId::Y2), 0.0, h),
         }
     } else {
-        let cx = dim(row(StyleId::Cx).map(|n| n.style.cx), 0.5, w);
-        let cy = dim(row(StyleId::Cy).map(|n| n.style.cy), 0.5, h);
+        let cx = dim(row(StyleId::Cx).map(|n| n.style.cx.clone()), 0.5, w);
+        let cy = dim(row(StyleId::Cy).map(|n| n.style.cy.clone()), 0.5, h);
         ServerKind::Radial {
             cx,
             cy,
-            r: dim(row(StyleId::R).map(|n| n.style.r), 0.5, diag),
+            r: dim(row(StyleId::R).map(|n| n.style.r.clone()), 0.5, diag),
             fx: prop(PropId::Fx).map_or(cx, |t| coord(Some(t), 0.0, w)),
             fy: prop(PropId::Fy).map_or(cy, |t| coord(Some(t), 0.0, h)),
             fr: coord(prop(PropId::Fr), 0.0, diag),

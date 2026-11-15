@@ -1,12 +1,12 @@
-// The Material oracle's hourly job, run by cron on the Linux build box from a worktree of
+// The Material oracle's hourly job (LLP 1115.001.001 D8, D9), run by cron on the Linux build box from a worktree of
 // its own, which it moves to origin/main each run.
 //
 // 1. A release: when Google Maven has a stable Compose Material 3 newer than the pin, it moves the pin on a branch
 //    `material-bump/<version>` (the BOM too, when a stable BOM resolves to it yet), writes the token diff, runs the
 //    oracle there, pushes the branch and opens one GitHub issue with the work list. So the work list exists within the
-//    hour of a release.
+//    hour of a release (§5 Q3).
 // 2. A regression: when origin/main moved and touched the Android look, the reference or the pins, it runs the oracle
-//    and opens an issue when a specimen that passed before fails now. It blocks nothing.
+//    and opens an issue when a specimen that passed before fails now. It blocks nothing (§5 Q4).
 //
 //   bun host/android/reference/watch.mjs [--dry-run] [--here]
 //
@@ -17,8 +17,9 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const here = dirname(new URL(import.meta.url).pathname);
+const here = dirname(fileURLToPath(new URL(import.meta.url)));
 const root = resolve(here, '../../..');
 const dry = process.argv.includes('--dry-run');
 const here_ = process.argv.includes('--here');
@@ -26,7 +27,7 @@ const stateFile = process.env.EXACT_MATERIAL_STATE ?? join(homedir(), '.cache/ex
 const state = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, 'utf8')) : { filed: [], checked: null, passing: null };
 const save = () => { mkdirSync(dirname(stateFile), { recursive: true }); writeFileSync(stateFile, JSON.stringify(state, null, 2)); };
 /** What a change must touch for the oracle to run again. */
-const WATCHED = ['host/linux/src/paint/', 'host/linux/src/presenter/', 'host/android/', 'apps/material-specimens/',
+const WATCHED = ['host/painted/src/paint/', 'host/painted/src/presenter/', 'host/android/', 'apps/material-specimens/',
   'kernel/tables/schema.json'];
 const MAVEN = 'https://dl.google.com/android/maven2/androidx/compose';
 
@@ -73,21 +74,21 @@ async function release() {
     : toml.replace(/^compose-material3 = \{ module = "androidx.compose.material3:material3" \}/m,
       'compose-material3 = { module = "androidx.compose.material3:material3", version.ref = "material3" }');
   writeFileSync(tomlPath, toml);
-  git(['commit', '-q', '-am', `Android: Compose Material 3 ${latest}${bom ? `, BOM ${bom}` : ''} (the hourly job)`], dir);
+  git(['commit', '-q', '-am', `Android: Compose Material 3 ${latest}${bom ? `, BOM ${bom}` : ''} (LLP 1115.001.001 D8, the hourly job)`], dir);
   const diff = run('bun', ['host/android/reference/tokens.mjs', '--diff', pinned.material3], dir);
   const check = run('bun', ['host/android/reference/tokens.mjs'], dir);
   const oracle = run('bun', ['host/android/reference/oracle.mjs'], dir);
   const report = readReport(dir);
   const tokens = diff.stdout.split('\n').filter((l) => l.includes('→'));
   const body = [`Compose Material 3 **${latest}** is on Google Maven; the pin is ${pinned.material3}${bom ? ` (BOM ${bom} has it)` : ' (no stable BOM has it yet: the branch names `material3` by version)'}.`,
-    `Branch \`${branch}\` moves the pin. Until its fixes land, or the matches it breaks are revoked, it does not land.`, '',
+    `Branch \`${branch}\` moves the pin (LLP 1115.001.001 D8). Until its fixes land, or the matches it breaks are revoked, it does not land.`, '',
     `**The Material rows** (\`tokens.mjs\`): ${check.status === 0 ? 'every row agrees with the new source' : 'some rows differ:'}`, '```', check.stdout.split('\n').filter((l) => l.trim() && !/^\s*ok /.test(l)).join('\n'), '```', '',
     `**Tokens changed:** ${tokens.length}. The oracle's specimens, against Exact: ${report ? `${report.failing.length} of ${report.total} differ` : `the oracle did not finish (exit ${oracle.status})`}.`,
     ...(report?.failing ?? []).map((f) => `- ${f}`), '',
     `Detection test: ${report?.detection ?? 'not run'}.`, '', '<details><summary>Token diff</summary>', '', '```', tokens.slice(0, 400).join('\n'), '```', '</details>'].join('\n');
   if (dry) return log(body);
   git(['push', '-q', '-f', 'origin', `HEAD:refs/heads/${branch}`], dir);
-  const issue = run('gh', ['issue', 'create', '--repo', 'expo/exact', '--title', `Compose Material 3 ${latest} is out: the Material oracle's work list`, '--body', body], dir);
+  const issue = run('gh', ['issue', 'create', '--repo', 'ccheever/exact2', '--title', `Compose Material 3 ${latest} is out: the Material oracle's work list`, '--body', body], dir);
   if (issue.status !== 0) throw new Error(`gh issue create: ${issue.stderr}`);
   log(`filed ${issue.stdout.trim()}`);
   state.filed.push(latest);
@@ -108,13 +109,13 @@ function regression() {
   const detectionBroke = oracle.status !== 0;
   if ((lost.length || detectionBroke) && state.checked) {
     const range = `${state.checked.slice(0, 9)}..${tip.slice(0, 9)}`;
-    const body = [`The Material oracle on origin/main ${range}:`, '',
+    const body = [`The Material oracle (LLP 1115.001.001) on origin/main ${range}:`, '',
       ...(detectionBroke ? [`**The detection test failed:** ${report.detection}. The oracle is not to be trusted until it passes.`, ''] : []),
       ...(lost.length ? ['**Specimens that passed and now differ:**', ...lost.map((n) => `- ${report.failing.find((f) => f.startsWith(n))}`)] : []),
 ].join('\n');
     if (dry) log(body);
     else {
-      const issue = run('gh', ['issue', 'create', '--repo', 'expo/exact', '--title', `Material oracle: ${lost.length ? `${lost.length} specimen(s) regressed` : 'detection test failed'} at ${tip.slice(0, 9)}`, '--body', body], root);
+      const issue = run('gh', ['issue', 'create', '--repo', 'ccheever/exact2', '--title', `Material oracle: ${lost.length ? `${lost.length} specimen(s) regressed` : 'detection test failed'} at ${tip.slice(0, 9)}`, '--body', body], root);
       log(issue.status === 0 ? `filed ${issue.stdout.trim()}` : `gh issue create: ${issue.stderr}`);
     }
   } else log(`oracle: ${report.failing.length} of ${report.total} differ; nothing regressed`);

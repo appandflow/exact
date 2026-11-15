@@ -1,19 +1,20 @@
-// The page's facts: whether any of the app can be
-// seen (`visibilityState`), whether the device is online (`onLine`), whether
-// a share sheet exists (`canShare`) and takes files and
-// pictures (`canShareFiles`, `canSharePictures`), whether
+// The page's facts (LLP 1069.000 D2, D3): whether any of the app can be
+// seen (`visibilityState`), whether ordinary execution will stop (`frozen`),
+// whether the device is online (`onLine`), whether
+// a share sheet exists (`canShare`, LLP 1069.003 D5) and takes files and
+// pictures (`canShareFiles`, `canSharePictures`, LLP 1125 D12), whether
 // the document pickers do (`canOpenFiles`), whether the session's window has
-// the focus (`hasFocus`, `document.hasFocus()`), and the root font
-// size `rem` lengths follow (the platform's body size: Dynamic
+// the focus (`hasFocus`, `document.hasFocus()`: #114), and the root font
+// size `rem` lengths follow (the platform's body size, LLP 1115 D3: Dynamic
 // Type's body on iOS, 17 at the default; `NSFont.systemFontSize`, 13, on the
 // Mac). The runner answers all but the last through `exactPage()`; the
 // kernel lays out `rem` against the last. Under the agent the machine's facts are
 // not read: the drive's values stand in (`prefer`'s `page` group), visible,
-// online, a share sheet, the pickers, focus, until it says otherwise, unless
-// `EXACT_DEVICE=real` asks for the machine's (a person looking at the real
-// thing). The text size is the
+// online, a share sheet, the pickers, focus, until it says otherwise (LLP
+// 1069.000 D6), unless `EXACT_DEVICE=real` asks for the machine's (LLP
+// 1069.007 D8: a person looking at the real thing). The text size is the
 // device's, as UIKit's controls have it, until `prefer root-font-size` names
-// one: a screenshot at an accessibility size is what a
+// one (LLP 1116.019 D2): a screenshot at an accessibility size is what a
 // person sees, not Exact's text at 17 points among controls at 53.
 #if os(macOS)
 import AppKit
@@ -26,13 +27,13 @@ import Network
 
 package enum PageFacts {
     /// What an agent's `prefer` set, in place of the platform's readings.
-    nonisolated(unsafe) static var agent = (hidden: false, onLine: true, canShare: true, canShareFiles: true, canSharePictures: true, canOpenFiles: true, hasFocus: true, iframePartition: true, rootFontSize: Double?.none) {
+    nonisolated(unsafe) static var agent = (hidden: false, frozen: false, onLine: true, canShare: true, canShareFiles: true, canSharePictures: true, canOpenFiles: true, hasFocus: true, iframePartition: true, rootFontSize: Double?.none) {
         didSet { changed() }
     }
-    /// What the build channel's `pin` set, over the platform's
+    /// What the build channel's `pin` set (LLP 1122 D4), over the platform's
     /// and the agent's; nil hands it back.
     nonisolated(unsafe) static var pinnedRootFontSize: Double?
-    /// The device's GPU tier as the page facts' bits 11–12
+    /// The device's GPU tier (LLP 1139.003 D2) as the page facts' bits 11–12
     /// code: 0 `high`, 1 `mid`, 2 `low`. The GPU module's answer from its
     /// Metal device once it loads (`high` before, as on a Mac); under the
     /// agent the drive's, `high` until `prefer gpu-tier`, which the module is
@@ -48,10 +49,10 @@ package enum PageFacts {
     /// renderers at the new rung (`gpu_tier`, `gpu_retier`), by artifact: a
     /// module loaded again replaces its own.
     nonisolated(unsafe) package static var retiers: [String: (UInt32) -> Void] = [:]
-    /// The drive's values stand in for the machine's.
+    /// The drive's values stand in for the machine's (LLP 1069.007 D2, D8).
     package static let substituted = ExactEnv.agentMode && ExactEnv.environment["EXACT_DEVICE"] != "real"
     private static let agentChanged = Notification.Name("ExactPageFactsChanged")
-    private static func changed() { NotificationCenter.default.post(name: agentChanged, object: nil) }
+    static func changed() { NotificationCenter.default.post(name: agentChanged, object: nil) }
 
     /// One path monitor for the process, started at the first read of
     /// `onLine`: by a session whose plan reads it, or by a native module's
@@ -118,7 +119,7 @@ package enum PageFacts {
     }
 
     #if os(macOS)
-    /// The windows a close hid rather than closed. Ordered
+    /// The windows a close hid rather than closed (LLP 1069.010 D8). Ordered
     /// out, each is neither on screen nor in the Dock, but its page is still
     /// there and reads `hidden` until the window shows again. Its page is put
     /// away, as the back/forward cache keeps a page (`persisted`).
@@ -150,8 +151,8 @@ package enum PageFacts {
         }
         changed()
     }
-    /// The windows a launch with no window made and has not shown: each
-    /// reads `hidden` until it first shows, which is no
+    /// The windows a launch with no window made and has not shown (LLP
+    /// 1133.025 D6): each reads `hidden` until it first shows, which is no
     /// restore.
     nonisolated(unsafe) private static var unshown = NSHashTable<NSWindow>.weakObjects()
     /// `window` was made and not shown, for a launch with no window.
@@ -183,7 +184,7 @@ package enum PageFacts {
     }
     #endif
 
-    /// The page in `window` is put away: its window was
+    /// The page in `window` is put away (LLP 1069.010 D8): its window was
     /// hidden by its close and has not shown again, as a page is in the
     /// back/forward cache from its `pagehide` with `persisted` true until its
     /// `pageshow`. A minimized, covered or ⌘H-hidden window is not. Never on
@@ -216,8 +217,8 @@ package enum PageFacts {
     static var lastOnLine: Bool { substituted ? agent.onLine : satisfied }
     /// Both Apple platforms have a share sheet.
     static var canShare: Bool { substituted ? agent.canShare : true }
-    /// iOS's and the Mac's sheets take file URLs and a node's picture;
-    /// tvOS has no sheet to take them.
+    /// iOS's and the Mac's sheets take file URLs and a node's picture
+    /// (LLP 1125 D12); tvOS has no sheet to take them.
     static var canShareFiles: Bool {
         if substituted { return agent.canShareFiles }
         #if os(tvOS)
@@ -228,7 +229,7 @@ package enum PageFacts {
     }
     static var canSharePictures: Bool { substituted ? agent.canSharePictures : canShareFiles }
     /// An iframe's `partition` is honoured: its guest is a top-level page in
-    /// its own website data store. tvOS has no WebKit.
+    /// its own website data store (LLP 1020.002 D1). tvOS has no WebKit.
     static var iframePartition: Bool {
         if substituted { return agent.iframePartition }
         #if os(tvOS)
@@ -237,8 +238,8 @@ package enum PageFacts {
         return true
         #endif
     }
-    /// The document pickers: the Mac's panels, iOS's
-    /// document picker; tvOS has none.
+    /// The document pickers (LLP 1069.010 D2): the Mac's panels, iOS's
+    /// document picker; tvOS has none (studio diary R31).
     static var canOpenFiles: Bool {
         if substituted { return agent.canOpenFiles }
         #if os(tvOS)
@@ -248,7 +249,7 @@ package enum PageFacts {
         #endif
     }
 
-    /// `document.hasFocus()` for a session in `window`: the window the
+    /// `document.hasFocus()` for a session in `window` (#114): the window the
     /// system's keyboard focus is in. macOS: the app is active and the window
     /// is its key window, so another app in front, another of its windows, or
     /// a sheet over it (an open panel, as a browser's file chooser blurs its
@@ -265,8 +266,8 @@ package enum PageFacts {
         #endif
     }
 
-    /// The root font size in points: the platform's body size. iOS: Dynamic
-    /// Type's body, 17 at the default size and scaled by
+    /// The root font size in points: the platform's body size (LLP 1115
+    /// D3). iOS: Dynamic Type's body, 17 at the default size and scaled by
     /// the preferred content size category. macOS: `NSFont.systemFontSize`,
     /// 13. tvOS keeps CSS's 16 scaled by the category until its own pass
     /// (its body style is 29 points, read at ten feet).
@@ -292,8 +293,8 @@ package enum PageFacts {
         didSet { changed() }
     }
 
-    /// The scale of the display `view` is drawn on, device pixels a CSS px:
-    /// UIKit's `displayScale` (3 or 2 on a phone), the
+    /// The scale of the display `view` is drawn on, device pixels a CSS px
+    /// (LLP 1115.000 D10.3): UIKit's `displayScale` (3 or 2 on a phone), the
     /// window's `backingScaleFactor` on the Mac (2 on a Retina display, 1
     /// where there is none or no window yet) times the page zoom. A hairline (`-exact-hairline`)
     /// is one device pixel of it, so it is told to the kernel as the root
@@ -311,21 +312,22 @@ package enum PageFacts {
         #endif
     }
 
-    /// The system is about to suspend the app: iOS and tvOS
-    /// in the background, unless a `playback` session keeps it running. A
+    /// Ordinary execution will stop (LLP 1069.000 D2; LLP 1125 D4): iOS and tvOS
+    /// in the background, unless active audio keeps it running. A
     /// Mac app is never suspended for being hidden.
-    static var suspended: Bool {
-        #if os(macOS)
-        return false
+    static var frozen: Bool {
+        if substituted { return agent.frozen }
+        #if os(iOS) || os(tvOS)
+        return AppBackground.now && !AudioSession.backgroundExecutionEligible()
         #else
-        return hidden && !AudioSession.playsInBackground
+        return false
         #endif
     }
 
     /// The ABI's form (`exact_set_page`) for a session whose focus is read
     /// of `window` and whose view is in `page`: bit 0 hidden, bit 1 offline,
     /// bit 2 a share sheet, bit 3 the document pickers, bit 4 without focus,
-    /// bit 7 about to be suspended, bits 8 and 9 a share takes files and
+    /// bit 7 frozen, bits 8 and 9 a share takes files and
     /// pictures, bit 10 put away, bits 11–12 the GPU tier, bit 13 an
     /// iframe's `partition` honoured, bit 14 the background told apart from
     /// visibility and bit 15 its value (macOS), bits 16–31 the restores. A
@@ -333,10 +335,10 @@ package enum PageFacts {
     static func bits(_ window: FocusWindow?, page: FocusWindow? = nil, readsOnLine: Bool = true) -> UInt32 {
         let online = readsOnLine ? onLine : lastOnLine
         let transitions = (persisted(page) ? 1024 : 0) | UInt32(restores(page) & 0xFFFF) << 16
-        return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0) | (tier & 3) << 11 | (iframePartition ? 8192 : 0) | backgroundBits | transitions
+        return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (frozen ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0) | (tier & 3) << 11 | (iframePartition ? 8192 : 0) | backgroundBits | transitions
     }
 
-    /// The background, apart from visibility. A
+    /// The background, apart from visibility (LLP 1133.025 D11 item 7). A
     /// Mac app whose windows are not showing is still in front of the
     /// person (a menu-bar app, a window closed to the Dock): only a drive's
     /// `prefer visibility-state hidden`, which stands for the app leaving,
@@ -355,7 +357,7 @@ package enum PageFacts {
     static func observe(_ changed: @escaping () -> Void) -> [NSObjectProtocol] {
         #if os(macOS)
         // Visibility: hiding, occlusion, and a minimize or restore, which
-        // need not change the occlusion. Focus: any window's key change
+        // need not change the occlusion. Focus (#114): any window's key change
         // or the app's activation; each session reads its own window, and the
         // same facts again commit nothing.
         let workspace = [NSApplication.didHideNotification, NSApplication.didUnhideNotification,
@@ -367,17 +369,17 @@ package enum PageFacts {
         // A prewarmed launch (iOS starts the process in the background ahead
         // of a tap, often after an update) never posts willEnterForeground:
         // becoming active is the only word that the app can be seen. Focus
-        // follows the scene's activation; a "will" precedes the
+        // (#114) follows the scene's activation; a "will" precedes the
         // state's update, so each is read again a main-queue turn later.
         let workspace = [UIApplication.didEnterBackgroundNotification, UIApplication.willEnterForegroundNotification,
                          UIApplication.didBecomeActiveNotification, UIApplication.willResignActiveNotification,
                          UIScene.didActivateNotification, UIScene.willDeactivateNotification,
                          UIContentSizeCategory.didChangeNotification, agentChanged]
         #endif
-        return workspace.map {
-            NotificationCenter.default.addObserver(forName: $0, object: nil, queue: .main) { _ in
+        return workspace.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
                 #if !os(macOS)
-                AppBackground.invalidate()
+                AppBackground.heard(name)
                 DispatchQueue.main.async { changed() }
                 #endif
                 changed()
@@ -390,7 +392,7 @@ package enum PageFacts {
 }
 
 extension ExactSession {
-    /// Told after every boot and on each change; a
+    /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
     /// change while iOS suspends the process lands with the foreground
     /// notification, in the same turn.
     func tellPage() {
@@ -399,13 +401,16 @@ extension ExactSession {
         // Out of the foreground, a press hands nothing on (PressHandoffIOS).
         if view?.window?.windowScene?.activationState != .foregroundActive { presenter.supersedePress() }
         #endif
+        // Keep URLSession running through the bounded close wait in setPage.
+        freezeCloseHold.moved(PageFacts.frozen)
+        defer { freezeCloseHold.moved(false) }
         let reads = runtime.readsOnLine()
         readsOnLineKnown = (generation, reads)
         apply(runtime.setPage(PageFacts.bits(pageWindow, page: view?.window, readsOnLine: reads)))
         apply(runtime.setRootFontSize(PageFacts.rootFontSize))
         tellDisplayScale()
     }
-    /// The display's scale, told with the page's facts
+    /// LLP 1115.000 D10.3: the display's scale, told with the page's facts
     /// after every boot and again when the view's display changes
     /// (`ExactViewIOS`, `ExactViewMac`); the same scale again commits
     /// nothing, and a new one only where a row is a hairline.
@@ -413,12 +418,21 @@ extension ExactSession {
         guard booted, state != .destroyed else { return }
         apply(runtime.setDisplayScale(PageFacts.displayScale(presenter.viewport)))
     }
+    /// What the first boot's first layout reads of the view, told before it
+    /// boots: the insets (which the boot takes), the root font size and the
+    /// display scale. Told after the boot instead, each lays the tree out again.
+    func primeView(insets: (top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat), displayScale: Double) {
+        guard !booted, state != .destroyed else { return }
+        _ = runtime.insets(top: insets.top, right: insets.right, bottom: insets.bottom, left: insets.left)
+        _ = runtime.setRootFontSize(PageFacts.rootFontSize)
+        _ = runtime.setDisplayScale(displayScale)
+    }
 }
 
 extension ExactSession {
     /// The window `document.hasFocus()` is read of: the session's view's. On
     /// macOS, the one of the session's windows that is key when one is: a
-    /// `dialog`'s sheet holds the keyboard for its page,
+    /// `dialog`'s sheet holds the keyboard for its page (LLP 1115.002 D7.2),
     /// which another app's sheet (an open panel) does not.
     var pageWindow: FocusWindow? {
         #if os(macOS)
@@ -432,9 +446,9 @@ extension ExactSession {
 /// Whether the app is in the background, read from UIKit once per change.
 /// `applicationState` crosses into the scene machinery on every read — about
 /// 5 ms/s of the iPhone's main thread when the canvases asked each frame of
-/// the Extra Heavy feed at rest — so it is read once and read again after a
-/// lifecycle notification: at it, and a main-queue turn later, since UIKit's
-/// "will" notifications precede the state's update.
+/// the Extra Heavy feed at rest — so UIKit is read at first use and
+/// lifecycle notifications update the cache. Background and foreground edges are
+/// authoritative even before UIKit updates `applicationState`.
 package enum AppBackground {
     nonisolated(unsafe) private static var cached: Bool?
     nonisolated(unsafe) private static var observing = false
@@ -446,13 +460,22 @@ package enum AppBackground {
         return value
     }
     package static func invalidate() { cached = nil }
+    static func heard(_ name: Notification.Name) {
+        switch name {
+        case UIApplication.didEnterBackgroundNotification:
+            guard cached != true else { return }
+            cached = true
+            AudioSession.enteredBackground()
+        case UIApplication.willEnterForegroundNotification, UIApplication.didBecomeActiveNotification: cached = false
+        default: break
+        }
+    }
     private static func observe() {
         observing = true
         for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification,
                      UIApplication.willEnterForegroundNotification, UIApplication.didBecomeActiveNotification] {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { _ in
-                invalidate()
-                DispatchQueue.main.async { invalidate() }
+                heard(name)
             }
         }
     }
@@ -461,7 +484,7 @@ package enum AppBackground {
 
 #if !os(macOS)
 extension ExactSession {
-    /// `setPageZoom`: a page zoom is the Mac's so far.
+    /// `setPageZoom` (LLP 1021 §5.3.1): a page zoom is the Mac's so far.
     func setPageZoom(_ args: [Any]) { log("setPageZoom refused: page zoom is on the Mac host only") }
 }
 #endif

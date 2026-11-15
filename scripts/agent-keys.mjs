@@ -113,7 +113,7 @@ export function withHeldModifiers(method, event, heldKeys) {
  * a code (`KeyA`, `Digit7`, `ControlRight`), or either after any of `Shift+`, `Control+`,
  * `Alt+`, `Meta+` — Playwright's chord syntax (`Shift+Enter`, `Meta+s`,
  * `+`). `text` is what the key types: nothing with Control or Meta held, a
- * shortcut's.
+ * shortcut's (chat F3, kanban F27 in the x2apps diaries).
  */
 const PUNCTUATION = { '-': 'Minus', '_': 'Minus', '=': 'Equal', '+': 'Equal', '[': 'BracketLeft', '{': 'BracketLeft', ']': 'BracketRight', '}': 'BracketRight',
   '\\': 'Backslash', '|': 'Backslash', ';': 'Semicolon', ':': 'Semicolon', "'": 'Quote', '"': 'Quote', '`': 'Backquote', '~': 'Backquote',
@@ -133,7 +133,7 @@ export function cdpKey(chord) {
   else if (/^Key[A-Z]$/.test(code)) { key = code.slice(3).toLowerCase(); vk = code.charCodeAt(3); }
   else if (/^Digit[0-9]$/.test(code)) { key = code.slice(5); vk = code.charCodeAt(5); }
   else if (/^F(?:[1-9]|1[0-9]|2[0-4])$/.test(code)) { key = code; vk = 111 + Number(code.slice(1)); }
-  // A key by its `key` name works as on every other target: a
+  // A key by its `key` name works as on every other target (pomodoro F5): a
   // letter or digit on its US key, punctuation on its own, a named key.
   else if (/^[a-zA-Z0-9]$/.test(code)) { key = code; vk = code.toUpperCase().charCodeAt(0); code = /\d/.test(code) ? `Digit${code}` : `Key${code.toUpperCase()}`; }
   // Shifted punctuation is the physical key under it, as Linux's driver_key
@@ -172,7 +172,7 @@ export function chordModifiers(chord) {
   return held;
 }
 const MODIFIER_KEYS = { Shift: ['ShiftLeft', 16], Control: ['ControlLeft', 17], Alt: ['AltLeft', 18], Meta: ['MetaLeft', 91] };
-/** A keyboard's modifier edges around a key or a click:
+/** A keyboard's modifier edges around a key or a click (Charlie, 2026-10-07):
  * each modifier's own keydown in order before, its keyup in reverse after, as
  * a person's keyboard sends them and Playwright's `press` does, so a `key`
  * handler hears `Shift` before `Enter` on every engine. CDP's flags follow
@@ -211,6 +211,15 @@ export async function withChordModifiers(call, mods, act) {
 export function heldForClick(call, kind, opts, act) {
   const clicks = ['press', 'contextmenu', 'dblclick', 'auxclick', 'clicks', 'mouse', 'wheel'].includes(kind) && opts?.modifiers;
   return clicks ? withChordModifiers(call, String(opts.modifiers).split('+').filter(Boolean), act) : act();
+}
+
+/** An explicit hover and its wheel share one viewport point even if hover changes the layout. */
+export async function cdpWheel(call, frame, { x, y, modifiers, wheel, hover }) {
+  if (hover) {
+    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, modifiers });
+    await frame();
+  }
+  await call('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: wheel[0], deltaY: wheel[1], modifiers });
 }
 
 /** The chord a real paste sends: ⌘V on macOS, Ctrl+V elsewhere. */
@@ -269,7 +278,7 @@ export async function browserKey({id, opts, evaluate, ask, call, frame}) {
   if (f.error || !f.ok) throw new Error(f.error ?? `view ${id} could not take focus`);
   const reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
   // A key's text goes with its down, as a keyboard's does: a held printable key types, and each
-  // auto-repeat types again; a Control or Meta chord has none (`cdpKey`).
+  // auto-repeat types again (#140); a Control or Meta chord has none (`cdpKey`).
   // The chord's modifiers go down before the key and up after it (`modifierEdges`); a held
   // key's auto-repeat (`opts.repeat`, #140) finds them down already. A key that fails to go
   // down lets its modifiers go again, held or not.
@@ -313,7 +322,7 @@ export async function nativeKey({id, opts, ask}) {
   } catch (error) { if (releaseKey) error.release = release; throw error; }
 }
 
-/** The auto-repeat a held key makes, at macOS's default rate (`NSEvent.keyRepeatDelay` and
+/** The auto-repeat a held key makes (#140), at macOS's default rate (`NSEvent.keyRepeatDelay` and
  * `keyRepeatInterval` with nothing set): the first repeat 500 ms after the down, then one every 83 ms. A
  * modifier alone does not repeat, as AppKit's flags change does not. */
 export const KEY_REPEAT = { delay: 500, interval: 83 };
@@ -356,9 +365,9 @@ export async function typeFor({node, target, options, carrier, clock, tagged, de
   return tagged({typed:node.id, target, key, for:duration, delivery:steps[0].reply.delivery, steps});
 }
 /** Parse the CLI type form without treating an ordinary text suffix as a key. */
-/** A held device request's target, `@N`: its ticket, or null. */
+/** A held device request's target, `@N` (LLP 1069.007 D4): its ticket, or null. */
 export const ticketOf = (target) => /^@[1-9]\d*$/.test(String(target)) ? Number(String(target).slice(1)) : null;
-/** Whether a target names a held device request: `@N`, or `@<id>`. */
+/** Whether a target names a held device request: `@N`, or `@<id>` (files F11). */
 export const holdOf = (target) => /^@\S+$/.test(String(target));
 /** The ticket of the one hold `@<name>` names in `pending` (`state`'s): by the node its answer arrives at (a picker's `id`,
  * the hold's `name`) or by its capability (`open-directory`, `pick`, `export`, `share`, …). Refused by name when none or several do. */
@@ -367,7 +376,7 @@ export function heldTicket(pending, target) {
   const named = holds.filter((p) => p.name === name || p.device.args?.id === name);
   const found = named.length ? named : holds.filter((p) => p.device.capability === name);
   const listed = holds.map((p) => `@${p.ticket} ${p.device.capability} at "${p.name}"`).join(', ') || 'none';
-  if (found.length !== 1) throw new Error(`${target}: ${found.length ? `${found.length} holds match; name one by its ticket` : 'no held device request answers at that node or has that capability'} (held: ${listed})`);
+  if (found.length !== 1) throw new Error(`${target}: ${found.length ? `${found.length} holds match; name one by its ticket` : 'no held device request answers at that node or has that capability'} (held: ${listed})${holds.length ? '' : '; nothing is asking yet: tap the control that asks first (a picker, a share, an export), then answer it (`state` lists held requests)'}`);
   return found[0].ticket;
 }
 
@@ -392,7 +401,7 @@ export function mouseContact() {
   };
 }
 
-/** The CLI `tap` line's words after `tap`: `[target, opts]` for `s.tap`, or `[null, opts]` for a
+/** The CLI `tap` line's words after `tap` (LLP 1012 §1): `[target, opts]` for `s.tap`, or `[null, opts]` for a
  * held contact's phase when `held` says one is down (`move [by] <x> <y> [over <ms>]`, `hold [<ms>]`, `up`, `cancel`).
  * Strict: a word no form uses, a word twice, or a number that is none is refused by name, never dropped (#107:
  * `tap probe auxclick` was sent as a left click). `drag` and a held request's `tap @N` are the caller's. */
@@ -422,7 +431,7 @@ export function tapWords(args, held = false) {
     }
     return opts;
   };
-  // A MIDI input's message: `tap midi "<input>" 90 3c 64`, each byte two hex digits; or its clock:
+  // A MIDI input's message (LLP 1125 §4): `tap midi "<input>" 90 3c 64`, each byte two hex digits; or its clock (D9):
   // `tap midi "<input>" clock <bpm> <ms>`. The input may be quoted, as a test step quotes it.
   const input = /^".*"$/.test(form ?? '') ? inputJSON(form) : form;
   if (first === 'midi' && form !== undefined && rest.length && rest.every((w) => /^[0-9a-f]{2}$/i.test(w))) return [null, { midi: { input, data: rest.map((w) => parseInt(w, 16)) } }];
@@ -447,13 +456,13 @@ export function tapWords(args, held = false) {
   if (['up', 'cancel', 'hold', 'move'].includes(form)) refuse(held ? `a held contact's phases take no target: \`tap ${[form, ...rest].join(' ')}\`` : `${form} is a phase of a held contact, which none is: \`tap <target> down\`, then \`tap ${form}${form === 'move' ? ' <x> <y>' : form === 'hold' ? ' <ms>' : ''}\``);
   if (form.startsWith('{')) { try { return [first, JSON.parse(args.slice(1).join(' '))]; } catch (e) { refuse(e.message); } }
   switch (form) {
-    // A click with modifiers held: `tap <target> modifiers Shift+Meta`.
+    // A click with modifiers held (gallery F20): `tap <target> modifiers Shift+Meta`.
     case 'modifiers': return [first, options(args.slice(1), ['modifiers'])];
-    // A press at a point in the target, from its top left: whatever a finger there reaches, never aimed.
+    // A press at a point in the target, from its top left: whatever a finger there reaches (LLP 1012 §1), never aimed.
     case 'at': return [first, options(args.slice(1), ['at', 'modifiers'])];
     case 'down': return [first, { down: true, ...options(rest, ['at', 'modifiers']) }];
     case 'hover': return [first, { hover: true, ...options(rest, []) }];
-    // A held state: `tap <target> hold-state active|hover|focus-visible|none`, as the host's own.
+    // A held state (LLP 1122 D8): `tap <target> hold-state active|hover|focus-visible|none`, as the host's own.
     case 'hold-state':
       if (rest.length !== 1 || !['active', 'hover', 'focus-visible', 'none'].includes(rest[0])) refuse('hold-state takes active, hover, focus-visible or none');
       return [first, { holdState: rest[0] === 'none' ? null : rest[0] }];
@@ -461,12 +470,12 @@ export function tapWords(args, held = false) {
     case 'mediasession':
       if (!rest[0] || rest.length > 2) refuse('mediasession <action> [seconds]');
       return [first, { mediaSession: rest[0], ...(rest[1] !== undefined ? { seconds: number(rest[1], 'mediasession') } : {}) }];
-    // Exact's picture-in-picture window: one of its controls, or the pointer moving over it.
+    // Exact's picture-in-picture window (LLP 1042 §9.1): one of its controls, or the pointer moving over it.
     case 'pictureinpicture':
       if (rest.length !== 1) refuse('pictureinpicture <control>: minimize, back, close or hover');
       return [first, { pictureInPicture: rest[0] }];
     case 'pinch': return [first, { pinch: number(rest[0], 'pinch'), ...options(rest.slice(1), ['at']) }];
-    // Files dragged in from outside, each a path.
+    // Files dragged in from outside, each a path (studio diary R19).
     case 'drop': if (!rest.length) refuse('drop takes one or more paths'); return [first, { drop: rest.map((path) => resolve(path)) }];
     // A drag of those files from outside comes over the target and stays there (`dragenter`), until a `drop` there
     // or a `dragleave`, which takes it away undropped.
@@ -483,8 +492,8 @@ export function tapWords(args, held = false) {
       try { intoArguments(into); } catch (e) { refuse(e.message); }
       return [first, { into }];
     }
-    // A wheel at the target's middle or `at` in it, the modifiers held (a pinch is a Control-held wheel).
-    // `fling`, `hold` and `release` are a trackpad's, through the window server (macOS).
+    // A wheel at the target's middle or `at` in it, the modifiers held (a pinch is a Control-held wheel; studio diary R3).
+    // `fling`, `hold` and `release` are a trackpad's, through the window server (macOS, LLP 1142 D3).
     case 'wheel': {
       const opts = { wheel: [number(rest[0], 'wheel'), number(rest[1], 'wheel')], ...options(rest.slice(2), ['gesture', 'fling', 'hold', 'release', 'at', 'modifiers']) };
       const forms = ['gesture', 'fling', 'hold', 'release'].filter((f) => opts[f]);
@@ -493,10 +502,10 @@ export function tapWords(args, held = false) {
       if (opts.release && (opts.wheel[0] !== 0 || opts.wheel[1] !== 0 || opts.at)) refuse('wheel release is `wheel 0 0 release`: it lifts the held gesture where it is');
       return [first, opts];
     }
-    // The mouse's buttons: the left, a double click, the right (`contextmenu`), the middle (`auxclick`), n clicks.
+    // The mouse's buttons (#107): the left, a double click, the right (`contextmenu`), the middle (`auxclick`), n clicks.
     case 'mouse': case 'dblclick': case 'contextmenu': case 'auxclick': return [first, { [form]: true, ...options(rest, ['at', 'modifiers']) }];
     case 'clicks': return [first, { clicks: number(rest[0], 'clicks'), ...options(rest.slice(1), ['at', 'modifiers']) }];
-    // A pad's stick on a world canvas: `tap world stick left 0.7 -0.2 [for <ms>]`.
+    // A pad's stick on a world canvas (LLP 1127.003 D3): `tap world stick left 0.7 -0.2 [for <ms>]`.
     case 'stick':
       if (!['left', 'right'].includes(rest[0]) || !(rest.length === 3 || (rest.length === 5 && rest[3] === 'for'))) refuse('stick takes left or right, x and y in [-1, 1], and optionally for <ms>');
       return [first, { stick: rest[0], value: [number(rest[1], 'stick'), number(rest[2], 'stick')], ...(rest[3] === 'for' ? { for: number(rest[4], 'for') } : {}) }];
@@ -505,7 +514,7 @@ export function tapWords(args, held = false) {
   }
 }
 
-/** `tap midi "<input>" clock <bpm> <ms>` as an arm delivers it: Timing Clock at `k · 60000 / (24 · bpm)` ms
+/** `tap midi "<input>" clock <bpm> <ms>` (LLP 1125 D9) as an arm delivers it: Timing Clock at `k · 60000 / (24 · bpm)` ms
  * from now, k ≥ 1, through `ms`, in slices at most 50 ms long. Each slice is `{ to, ticks }`, its end and its ticks as ms
  * from the start; the driver moves the clock to its end, then delivers its ticks, one runner call. A tempo whose tick is a
  * whole number of ms (125, 100, 250) keeps every stamp exact. */
@@ -529,33 +538,32 @@ export function tapArguments(opts) {
   if (opts.into) intoArguments(opts.into);
   if (opts.seconds != null && !Number.isFinite(opts.seconds)) throw new MalformedOperation('mediasession: expected finite seconds');
   if (opts.mediaSession === 'seekto' && !(Number.isFinite(opts.seconds) && opts.seconds >= 0)) throw new MalformedOperation('mediasession: seekto needs finite nonnegative seconds');
-  // The mouse's forms: one button form at a time, each at its middle or `at`, the modifiers held through it.
+  // The mouse's forms (#107): one button form at a time, each at its middle or `at`, the modifiers held through it.
   const button = ['mouse', 'contextmenu', 'auxclick', 'dblclick', 'clicks'].filter((k) => opts[k] !== undefined && opts[k] !== false);
   if (button.length > 1) throw new MalformedOperation(`tap: one of mouse, dblclick, contextmenu, auxclick and clicks at a time, not ${button.join(' and ')}`);
   if (opts.clicks !== undefined && ![1, 2, 3].includes(opts.clicks)) throw new MalformedOperation('tap … clicks: 1, 2 or 3');
-  if (opts.at !== undefined && (opts.hover || opts.history !== undefined || opts.drop || opts.dragenter || opts.dragleave || opts.into)) throw new MalformedOperation('at is a point on a press, a click (mouse, dblclick, contextmenu, auxclick, clicks), a wheel, a contact, a pinch or a drag');
+  if (opts.at !== undefined && ((opts.hover && !opts.wheel) || opts.history !== undefined || opts.drop || opts.dragenter || opts.dragleave || opts.into)) throw new MalformedOperation('at is a point on a press, a click (mouse, dblclick, contextmenu, auxclick, clicks), a wheel, a contact, a pinch or a drag');
   if (opts.at !== undefined && (!Array.isArray(opts.at) || opts.at.length !== 2 || !opts.at.every(Number.isFinite))) throw new MalformedOperation('tap at needs two finite numbers');
   const modifiers = opts.modifiers ?? opts.drag?.modifiers;
   if (modifiers !== undefined && !String(modifiers).split('+').filter(Boolean).every(k => ['Shift', 'Control', 'Alt', 'Meta'].includes(k))) throw new MalformedOperation(`tap … modifiers: ${modifiers} is not Shift, Control, Alt and Meta joined by +`);
-  if (modifiers !== undefined && (opts.hover || opts.history !== undefined || opts.into || opts.drop || opts.pinch !== undefined)) throw new MalformedOperation('modifiers are held through a press, a click, a wheel, a contact or a drag');
+  if (modifiers !== undefined && ((opts.hover && !opts.wheel) || opts.history !== undefined || opts.into || opts.drop || opts.pinch !== undefined)) throw new MalformedOperation('modifiers are held through a press, a click, a wheel, a contact or a drag');
   return button;
 }
 
-/** What of a `tap` this carrier cannot deliver as a hand's, or null. AppKit and Chrome carry every form;
- * elsewhere a middle click, a run of clicks, a wheel or a double click at a point, and modifiers held through a
- * button other than a plain press's or through a contact answer `unsupported`, never another input. */
+/** A `tap` form this carrier cannot deliver as a hand's (#107), or null.
+ * Unsupported forms are refused before any input reaches the platform. */
 export function pointerGap(host, browser, opts) {
   if (['macos', 'mac', 'host'].includes(host) || (host === 'web' && (browser ?? 'chrome') === 'chrome')) return null;
   const held = opts.modifiers ?? opts.drag?.modifiers;
   const gaps = [
     opts.auxclick && 'a middle-button click (auxclick)',
     opts.clicks !== undefined && host !== 'web' && `clicks ${opts.clicks}`, // the Playwright carrier clicks at a point (agent-playwright.mjs)
-    opts.wheel && opts.at !== undefined && 'a wheel at a point',
+    opts.wheel && opts.at !== undefined && host !== 'web' && 'a wheel at a point',
     opts.dblclick && opts.at !== undefined && !['ios', 'host-ios'].includes(host) && 'a double click at a point', // iOS: the double tap that selects a word there
     host === 'web' && opts.mouse && 'a mouse click', // the Playwright carrier has none
     held && (opts.contextmenu || opts.dblclick || opts.mouse || opts.down || opts.drag || opts.phase) && 'modifiers held through a context menu, a double click, a mouse click, a contact or a drag',
   ].filter(Boolean);
-  return gaps.length ? `${host === 'web' ? browser : host} does not carry ${gaps.join('; ')}` : null;
+  return gaps.length ? `${host === 'web' ? browser : host} does not carry ${gaps.join('; ')} (LLP 1012 §1)` : null;
 }
 
 /** The CLI `type` line. Key, copy and cut stay whitespace-split.
@@ -575,7 +583,7 @@ export function typeCommand(line) {
   // A paste's text is a tail as typed text is: its newlines are the clipboard's.
   const pasted = /^paste\s+([\s\S]*\S[\s\S]*)$/.exec(rest);
   if (pasted) return [target, { clipboard: 'paste', text: decodeTypeText(pasted[1]) }];
-  // A world surface's message, what `post` is short for: the rest of the line.
+  // A world surface's message (LLP 1139.004 D1), what `post` is short for: the rest of the line.
   const message = /^message\s+([\s\S]*\S[\s\S]*)$/.exec(rest);
   if (message) return [target, { message: decodeTypeText(message[1]) }];
   if (head === 'key' || head === 'copy' || head === 'cut' || head === 'paste') return typeArguments([target, ...rest.trim().split(/\s+/)]);
@@ -585,14 +593,14 @@ function decodeTypeText(text) {
   if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
     try { return JSON.parse(text); } catch { /* a quote in the text, not a JSON string */ }
   }
-  // Single quotes around the whole text are a shell's, and are taken off as a shell would
-  // (`"type room-draft 'Test Den'"` types no quotes). Text that means them is written as JSON: `"'Den'"`.
+  // Single quotes around the whole text are a shell's, and are taken off as a shell would (app farm wave 2:
+  // `"type room-draft 'Test Den'"` typed the quotes). Text that means them is written as JSON: `"'Den'"`.
   if (text.length >= 2 && text.startsWith("'") && text.endsWith("'")) return text.slice(1, -1);
   return text.replace(/\\([ntr\\])/g, (_, c) => ({ n: '\n', t: '\t', r: '\r', '\\': '\\' }[c]));
 }
 
 export function typeArguments(args) {
-  // The clipboard's events at the target: `copy`, `cut`, `paste <text…>`.
+  // The clipboard's events at the target (spreadsheet F6): `copy`, `cut`, `paste <text…>`.
   if (['copy', 'cut'].includes(args[1]) && args.length === 2) return [args[0], {clipboard:args[1]}];
   if (args[1] === 'paste' && args[2] === '--file') {
     if (args.length < 4) throw new MalformedOperation('paste --file takes one or more paths');
@@ -611,7 +619,7 @@ export function typeArguments(args) {
   return [args[0], {key:args[2], ...(args[3] != null ? {phase:args[3]} : {})}];
 }
 
-/** A pad on a world canvas: `type <canvas> key Gamepad…` presses a pad button, `tap <canvas> stick
+/** A pad on a world canvas (LLP 1127.003 D3): `type <canvas> key Gamepad…` presses a pad button, `tap <canvas> stick
  * left|right <x> <y>` moves a stick in the Gamepad API's axes (positive y is down). Each is the agent's pad 0, reported to
  * the world as a host reports a real one (`delivery: synthesized`) and held across requests; `for <ms>` holds it that long
  * on the clock, then lets go. */
@@ -629,7 +637,7 @@ export async function padOp({ op, s, target, opts, host, timing }) {
   return s.landed(tag({ ...steps[0], for: opts.for, steps }));
 }
 
-/** The CLI `post [<surface>] <text>`: `type <surface> message <text>` with the surface
+/** The CLI `post [<surface>] <text>` (LLP 1139.004 D1): `type <surface> message <text>` with the surface
  * optional, so the text is one word or one quoted string ("…" as JSON, '…' as a shell's). One argument is
  * the text for the page's one world; two are the surface and the text. */
 export function postCommand(line) {
@@ -640,7 +648,7 @@ export function postCommand(line) {
   throw new MalformedOperation(words.length ? `post [<surface>] <text>: quote text of several words, as post world "spawn gulper"; type <surface> message <text…> takes the rest of the line` : 'post [<surface>] <text>: the text a world reads from Input::messages, as post spawn-gulper');
 }
 
-/** Post `message` into a world surface, as the page's `postMessage(text, surface)` does:
+/** Post `message` into a world surface, as the page's `postMessage(text, surface)` does (LLP 1139.004 D1):
  * `target` is a canvas the tree finds (a testId, a label) or a surface's name; none, the page's one world.
  * The host queues it as `InputEvent::Message`, the next tick reads it, and a surface with no live canvas
  * holds it, as it holds the page's posts. */

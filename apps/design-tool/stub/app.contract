@@ -1,4 +1,4 @@
-// The design tool stub's app: components with params of each
+// The design tool stub's app (LLP 1122 T3): components with params of each
 // kind the component panel draws, read by their rows.
 component Card
   params

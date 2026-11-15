@@ -63,7 +63,7 @@ fn rays_have_closed_form_distances_and_normals() {
         }
     }
 }
-// A shooter's sweep: Parry 0.30's support-map capsule raycast returned no hit for 64
+// RIVALS' sweep: Parry 0.30's support-map capsule raycast returned no hit for 64
 // of these 16,000 rays aimed inside a capsule, offset or not.
 #[test]
 fn every_ray_aimed_inside_a_capsule_hits_it() {

@@ -1,4 +1,4 @@
-// Frame pacing for the live frame clock (the host owns the clock).
+// Frame pacing for the live frame clock (LLP 1041.001 D3: the host owns the clock).
 //
 // Chrome's requestAnimationFrame timestamp wanders around the display's vsync grid
 // under load while the presented frames land on it (measured on the 120 Hz display:

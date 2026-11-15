@@ -1,9 +1,9 @@
-// The one ActivityConfiguration for every Exact activity: the envelope's
-// attributes name the kind and the generation, and each placement is the
-// snapshot driver over the entry's plan in that generation
-// (`ActivityResolver`, in `ExactSnapshot`, which the tests drive). No app
-// string reaches this file: the bundle lists it when the app declares
-// `live_activities` (widgets.mjs).
+// @ref LLP 1126.001 WP10 — the one ActivityConfiguration for every Exact
+// activity: the envelope's attributes name the kind and the generation, and
+// each placement is the snapshot driver over the entry's plan in that
+// generation (`ActivityResolver`, in `ExactSnapshot`, which the tests
+// drive). No app string reaches this file: the bundle lists it when the app
+// declares `live_activities` (widgets.mjs).
 import ExactCore
 import ExactSnapshot
 import Foundation
@@ -60,7 +60,7 @@ struct ExactActivityPlacement: View {
                 imageRoots: [rendering.root, Bundle.main.bundleURL, Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()],
                 appGroup: WidgetContainer.root, appID: WidgetContainer.appID, entryDate: Date())
             #if EXACT_INSPECT
-            // The render's cost so far: the layouts this state has
+            // The render's cost so far (§5 Q4): the layouts this state has
             // run and their time, at each placement's turn, then once more
             // after the archive has asked for every region.
             let _ = inspect(rendering, placement: placement)
@@ -94,7 +94,7 @@ private func inspect(_ rendering: ActivityRendering, placement: ActivityPlacemen
 
 /// The one configuration (the API is one per attributes type): the
 /// envelope's kind picks the plan at render time, so a new kind is a bundle
-/// change, never a binary one.
+/// change, never a binary one (D2, D9).
 struct ExactActivities: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: ExactActivityAttributes.self) { context in

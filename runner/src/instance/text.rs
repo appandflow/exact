@@ -7,7 +7,7 @@ use exact_kernel::{PropId, StyleId};
 /// A virtualized list's rows as logical text sees them: every row, mounted
 /// or not. Given the plan, also whether the list's text may be selected:
 /// the host policy and the `user-select` it has or takes from above.
-fn list_region<'a>(
+pub(super) fn list_region<'a>(
     plan: Option<(&Plan, &SiteIndex)>,
     children: &'a [Child],
     view: ViewId,
@@ -29,7 +29,7 @@ fn list_region<'a>(
                     if n.view == view {
                         return n.collection().map(|c| (c, selectable));
                     }
-                    // A nested list lives in a mounted row.
+                    // A nested list lives in a mounted row (LLP 1070 §4.7).
                     if let Some(c) = n.collection() {
                         for (_, row) in c.mounted_rows() {
                             frames.push(row.frame.clone());
@@ -88,7 +88,7 @@ fn hidden(n: &NodeInst, plan: &Plan, sites: &SiteIndex) -> bool {
 /// and AppKit's own selection: computed `visibility: hidden` (inherited, a
 /// nearer `visible` shows again), and `inert` here or above.
 #[derive(Clone, Copy, Default)]
-struct Selection {
+pub(super) struct Selection {
     explicit: Option<bool>,
     document: bool,
     chrome: bool,
@@ -198,7 +198,7 @@ fn collect(
                 if text && !inline {
                     out.push((String::new(), selectable.selectable()));
                 }
-                // An image in a paragraph's text copies as its label.
+                // An image in a paragraph's text copies as its label (LLP 1011.002 D4).
                 let image = inline && u.env.plan.node(n.node).node_type == NodeType::Image as u8;
                 if text || image {
                     let prop = if image {

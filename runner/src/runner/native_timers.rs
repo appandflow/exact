@@ -34,6 +34,7 @@ impl<D: DataSource> Runner<D> {
         self.clock.native_timers
             && self.clock_live()
             && !self.plan.timers[i].frame
+            && !self.plan.timers[i].change
             && self.plan.timers[i].wait == 0
     }
 
@@ -65,6 +66,7 @@ impl<D: DataSource> Runner<D> {
             now_ms: self.now_ms,
             error: None,
             stopped_on_request: false,
+            needs_apply: false,
         };
         let i = index as usize;
         if self.poisoned
@@ -115,8 +117,8 @@ impl<D: DataSource> Runner<D> {
 #[derive(Clone)]
 pub(super) struct Timer {
     /// The next due time; infinite once a one-shot timer has fired, and
-    /// while a gated task is idle; a frame task's next
-    /// virtual frame, `virtual_frame(base, k)`.
+    /// while a gated task is idle (LLP 1092 D8); a frame task's next
+    /// virtual frame (LLP 1073 D3), `virtual_frame(base, k)`.
     pub(super) next_ms: f64,
     /// Whether the task's gate holds (always, for `mount`).
     pub(super) armed: bool,

@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 /// Whether this run has a canvas to drive. A stub module (built without the
 /// Metal toolchain) or no GPU is a missing prerequisite: skipped, and a
-/// failure under EXACT_REQUIRED=1 (scripts/coverage.mjs).
+/// failure under EXACT_REQUIRED=1, which the async lane sets (scripts/coverage.mjs).
 fn canvas_or_skip() -> bool {
     if !ecg_canvas_new(1, 1, 1.0).is_null() {
         return true;

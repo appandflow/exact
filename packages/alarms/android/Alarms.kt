@@ -1,11 +1,11 @@
-// @exact/alarms on Android: each alarm is set with `AlarmManager.setAlarmClock`, which
+// @exact/alarms on Android (LLP 1133.030 D2, D4, D7, D9): each alarm is set with `AlarmManager.setAlarmClock`, which
 // rings through Doze and may start a foreground service from the background. The build makes one module per host when
 // the app binds the extension, outside the agent; under the agent the runner's substitute answers, unless the drive
 // binds it (`--bind alarms`).
 //
 // - The records ([AlarmRecords]) live in device-protected storage, so the receiver and the ringing service, which run
 //   before first unlock with no session, read them; they are the package's only state, and the app's list.
-// - The status composes exact alarms with notifications: a blocked alarm channel first, so `denied` wins over
+// - The status composes exact alarms with notifications (D7): a blocked alarm channel first, so `denied` wins over
 //   every other row (Sol's note), then notifications' shared state, then `canScheduleExactAlarms()`.
 // - What runs at fire is [AlarmReceiver] and [AlarmService] (`AlarmRing.kt`), with no session; a running process's
 //   module hears each change through [AlarmsModule.live].
@@ -51,7 +51,7 @@ class AlarmsModule(context: ExtensionContext) : ExactExtension(context) {
         }
     }
 
-    /** The person may change either switch in Settings while the app is away: read again on return. */
+    /** The person may change either switch in Settings while the app is away: read again on return (D7). */
     override fun foreground(shown: Boolean) { if (shown) changed() }
 
     override fun destroy(done: () -> Unit) {
@@ -59,7 +59,7 @@ class AlarmsModule(context: ExtensionContext) : ExactExtension(context) {
         done()
     }
 
-    // MARK: the status
+    // MARK: the status (D7)
 
     private fun notifications(): String {
         val enabled = app.getSystemService(NotificationManager::class.java).areNotificationsEnabled()
@@ -84,7 +84,7 @@ class AlarmsModule(context: ExtensionContext) : ExactExtension(context) {
         val exact = exact()
         val state = state(notifications, exact)
         // Revocation ended every alarm the system held, and a denial ends them here, as a ring that cannot be stopped
-        // is worse than none; a paused countdown, which holds no system alarm, stays.
+        // is worse than none; a paused countdown, which holds no system alarm, stays (D7).
         if (!exact || state == "denied") AlarmRing.dropHeld(app)
         return JSONObject().put("available", true).put("state", state).put("countdown", true).put("apple", JSONObject.NULL)
             .put("android", JSONObject().put("canScheduleExactAlarms", exact).put("notifications", notifications))
@@ -96,7 +96,7 @@ class AlarmsModule(context: ExtensionContext) : ExactExtension(context) {
         return out
     }
 
-    // MARK: the request: notifications first, then exact alarms; each skipped when decided
+    // MARK: the request (D7): notifications first, then exact alarms; each skipped when decided
 
     private fun request(done: () -> Unit) {
         if (Build.VERSION.SDK_INT >= 33 && notifications() == "prompt") {
@@ -112,7 +112,7 @@ class AlarmsModule(context: ExtensionContext) : ExactExtension(context) {
         context.startActivityForResult(intent) { _, _ -> done() }
     }
 
-    // MARK: the sends
+    // MARK: the sends (D2, D7, D9)
 
     private fun schedule(args: JSONObject, reply: (JSONObject) -> Unit) {
         val tag = args.optString("tag")
@@ -135,7 +135,7 @@ class AlarmsModule(context: ExtensionContext) : ExactExtension(context) {
                 else -> reply(JSONObject().put("error", "NotAllowedError"))
             }
         }
-        // `asks`: while `prompt` the request runs first, then the schedule.
+        // `asks`: while `prompt` the request runs first, then the schedule (D7).
         if (state() == "prompt") request(set) else set()
     }
 
@@ -157,7 +157,7 @@ class AlarmsModule(context: ExtensionContext) : ExactExtension(context) {
     }
 }
 
-/** One alarm, by its tag: its wall-clock instant, and for a countdown the anchor that measures real time. */
+/** One alarm, by its tag (D4): its wall-clock instant, and for a countdown the anchor that measures real time (D9). */
 internal class AlarmRecord(
     val tag: String, val title: String, var at: Double?, val duration: Double?, val snooze: Double?,
     var remaining: Double?, var state: String,
@@ -178,7 +178,7 @@ internal class AlarmRecord(
     }
 }
 
-/** The records, in device-protected storage: readable before first unlock, as the Clock app's alarms are. */
+/** The records, in device-protected storage: readable before first unlock, as the Clock app's alarms are (D9). */
 internal object AlarmRecords {
     private fun prefs(c: Context) = c.createDeviceProtectedStorageContext().getSharedPreferences("exact.alarms", Context.MODE_PRIVATE)
 

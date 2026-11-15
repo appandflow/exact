@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// The macOS pointer order: a press that moves the focus into a text
+/// LLP 1005's macOS pointer line: a press that moves the focus into a text
 /// area or an input reports `pointerdown` first, then the old field's
 /// `change` and `blur` and the new one's `focus`, then `pointerup`, as
 /// Chrome orders them. NSWindow focuses the hit editor before its
@@ -193,8 +193,8 @@ final class EditorPointerOrderMacTests: XCTestCase {
     }
 
     /// Test 4: a first click into a window that is not key, as a person's
-    /// comes (no click counts there unless the view takes it).
-    /// An input's field takes the first click, so its down comes
+    /// comes (no click counts there unless the view takes it; LLP 1115.000
+    /// D7.9). An input's field takes the first click, so its down comes
     /// first; a text area takes none, so nothing is reported and nothing
     /// is focused, as before.
     func testAFirstClickIntoAnInactiveWindowKeepsTheOrder() throws {

@@ -1,4 +1,4 @@
-//! The kernel as a holder of wide colours: its mark,
+//! The kernel as a holder of wide colours (LLP 1121 §5 stage 4): its mark,
 //! published after every change to what it holds.
 
 use super::Kernel;

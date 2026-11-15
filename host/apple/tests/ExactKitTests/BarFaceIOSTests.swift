@@ -3,8 +3,8 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// A header button's face as its author painted it (`ChipFace`):
-/// a dot beside a label, or a label in the author's font, is the bar
+/// A header button's face as its author painted it (`ChipFace`, LLP 1115
+/// §2): a dot beside a label, or a label in the author's font, is the bar
 /// item's drawn image; a plain label is UIKit's title, the platform's.
 final class BarFaceIOSTests: XCTestCase {
     private func button(_ children: [[String: Any]], in p: Presenter = Presenter()) -> (Presenter, NodeView) {
@@ -75,8 +75,7 @@ final class BarFaceIOSTests: XCTestCase {
         XCTAssertEqual(color?[0], red, "the colour its author wrote, not its grey")
     }
 
-    /// A dot whose fill names the tint takes its node's tint, undimmed while UIKit dims tints: the
-    /// bar item's image is baked once and kept
+    /// The face's source keeps its node's undimmed tint so the bar can bake it in either adjustment mode.
     func testATintDotTakesItsNodesTintUndimmed() throws {
         let tinted: [String: Any] = ["op": "create", "id": 3, "kind": "view", "handlers": [], "props": [:],
                                      "style": ["background_color": ["sys": "@tint", "c": [0, 122, 255, 255]], "width": 14, "height": 6]]
@@ -106,13 +105,17 @@ final class BarFaceIOSTests: XCTestCase {
     }
 
     /// A colour only inherited from the page is unsaid: the bar's ink, as a
-    /// title's, never the page's grey or red.
+    /// title's (LLP 1115 D4), never the page's grey or red.
     func testAnInheritedColourIsTheBarsInk() throws {
         let (p, node) = button([dot, label(["written": ["font_size"]])])
         let face = try XCTUnwrap(ChipFace(node, engine: TextEngine(resolve: { _ in nil })))
         withExtendedLifetime(p) {}
         guard case .text(_, _, let color) = face.parts[1] else { return XCTFail("\(face.parts)") }
         XCTAssertNil(color, "inherited: unsaid")
+        if #available(iOS 26.0, *) { XCTAssertNil(face.shares[1], "unwritten ink uses the label colour") }
+        else { XCTAssertEqual(face.shares[1], 1, "unwritten ink uses the tint and follows its dimming") }
+        let readout = try XCTUnwrap(ChipFace(node, engine: TextEngine(resolve: { _ in nil }), readout: true))
+        XCTAssertNil(readout.shares[1], "a readout's unwritten ink is always the label colour")
     }
 
     func testASymbolOnlyUsesColourWrittenInsideTheBarButton() throws {
@@ -135,8 +138,8 @@ final class BarFaceIOSTests: XCTestCase {
         XCTAssertEqual(try colour()?[0], [240, 40, 120, 255], "the enclosing button's authored colour applies")
     }
 
-    /// Bold Text weights the system font, an authored weight included:
-    /// the kernel's weights say it, so the face draws the
+    /// Bold Text weights the system font, an authored weight included (LLP
+    /// 1115.000 D12.3): the kernel's weights say it, so the face draws the
     /// weight its rows give (600 where Bold Text took a 400), and adds no
     /// step of its own; its source says the setting, so the bar draws it
     /// again when the setting changes.
@@ -184,8 +187,37 @@ final class BarFaceIOSTests: XCTestCase {
         XCTAssertNotEqual(shown.source, faded.source)
     }
 
+    /// The button's left and right padding is room the face keeps inside
+    /// the item's glass: the image is that much wider and its parts start
+    /// after the left padding. A readout's face is its parts alone.
+    func testAButtonsSidePaddingWidensItsFace() throws {
+        let engine = TextEngine(resolve: { _ in nil })
+        let (p, node) = button([dot, label(["written": ["text_color"]])])
+        defer { p.reset() }
+        let tight = try XCTUnwrap(ChipFace(node, engine: engine))
+        let tightReadout = try XCTUnwrap(ChipFace(node, engine: engine, readout: true))
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["text_color": [0, 0, 0, 255], "padding_left": 7, "padding_right": 3]]]))
+        let padded = try XCTUnwrap(ChipFace(node, engine: engine))
+        XCTAssertEqual(padded.insetLeft, 7)
+        XCTAssertEqual(padded.insetRight, 3)
+        XCTAssertNotEqual(padded.source, tight.source, "the bar draws it again")
+        let before = tight.image(tint: .systemBlue), after = padded.image(tint: .systemBlue)
+        XCTAssertEqual(after.size.width, before.size.width + 7 + 3, accuracy: 0.001, "wider by left and right")
+        XCTAssertEqual(after.size.height, before.size.height, accuracy: 0.001)
+        let cg = try XCTUnwrap(after.cgImage), row = Int(after.size.height * after.scale / 2)
+        let gutter = try XCTUnwrap(SharePictureCase.rgba(cg, x: Int(3 * after.scale), y: row))
+        XCTAssertEqual(gutter.3, 0, "nothing is drawn in the left padding")
+        let green = try XCTUnwrap(SharePictureCase.rgba(cg, x: Int((7 + 7) * after.scale), y: row))
+        XCTAssertGreaterThan(green.1, 150, "the dot starts after it")
+        let readout = try XCTUnwrap(ChipFace(node, engine: engine, readout: true))
+        XCTAssertEqual(readout.insetLeft, 0)
+        XCTAssertEqual(readout.insetRight, 0)
+        XCTAssertEqual(readout.image(tint: .systemBlue).size.width, tightReadout.image(tint: .systemBlue).size.width,
+                       accuracy: 0.001, "a readout ignores the padding")
+    }
+
     /// A native button's title size and weight, written on it or on its
-    /// text, are its bar item's title font: the "●
+    /// text, are its bar item's title font (LLP 1069.011.001 D4): the "●
     /// Clock" glass chip at 12 pt, in every state UIKit draws it in. A
     /// native button whose face says nothing of its font leaves UIKit's.
     func testANativeButtonsAuthoredFontIsItsBarTitlesFont() throws {

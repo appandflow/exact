@@ -1,4 +1,4 @@
-// The drives 1–6 of Agents under the agent model, on any
+// LLP 1133.016 §10's drives 1–6 of Agents under the agent model, on any
 // host the agent drives: each drive's operations, then what its output must
 // show. Drives 7 and 8 are the fixture's (`web.mjs --agent`) and the
 // runner's tests.
@@ -6,7 +6,7 @@
 // usage: bun packages/language-model/test/drives.mjs [web|macos|ios|android] [--sim <udid>] [1 2 …]
 //   web builds Agents first; macos and ios drive the build `host/apple/build.mjs` made, android the APK
 //   `scripts/agent-android.mjs build agents --apk` made, on the device ANDROID_SERIAL names. Android runs no
-//   tools, so drive 4 is not its.
+//   tools (D9), so drive 4 is not its.
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { checker, root } from './fixture.mjs';

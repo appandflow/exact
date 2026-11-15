@@ -1,4 +1,4 @@
-// The conformance fixture: every name of @exact/contacts,
+// The conformance fixture (LLP 1133.001 D7): every name of @exact/contacts,
 // read and sent as an app would, each answer shown by testId for the suite.
 // The store is read by data code (app.ts), a page at a time.
 use contactsStatus, getContactProperties, selectContacts, showContactAccessPicker, ContactsStatus, ContactProperties, ContactSelection, ContactInfo from "@exact/contacts"

@@ -1,4 +1,4 @@
-//! Native semantic faces and pre-publication height-for-width.
+//! Native semantic faces and pre-publication height-for-width. LLP 1069.011.001.
 use exact_kernel::wire::Op;
 use exact_kernel::*;
 use std::cell::RefCell;
@@ -240,6 +240,90 @@ fn the_face_has_a_subtitle_and_all_four_placements() {
         );
     }
 }
+
+#[test]
+fn button_faces_measure_text_with_the_titles_effective_white_space() {
+    let source = "  a\t b \n x\u{a0}\u{2003}y  ";
+    let answers = Rc::new(RefCell::new((false, Vec::new())));
+    let mut k = tree(Box::new(Buttons(answers.clone())));
+    k.set_env(env(17.0)).unwrap();
+    k.apply(
+        0,
+        2,
+        &[prop(3, PropId::Text, source), prop(4, PropId::Text, source)],
+    )
+    .unwrap();
+    patch(&mut k, 4, &[(StyleId::WhiteSpace, "pre")]);
+    for (value, white_space, expected) in [
+        ("pre", WhiteSpace::Pre, source),
+        ("pre-wrap", WhiteSpace::PreWrap, source),
+        ("pre-line", WhiteSpace::PreLine, "a b\nx\u{a0}\u{2003}y"),
+        ("normal", WhiteSpace::Normal, "a b x\u{a0}\u{2003}y"),
+        ("nowrap", WhiteSpace::Nowrap, "a b x\u{a0}\u{2003}y"),
+    ] {
+        patch(&mut k, 2, &[(StyleId::WhiteSpace, value)]);
+        answers.borrow_mut().1.clear();
+        layout(&mut k);
+        let face = k.press_face(2).unwrap();
+        assert_eq!(face.title.as_deref(), Some(expected), "{value}");
+        assert_eq!(face.subtitle.as_deref(), Some(source));
+        let state = answers.borrow();
+        assert!(!state.1.is_empty(), "{value} must remeasure the face");
+        for request in &state.1 {
+            assert_eq!(request.face.title.as_deref(), Some(expected));
+            assert_eq!(request.style.title.white_space, white_space);
+            assert_eq!(request.face.subtitle.as_deref(), Some(source));
+            assert_eq!(
+                request.style.subtitle.as_ref().unwrap().white_space,
+                WhiteSpace::Pre
+            );
+        }
+    }
+    patch(&mut k, 2, &[(StyleId::WhiteSpace, "normal")]);
+    patch(&mut k, 3, &[(StyleId::WhiteSpace, "pre-wrap")]);
+    answers.borrow_mut().1.clear();
+    layout(&mut k);
+    let state = answers.borrow();
+    assert!(!state.1.is_empty());
+    for request in &state.1 {
+        assert_eq!(request.face.title.as_deref(), Some(source));
+        assert_eq!(request.style.title.white_space, WhiteSpace::PreWrap);
+    }
+}
+
+#[test]
+fn custom_button_faces_inherit_white_space_while_native_buttons_reset_it() {
+    let mut k = tree(Box::new(MonospaceMeasurer::default()));
+    patch(&mut k, 1, &[(StyleId::WhiteSpace, "pre")]);
+    k.apply(0, 2, &[prop(3, PropId::Text, " a  b\nx ")])
+        .unwrap();
+    assert_eq!(k.press_face(2).unwrap().title.as_deref(), Some("a b x"));
+    k.apply(
+        0,
+        3,
+        &[
+            Op::CreateView {
+                id: 6,
+                node_type: NodeType::Pressable,
+            },
+            Op::SetChildren {
+                id: 2,
+                children: vec![],
+            },
+            Op::SetChildren {
+                id: 6,
+                children: vec![3],
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![6],
+            },
+        ],
+    )
+    .unwrap();
+    assert_eq!(k.press_face(6).unwrap().title.as_deref(), Some(" a  b\nx "));
+}
+
 fn font(size: f32) -> ControlFont {
     ControlFont {
         family: "Platform".into(),
@@ -309,6 +393,7 @@ fn computed_rows_keep_authored_provenance_and_the_child_wins() {
         5,
         &[
             (StyleId::TintColor, "green"),
+            (StyleId::SymbolRendering, "multicolor"),
             (StyleId::FontSize, "32"),
             (StyleId::FontWeight, "700"),
         ],
@@ -323,6 +408,7 @@ fn computed_rows_keep_authored_provenance_and_the_child_wins() {
     assert_eq!(s.symbol.font_size, 32.0);
     assert_eq!(s.symbol.font_weight, 700);
     assert!(s.symbol.mask.has(StyleId::TintColor));
+    assert!(s.symbol.mask.has(StyleId::SymbolRendering));
     check_runs(&k);
     assert_eq!(s.image_gap, Some(4.0));
     assert_eq!(s.button.padding_top, Dimension::Points(20.0));
@@ -396,7 +482,7 @@ fn changing_button_style_requests_layout_in_the_same_commit() {
     assert!(receipt.layout_invalidated);
     layout(&mut k);
     // With none written the kernel names none: what an unsaid button draws
-    // is each platform's default, which its host holds.
+    // is each platform's default, which its host holds (LLP 1115.000 D15).
     assert_eq!(answers.borrow().1.last().unwrap().button_style, None);
 }
 
@@ -430,6 +516,36 @@ fn unrelated_layout_does_not_remeasure_native_buttons() {
     patch(&mut k, 1, &[(StyleId::Height, "600")]);
     layout(&mut k);
     assert_eq!(answers.borrow().1.len(), 0);
+}
+
+#[test]
+fn root_font_changes_refresh_cached_button_faces_under_a_fixed_ancestor_font() {
+    let answers = Rc::new(RefCell::new((false, Vec::new())));
+    let mut k = tree(Box::new(Buttons(answers.clone())));
+    for size in ["mini", "small", "medium", "large"] {
+        patch(&mut k, 2, &[(StyleId::ControlSize, size)]);
+        for root in [16.0, 12.0, 24.0, 16.0] {
+            k.set_root_font_size(root).unwrap();
+            k.apply(0, 1, &[]).unwrap();
+            answers.borrow_mut().1.clear();
+            layout(&mut k);
+            let state = answers.borrow();
+            assert!(!state.1.is_empty(), "{size} at root {root} remeasures");
+            for request in &state.1 {
+                assert_eq!(request.style.root_font_size, root);
+                assert_eq!(request.style.title.font_size, 30.0);
+                assert!(!request.style.title.mask.has(StyleId::FontSize));
+            }
+            assert_eq!(k.button_face_style(2).unwrap().root_font_size, root);
+            drop(state);
+            answers.borrow_mut().1.clear();
+            layout(&mut k);
+            assert!(
+                answers.borrow().1.is_empty(),
+                "unchanged root reuses offers"
+            );
+        }
+    }
 }
 
 #[test]
@@ -501,10 +617,10 @@ fn hosts_receive_resolved_padding_and_each_corner() {
     assert_eq!(s.padding_right, Dimension::Points(17.0));
     assert_eq!(
         [
-            s.border_radius_top_left,
-            s.border_radius_top_right,
-            s.border_radius_bottom_right,
-            s.border_radius_bottom_left
+            s.border_radius_top_left.clone(),
+            s.border_radius_top_right.clone(),
+            s.border_radius_bottom_right.clone(),
+            s.border_radius_bottom_left.clone()
         ],
         [
             Dimension::Points(5.0),

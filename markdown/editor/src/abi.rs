@@ -177,6 +177,12 @@ pub extern "C" fn mde_before_input(
     })
 }
 
+/// A drag within the editor, in source coordinates from before its deletion.
+#[no_mangle]
+pub extern "C" fn mde_move(h: u32, from: u32, to: u32, at: u32, len: u32, now: f64) -> u32 {
+    with(h, len, |e, text| bits(e.move_text(from, to, at, text, now)))
+}
+
 /// The platform changed the text to the input itself.
 #[no_mangle]
 pub extern "C" fn mde_reconcile(h: u32, len: u32, sel_from: u32, sel_to: u32, now: f64) -> u32 {
@@ -339,7 +345,7 @@ pub extern "C" fn mde_auto(h: u32) -> u32 {
 }
 
 /// The host's words for the current state's lines, the first `len` input
-/// units (`paragraphDirs`): undo steps keep them.
+/// units (`paragraphDirs`, LLP 1045 D11): undo steps keep them.
 #[no_mangle]
 pub extern "C" fn mde_set_words(h: u32, len: u32) {
     with(h, len, |e, words| e.set_words(words))
@@ -415,7 +421,7 @@ pub extern "C" fn mde_plain(h: u32, from: u32, to: u32) -> u32 {
 }
 
 /// The field's atom kinds (`kinds_len` units of the compiler's JSON) then
-/// the app's faces (the rest of the input).
+/// the app's faces (the rest of the input) (LLP 1045.000 D2).
 #[no_mangle]
 pub extern "C" fn mde_atoms(h: u32, kinds_len: u32, faces_len: u32) -> u32 {
     with(h, kinds_len.saturating_add(faces_len), |e, input| {
@@ -470,7 +476,7 @@ pub extern "C" fn mde_atom_faces(h: u32) -> u32 {
 }
 
 /// An input method begins composing: a range holding an atom is deleted
-/// first, its own undo step.
+/// first, its own undo step (LLP 1045.000 D5).
 #[no_mangle]
 pub extern "C" fn mde_compose(h: u32, now: f64) -> u32 {
     with(h, 0, |e, _| bits(e.compose(now)))

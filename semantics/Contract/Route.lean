@@ -1,5 +1,5 @@
 /-
-The router: a location, a retained stack per tab, and six pure
+The router (LLP 1038): a location, a retained stack per tab, and six pure
 verbs over a route table.
 
 This is `route/src` (the `exact_route` crate) transcribed: `location.rs`'s
@@ -48,7 +48,7 @@ structure Entry where
   url : String
   tab : String
   params : Params
-  /-- What the location that last named this visit had after `#`. -/
+  /-- What the location that last named this visit had after `#` (LLP 1153 D5). -/
   fragment : String := ""
   deriving Inhabited
 
@@ -235,7 +235,7 @@ def fragmentEscape (b : Nat) : Bool :=
   !(0x21 ≤ b && b ≤ 0x7e) || [0x22, 0x3c, 0x3e, 0x60].contains b
 
 /-- What follows a location's first `#`, fragment-encoded; `""` with none
-(`fragment_of`). -/
+(`fragment_of`, LLP 1153 D5). -/
 def fragmentOf (location : String) : String :=
   match splitOnce (clean location) '#' with
   | .some (_, f) => encode f fragmentEscape
@@ -436,7 +436,7 @@ def setStack (r : Router) (i : Nat) (f : List Entry → List Entry) : Router :=
 
 /-- Select the declared tab and replace its chain: the same URL at the
 same position keeps its id. Seeds every tab at its root first, when there
-are none. -/
+are none, the location's own tab at its chain's root visit. -/
 def «open» (t : Table) (r : Router) (location : String) : Verb := do
   let ch := chain t location
   let .some d0 := ch.head? | throw (noMatch location)
@@ -445,8 +445,11 @@ def «open» (t : Table) (r : Router) (location : String) : Verb := do
   if out.tabs.isEmpty then
     for root in roots t do
       let .some route := t[root]? | pure ()
-      let d : Destination := { name := route.name, url := canonical route.pattern,
-                               tab := route.name, params := emptyParams t }
+      -- The location's own tab is seeded at its chain's root visit, so a
+      -- query on a root location changes no id.
+      let d : Destination := if d0.name == route.name then d0 else
+        { name := route.name, url := canonical route.pattern,
+          tab := route.name, params := emptyParams t }
       let (e, o) ← mint out d
       out := { o with tabs := o.tabs ++ [{ name := route.name, stack := [e] }] }
   let .some index := out.tabs.findIdx? (·.name == target) | throw s!"unknown tab {target}"
@@ -484,7 +487,7 @@ def push (t : Table) (r : Router) (location : String) : Verb :=
   match (r.tabs[index]?).bind (·.stack.getLast?) with
   | .some top =>
     if top.url == d.url then
-      -- The location on top: no new visit, only its fragment.
+      -- The location on top: no new visit, only its fragment (LLP 1153 D5).
       return if top.fragment == fragment then r
         else setStack r index fun s => s.dropLast ++ [{ top with fragment }]
   | .none => pure ()
@@ -528,7 +531,7 @@ def go (t : Table) (r : Router) (location : String) : Verb :=
   let s := stack r
   let fragment := fragmentOf location
   -- The top takes the location's fragment; a visit returned to takes it
-  -- only when the location has one.
+  -- only when the location has one (LLP 1153 D5).
   let withFragment (write : Bool) (s : List Entry) : List Entry :=
     match s.getLast? with
     | .some e => if write then s.dropLast ++ [{ e with fragment }] else s
@@ -545,7 +548,8 @@ def go (t : Table) (r : Router) (location : String) : Verb :=
     | .some i => select (setStack r i (withFragment !fragment.isEmpty)) ((r.tabs[i]?.map (·.name)).getD "")
     | .none => push t r location
 
-/-- Seed every tab at its root, then open the launch location. -/
+/-- Seed every tab at its root, the location's own tab at its chain's root
+visit, then open the launch location. -/
 def launch (t : Table) (location : String) : Verb := «open» t {} location
 
 /-! ## The plan boundary (`runner/src/runner/router.rs`) -/

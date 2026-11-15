@@ -1,4 +1,6 @@
-//! The terminal host (a spike), shaped like the painter host.
+//! The terminal host (LLP 1101, a spike).
+//!
+//! @ref LLP 1101 (terminal apps) / LLP 1015 (the painter host it repeats)
 //!
 //! The runner and kernel run natively; after every commit the host lays the
 //! tree out with the kernel's own layout in a fixed 8×16 cell and the painter
@@ -22,9 +24,11 @@
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
 
+mod argv;
 pub mod cli;
 mod collection;
 pub mod color;
+mod ending;
 pub mod grid;
 pub mod host;
 pub mod image;
@@ -32,6 +36,7 @@ mod keys;
 pub mod measure;
 pub mod paint;
 pub mod pointer;
+mod print;
 mod requests;
 pub mod term;
 pub mod vt;

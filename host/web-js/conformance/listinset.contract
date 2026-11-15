@@ -1,6 +1,6 @@
 // data: carousel
-// Synthetic conformance plan: virtualized lists with main-axis padding,
-// CSS's room before the first row and after the last,
+// Synthetic conformance plan: virtualized lists with main-axis padding
+// (LLP 1010 §6.9), CSS's room before the first row and after the last,
 // on Carousel's sources and wasm: a long list under a header laid over its
 // padding-top, scrolled to its true end (reachend grows it there, past the
 // padding-bottom a tab bar would cover) and back, then `scrollIntoView`

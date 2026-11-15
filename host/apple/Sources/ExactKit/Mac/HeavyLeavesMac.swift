@@ -1,6 +1,6 @@
-// The macOS host's heavy-leaf hold, the AppKit twin
-// of `IOS/HeavyLeavesIOS.swift`, the same rule: a video, web view or
-// native-module view in a collection's row
+// @ref LLP 1068 §5.1, §5.2 — the macOS host's heavy-leaf hold, the AppKit twin
+// of `IOS/HeavyLeavesIOS.swift` (Charlie's ruling of 2026-09-27, applied
+// unchanged): a video, web view or native-module view in a collection's row
 // is not made when the row is built one to three viewports ahead, but when
 // its row comes within a quarter viewport of what shows, one a frame, and
 // never while its list travels faster than a viewport a second once its
@@ -89,7 +89,7 @@ final class HeavyLeaves {
     }
     /// A made module view in a collection's row hides beyond the margin a
     /// leaf is made within (a quarter viewport), and shows inside it. Its
-    /// instance stays (macOS has no parked reuse: a released
+    /// instance stays (macOS has no parked reuse, LLP 1068 §6: a released
     /// instance would be made again from nothing when the row comes back),
     /// so nothing here is released by distance. Not while VoiceOver or
     /// Switch Control runs, when nothing waits.
@@ -159,7 +159,7 @@ final class HeavyLeaves {
         return nil
     }
     /// A leaf whose kind costs more than a frame to make waits while its
-    /// list moves.
+    /// list moves (§5.1).
     private func costly(_ node: NodeView) -> Bool {
         guard let cost = Self.cost(node.kind), cost > frame, let list = list(holding: node) else { return false }
         return moving(list)

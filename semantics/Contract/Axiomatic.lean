@@ -44,7 +44,7 @@ def assignPre (t : String) (e : Expr) (Q : Assn) : Assn := fun env ls fx =>
     (isRootState env.prog t = false → isRowState env.prog t = true → (lookup t env.rows).isSome →
       Q env ls (fx.rowWrite t v))
 
-/-- What a call needs of its continuation: for the
+/-- What a call needs of its continuation (LLP 1089 D9): for the
 arguments' values in the pre-state and every outcome of the callee's body
 run from the effects so far, in a scope of its parameters alone. The
 callee reads the same `env`: a call sees the state the action started
@@ -378,7 +378,7 @@ theorem triple_read_prestate {x y e₁ v₀ fx₀} :
 /-- The state an action reads: the configuration as the event found it. -/
 def actionEnv (p : Program) (c : Config) (rows : List RowId) : Env :=
   { prog := p, slots := c.slots, derives := c.settled.derives, resources := c.settled.resources,
-    rows := rowSlots c.store rows, now := c.now }
+    rows := rowSlots c.store rows, now := c.now, idle := c.settled.idle }
 
 /-- An action's parameters bound to its arguments. -/
 def actionLocals (a : ActionDecl) (args : List Value) : Locals := ((a.params.map (·.1)).zip args).reverse

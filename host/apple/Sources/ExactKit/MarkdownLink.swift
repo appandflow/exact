@@ -1,4 +1,4 @@
-// Markdown is a linked capability: its
+// @ref LLP 1047.001 D4 — Markdown (LLP 1045) is a linked capability: its
 // implementation is the `ExactMarkdown` module, which an app's composition
 // links only when its plan has `markup="markdown"`, and installs here. The
 // core names no Markdown type; without the module, a plan that uses
@@ -13,7 +13,7 @@ import AppKit
 /// What the core asks of the Markdown capability.
 package protocol MarkdownCapability: AnyObject {
     /// `source` as display runs over `base` (the node's run); `color` its ink.
-    /// `boldText`: Bold Text weights `base`, so a
+    /// `boldText`: Bold Text weights `base` (LLP 1115.000 D12.3), so a
     /// piece's own weight (bold) takes the same step.
     func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool, atoms: MarkdownAtoms) -> [Run]
     /// A text area's `source` as its editor lays it out, over `base`, for
@@ -24,8 +24,9 @@ package protocol MarkdownCapability: AnyObject {
     func editor() -> MarkdownEditing
     /// `range` (UTF-16, the whole source when nil) of `source` without its
     /// Markdown syntax, each atom the whole source recognizes inside it its
-    /// label (Copy Plain Text), or `spoken` its accessible name (what
-    /// VoiceOver reads); `atoms` and `faces` are the node's.
+    /// label (Copy Plain Text); or, `spoken`, what VoiceOver reads: the whole
+    /// source as the reader draws it, each atom its accessible name, `range`
+    /// unread. `atoms` and `faces` are the node's (LLP 1045.000).
     func plain(_ source: String, range: NSRange?, atoms: String, faces: String, spoken: Bool) -> String?
     /// Apply a formatting command to `node`'s editor.
     func format(_ node: NodeView, command: String, argument: String, selection: NSRange?) -> Bool
@@ -35,7 +36,7 @@ package protocol MarkdownCapability: AnyObject {
     func publishSelection(_ node: NodeView, force: Bool)
     /// Restyle `node`'s editor for its text and selection.
     func restyle(_ node: NodeView)
-    /// The `formatElement` command.
+    /// The `formatElement` command (LLP 1045 D6).
     func formatElement(_ presenter: Presenter, _ args: [Any])
     #if os(iOS) || os(tvOS)
     /// The edit menu's Markdown items for `textView`.
@@ -53,18 +54,18 @@ package protocol MarkdownEditing: AnyObject {
     var bookmark: NSRange? { get set }
     /// The attributes plain typing takes.
     var plainAttributes: [NSAttributedString.Key: Any] { get }
-    /// The `paragraphDirs` its last restyle drew.
+    /// The `paragraphDirs` its last restyle drew (LLP 1045 D11).
     var paragraphDirs: String { get }
     /// The node's `atoms`, `atomFaces` and `atomStyles` as its last restyle
-    /// drew them.
+    /// drew them (LLP 1045.000 D2).
     var atoms: MarkdownAtoms { get }
     /// The base direction of the line holding `location`, as drawn: an empty
-    /// editor's placeholder takes its first line's.
+    /// editor's placeholder takes its first line's (LLP 1045 D11).
     func direction(at location: Int) -> NSWritingDirection
     /// Remove every Markdown attribute.
     func detach(_ storage: NSTextStorage)
     /// Where a person's selection change from `old` to `new` lands beside a
-    /// hidden link destination.
+    /// hidden link destination (LLP 1045 D5).
     func place(_ new: NSRange, from old: NSRange?, in storage: NSAttributedString) -> NSRange
     /// The caret a native move or deletion should start from: the other
     /// edge of a hidden run the caret sits at, on the side it moves to; nil
@@ -90,7 +91,7 @@ package struct MarkupRewrite {
     }
 }
 
-/// A Markdown node's inline atoms, as its props hold them:
+/// A Markdown node's inline atoms (LLP 1045.000 D2), as its props hold them:
 /// the compiled kinds, the app's faces, and its kinds' paint rows. Empty
 /// kinds are none.
 package struct MarkdownAtoms: Hashable {
@@ -103,7 +104,7 @@ package struct MarkdownAtoms: Hashable {
     package var contrast = false
     package var emphasized = true
     /// A reader's lines run right to left, its node's `direction`: a pill
-    /// whose face pins none is isolated in it.
+    /// whose face pins none is isolated in it (LLP 1045.000 D4).
     package var rtl = false
     /// The source offset where the atom under the pointer starts, or -1:
     /// its kind's `:hover` paint draws on it.
@@ -115,7 +116,7 @@ package struct MarkdownAtoms: Hashable {
 }
 
 /// One inline atom in a Markdown editor's storage, the value of its
-/// `.markupAtom` run: what its pill draws and what a press on
+/// `.markupAtom` run (LLP 1045.000): what its pill draws and what a press on
 /// it reports. A new object each restyle, so equal neighbours stay two runs.
 package final class MarkupAtom: NSObject {
     package let kind: String, label: String, icon: String, title: String, role: String, href: String
@@ -124,12 +125,12 @@ package final class MarkupAtom: NSObject {
     /// `backgroundColor`, else its kind's `color` and `background-color`;
     /// nil where neither says.
     package let ink: [Double]?, background: [Double]?
-    /// The selection covers it: drawn in the selection's colour,
+    /// The selection covers it: drawn in the selection's colour (D4),
     /// emphasized or not.
     package let selected: Bool, emphasized: Bool
     package let dark: Bool, contrast: Bool
     /// Its face's direction, `ltr` or `rtl`, which lays out its icon and
-    /// label; empty to follow its line's.
+    /// label (D4); empty to follow its line's.
     package let direction: String
     /// Its face's `ariaLabel`; empty for its label.
     package let ariaLabel: String
@@ -162,17 +163,17 @@ package final class MarkupAtom: NSObject {
         (self.ink, self.background, self.selected, self.emphasized, self.dark, self.contrast) = (ink, background, selected, emphasized, dark, contrast)
         (self.direction, self.ariaLabel) = (direction, ariaLabel)
     }
-    /// What assistive technology reads it as: its `ariaLabel`, else its label.
+    /// What assistive technology reads it as (D8): its `ariaLabel`, else its label.
     package var spokenName: String { ariaLabel.isEmpty ? label : ariaLabel }
 }
 
 extension NSAttributedString.Key {
-    /// An inline atom's source: TextKit draws its first
+    /// An inline atom's source (LLP 1045.000 §4): TextKit draws its first
     /// code unit as the pill and the rest as nothing; the storage keeps it.
     /// Its value is the atom's `MarkupAtom`.
     package static let markupAtom = NSAttributedString.Key("ExactMarkupAtom")
-    /// Source the Markdown editor keeps out of layout: a link's `](target)`.
-    /// TextKit draws it as nothing; the storage keeps it.
+    /// Source the Markdown editor keeps out of layout: a link's `](target)`
+    /// (LLP 1045 D5). TextKit draws it as nothing; the storage keeps it.
     package static let markupHidden = NSAttributedString.Key("ExactMarkupHidden")
     /// The `[` of a link whose destination is hidden: an edit around the
     /// destination keeps it. Its value is the destination's.
@@ -181,7 +182,7 @@ extension NSAttributedString.Key {
 
 extension NSAttributedString {
     /// The text in `range` assistive technology reads: without what the
-    /// editor hides, each atom its accessible name.
+    /// editor hides, each atom its accessible name (LLP 1045.000 D8).
     package func shownText(in range: NSRange) -> String {
         let text = string as NSString
         var out = ""
@@ -226,7 +227,7 @@ package enum MarkdownLink {
 }
 
 extension NodeView {
-    /// Its inline atoms, as its props hold them, for the
+    /// Its inline atoms (LLP 1045.000), as its props hold them, for the
     /// appearance it draws in.
     package var markdownAtoms: MarkdownAtoms {
         MarkdownAtoms(kinds: props["atoms"] ?? "", faces: props["atomFaces"] ?? "", styles: props["atomStyles"] ?? "",
@@ -242,13 +243,13 @@ extension NodeView {
         restyleDecorations()
     }
     /// The field's own direction is right to left: its `direction`, else the
-    /// document's. A Markdown editor's line without a word takes it.
+    /// document's. A Markdown editor's line without a word takes it (LLP 1045 D11).
     package var markdownRTL: Bool { (style["direction"]?.string ?? presenter?.documentDirection ?? "ltr") == "rtl" }
     /// Restyle the editor when its props change what it draws but not its
     /// text, changes that come with no edit and so with no edit's restyle:
-    /// new `paragraphDirs`, or new `atoms`, `atomFaces` or
+    /// new `paragraphDirs` (LLP 1045 D11), or new `atoms`, `atomFaces` or
     /// `atomStyles`, such as a face that follows an upload while its source
-    /// stays. An unchanged prop is the very string the last
+    /// stays (LLP 1045.000 D2). An unchanged prop is the very string the last
     /// restyle kept, so comparing it returns at once.
     func restyleMarkupProps() {
         guard let editor = (textArea as? TextArea)?.markup else { return }

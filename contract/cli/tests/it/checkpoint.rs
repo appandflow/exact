@@ -1,7 +1,8 @@
-//! A rendered document's checkpoint answers are an input of
+//! LLP 1048.000 D6: a rendered document's checkpoint answers are an input of
 //! their own. The runtime takes them as answers it already has — not asked
 //! again at boot or at `data_ready`, only when their arguments or inputs
-//! change — and the device's store and clock apply as ordinary updates.
+//! change, or when their stream was open — and the device's store and clock
+//! apply as ordinary updates.
 
 use exact_kernel::{Kernel, PropId};
 use exact_runner::{
@@ -62,6 +63,15 @@ impl DataSource for Source {
             "post" => Answer::Now(post(id, &format!("{} {id}", self.wording))),
             "emptyPost" => Answer::Now(post("", "")),
             "viewer" => Answer::Now(Value::str(store.get("token").unwrap_or("anonymous"))),
+            "visit" => {
+                store.observe_entropy();
+                Answer::Now(Value::str("drawn"))
+            }
+            "greet" => Answer::Now(Value::str(&format!(
+                "{} {}",
+                id,
+                args[1].as_str().unwrap_or("")
+            ))),
             other => return Err(DataError::UnknownSource(other.into())),
         })
     }
@@ -206,6 +216,50 @@ fn a_checkpoint_answer_is_not_asked_again_at_boot_or_at_data_ready() {
 }
 
 #[test]
+fn an_open_streams_answer_shows_until_it_is_asked_again() {
+    let plan = contract::compile(SRC).unwrap();
+    let checkpoint = Checkpoint {
+        open: vec![0], // `post`'s answer
+        ..rendered(&plan, "Rendered")
+    };
+    // Before the source is ready: asked at `data_ready`, and nothing else is.
+    let source = Source {
+        wording: "Asked",
+        ..Source::default()
+    };
+    source.not_ready.set(true);
+    let mut r = boot(&plan, source.clone(), &checkpoint, &[]).unwrap();
+    assert!(
+        source.asks.borrow().is_empty(),
+        "{:?}",
+        source.asks.borrow()
+    );
+    assert_eq!(text_of(&r, "title"), "Rendered 7");
+    source.not_ready.set(false);
+    r.data_ready().unwrap();
+    assert_eq!(*source.asks.borrow(), ["post"]);
+    assert_eq!(text_of(&r, "title"), "Asked 7");
+
+    // A ready source is asked at boot, showing the rendered answer until it answers.
+    let source = Source {
+        later: true,
+        ..Source::default()
+    };
+    let mut r = boot(&plan, source.clone(), &checkpoint, &[]).unwrap();
+    assert_eq!(*source.asks.borrow(), ["post"]);
+    assert_eq!(text_of(&r, "title"), "Rendered 7");
+    let requests = r.take_requests();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    let reply = Outcome::Response(exact_runner::Response {
+        status: 200,
+        headers: vec![],
+        body: b"{}".to_vec(),
+    });
+    r.fulfill(requests[0].ticket, reply).unwrap();
+    assert_eq!(text_of(&r, "title"), "Fresh 7");
+}
+
+#[test]
 fn other_logic_or_an_answer_that_no_longer_fits_is_asked_again() {
     let plan = contract::compile(SRC).unwrap();
     let mut checkpoint = rendered(&plan, "Rendered");
@@ -248,6 +302,14 @@ fn the_devices_store_applies_to_what_reads_it() {
     let r = boot(&plan, source.clone(), &checkpoint, &[]).unwrap();
     assert_eq!(text_of(&r, "viewer"), "anonymous");
     assert!(source.asks.borrow().is_empty());
+    // Nor once the module loads after the boot: the page answered the reader.
+    let source = Source::default();
+    source.not_ready.set(true);
+    let mut r = boot(&plan, source.clone(), &checkpoint, &[]).unwrap();
+    source.not_ready.set(false);
+    r.data_ready().unwrap();
+    assert_eq!(text_of(&r, "viewer"), "anonymous");
+    assert!(source.asks.borrow().is_empty());
     // A signed-in device asks the reader again, at boot when it can.
     let source = Source::default();
     let r = boot(&plan, source.clone(), &checkpoint, &[("token", "ada")]).unwrap();
@@ -261,6 +323,90 @@ fn the_devices_store_applies_to_what_reads_it() {
     assert_eq!(text_of(&r, "title"), "Built 7");
     source.not_ready.set(false);
     r.data_ready().unwrap();
+    assert_eq!(text_of(&r, "viewer"), "ada");
+    assert_eq!(*source.asks.borrow(), ["viewer"]);
+}
+
+/// An answer that only drew randomness read nothing the device's store holds
+/// (LLP 1069.005 D2), though the bake marks its row `reader`: the page does
+/// not list it in `readers`, and a device that boots from the page asks it
+/// neither at boot nor at a later sign-in.
+#[test]
+fn an_answer_that_only_drew_is_asked_again_by_no_store_change() {
+    let src = SRC.replace(
+        "  action next",
+        "  resource visit = visit() as shape string\n  action next",
+    );
+    let built = Source {
+        wording: "Built",
+        ..Source::default()
+    };
+    let plan = contract::bake(contract::compile(&src).unwrap(), built).unwrap();
+    let checkpoint = rendered(&plan, "Rendered");
+    assert_eq!(checkpoint.answers[2].0, "visit");
+    assert_eq!(checkpoint.readers, [1], "`viewer`'s answer, not `visit`'s");
+    let source = Source::default();
+    let _r = boot(&plan, source.clone(), &checkpoint, &[("token", "ada")]).unwrap();
+    assert_eq!(*source.asks.borrow(), ["viewer"]);
+    let source = Source::default();
+    let mut r = boot(&plan, source.clone(), &checkpoint, &[]).unwrap();
+    r.store_changed(vec![("token".into(), b"ada".to_vec())])
+        .unwrap();
+    assert_eq!(*source.asks.borrow(), ["viewer"]);
+}
+
+/// So is a list element whose arguments read only such an answer: it is a
+/// store reader's that read nothing the store holds.
+#[test]
+fn an_element_whose_arguments_only_drew_is_asked_again_by_no_store_change() {
+    let src = r#"
+component Visits
+  state names: string[] = ["a", "b"]
+  resource visit = visit() as shape string
+  resource greets = greet(visit, n) for n in names as shape string
+  derive shown = greets.join(",")
+  view
+    text shown testId="shown"
+"#;
+    let built = Source {
+        wording: "Built",
+        ..Source::default()
+    };
+    let plan = contract::bake(contract::compile(src).unwrap(), built).unwrap();
+    let checkpoint = rendered(&plan, "Rendered");
+    assert_eq!(checkpoint.answers.len(), 3);
+    assert!(checkpoint.readers.is_empty());
+    let source = Source::default();
+    let mut r = boot(&plan, source.clone(), &checkpoint, &[]).unwrap();
+    assert_eq!(text_of(&r, "shown"), "drawn a,drawn b");
+    r.store_changed(vec![("token".into(), b"ada".to_vec())])
+        .unwrap();
+    assert!(
+        source.asks.borrow().is_empty(),
+        "{:?}",
+        source.asks.borrow()
+    );
+}
+
+/// An answer that read the store is a store reader's, as the page says: the
+/// plan is not baked here, so no row is marked `reader`.
+#[test]
+fn an_answer_that_read_the_store_is_a_store_readers() {
+    let plan = contract::compile(SRC).unwrap();
+    let checkpoint = rendered(&plan, "Rendered");
+    assert_eq!(checkpoint.readers, [1], "`viewer`'s answer");
+    // A signed-in device asks it again at boot
+    let source = Source::default();
+    let r = boot(&plan, source.clone(), &checkpoint, &[("token", "ada")]).unwrap();
+    assert_eq!(text_of(&r, "viewer"), "ada");
+    assert_eq!(*source.asks.borrow(), ["viewer"]);
+    // A first visit asks nothing, and a later sign-in asks it again
+    let source = Source::default();
+    let mut r = boot(&plan, source.clone(), &checkpoint, &[]).unwrap();
+    assert_eq!(text_of(&r, "viewer"), "anonymous");
+    assert!(source.asks.borrow().is_empty());
+    r.store_changed(vec![("token".into(), b"ada".to_vec())])
+        .unwrap();
     assert_eq!(text_of(&r, "viewer"), "ada");
     assert_eq!(*source.asks.borrow(), ["viewer"]);
 }

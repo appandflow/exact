@@ -1,4 +1,4 @@
-//! The motion gallery's data source: none. Every fixture is
+//! The motion gallery's data source (LLP 1011.000, LLP 1055 D7): none. Every fixture is
 //! literal Contract, so each host draws exactly the same pictures and Chrome
 //! is the reference.
 

@@ -3,7 +3,7 @@
 //! calculated from span sizes, not measured GPU traffic. An empty submission and
 //! device wait drain writes outside the timed region. This does not encode or draw
 //! a frame, measure GPU passes, shadows or allocations, compare static/far/offscreen
-//! populations, or qualify mobile performance.
+//! populations, or qualify mobile performance under LLP 1046.013 Proof 3.
 use exact_game::*;
 use exact_game_render::{Feed, Renderer};
 use exact_gpu::{fixture, wgpu};

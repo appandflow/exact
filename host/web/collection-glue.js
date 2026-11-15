@@ -1,18 +1,18 @@
-// Virtualized collections' DOM controller, the list
-// engine's browser half: an after-paint piece, fetched when a batch first
-// commits a collection; navigation.js stands in until then.
-// `fill`: `velocity` in CSS px/s toward the end, and
+// Virtualized collections' DOM controller (@ref LLP 1010 §6), the list
+// engine's browser half: an after-paint piece, activated when a batch first
+// commits a collection (LLP 1047 D5); navigation.js stands in until then.
+// `fill` (LLP 1050.000 §6): `velocity` in CSS px/s toward the end, and
 // `limit`, the rows past what the report owes it may build (null: any);
-// `ancestorMoving`, an enclosing list is moving; `scrolling`, the reader's scroll is under way, and
-// `gesture`, one began since the list's `scrollIntoView`; `animating`, a smooth correction
-// runs. Wire v4:
+// `ancestorMoving`, an enclosing list is moving (LLP 1070 F2); `scrolling`, the reader's scroll is under way, and
+// `gesture`, one began since the list's `scrollIntoView` (LLP 1070.000 §2.6); `animating`, a smooth correction
+// runs (§11). Wire v4:
 // offset, port, padding and row sizes on the list's main and cross axes.
 export function collectionBytes(facts, fill = {}) {
   const valid = n => Number.isFinite(n) && n >= 0 && n <= 3.4028234663852886e38;
   const id = n => Number.isInteger(n) && n > 0 && n <= 0xffffffff;
   const u64 = n => { if (typeof n === 'number' && !Number.isSafeInteger(n)) throw Error('unsafe collection identity'); const v = BigInt(n); if (v < 0n || v > 0xffffffffffffffffn) throw Error('invalid collection identity'); return v; };
   const rows = facts.measurements, seen = new Set();
-  // The offset counts from the first row: negative in the padding before it.
+  // The offset counts from the first row: negative in the padding before it (LLP 1010 §6.9).
   if (!id(facts.view) || !(Number.isFinite(facts.offset) && Math.abs(facts.offset) <= 3.4028234663852886e38)
       || ![facts.port_main, facts.port_cross, facts.cross, facts.padding?.[0], facts.padding?.[1]].every(valid)
       || [facts.focus_view, facts.interaction_view].some(n => n != null && !id(n))) throw Error('invalid collection geometry');
@@ -22,25 +22,28 @@ export function collectionBytes(facts, fill = {}) {
   }
   const velocity = Number.isFinite(fill.velocity) ? fill.velocity : 0;
   const limit = Number.isInteger(fill.limit) && fill.limit >= 0 ? Math.min(fill.limit, 0xfffffffe) : 0xffffffff;
-  const bytes = new Uint8Array(100 + rows.length * 20), d = new DataView(bytes.buffer);
+  const viewOffset = fill.viewOffset;
+  if (viewOffset != null && !(Number.isFinite(viewOffset) && Math.abs(viewOffset) <= 3.4028234663852886e38)) throw Error("invalid collection view offset");
+  const bytes = new Uint8Array(100 + rows.length * 20 + (viewOffset == null ? 0 : 8)), d = new DataView(bytes.buffer);
   d.setUint32(0, 4, true); d.setUint32(4, facts.view, true);
   d.setBigUint64(8, u64(facts.revision), true); d.setBigUint64(16, u64(facts.scroll_sequence), true);
   [facts.offset, facts.port_main, facts.port_cross, facts.cross, facts.padding[0], facts.padding[1]].forEach((n, i) => d.setFloat64(24 + i * 8, n, true));
   d.setUint32(72, facts.focus_view ?? 0, true); d.setUint32(76, facts.interaction_view ?? 0, true);
   d.setFloat64(80, velocity, true); d.setUint32(88, limit, true);
-  d.setUint32(92, (fill.ancestorMoving ? 1 : 0) | (fill.scrolling ? 32 : 0) | (fill.gesture ? 64 : 0) | (fill.animating ? 128 : 0), true); d.setUint32(96, rows.length, true);
+  d.setUint32(92, (fill.ancestorMoving ? 1 : 0) | (fill.scrolling ? 32 : 0) | (fill.gesture ? 64 : 0) | (fill.animating ? 128 : 0) | (viewOffset == null ? 0 : 256), true); d.setUint32(96, rows.length, true);
   rows.forEach((row, i) => {
     d.setUint32(100 + i * 20, row.view, true); d.setBigUint64(104 + i * 20, u64(row.epoch), true);
     d.setFloat64(112 + i * 20, row.size, true);
   });
+  if (viewOffset != null) d.setFloat64(100 + rows.length * 20, viewOffset, true);
   return bytes;
 }
 
 // The reader's motion is taken to have ended QUIET after its last `scroll` event when no `scrollend` came first: a
 // browser without one, an end the glue's own write took, a pause in a drag. Above the longest gaps measured between
-// `scroll` events.
+// `scroll` events (LLP 1070.000 §2.6).
 const QUIET = 300;
-// A list's main axis: `y` for a block list, `x` for a flex row.
+// A list's main axis (LLP 1070 H1): `y` for a block list, `x` for a flex row.
 // Every main-axis read and write goes through one of these.
 const AXES = {
   y: { offset: 'scrollTop', client: 'clientHeight', crossClient: 'clientWidth', scrollSize: 'scrollHeight', overflow: 'overflowY',
@@ -62,20 +65,20 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
   const states = new Map(), dirty = new Set(), waiting = new Set(), rowOwners = new WeakMap(), doc = root.ownerDocument;
   let scrollsFired = 0; // scroll events the lists' ports have delivered (fireOwedScrolls)
   let early = { frame: undefined, left: 0, lists: new Map() }, settling = false, frame = null, delivering = false, interaction = null, reportsLeft = 4, notification=false, reported = 0;
-  // The browser scrolls on its own thread and never
+  // LLP 1050.000 stage 1. The browser scrolls on its own thread and never
   // waits for rows (the declared deviation), so each frame's reports share a
   // slice of time: every row a report owes (what shows, the pins), then as
   // many more as the measured per-row cost fits, or the next two frames of
   // travel uncover. A report's reply that leaves rows unbuilt (`pending`)
-  // continues in the next frame. Authored jumps build first, then move.
+  // continues in the next frame. Authored jumps build first, then move (§6).
   let interval = 1000 / 60, lastFrame = null, deadline = 0, frames = 0; // `frames`: the frames flushed so far
   const jumps = [];
   let lastSnapshots = []; // the last commit's, for a list whose port a report finds moved
   const slice = () => Math.min(4, Math.max(1, interval * 0.24));
-  // A `scrollIntoView` under way: the port's moves are
+  // A `scrollIntoView` under way (LLP 1070.000 §2.5): the port's moves are
   // its own and the browser's clamps, never travel, until the reader's input.
   const authored = s => s.seeking && !s.input;
-  // The reader's activity on each scrollport, shared by the lists in it: motion the reader started,
+  // The reader's activity on each scrollport (LLP 1070.000 §2.6), shared by the lists in it: motion the reader started,
   // and whether the glue's own write owns the next `scrollend`. A list's request waits while that motion is under way.
   const ports = new Map();
   function activity(s) {
@@ -134,7 +137,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     a.moving = true;
     clearTimer(a.quiet); a.quiet = setTimer(() => ended(a), QUIET);
     // A request that has moved the port is the reader's once the reader moves it, whatever the input: its
-    // corrections no longer land whatever the port did, and the next report ends it
+    // corrections no longer land whatever the port did, and the next report ends it (LLP 1070.000 §2.5)
     for (const s of a.lists) if (authored(s)) s.input = true;
   }
   // Motion over: the next reports say it ended.
@@ -142,7 +145,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     if (!a.moving) return;
     a.moving = false; clearTimer(a.quiet); tell(a);
   }
-  // Nor while a smooth correction animates.
+  // Nor while a smooth correction animates (LLP 1070.000 §11).
   const velocity = s => !authored(s) && s.animating == null && s.travel && now() - s.travel.time < 150 ? s.travel.velocity : 0;
   function sample(s) {
     const A = AXES[s.axis], time = now(), at = s.offset, t = s.travel;
@@ -203,7 +206,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     : { start: port.getBoundingClientRect()[A.start] + port[A.clientStart], main: port[A.client], cross: port[A.crossClient] };
   // `raw`: the port's start edge from the list's content origin; `cross`: the
   // rows' available cross size, after the list's cross-axis padding;
-  // `padding`: the padding before the rows and after them.
+  // `padding`: the padding before the rows and after them (LLP 1010 §6.9).
   function geometry(s) {
     if (!s.el.isConnected || !s.el.getClientRects().length) return null;
     const A = AXES[s.axis], css = getComputedStyle(s.el), port = viewport(s.port, A), leading = number(css[A.padStart]);
@@ -255,7 +258,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     s.exact = !smooth && at >= 0 && at <= max && Math.abs(at - read) < 1 ? { at, read } : null;
     echo(s);
   }
-  // A smooth correction is the browser's smooth scroll
+  // A smooth correction (LLP 1070.000 §6.2) is the browser's smooth scroll
   // to `s.animating`. While it runs the sequence stays, nothing is sampled
   // as travel, and reports say where it is headed (`s.owed ?? s.animating`).
   // A target that arrives meanwhile is held in `s.owed` and taken when it
@@ -300,8 +303,8 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     if (s.animating != null) { s.offset = at; s.animationMoved = true; return false; }
     // The browser clamping the port to an extent a row laid out smaller than
     // its estimate shortened: not a scroll. The runner's coordinates are the
-    // painted frame's, where the port was still where it was.
-    // (Read only on a move backward: the extent and client sizes force layout in the handler.)
+    // painted frame's, where the port was still where it was (LLP 1070.000).
+    // (Read only on a move backward: the extent and client sizes force layout in the handler, LLP 1071.001 A2.)
     if (at < s.offset) {
       const max = s.port[A.scrollSize] - s.port[A.client];
       if (s.offset > max && Math.abs(at - max) <= 1) {
@@ -341,7 +344,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       // A list whose animation stopped this frame reports from the next, where the browser stopped it; a jump's own
       // write replaces that position
       if (s.stoppedIn === frames && s.jump == null) { dirty.add(s); continue; }
-      // The port is found again here, where layout is read anyway, not in the commit: one that
+      // The port is found again here, where layout is read anyway, not in the commit (LLP 1071.001 A3): one that
       // moved (an ancestor's overflow changed) starts the list over, as the commit did.
       if (s.valid && s.el.isConnected && portOf(s.el, s.axis) !== s.port) { detach(s); api.commit(lastSnapshots); continue; }
       const next = desired(s), old = s.lastFacts;
@@ -353,16 +356,23 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       let measurements = [];
       const measuredSizes = new Map(), rects = [], jump = s.jump;
       const A = AXES[s.axis];
-      // A row's size is its last measurement or observer notification, read again when a commit
+      // A row's size is its last measurement or observer notification (LLP 1071.001 A1), read again when a commit
       // wrote inside the row since (`written`) or the rows' cross size changed; its position, for the fill's reach, is
       // the index's. A row never notified, or notified at no size (unrendered, or empty), is read here.
       const reflowed = g && s.dimensions !== null && dimensionsOf(g) !== s.dimensions, mainOf = o => +o.split(',')[A.size === 'height' ? 1 : 0];
       const known = row => { const o = reflowed || s.written.has(row.el) ? null : s.observed.get(row.el); return o && mainOf(o) > 0 ? o : null; };
+      // A wrapper hidden with its root, as a list with a gap hides one (sizing.rs `sync_undisplayed`), is a row of no
+      // extent, not one unrendered: it has no rects, and the rest of the window is measured without it.
+      const none = new Set(!g ? [] : s.rows.filter(row => {
+        const top = views.get(row.root);
+        return !!row.el?.isConnected && !!top && row.el.contains(top) && getComputedStyle(row.el).display === 'none' && getComputedStyle(top).display === 'none';
+      }));
       const visible = g && g.portMain > 0 && g.cross > 0
-        && s.rows.every(row => row.el.isConnected && (known(row) || row.el.getClientRects().length));
+        && s.rows.every(row => row.el.isConnected && (none.has(row) || known(row) || row.el.getClientRects().length));
       if (visible) {
         const origin = g.portStart - g.raw;
         measurements = s.rows.map(row => {
+          if (none.has(row)) { const start = origin + row.start; rects.push({ [A.start]: start, [A.end]: start }); return { view: row.view, epoch: row.epoch, size: 0 }; }
           const o = known(row);
           if (o) { const size = mainOf(o), start = origin + row.start; rects.push({ [A.start]: start, [A.end]: start + size }); measuredSizes.set(row.el, o); return { view: row.view, epoch: row.epoch, size }; }
           const rect = row.el.getBoundingClientRect();
@@ -375,6 +385,8 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         g = { raw: old.offset, portCross: old.port_cross, portMain: old.port_main, cross: old.cross, padding: old.padding };
       } else continue;
       readScroll(s);
+      // The window may report a destination while first reveal follows the actual port.
+      const viewOffset = visible ? Math.max(-g.padding[0], g.raw) : s.viewOffset;
       // The jump's target, clamped as the browser will: reported before it
       // is assigned, so its rows exist before any frame shows it.
       if (jump != null) {
@@ -389,7 +401,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         padding: g.padding, focus_view: pins[0], interaction_view: pins[1], measurements };
       // What the report says of the reader: motion under way, and a gesture since the request
       const reader = s.activity.moving, gesture = s.request != null && !!s.input;
-      const signature = [facts.offset, facts.scroll_sequence, dimensions, ...g.padding, ...pins, reader, gesture, s.animating != null,
+      const signature = [viewOffset, facts.offset, facts.scroll_sequence, dimensions, ...g.padding, ...pins, reader, gesture, s.animating != null,
         ...measurements.flatMap(r => [r.view, r.epoch, r.size])].join('|');
       for (const [el, value] of measuredSizes) if (s.observed.has(el)) s.observed.set(el, value);
       if (s.signature === signature && jump == null && !s.snapshot.pending) continue;
@@ -397,12 +409,12 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       // not depend on the wall clock (a frame's time slice, a velocity), or
       // which rows a list has measured, and so where it stands, would vary.
       const v = jump == null && !settling && !agent ? velocity(s) : 0;
-      // While its outer list moves, an inner list builds only what it owes;
-      // its pending reply continues the fill at rest.
+      // While its outer list moves, an inner list builds only what it owes
+      // (LLP 1070 F2); its pending reply continues the fill at rest.
       const outer = s.snapshot.parent == null ? null : states.get(s.snapshot.parent);
       // The agent's settle ends motion and builds all a report owes at once,
       // as the native pumps do.
-      const fill = { velocity: v, scrolling: reader, gesture, animating: s.animating != null, ancestorMoving: !settling && !agent && !!outer && velocity(outer) !== 0, limit: settling || agent ? null : jump != null ? 2
+      const fill = { viewOffset, velocity: v, scrolling: reader, gesture, animating: s.animating != null, ancestorMoving: !settling && !agent && !!outer && velocity(outer) !== 0, limit: settling || agent ? null : jump != null ? 2
         : Math.max(1, fits(s, deadline - now()), rowsToCover(s, rects, g, v * interval * 2 / 1000)) };
       let bytes;
       try { bytes = collectionBytes(facts, fill); } catch { continue; }
@@ -421,6 +433,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       // An anchor correction in the reply already moved the port there.
       if (jump != null) { s.jump = null; if (s.offset === at) move(s, jump); }
       if (accepted) {
+        s.viewOffset = viewOffset;
         s.reportedMoving = reader;
         s.signature = signature; s.lastFacts = facts;
         if (s.clamp === clamp) s.clamp = null; // reported; one in its own commit is the next report's
@@ -446,7 +459,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     if (s.jump != null) { s.jump = null; move(s, at); scrollChanged(s); enqueue(s, true); }
   }
   function detach(s) {
-    // Its request's animation goes with it, stopped where the port is
+    // Its request's animation goes with it, stopped where the port is (LLP 1070.000 §2.5)
     stopAnimation(s);
     dirty.delete(s); waiting.delete(s); s.observer.disconnect(); s.mutations.disconnect();
     for (const row of s.rows) if (row.el) rowOwners.delete(row.el);
@@ -481,7 +494,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
   }
   function focusChanged() { for (const s of states.values()) enqueue(s, true); }
   // The reader's own hand, a `pointerdown` the window captures: a gesture that cancels the request under way and stops
-  // its animation on each list it reaches, in every port it lands in (an inner list's port is
+  // its animation (LLP 1070.000 §2.5) on each list it reaches, in every port it lands in (an inner list's port is
   // inside its outer list's). A finger anywhere on the port can move it; a press counts in the list or on the port's
   // own box (its scrollbar), as a port can hold more than its list. It counts against the request under way when it
   // began, not one a handler made in answer to it: the event's time against the request's, both on the page's clock,
@@ -585,7 +598,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         const axis = snapshot.axis === 'x' ? 'x' : 'y';
         let s = states.get(snapshot.view);
         // A known list keeps its port: finding it again walks computed styles inside the commit, where every read
-        // forces a style pass; the next report checks it.
+        // forces a style pass; the next report checks it (LLP 1071.001 A3).
         const port = s && s.el === el && s.axis === axis ? s.port : portOf(el, axis);
         if (s && (s.el !== el || s.port !== port || s.axis !== axis)) { detach(s); s = null; }
         if (s && BigInt(snapshot.revision) < BigInt(s.snapshot.revision)) continue;
@@ -597,7 +610,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
             dimensions: null, signature: null, lastFacts: null, corrected: null, anchor: el.style.overflowAnchor, requestAt: -Infinity };
           // A smooth correction's ticks are never sampled as travel.
           s.activity = activity(s);
-          s.scrolled = () => { const own = hostMoves(s), changed = readScroll(s); if (!own) sample(s); if (changed) enqueue(s, true); };
+          s.scrolled = () => { const own = hostMoves(s), changed = readScroll(s); if (!own) sample(s); if (changed || s.animating != null) enqueue(s, true); };
           s.observer = new ResizeObserver(entries => {
             let changed = false, resizedPort = false, pending = false;
             for (const { target } of entries) {
@@ -644,7 +657,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         el.style.overflowAnchor = 'none';
         readScroll(s); // catches new user scroll before its scroll event runs
         // A gesture counts against the request it began after: a new one starts with none. A request that ends or is
-        // replaced takes its animation with it, stopped where it is, as CSSOM View's next scroll
+        // replaced takes its animation with it, stopped where it is (LLP 1070.000 §2.5), as CSSOM View's next scroll
         // aborts a smooth one; a newer request is admitted from the report that follows.
         if (snapshot.request !== s.request) { s.input = false; stopAnimation(s); s.requestAt = performance.now(); }
         s.request = snapshot.request; s.seeking = snapshot.seeking === true;
@@ -656,7 +669,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         // correction owes only what it adds.
         // Not one from before an authored jump or a resize (`jumpedAt`); a
         // port this commit resizes is not the reader moving, so it still
-        // lands (posts put above the reader as a pull-to-refresh
+        // lands (feed F14: posts put above the reader as a pull-to-refresh
         // zone closes).
         if (correction && Number.isFinite(correction.from) && s.corrected !== snapshot.revision
             && BigInt(correction.scrollSequence) >= (s.jumpedAt ?? 0n)) {
@@ -695,7 +708,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         // A correction planned at the port's current sequence lands though this commit resized the port (not reported
         // yet, so the sequence has not moved past it): that is not the reader moving, and the browser clamps it to the
         // new port, as on Apple and Linux (a sent message's end-follow as the composer shrinks back). A
-        // request's correction is authored and lands whatever the port did since: the browser's
+        // request's correction is authored and lands whatever the port did since (LLP 1070.000 §2.6): the browser's
         // clamps and scroll anchoring since the runner's last report don't void it.
         if (correction && s.corrected !== snapshot.revision
             && (BigInt(correction.scrollSequence) === s.sequence || authored(s))
@@ -716,7 +729,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
               place(s, to, false);
               s.offset = port[name]; // consume the programmatic scroll echo
             }
-            s.travel = null; // a correction is not the reader's travel
+            s.travel = null; // a correction is not the reader's travel (LLP 1070.000 §2.5)
           }
         }
         observe(s);
@@ -749,7 +762,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     },
     // After a commit that changed no snapshot: a list whose padding changed
     // and nothing the browser observes (a border-box list keeps its size)
-    // reports it, so the runner's end follows.
+    // reports it, so the runner's end follows (LLP 1010 §6.9).
     restyled() {
       for (const s of states.values()) {
         const f = s.lastFacts, A = AXES[s.axis];
@@ -761,14 +774,14 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     },
     // An authored offset on a collection (glue.js): on the list's own axis
     // (`scrollTop` for y, `scrollLeft` for x) its rows are built at the
-    // target, then the port moves, in this task; the other
+    // target, then the port moves, in this task (LLP 1050.000 §6); the other
     // axis is a plain assignment.
     jump(view, at, name = 'scrollTop') {
       const s = states.get(view);
       if (s && s.port === s.el && AXES[s.axis].offset === name) jumpTo(s, at);
       else { const el = views.get(view); if (el) el[name] = at; }
     },
-    // The agent's `clock settle`: report every list until a
+    // The agent's `clock settle` (LLP 1070 G3): report every list until a
     // round sends nothing, reading layout now rather than waiting for the
     // frames a real page would have run, so what shows is built and
     // measured when the agent reads it. Bounded, like the native pumps'.

@@ -1,10 +1,12 @@
-//! What this archive links beyond the core.
+//! What this archive links beyond the core (LLP 1047.001 D2, D5).
 //!
-//! An app archive is one composition (an embedder links one), so the set is the
-//! process's: the generated entry names it before the first runtime exists, and
-//! every boot — the first, a reload, a delivered candidate — admits its
-//! plan against it after decoding. A plan that uses what the set lacks is
-//! refused before anything changes.
+//! @ref LLP 1047 D6 (a host refuses a plan that uses what it doesn't link)
+//! @ref LLP 1047.001 D2 (one composition per app), D5 (refused before anything changes)
+//!
+//! An app archive is one composition (LLP 1031: an embedder links one), so
+//! the set is the process's: the generated entry names it before the first
+//! runtime exists, and every boot — the first, a reload, a delivered
+//! candidate — admits its plan against it after decoding.
 
 pub use exact_runner::{Capability, Uses};
 use exact_runner::{DataSource, DeviceLinks, RunnerLinks};
@@ -35,8 +37,8 @@ pub fn linked() -> Uses {
     LINKED.get().copied().unwrap_or(ALL)
 }
 
-/// The kernel's style grammars a native host links by use:
-/// each `Some` is registered at boot.
+/// The kernel's style grammars a native host links by use (LLP 1047.001
+/// D3): each `Some` is registered at boot.
 #[derive(Clone, Copy)]
 pub struct Grammars {
     backdrop: Option<fn()>,
@@ -89,11 +91,13 @@ impl Grammars {
     }
 }
 
-/// The host's I/O: the app's bindings and the stores they
+/// The host's I/O (LLP 1047.001): the app's bindings and the stores they
 /// keep, and the executor that runs a source's requests over them. Linked
 /// when the plan keeps answers or the app's grants name I/O.
 #[derive(Clone, Copy)]
 pub struct IoLinks {
+    /// The process-start work, independent of any session.
+    pub preloads: fn() -> Option<Box<dyn crate::launch_preloads::LaunchWork>>,
     /// Bind the app's grants: [`crate::store::endowed`].
     pub endow: fn(&str, &str, bool) -> crate::store::Endowed,
     /// Read the stores only on an explicitly requested refresh.
@@ -116,13 +120,14 @@ pub type StartIo = fn(
 impl IoLinks {
     /// The platform's.
     pub const LINKED: IoLinks = IoLinks {
-        endow: crate::store::endowed,
+        preloads: crate::launch_preloads::linked,
+        endow: crate::store::endowed::<true>,
         snapshot: crate::store::snapshot_for,
         start: crate::executor::start_io,
     };
 }
 
-/// What a boot links: the runner's capabilities, its
+/// What a boot links (LLP 1047.001 D3): the runner's capabilities, its
 /// device capabilities, the kernel's grammars and the host's I/O. An entry makes it in a
 /// `const` from its set (`host!`), so the linker sees only what it names;
 /// the public boots, which tests and tools use, link everything.
@@ -240,7 +245,14 @@ impl<D: DataSource> Links<D> {
             activities: false,
             grammars: Grammars::of(uses),
             io: if uses.has(Capability::Io) {
-                Some(IoLinks::LINKED)
+                Some(IoLinks {
+                    endow: if uses.has(Capability::Presence) {
+                        crate::store::endowed::<true>
+                    } else {
+                        crate::store::endowed::<false>
+                    },
+                    ..IoLinks::LINKED
+                })
             } else {
                 None
             },
@@ -276,7 +288,32 @@ mod tests {
         assert!(Capability::ALL.iter().all(|c| ALL.has(*c)));
     }
 
-    /// A plan that uses what the archive doesn't link is named and
+    #[test]
+    fn io_links_the_presence_vault_only_when_selected() {
+        struct Empty;
+        impl DataSource for Empty {
+            fn query(
+                &mut self,
+                _: &str,
+                _: &[exact_plan::Value],
+            ) -> Result<exact_plan::Value, exact_runner::DataError> {
+                unreachable!()
+            }
+        }
+
+        let grants = "secret.keep token user-presence optional";
+        let memory = std::sync::Arc::new(ibex2::secrets::MemoryStore::new());
+        crate::store::PLATFORM.with(|p| *p.borrow_mut() = Some(memory));
+        for linked in [Uses::NONE.with(Capability::Io), ALL] {
+            let io = Links::<Empty>::of(linked).io.unwrap();
+            let endowed = (io.endow)(grants, "com.example.link.presence", false);
+            assert!(endowed.unbound.is_none(), "{:?}", endowed.unbound);
+            assert_eq!(endowed.presence.is_some(), linked.has(Capability::Presence));
+        }
+        crate::store::PLATFORM.with(|p| *p.borrow_mut() = None);
+    }
+
+    /// D5: a plan that uses what the archive doesn't link is named and
     /// refused; one within it is admitted.
     #[test]
     fn a_plan_beyond_the_linked_set_names_what_is_missing() {

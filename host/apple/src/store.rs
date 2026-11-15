@@ -1,11 +1,11 @@
-//! The app's kept secrets on Apple platforms: `ibex2::host`'s
-//! `Secrets` — the Keychain — read into a snapshot before the
+//! The app's kept secrets on Apple platforms (LLP 1018 D6): `ibex2::host`'s
+//! `Secrets` — the Keychain (ibex LLP 0069) — read into a snapshot before the
 //! runner boots and written after each commit, on the main thread, never
-//! through Swift. The runner's kept answers go through
+//! through Swift. The runner's kept answers (LLP 1027 D4) go through
 //! `ibex2`'s kv store, a file per answer, written on a thread of their own
 //! (`flush_kept`).
 //!
-//! Agent mode (`EXACT_AGENT=1`) gets memory stores unless
+//! Agent mode (`EXACT_AGENT=1`, LLP 1012) gets memory stores unless
 //! `EXACT_STORE=real` says otherwise: a scripted drive starts from nothing
 //! and leaves nothing in a developer's keychain. A drive that names a scratch
 //! store (`EXACT_AGENT_STORAGE`) keeps secrets in that tree instead, so a
@@ -18,18 +18,21 @@ use ibex2::boundary::HostError;
 use ibex2::host::{Bindings, Host, Kv, Secrets};
 #[path = "store_secrets.rs"]
 mod shared_secrets;
+pub(crate) use shared_secrets::{launch_backend, launch_secrets};
+#[cfg(test)]
+pub(crate) use shared_secrets::{launch_backend_in, read_launch_secrets};
 use shared_secrets::{secret_directory, secret_namespace, SecretBackend};
 
-/// The kv scope the runner's kept answers live in: beside the
+/// The kv scope the runner's kept answers live in (LLP 1027 D4): beside the
 /// Keychain, not in it — a cache of settled data, any resource's name a
 /// key, read in one listing at launch.
 pub(crate) const KEPT: &str = "exact.kept";
 
 /// The kv scope persisted states live in where they are not the app's
-/// `UserDefaults` ([`Prefs`]).
+/// `UserDefaults` (LLP 1116 D5, [`Prefs`]).
 const STATE: &str = "exact.state";
 
-/// Where persisted states live: the app's `UserDefaults`
+/// Where persisted states live (LLP 1116 D5): the app's `UserDefaults`
 /// domain, or — in agent mode (a nameless drive's memory, a named drive's
 /// scratch tree), a test, an app with no id — the kv store beside the kept
 /// answers, under [`STATE`].
@@ -98,7 +101,7 @@ impl Prefs {
     }
 }
 
-/// The app's bindings from its grants, and the scope the
+/// The app's bindings from its grants (LLP 1016 D6), and the scope the
 /// runner keeps answers in. Grants that do not parse are the error, which
 /// the host journals; every request is then refused, naming it. An empty
 /// app id, as a test that stands a platform store in, stays in memory.
@@ -180,7 +183,7 @@ thread_local! {
     /// `endow` on the thread shares it, as launches share the Keychain, so a
     /// test reads and writes the same store the bridge does without a
     /// developer's (possibly locked) keychain. The Keychain itself is
-    /// `ibex2`'s `secrets::darwin` test.
+    /// covered by `KeychainMacTests` through the native shim and Security.
     pub(crate) static PLATFORM: std::cell::RefCell<Option<std::sync::Arc<ibex2::secrets::MemoryStore>>> =
         const { std::cell::RefCell::new(None) };
 }
@@ -213,8 +216,8 @@ fn endow_in(host: Host, grants: &str) -> Result<Bindings, String> {
     Ok(host.endow(set))
 }
 
-/// Where a commit's kept secrets and answers go: the
-/// platform's stores, behind the I/O link, so an archive that
+/// Where a commit's kept secrets and answers go (LLP 1018 D6): the
+/// platform's stores, behind the I/O link (LLP 1047.001), so an archive that
 /// links no I/O names neither them nor the Keychain and files under them.
 pub trait KeptStore {
     /// Re-read endowed stores, retaining previous values for failed reads.
@@ -347,7 +350,7 @@ impl KeptStore for Platform {
     }
 }
 
-/// The app's I/O as a boot finds it: its
+/// The app's I/O as a boot finds it (LLP 1016 D6; LLP 1018 D6): its
 /// bindings, the secrets and answers they kept, where commits keep more,
 /// and why there are none when the grants did not bind.
 pub struct Endowed {
@@ -355,11 +358,14 @@ pub struct Endowed {
     pub bindings: Option<Bindings>,
     /// What the platform's stores held, read before the runner boots.
     pub snapshot: Vec<(String, Vec<u8>)>,
+    /// The kept answers past the read budget, by name: the host names them
+    /// to the runner it boots (`Runner::forget_unread_kept`).
+    pub unread_kept: Vec<String>,
     /// Where a commit's writes go.
     pub secrets: Option<Box<dyn KeptStore>>,
     /// Why the grants bound nothing.
     pub unbound: Option<String>,
-    /// The presence backend, reconciled before boot, and
+    /// The presence backend, reconciled before boot (LLP 1133.010 D4), and
     /// the keychain service the host reads its items from (none under the
     /// agent): the host installs it in the runner it boots. Its occupancy
     /// is in the snapshot.
@@ -372,6 +378,7 @@ impl Endowed {
         Endowed {
             bindings: None,
             snapshot: Vec::new(),
+            unread_kept: Vec::new(),
             secrets: None,
             unbound: None,
             presence: None,
@@ -381,7 +388,8 @@ impl Endowed {
 
 /// [`endow_bound`] and, for a fresh session, what its stores held (a reload
 /// carries the running store): [`crate::link::IoLinks`]'s endowment.
-pub fn endowed(grants: &str, app_id: &str, fresh: bool) -> Endowed {
+/// `PRESENCE` links the vault only when the composition names it.
+pub fn endowed<const PRESENCE: bool>(grants: &str, app_id: &str, fresh: bool) -> Endowed {
     let (bindings, unbound) = endow_bound(grants, app_id, fresh);
     let prefs = Prefs::of(app_id);
     let agent = std::env::var_os("EXACT_AGENT").is_some();
@@ -389,23 +397,29 @@ pub fn endowed(grants: &str, app_id: &str, fresh: bool) -> Endowed {
     // locked items in the keychain too, behind the platform's check, which it
     // binds (`--bind local-auth`): the conformance suite's real items.
     let platform = !agent || std::env::var("EXACT_STORE").as_deref() == Ok("real");
-    let presence = match !platform {
-        true => crate::presence_secrets::agent_backend(bindings.as_ref(), grants, agent)
+    let presence = match (PRESENCE, !platform) {
+        (false, _) => None,
+        (true, true) => crate::presence_secrets::agent_backend(bindings.as_ref(), grants, agent)
             .map(|b| (b, None)),
-        false => crate::presence_secrets::keychain_backend(bindings.as_ref(), grants, app_id)
-            .map(|(b, service)| (b, Some(service))),
+        (true, false) => {
+            crate::presence_secrets::keychain_backend(bindings.as_ref(), grants, app_id)
+                .map(|(b, service)| (b, Some(service)))
+        }
     };
-    let mut snapshot = if fresh {
-        snapshot_in(bindings.as_ref(), &prefs)
-    } else {
-        Vec::new()
+    let (mut snapshot, unread_kept) = match bindings.as_ref().filter(|_| fresh) {
+        Some(b) => {
+            let read = snapshot_parts(&b.secrets, &b.kv, &prefs, Vec::new());
+            (read.values, read.omitted)
+        }
+        None => Default::default(),
     };
-    if let Some((backend, keystore)) = presence.as_ref().filter(|_| fresh) {
+    if let Some((backend, keystore)) = presence.as_ref().filter(|_| fresh && PRESENCE) {
         let capable = keystore.is_none() || crate::presence_secrets::keychain_capable();
         snapshot.extend(backend.snapshot_entries(capable));
     }
     Endowed {
         snapshot,
+        unread_kept,
         presence,
         secrets: bindings.as_ref().map(|b| {
             Box::new(
@@ -420,7 +434,7 @@ pub fn endowed(grants: &str, app_id: &str, fresh: bool) -> Endowed {
     }
 }
 
-/// Where a commit's store writes go: the app's secrets to the
+/// Where a commit's store writes go (LLP 1018 D6): the app's secrets to the
 /// platform's secret store, the runner's kept answers to its kv store.
 #[derive(Clone)]
 pub struct Platform {
@@ -430,7 +444,7 @@ pub struct Platform {
     namespace: Option<exact_data::secrets::Namespace>,
     secrets: Secrets,
     kv: Kv,
-    /// Where persisted states go.
+    /// Where persisted states go (LLP 1116 D5).
     prefs: Prefs,
     /// Kept answers the writer failed to write, for the journal.
     failed: std::sync::Arc<Failures>,
@@ -508,8 +522,12 @@ impl Platform {
                 );
                 Ok(())
             }
-            (None, Some(v)) => self.secrets.set(&w.name, &String::from_utf8_lossy(v)),
-            (None, None) => self.secrets.forget(&w.name),
+            (None, value) => crate::launch_preloads::with_secret_write(&w.name, || {
+                let text = value.as_deref().map(String::from_utf8_lossy);
+                SecretBackend(self.secrets.clone(), self.secret_directory.clone())
+                    .persist(&w.name, text.as_deref())
+                    .map_err(HostError::Failed)
+            }),
         }
     }
 
@@ -548,7 +566,7 @@ impl Drop for Failures {
     }
 }
 
-/// The runner's kept answers are a cache of settled data, and
+/// The runner's kept answers are a cache of settled data (LLP 1027 D4), and
 /// a commit wrote each one to disk before it returned: a file, a rename and
 /// a sync per answer, while the main thread waited on the commit (62 ms of
 /// a chat's opening frame on the Signal clone). One thread writes them
@@ -685,7 +703,7 @@ pub fn snapshot_of(bindings: Option<&Bindings>) -> Vec<(String, Vec<u8>)> {
     snapshot_in(bindings, &Prefs::Kv)
 }
 
-/// [`snapshot_of`], with the persisted states `prefs` holds.
+/// [`snapshot_of`], with the persisted states `prefs` holds (LLP 1116 D5).
 pub fn snapshot_in(bindings: Option<&Bindings>, prefs: &Prefs) -> Vec<(String, Vec<u8>)> {
     let Some(b) = bindings else {
         return Vec::new();
@@ -834,7 +852,7 @@ pub(crate) fn group_root(app_id: &str) -> Option<std::path::PathBuf> {
         .filter(|p| p.is_absolute())
 }
 
-/// The app is the store's one writer. Publish only a counter and a Darwin ping;
+/// Stage 1 has one writer: the app. Publish only a counter and a Darwin ping;
 /// another process re-reads the store, never a payload in the notification.
 pub(crate) fn widget_changed(app: &str) {
     if std::env::var("EXACT_WIDGET_WRITER").ok().as_deref() != Some(app) {
@@ -884,9 +902,9 @@ fn publish_widget_change(root: std::path::PathBuf, app: String) {
         let _ = std::fs::remove_file(&temporary);
         return;
     };
-    // An extension writer must put both app and extension counter increments
-    // under the shared lock; it posts this ping after releasing its store
-    // transaction lock, and reloads its written kinds itself.
+    // WP11 must put both app and extension counter increments under its shared lock.
+    // WP11's extension writer (Q1 B) posts this ping after releasing its
+    // store transaction lock, and reloads its written kinds itself.
     #[cfg(target_vendor = "apple")]
     if let Ok(name) = std::ffi::CString::new(format!("{app}.widget-store")) {
         unsafe extern "C" {

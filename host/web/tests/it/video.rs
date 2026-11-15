@@ -65,7 +65,7 @@ fn media_properties_events_and_rejections() {
     }
 }
 
-/// HTML's `<audio>`: the media node as an `audio` element,
+/// HTML's `<audio>` (LLP 1042 §8): the media node as an `audio` element,
 /// hidden without `controls` (Chrome's `display: none !important`), Chrome's
 /// 300×54 with them, and no video-only attribute.
 #[test]

@@ -1,4 +1,4 @@
-# The sparkline surface: a dylib natively, loaded on demand after the
+# The sparkline surface (LLP 1009): a dylib natively, loaded on demand after the
 # first pixel. Never linked into the app's host library.
 [package]
 name = "exact-crypto-gpu-gpu"

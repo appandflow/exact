@@ -1,4 +1,4 @@
-//! A grouped list: `list appearance="auto"`. Its children are
+//! A grouped list (LLP 1084): `list appearance="auto"`. Its children are
 //! `section`s; a section's leading `header` and trailing `footer` are its
 //! texts and everything between them its rows. Contract checks that shape
 //! and writes the list's look as a user-agent sheet: rows prepended to the
@@ -6,7 +6,7 @@
 //! them. The web, macOS and Linux draw that sheet; iOS draws the platform's
 //! own list over the same nodes (`GroupedListIOS.swift`).
 //!
-//! The sheet holds no number of a platform's look:
+//! The sheet holds no number of a platform's look (LLP 1115.002 D6, D8.4):
 //! each is a metric of the kernel's schema (`metrics`, a column a
 //! platform), named here and read by the kernel as its value on the
 //! platform the plan runs on. So one plan is UIKit's measured list where a
@@ -16,7 +16,7 @@
 //! which box is a flex row, which part grows, which row is separated.
 //!
 //! A row spans its card and is `border-box`, the platform's insets its
-//! padding, so a row as wide as its card stays inside it. The
+//! padding (LLP 1084 D7), so a row as wide as its card stays inside it. The
 //! separator under a row is no border but the platform's decoration, which
 //! the sheet asks for (`groupedRowSeparator`) and each host draws
 //! (`Kernel::grouped_separator`, the web's page sheet).
@@ -28,6 +28,7 @@ mod lines;
 mod messages;
 pub(crate) use messages::folds;
 mod native;
+pub(crate) mod shadow;
 mod title;
 mod value;
 
@@ -41,23 +42,23 @@ use crate::{err, swipe_rows, tags, LowerError};
 use contract_syntax::{Attr, Expr, Node, Span, TemplatePart};
 use exact_kernel::StyleId;
 
-/// `listStyle`'s names, UIKit's three list appearances.
+/// `listStyle`'s names (D2), UIKit's three list appearances.
 pub(crate) const STYLES: &[&str] = &["inset-grouped", "grouped", "plain"];
 
-/// The colours the sheet writes that are one role on every platform:
-/// its labels. The ones a
+/// The colours the sheet writes that are one role on every platform (LLP
+/// 1095 D2, LLP 1115 §3, LLP 1115.000 D3.1): its labels. The ones a
 /// platform chooses (the ground, a card's fill, the separator, a header's
 /// ink, a destructive row's, a symbol's and a checkmark's tint, which in
 /// UIKit's list is `AccentColor`: the nearest `accent-color` or else the
-/// platform's tint) are metrics. No row of the sheet is written,
-/// so a host that draws the platform's own list reads each as
+/// platform's tint) are metrics. No row of the sheet is written (LLP
+/// 1115.000 D2), so a host that draws the platform's own list reads each as
 /// unsaid (`kernel/src/grouped.rs`): the values have no second copy.
 const LABEL: &str = "-exact-label";
 const SECONDARY: &str = "-exact-secondary-label";
 const TERTIARY: &str = "-exact-tertiary-label";
 
-/// The sizes the sheet writes are text styles, so its text follows the
-/// root font size as a hand-built list's
+/// The sizes the sheet writes are text styles (LLP 1115 D3, LLP 1115.000
+/// D3.3), so its text follows the root font size as a hand-built list's
 /// follows the platform's body size: a row and a header at the body style
 /// (17 on iOS at the default size, 13 on the Mac, 16 on the web), a second
 /// line at the subheadline (15, 11, 14). A footer's is the platform's choice
@@ -67,7 +68,7 @@ const SUBHEADLINE: &str = "-exact-subheadline";
 
 use crate::metrics::grouped as metric;
 use actions::{action_cell, disclosure};
-use lines::{stack_lines, stack_of_lines, subtitle};
+use lines::{stack_lines, stack_of_lines};
 use title::{title_button, title_face};
 
 /// The style a grouped list's attributes ask for: `None` for any other
@@ -143,7 +144,7 @@ pub(crate) fn row_separator(attrs: &[Attr]) -> bool {
 }
 
 /// Rows and their detail accessories belong to the grouped list's press
-/// face, unless the author explicitly requests a native button.
+/// face, unless the author explicitly requests a native button (LLP 1104 D2).
 pub(crate) fn button_context(attrs: &[Attr]) -> Option<&str> {
     attrs.iter().find_map(|a| match (&*a.name, &a.value) {
         (BUTTON_CONTEXT, Expr::Str(context, _)) => Some(context.as_str()),
@@ -160,61 +161,24 @@ fn attr(name: &str, value: Expr, span: Span) -> Attr {
     }
 }
 
-/// A native button's children without the sheet a row's parts were given:
-/// they are its face, which carries no style.
+/// Remove the grouped-row sheet from a native button's face (LLP 1069.011 D5).
 pub(crate) fn unsheet(children: &[Node]) -> Option<Vec<Node>> {
-    fn strip(node: &Node) -> Node {
-        match node {
-            Node::Element {
-                tag,
-                positional,
-                attrs,
-                children,
-                span,
-                instance,
-            } => Node::Element {
-                tag: tag.clone(),
-                positional: positional.clone(),
-                attrs: attrs
-                    .iter()
-                    .filter(|a| !a.name.starts_with(MARK))
-                    .cloned()
-                    .collect(),
-                children: children.iter().map(strip).collect(),
-                span: *span,
-                instance: *instance,
-            },
-            Node::When {
-                tag,
-                cond,
-                then,
-                otherwise,
-                span,
-            } => Node::When {
-                tag: *tag,
-                cond: cond.clone(),
-                then: then.iter().map(strip).collect(),
-                otherwise: otherwise.iter().map(strip).collect(),
-                span: *span,
-            },
-            other => other.clone(),
+    fn strip(node: &mut Node) {
+        if let Node::Element { attrs, .. } = node {
+            attrs.retain(|a| !a.name.starts_with(MARK));
+        }
+        for list in node.child_lists_mut() {
+            list.iter_mut().for_each(strip);
         }
     }
-    fn marked(node: &Node) -> bool {
-        match node {
-            Node::Element {
-                attrs, children, ..
-            } => attrs.iter().any(|a| a.name.starts_with(MARK)) || children.iter().any(marked),
-            Node::When {
-                then, otherwise, ..
-            } => then.iter().chain(otherwise).any(marked),
-            _ => false,
-        }
-    }
-    children
-        .iter()
-        .any(marked)
-        .then(|| children.iter().map(strip).collect())
+    let marked = Node::walk(children).any(|node| {
+        matches!(node, Node::Element { attrs, .. } if attrs.iter().any(|a| a.name.starts_with(MARK)))
+    });
+    marked.then(|| {
+        let mut children = children.to_vec();
+        children.iter_mut().for_each(strip);
+        children
+    })
 }
 
 /// An element's sheet rows, unmarked, and its other attributes when it has
@@ -365,6 +329,7 @@ fn shown_or_hidden(value: &Expr) -> bool {
         Expr::Str(v, _) => v == "block" || v == "none",
         Expr::None(_) => true,
         Expr::Ternary(_, yes, no, _) => shown_or_hidden(yes) && shown_or_hidden(no),
+        Expr::Let { body, .. } => shown_or_hidden(body),
         _ => false,
     }
 }
@@ -427,7 +392,7 @@ fn section(
             span,
         );
     }
-    // Before the label's check: copied only when one folds.
+    // LLP 1116.017 D3, before the label's check: copied only when one folds.
     let fold = |c: &Node| {
         (is(c, "header") || is(c, "footer"))
             .then(|| messages::fold_label(c))
@@ -510,7 +475,7 @@ fn section(
             m("margin-right", "section-margin-inline", span),
         ]
     };
-    // `background-color="transparent"` on a section drops its card, as
+    // `background-color="transparent"` on a section drops its card (§6.2), as
     // Signal's profile and conversation headers sit on the list's background
     // (UIKit's clear cell background). Only that literal: a coloured card or
     // a class's background would draw differently on iOS, which keeps the
@@ -543,6 +508,15 @@ fn section(
     // is the space above and below it and whether it shows; its text styles
     // reach the rows as they do in any box.
     let classed = class(attrs)?.map(|(_, rows)| rows).unwrap_or_default();
+    let authored: Vec<_> = classed.iter().chain(attrs).cloned().collect();
+    let shadows: Vec<_> = authored.iter().filter(|a| shadow::is_shadow(a)).collect();
+    if cardless && !shadows.is_empty() {
+        return err(
+            "lower-grouped-list",
+            "a section without its card takes no `box-shadow`: the shadow belongs to the card",
+            shadows[0].span,
+        );
+    }
     let drawn = |a: &Attr, row: &StyleId| match row {
         StyleId::MarginTop | StyleId::MarginBottom => true,
         StyleId::Display => shown_or_hidden(&a.value),
@@ -566,8 +540,16 @@ fn section(
         attrs
             .iter()
             .filter(|a| a.name != "background-color")
-            .cloned(),
+            .filter(|a| !shadow::moves_to_card(a))
+            .map(|a| {
+                if !shadows.is_empty() && a.name == "transition" {
+                    shadow::transition(a, false)
+                } else {
+                    a.clone()
+                }
+            }),
     );
+    sheet.push(shadow::mark(false, span));
     let label = |node: &Node, footer: bool| -> Node {
         let Node::Element {
             tag,
@@ -619,8 +601,7 @@ fn section(
             instance: *instance,
         }
     };
-    // A plain list has no card: its rows are the list's own ground, as
-    // UIKit's plain cells and an AppKit table's rows are, not a lighter fill.
+    // Plain rows use the list's ground, as UIKit's plain cells and AppKit's table rows do.
     let mut group = vec![if cardless {
         s("background-color", "transparent", span)
     } else if style == "plain" {
@@ -672,9 +653,14 @@ fn section(
         group.push(m("row-gap", "separator-gap", span));
     }
     group.push(s("overflow", "hidden", span));
+    // The card casts the shadow; the section also contains its header and footer.
+    if !shadows.is_empty() {
+        group.extend(shadow::card(attrs, &authored));
+        group.push(shadow::mark(true, span));
+    }
     let mut styled = |n: &Node| {
         Ok(swipe_rows::grouped(n, &|n, swiped| {
-            row(n, !cardless, swiped)
+            row(n, !cardless, swiped, class)
         }))
     };
     let body = rows
@@ -723,7 +709,7 @@ fn symbol(node: &Node) -> Option<&str> {
     match (tag.as_str(), positional.first()) {
         ("image", Some(Expr::Str(src, _))) => {
             let role = src.strip_prefix("symbol:")?;
-            // Whichever way the role is spelled, or an icon.
+            // @ref LLP 1116.007 D3.1, LLP 1121 D10 — whichever way the role is spelled, or an icon.
             let role = crate::icons::role_or_accessory(role).unwrap_or(role);
             Some(match role {
                 "forward-chevron" => "chevron.forward",
@@ -740,7 +726,7 @@ fn symbol(node: &Node) -> Option<&str> {
     }
 }
 
-/// An accessory's image: the chevron or the checkmark UIKit draws.
+/// An accessory's image (D4): the chevron or the checkmark UIKit draws.
 pub(crate) fn accessory(apple: &str) -> Option<&'static str> {
     match apple {
         "chevron.forward" | "chevron.right" => Some("disclosure"),
@@ -851,19 +837,19 @@ fn s_val(value: &str, span: Span) -> Expr {
 /// its separator, the icon, a value or subtitle in the secondary colour, an
 /// accessory's size and colour, and what a `destructive` row is: red text
 /// where the platform's list shows that, the platform's push button where
-/// its form shows one (the Mac's).
+/// its form shows one (the Mac's, LLP 1115.002 D6).
 /// `swiped`: the row is a swipe's content, which the platform's list
 /// carries as a custom row.
 /// A grouped list's row: the sheet's rows, without the look of an element
 /// that yields it to the row (`row_look`).
-fn row(node: &Node, separated: bool, swiped: bool) -> Node {
+pub(crate) fn row(node: &Node, separated: bool, swiped: bool, class: ClassRows<'_>) -> Node {
     match crate::row_look::yielded(node) {
-        Some(own) => styled(&own, separated, swiped),
-        None => styled(node, separated, swiped),
+        Some(own) => styled(&own, separated, swiped, class),
+        None => styled(node, separated, swiped, class),
     }
 }
 
-fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
+fn styled(node: &Node, separated: bool, swiped: bool, class: ClassRows<'_>) -> Node {
     let Node::Element {
         tag,
         attrs,
@@ -880,7 +866,7 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
     } else {
         Vec::new()
     };
-    // A native button row is the platform's control: only
+    // A native button row (LLP 1069.011) is the platform's control: only
     // the rows a native button takes, and its face left alone.
     let native = attrs
         .iter()
@@ -908,7 +894,7 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
         by_flag(attrs, "disabled", TERTIARY, ink, span)
     };
     let label = || Expr::Str(LABEL.into(), span);
-    // A `button` row that is an action cell (a title,
+    // @ref LLP 1116.019 D6 — a `button` row that is an action cell (a title,
     // a symbol before it at most, nothing at its trailing edge) is in the
     // platform's action ink: the tint in UIKit's list, as SwiftUI's
     // `List { Button }` and a hand-built action cell draw it. The kernel
@@ -939,7 +925,7 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
     // (`Kernel::grouped_separator`), so an author's start padding moves all
     // three, the symbol's slot whole.
     let start = mv("row-inset", span);
-    // A `column` row keeps its direction: its children stack
+    // A `column` row keeps its direction (LLP 1116 D2): its children stack
     // as written, from the text's margin, centred in the cell's height, and
     // a subtitle cell's space above and below (on iOS 15, 52 high for one
     // line). One or two texts are the subtitle cell's lines, which the kernel
@@ -1073,7 +1059,7 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
             m("padding-right", "row-padding-end", span),
         ]);
     }
-    // A card-less section's rows draw no separator.
+    // A card-less section's rows draw no separator (§6.2).
     sheet.extend(separator(separated, span));
     sheet.extend(actions::mark(tag == "button", acting, span));
     // The title grows to push a value to the far edge; a push button's is
@@ -1094,7 +1080,7 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
     };
     let mut texts = Count::Known(0);
     // Positions among the shown parts: a part written `display="none"` is
-    // not the leading or the trailing one.
+    // not the leading or the trailing one (D4).
     let shown: Vec<&Node> = children.iter().filter(|c| !hidden(c)).collect();
     let last = shown.len().saturating_sub(1);
     let mut at_shown = 0;
@@ -1112,6 +1098,8 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
             i,
             last,
             stack,
+            row_attrs: attrs,
+            class,
             lines,
             field,
             titled: titled == Some(k),
@@ -1155,11 +1143,13 @@ struct Place<'a> {
     last: usize,
     /// Whether a `column` here is the row's text stack (`text_stack`).
     stack: bool,
+    row_attrs: &'a [Attr],
+    class: ClassRows<'a>,
     /// Whether a stack of lines here takes the cell's margins (`stacks`).
     lines: bool,
     /// The field beside the row's label, if it is such a row.
     field: Option<Field>,
-    /// Whether this part is the button that holds the row's title.
+    /// Whether this part is the button that holds the row's title (D4).
     titled: bool,
     /// The row's ink over a colour: its destructive or disabled one.
     tint: &'a dyn Fn(Expr) -> Expr,
@@ -1189,6 +1179,8 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         i,
         last,
         stack,
+        row_attrs,
+        class,
         lines,
         field,
         titled,
@@ -1254,7 +1246,7 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
     };
     let at = *at;
     match (tag.as_str(), symbol(child)) {
-        // The button that holds the title is the title.
+        // LLP 1116.021 D4: the button that holds the title is the title.
         _ if titled => {
             *texts = Count::Known(1);
             title_face(child)
@@ -1289,7 +1281,7 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
                     n("flex-shrink", 0.0, at),
                     // A checkmark's ink is the platform's: the tint in
                     // UIKit's cell, the label's in the Mac's form. A
-                    // symbol is drawn in its `color`,
+                    // symbol is drawn in its `color` (LLP 1081 stage 2),
                     // which a custom row's chevron or checkmark shows.
                     if check {
                         m("color", "checkmark-tint", at)
@@ -1299,7 +1291,7 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
                 ],
             )
         }
-        // Not shown, not counted, as the kernel reads it.
+        // Not shown, not counted, as the kernel reads it (D4).
         ("text", _) if hidden(child) => child.clone(),
         ("text", _) => {
             // The first text is the title: it grows, in the row's colour;
@@ -1397,18 +1389,18 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         // An author's `flex=1` on a menu or date grows it from its own width,
         // as on a text field: from CSS's 0% basis the row never wrapped it
         // under its label, and at the accessibility sizes it took a sliver
-        // its title broke into letters in (a grocery list's Aisle).
+        // its title broke into letters in (grocery-list's Aisle, round 24).
         ("input" | "select", _) if texts.low() >= 1 && field_kind(child) == Some(Field::Picker) => {
             with(
                 &grown_field(child).unwrap_or_else(|| child.clone()),
                 vec![n("min-width", 0.0, at)],
             )
         }
-        ("column", _) if stack => subtitle(child),
+        ("column", _) if stack => cell::column(child, row_attrs, class),
         // A column around the title's one text is the title, as a stack of
         // lines is: a text after it is the value at the far edge, not a
         // second title sharing the row's room (grocery-list's quantity
-        // mid-row, and over the name at the accessibility sizes).
+        // mid-row, and over the name at the accessibility sizes, round 24).
         _ if !stack && matches!(texts, Count::Known(0)) && one_line(child) => {
             *texts = Count::Known(1);
             if sized(child) {
@@ -1429,13 +1421,13 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             } else {
                 Vec::new()
             };
-            // A stack before any text is the title, and
+            // LLP 1116.020 D5: a stack before any text is the title, and
             // grows as a title does, so a text after it is the value at the
             // far edge (`RowText` straight in a section drew it mid-row). A
             // stack its author sized is laid out as written: three `flex=1`
             // columns of figures keep CSS's `min-width: auto`, and a first
             // one given `min-width: 0` here was squeezed under its caption's
-            // width at the largest text size.
+            // width at the largest text size (event-rsvp, round 21).
             if matches!(texts, Count::Known(0)) {
                 if !sized(child) {
                     margins.extend([attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)]);
@@ -1451,13 +1443,14 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         // The row's one part, a box the author laid its content out in (a
         // button's face in a `row`), fills the cell, as a hand-built cell
         // pins its stack to its content view's edges. As wide as its
-        // content, a bar in it was a share of its label's width.
+        // content, a bar in it was a share of its label's width (polls,
+        // round 29).
         ("row" | "column" | "view", _) if i == 0 && last == 0 && !sized(child) => with(
             child,
             vec![attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)],
         ),
         // A box its author grows (`flex=1`) before any text is the title, the text after it
-        // the value: as a second title, a water tracker's "Goal met" squeezed its bar.
+        // the value: as a second title, water-tracker's "Goal met" squeezed its bar (round 33).
         ("row" | "column" | "view", _) if matches!(texts, Count::Known(0)) && grows(child) => {
             *texts = Count::Known(1);
             child.clone()

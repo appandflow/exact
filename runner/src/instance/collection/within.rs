@@ -7,11 +7,11 @@ impl Collection {
     /// moves: the same port and pins, nothing owed, no correction before or
     /// after, no height that changes, and every row of the window it leads
     /// to mounted. Realizing it would reuse every row and emit nothing, so
-    /// only the geometry moves. None: realize.
+    /// only the geometry moves (@ref LLP 1050.000 §6). None: realize.
     ///
     /// A row's first measurement at the height the index already holds for
     /// it (a row as tall as its estimate) is such a report: it is recorded
-    /// and nothing moves. So is, where rows are rebound, one that
+    /// and nothing moves. So is, where rows are rebound (LLP 1078), one that
     /// only leaves rows past the window, no more than a list holds for its
     /// next rows ([`reuse::HOLD`]): they stay, held.
     pub(super) fn travel_within(

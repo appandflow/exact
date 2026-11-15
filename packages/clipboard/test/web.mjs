@@ -1,8 +1,8 @@
-// @exact/clipboard on the web with no agent: the fixture app built for the
-// web and driven in Chrome, the oracle, whose clipboard the suite reads back.
-// Each image lands as the pixels it should (the red PNG red, the APNG's frame
-// 0 green), text as written, and in the A/B race B is what the clipboard
-// holds.
+// @exact/clipboard on the web with no agent (LLP 1133.006 §9 stage 1 items 4
+// and 7): the fixture app built for the web and driven in Chrome, the oracle,
+// whose clipboard the suite reads back. Each image lands as the pixels it
+// should (the red PNG red, the APNG's frame 0 green), text as written, and in
+// the A/B race B is what the clipboard holds.
 //
 // usage: bun packages/clipboard/test/web.mjs
 import { join, extname, resolve } from 'node:path';

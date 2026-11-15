@@ -1,4 +1,4 @@
-//! The history swipe a host tracks: the navigation
+//! The history swipe a host tracks (LLP 1115.000 D5.5): the navigation
 //! root's `historyswipe`, with a `HistorySwipeEvent` to take or leave, and
 //! no other element's; and the ways through history the root offers,
 //! its `navigationHistory`.

@@ -1,4 +1,4 @@
-// The paint-order fixture on a real host. Every case of
+// The paint-order fixture on a real host (LLP 1083.000 D6). Every case of
 // kernel/tests/it/fixtures/browser_paint_order.tsv (Chrome-measured, bare
 // and with the kernel's isolation) becomes a plan of plain `view`s, each an
 // opaque colour of its own; the host is driven to a screenshot, and the
@@ -14,8 +14,9 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { decodePng } from '../../../../scripts/png.mjs';
+import { fileURLToPath } from 'node:url';
 
-const root = resolve(new URL('.', import.meta.url).pathname, '../../../..');
+const root = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..');
 const args = process.argv.slice(2);
 const defaultCapture = args.includes('--default-capture');
 const [host = 'web', only] = args.filter(a => a !== '--default-capture');
@@ -28,7 +29,7 @@ const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
 const colour = id => PALETTE[id % PALETTE.length];
 const FRAME = '#ffe119', PAD = 8;
 
-// CSS declarations as Contract attributes: the names are CSS's.
+// CSS declarations as Contract attributes: the names are CSS's (LLP 1081).
 function attrs(css) {
   return css.split(';').filter(Boolean).map(decl => {
     const [name, value] = decl.split(':');

@@ -1,4 +1,4 @@
-// A page's `window.print()` in a frame: on macOS the
+// A page's `window.print()` in a frame (@ref LLP 1020.002 D5): on macOS the
 // platform's print panel, a sheet on the window, as Safari shows it. WebKit
 // hands a page's print to its UI delegate only through private API, so the
 // arm takes the call in the page instead: a script in the page's world, in
@@ -11,7 +11,7 @@
 //   while `print()` runs, printed by PDFKit.
 // Any other frame below the main one has no public print operation: its
 // print is refused in the log. Under the agent the panel is a `print`
-// request whose answer saves the job as a PDF file. The iOS arm
+// request whose answer saves the job as a PDF file (§10). The iOS arm
 // answers no print yet.
 import Foundation
 import WebKit
@@ -197,7 +197,7 @@ final class FramePrint: NSObject {
 }
 #else
 extension FrameUI {
-    /// iOS answers no print yet.
+    /// iOS answers no print yet (@ref LLP 1020.002 D5).
     func takePrints(on controller: WKUserContentController) {}
 }
 #endif

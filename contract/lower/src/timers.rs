@@ -1,5 +1,5 @@
 //! A root task's timer row: its schedule and, for a gated task, its gate
-//! and key as plan code, compiled the way a slot's
+//! and key as plan code (LLP 1092 D9), compiled the way a slot's
 //! initializer is and evaluated by the runner at each commit.
 
 use crate::{err_one, LowerError, Lowerer};
@@ -21,14 +21,24 @@ impl Lowerer<'_> {
                 TaskKind::Every => "every",
                 TaskKind::After => "after",
                 TaskKind::Frame => "frame",
+                TaskKind::Change => "change",
             };
-            let id = if t.kind == TaskKind::Frame {
+            let id = if t.kind == TaskKind::Change {
+                if t.key.is_none() || !t.options.is_empty() {
+                    return Err(err_one(
+                        "lower-change-task",
+                        "`change(action)` requires `task NAME [when COND] key=EXPR` and takes no scheduling options",
+                        t.span,
+                    ));
+                }
+                self.b.change_task(action)
+            } else if t.kind == TaskKind::Frame {
                 self.b.frame_timer(action)
             } else {
                 let Expr::Number(ms, _) = &t.timer.0 else {
                     return Err(err_one(
                         "lower-timer-literal",
-                        format!("`{word}` needs a literal number of milliseconds (`{word}(1000, …)`). For a computed wait, gate an `every(frame, check)` task on waiting and have `check` compare `performanceNow()` with the wait; one that follows the tempo follows the transport (docs/contract-for-agents.md, \"Following the transport\")"),
+                        format!("`{word}` needs a literal number of milliseconds (`{word}(1000, …)`). For bounded retry backoff, use one gated task per step: `task retry1 when waiting and attempt == 1` with `after(250, again)`, then steps with `after(500, again)` and `after(1000, again)` (docs/contract-for-agents.md, \"Retry backoff\"). For a wait that follows a continuous value, gate an `every(frame, check)` task and compare `performanceNow()` with the wait; a tempo follows the transport (\"Following the transport\")"),
                         t.timer.2,
                     ));
                 };
@@ -111,7 +121,7 @@ impl Lowerer<'_> {
                     .map_err(|e| vec![e])
             };
             let gate = code(self, &t.gate)?;
-            // `key=` alone is `when true key=…`.
+            // `key=` alone is `when true key=…` (D7).
             let gate = gate.or_else(|| {
                 t.key
                     .is_some()
@@ -123,10 +133,10 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    /// Every sequence of the root, in declaration order: its
+    /// Every sequence of the root (LLP 1125 D2), in declaration order: its
     /// gate and key as a task's, and each `play` argument as plan code, an
-    /// omitted one a constant: `bpm=` 120, the prior that clock in
-    /// (`clock=`) plays at until it has heard enough ticks.
+    /// omitted one a constant: `bpm=` 120, the prior that clock in (`clock=`,
+    /// D9) plays at until it has heard enough ticks.
     pub(crate) fn sequences(
         &mut self,
         sequences: &[Sequence],

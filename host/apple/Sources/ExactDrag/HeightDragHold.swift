@@ -17,7 +17,7 @@ final class HeightDragHold {
     private var pin: UInt64?
     private var lastDisplacement = 0.0
     /// The newest shown height and its time; the release velocity is the
-    /// engine's, over the heights shown.
+    /// engine's, over the heights shown (LLP 1057.001 §3).
     private var shown: Double
     private var time: Double
     private var queued = false

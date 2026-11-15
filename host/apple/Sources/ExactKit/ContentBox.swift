@@ -12,8 +12,8 @@ import AppKit
 #endif
 
 extension NodeView {
-    /// Native fields keep their published editor box for field layout and
-    /// read their padding rows. Other content uses the published
+    /// Native fields keep their published editor box for field layout (LLP
+    /// 1104 D5) and read their padding rows. Other content uses the published
     /// box, or the bounds of a box sent none.
     /// The bounds at the size layout gave: a box drawn on the pixel grid
     /// can be up to a device pixel smaller or larger (`PixelGridIOS.swift`,

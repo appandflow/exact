@@ -30,6 +30,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -53,7 +56,7 @@ const val SPECIMEN = "specimen"
 /**
  * One specimen of `specimens.json` as a hand-built app writes it: Material's default component, in its default
  * theme on [scheme]. Each has a twin in `apps/material-specimens/specimens/<id>.contract`; a `defect-` id is the
- * specimen it names with one error planted, for the oracle's detection test.
+ * specimen it names with one error planted, for the oracle's detection test (LLP 1115.001.001 O1).
  */
 @Composable
 fun Specimen(id: String, scheme: ColorScheme) {
@@ -84,6 +87,15 @@ private fun Inline(id: String) {
         "checkbox-unchecked" -> Checkbox(checked = false, onCheckedChange = {})
         "radio-selected" -> RadioButton(selected = true, onClick = {})
         "radio-unselected" -> RadioButton(selected = false, onClick = {})
+        "segmented-buttons" -> SingleChoiceSegmentedButtonRow {
+            listOf("One", "Two", "Three").forEachIndexed { i, label ->
+                SegmentedButton(
+                    selected = i == 1,
+                    onClick = {},
+                    shape = SegmentedButtonDefaults.itemShape(i, 3),
+                ) { Text(label) }
+            }
+        }
         "defect-missing-control" -> Box(Modifier.size(48.dp))
         "defect-neighbour-role" -> Button(
             onClick = {},

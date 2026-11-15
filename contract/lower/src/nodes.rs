@@ -11,10 +11,12 @@ pub(super) struct ElementStep<'n> {
     pub(super) button_context: Option<&'static str>,
     pub(super) popover_child: bool,
     pub(super) bounded: bool,
+    /// Whether this element stacks its children top to bottom.
+    pub(super) stacks: bool,
     pub(super) horizontal_flex: Option<bool>,
     pub(super) nav_place: routes::NavPlace,
-    /// How many element levels below this one a list's rows are (for
-    /// `lower-state-target`): 1 a cell list's, 3 a grouped list's
+    /// How many element levels below this one a list's rows are (LLP 1121
+    /// D8's `lower-state-target`): 1 a cell list's, 3 a grouped list's
     /// (its sections' group's); 0 none.
     pub(super) rows: u8,
 }
@@ -47,23 +49,48 @@ impl Lowerer<'_> {
             return Err(unknown_tag(tag, *span));
         };
         // Two layout refusals the compiler can make without measuring
-        // (the measured ones are bake's). Conservative:
+        // (LLP 1017 P1c; the measured ones are bake's). Conservative:
         // only the case nothing on the path can bound is refused.
         // `class=` expands its style's rows first; the node's own
-        // attribute of the same name replaces the style's.
-        // A grouped list's sheet, under its classes.
+        // attribute of the same name replaces the style's (LLP 1017 P6).
+        // @ref LLP 1084 D7 — a grouped list's sheet, under its classes.
         let button_context = grouped::button_context(attrs);
         let separated = grouped::row_separator(attrs);
         let acting = grouped::actions::said(attrs);
+        let shadow_part = grouped::shadow::part(attrs);
         let (mut sheet, unmarked) = grouped::split(attrs);
+        sheet.retain(|a| grouped::shadow::part(std::slice::from_ref(a)).is_none());
         let attrs = unmarked.as_ref().unwrap_or(attrs);
         // A `delete=` no list row expanded does nothing (`lower-delete-row`).
         let kept = swipe_rows::stray(attrs);
         let attrs = kept.as_ref().unwrap_or(attrs);
-        let (class_label, mut expanded) = self.class_rows(attrs)?.unzip();
+        // The props the tag's package declares, written on the tag, are the
+        // module's; nothing below sees them, so a class's rows of the same
+        // names stay its box's (LLP 1024 D1).
+        let split = native::split_declared(tag, attrs);
+        let (declared, attrs) = match &split {
+            Some((declared, rest)) => (declared.as_slice(), rest),
+            None => (&[][..], attrs),
+        };
+        // A class choice's side that sets no row leaves it as the node has
+        // it unwritten: its tag's fixed rows, then a link's colour.
+        let unwritten: Vec<(exact_kernel::StyleId, Expr)> = t
+            .fixed_styles
+            .iter()
+            .map(|(id, v)| (*id, Expr::Str(v.to_string(), *span)))
+            .chain(
+                self.link_colour(tag, parent_tag, attrs, children)
+                    .map(|e| (exact_kernel::StyleId::TextColor, e)),
+            )
+            .collect();
+        let styles = |name: &str| self.styles.get(name).map(Vec::as_slice);
+        let (class_label, mut expanded) = crate::class::rows(attrs, &styles, &unwritten)?.unzip();
+        if let (Some(rows), Some(card)) = (&mut expanded, shadow_part) {
+            grouped::shadow::class_rows(rows, card);
+        }
         // The class's rows by their places: a rewrite below (an animation's
         // longhands composed, a grouped list's rows inserted) moves rows
-        // across `class_len`, never their spans (a row's address).
+        // across `class_len`, never their spans (LLP 1122 D6's address).
         let class_spans: std::collections::BTreeSet<contract_syntax::Span> = expanded
             .iter()
             .flatten()
@@ -81,7 +108,7 @@ impl Lowerer<'_> {
         let native_button = button.as_ref().is_some_and(|b| b.native);
         let painted_group =
             self.painted_radio_group(attrs, expanded.as_deref().unwrap_or(&[]), children, *span)?;
-        // A `button` part as the platform draws it.
+        // A `button` part as the platform draws it (LLP 1139 D6).
         if let Some(b) = button.as_ref() {
             self.button_part(*span, b.native, b.bare_reason.as_deref());
         }
@@ -90,7 +117,7 @@ impl Lowerer<'_> {
                 || expanded.as_deref().is_some_and(grouped::margins_said);
             grouped::native_rows(&mut sheet, margins);
         }
-        // The platform's separator under a grouped row; a
+        // @ref LLP 1084 D7 — the platform's separator under a grouped row; a
         // native button row is the platform's control, under none.
         let separated = separated && !native_button;
         let class_len = expanded.as_ref().map_or(0, Vec::len) + sheet.len();
@@ -116,7 +143,9 @@ impl Lowerer<'_> {
                 && !contract_types::records::is_record_call("startsWith", &self.types.shapes),
         );
         crate::popover_surface::check_authored(expanded)?;
-        let surfaced = crate::popover_surface::implied(expanded, *span);
+        let surfaced = crate::popover_surface::implied(attrs, *span, &|name| {
+            self.styles.get(name).map(Vec::as_slice)
+        });
         let added: Vec<Attr> = inked
             .into_iter()
             .chain(painted_group)
@@ -134,14 +163,18 @@ impl Lowerer<'_> {
         menus::check_menu_keys(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         menus::check_invoker(tag, expanded)?;
+        crate::tips::check(expanded, *span)?;
         crate::alert_parts::check_authored(expanded)?;
         tags::check_exclusion(&t, expanded, self.parent_positioned)?;
-        // A motion token an expansion carried in (a
+        // @ref LLP 1121 D3 — a motion token an expansion carried in (a
         // component's prop, a sheet) is written in before the longhands
         // compose with their shorthand.
         let timed = crate::motion::attrs(expanded, &crate::theme::motion_tokens());
         let expanded = timed.as_deref().unwrap_or(expanded);
         let composed = self.compose_animation(expanded)?;
+        if shadow_part == Some(false) {
+            grouped::shadow::check_animations(expanded, &self.keyframes)?;
+        }
         let expanded = composed.as_deref().unwrap_or(expanded);
         let in_svg = svg::in_svg(self.svg_depth > 0, parent_tag);
         let lengths = svg::coerce_lengths(tag, in_svg, expanded);
@@ -166,11 +199,11 @@ impl Lowerer<'_> {
         let expanded = boxed.as_deref().unwrap_or(expanded);
         self.check_svg(tag, parent_tag, expanded)?;
         shorthands::check_text_box(tag, parent_tag, expanded)?;
-        // The one box `vertical-align` moves.
+        // @ref LLP 1011.002 D3 — the one box `vertical-align` moves.
         let inline_image = tag == "image" && matches!(parent_tag, Some("text"));
         if inline_image {
             // Its box takes lengths alone, not the sizes it would resolve
-            // against a containing block, which is not built.
+            // against a containing block (LLP 1011.002 §"Not built").
             // A literal percentage, or one a choice may take.
             fn percent(e: &contract_syntax::Expr) -> bool {
                 use contract_syntax::Expr;
@@ -206,19 +239,20 @@ impl Lowerer<'_> {
                 );
             }
         }
-        // An inline run paints in its paragraph's
+        // @ref LLP 1034 §8 — an inline run paints in its paragraph's
         // scheme: no host gives a run an appearance of its own.
         if matches!(tag.as_str(), "text" | "time") && matches!(parent_tag, Some("text" | "time")) {
             if let Some(a) = expanded.iter().find(|a| a.name == "color-scheme") {
                 return Err(LowerError {
                             id: "lower-attr-tag",
-                            message: "`color-scheme` on an inline `text` run: a run paints in its paragraph's scheme; set it on the paragraph or a box above".into(),
+                            message: "`color-scheme` on an inline `text` run: a run paints in its paragraph's scheme (LLP 1034 §8); set it on the paragraph or a box above".into(),
                             span: a.span,
                         });
             }
         }
-        // An `svg` inside an `svg` is a viewport.
-        // Inside an `svg`, `svg` is a viewport and `text` is SVG text.
+        // @ref LLP 1055.000 D4 — an `svg` inside an `svg` is a viewport.
+        // Inside an `svg`, `svg` is a viewport and `text` is SVG text
+        // (LLP 1055.000 D4, D11).
         let t = match tag.as_str() {
             "svg" if svg::in_svg(self.svg_depth > 0, parent_tag) => tags::Tag {
                 node_type: NodeType::SvgViewport,
@@ -230,7 +264,7 @@ impl Lowerer<'_> {
             },
             _ => t,
         };
-        // `input`'s `type` is a literal: a text
+        // @ref LLP 1069.001 D1 — `input`'s `type` is a literal: a text
         // type is a text field, `checkbox` a form control.
         let canonical_type = controls::canonical_type_attrs(tag, expanded);
         let expanded = canonical_type.as_deref().unwrap_or(expanded);
@@ -252,7 +286,7 @@ impl Lowerer<'_> {
         let expanded = closedby.as_deref().unwrap_or(expanded);
         let numeric = controls::range_attrs(tag, control, expanded);
         let expanded = numeric.as_deref().unwrap_or(expanded);
-        // A grouped list's sheet, before its
+        // @ref LLP 1084 D1, D3 — a grouped list's sheet, before its
         // author's rows, and its sections' shape.
         let grouped = grouped::style(tag, expanded)?;
         let listed;
@@ -270,15 +304,16 @@ impl Lowerer<'_> {
         };
         tags::validate_list(tag, expanded, *span)?;
         self.check_collection(tag, expanded, children, *span, scope)?;
-        // Whether this list's rows are cells.
+        // @ref LLP 1115.000 D16 — whether this list's rows are cells.
         let cells = cells::rows(tag, expanded, children, grouped.is_some());
         let grouped_list = grouped.is_some();
-        // A cell's row is no state part's target.
-        // A cell's `delete=`, its swipe.
+        // A cell's row is no state part's target (LLP 1121 D8).
+        // @ref LLP 1116.020 D1 — a cell's `delete=`, its swipe.
         let swiped = cells.then(|| swipe_rows::cells(children)).flatten();
         // A row list is a flex item of its column like any carousel;
         // CSS's own fix keeps its spacers' extent from widening that
-        // column: `min-width: 0`, unless the author set one.
+        // column: `min-width: 0`, unless the author set one (LLP 1070
+        // §3.1).
         let row_list = (tag == "list"
             && collection::row_list(expanded)
             && expanded
@@ -300,7 +335,7 @@ impl Lowerer<'_> {
         crate::frames::check(tag, positional, expanded)?;
         let audio = media::audio_rows(tag, expanded, *span)?;
         let expanded = audio.as_deref().unwrap_or(expanded);
-        // A box that contains its absolutely positioned
+        // @ref LLP 1074 T1 — a box that contains its absolutely positioned
         // descendants on every host is lowered `position: relative`.
         let relative = contain::positioned(
             &t,
@@ -316,37 +351,29 @@ impl Lowerer<'_> {
         let expanded = back.as_deref().unwrap_or(expanded);
         values::check_glass_group(&t, expanded)?;
         let has = |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
-        let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));
-        let clips_y = expanded.iter().any(|a| {
-            a.name == "overflow-y" && matches!(&a.value, Expr::Str(v, _) if v == "hidden")
-        });
-        if tag == "scroll"
-            && !clips_y
-            && parent_stacks
-            && !has(&["height", "max-height"])
-            && !expanded
-                .iter()
-                .any(|a| a.name == "flex" && values::flex_bounds(&a.value))
-            && !values::shrinking_scroll(expanded, self.parent_bounded_column)
-        {
-            return err(
-                        "lower-scroll-unbounded",
-                        "`scroll` has no `height`, `max-height`, or `flex`, and its parent stacks it top to bottom, so it will grow with its content and never scroll",
-                        *span,
-                    );
+        if tag == "scroll" {
+            scroll_bounds::check(
+                expanded,
+                self.parent_stacks,
+                self.parent_bounded_column,
+                *span,
+            )?;
         }
         controls::check_zero_size(tag, expanded, children, *span)?;
-        // A route that scrolls a grouped list is on
+        // @ref LLP 1116.007 D5 — a route that scrolls a grouped list is on
         // the grouped background, unless its author said otherwise.
         let grouped_page = self.nav_place.grouped_page(tag, expanded, children, *span);
         let expanded = grouped_page.as_deref().unwrap_or(expanded);
-        // And a sheet is never transparent.
+        // @ref LLP 1116.009 D3 — and a sheet is never transparent.
         let sheet_page = self.nav_place.sheet_page(expanded, *span);
         let expanded = sheet_page.as_deref().unwrap_or(expanded);
-        let nav_place = self.nav_place.enter(tag, expanded, children, *span)?;
-        // only the first root selects navigation; an
-        // iframe's `navigate` is its guest's. The history
-        // swipe and the ways through history offered are the root's too.
+        let nav_place = self
+            .nav_place
+            .enter(first, tag, expanded, children, *span)?;
+        // @ref LLP 1038 D8 — only the first root selects navigation; an
+        // iframe's `navigate` is its guest's (LLP 1020.002 D2). The history
+        // swipe and the ways through history offered are the root's too
+        // (LLP 1115.000 D5.5).
         let elsewhere = parent_tag.is_some()
             || arm.is_some()
             || order != 0
@@ -361,7 +388,7 @@ impl Lowerer<'_> {
                 );
             }
         }
-        // the state parts, folded or recorded.
+        // @ref LLP 1121 D8 — the state parts, folded or recorded.
         let target = if native_button {
             Some(crate::states::StateTarget::NativeButton)
         } else if control.is_some() || t.node_type == NodeType::Control {
@@ -389,8 +416,8 @@ impl Lowerer<'_> {
                 .map(|e| ("color", e)),
         );
         // A run inside a paragraph has no box of its own on every host: its
-        // hover, focus and press are its paragraph's (press rows paint no
-        // run on Apple or Linux either).
+        // hover, focus and press are its paragraph's (theme2's 08:13 ruling;
+        // D7's press rows paint no run on Apple or Linux either).
         // (A run is a text node under a text node, as the kernel has it: under
         // `text`, `time` or `option` alike.)
         if parent_tag
@@ -405,7 +432,7 @@ impl Lowerer<'_> {
             if let Some(a) = expanded.iter().find(host) {
                 return err(
                     "lower-state-target",
-                    "a state part on a run inside a paragraph: a run's press, hover and focus are its paragraph's; put the part on the paragraph or make the run a box",
+                    "a state part on a run inside a paragraph: a run's press, hover and focus are its paragraph's; put the part on the paragraph or make the run a box (LLP 1121 D8)",
                     a.span,
                 );
             }
@@ -417,7 +444,7 @@ impl Lowerer<'_> {
         {
             return err(
                 "lower-unknown-attr",
-                format!("unknown attribute `{}`: the press's opacity is `opacity` in an `:active` part, or `-exact-press-opacity`, a share of the node's own", a.name),
+                format!("unknown attribute `{}`: the press's opacity is `opacity` in an `:active` part (LLP 1121 D8), or `-exact-press-opacity`, a share of the node's own (LLP 1061 D7)", a.name),
                 a.span,
             );
         }
@@ -448,7 +475,7 @@ impl Lowerer<'_> {
                 IMPLIED,
             ));
         }
-        // The author's own disabled look: no default dim.
+        // @ref LLP 1115.000 D6 — the author's own disabled look: no default dim.
         let styled = states
             .as_ref()
             .map_or_else(|| disabled_look::styled(expanded), |s| s.disabled_look);
@@ -474,10 +501,10 @@ impl Lowerer<'_> {
             bindings.push(style_row(exact_kernel::StyleId::FontVariantNumeric, self.fixed(true, "tabular-nums"), IMPLIED));
         }
 
-        // An indeterminate
-        // `progress` (no `value`) is busy, as ARIA's
+        // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate
+        // `progress` (no `value`, LLP 1116 D8) is busy, as ARIA's
         // `aria-busy`: a bool, which a fixed prop (text) cannot be.
-        // A determinate one is full width, as a
+        // @ref LLP 1115.000 D10.2 — a determinate one is full width, as a
         // range is; the indicator keeps its 20 by 20.
         if tag == "progress" {
             if expanded
@@ -496,7 +523,7 @@ impl Lowerer<'_> {
                 ));
             }
         }
-        // The page scrolls where this does.
+        // @ref LLP 1048.003 D4 — the page scrolls where this does.
         let positional = match positional.as_slice() {
             [word] if contract_syntax::is_scroll_document(tag, word) => {
                 if let Some(bound) = attrs.iter().find(|a| a.name == "document") {
@@ -514,7 +541,7 @@ impl Lowerer<'_> {
                 ));
                 &[][..]
             }
-            // HTML's `switch`
+            // @ref LLP 1069.001 D1, LLP 1069.002 D1 — HTML's `switch`
             // and `multiple`.
             [word] if self.control_word(tag, word, control, &mut bindings)? => &[][..],
             all => all,
@@ -531,7 +558,7 @@ impl Lowerer<'_> {
                     first.span(),
                 );
             };
-            // A symbol by another spelling is its role.
+            // @ref LLP 1116.007 D3.1 — a symbol by another spelling is its role.
             let role = (prop == exact_kernel::PropId::ImageSource)
                 .then(|| crate::symbols::roles(first))
                 .flatten();
@@ -552,7 +579,7 @@ impl Lowerer<'_> {
             .as_ref()
             .map(|_| vec![Origin::Tag; bindings.len()]);
         let font = self.font_use(expanded)?;
-        // A module tag's own attribute named like
+        // @ref LLP 1024 D1 — a module tag's own attribute named like
         // a row its box never uses is refused, not bound to nothing;
         // a class's rows are the style's, never a prop. By name over
         // the authored list: `expanded` is rewritten above (an
@@ -580,6 +607,10 @@ impl Lowerer<'_> {
             {
                 continue;
             }
+            if let Some(e) = crate::handlers::unheard_toggle(tag, expanded, a) {
+                self.errors.push(e);
+                continue;
+            }
             if let Err(e) = self.attr(
                 tag,
                 contract_syntax::payload_control(tag, attrs),
@@ -594,7 +625,7 @@ impl Lowerer<'_> {
                 self.errors.push(native::name_the_fix(n, e));
             }
             if let Some(origins) = &mut origins {
-                // A folded state part's: its class's where
+                // A folded state part's (LLP 1121 D8): its class's where
                 // the class wrote every state row in it.
                 let (class_len, folded) = match &states {
                     Some(s) => (
@@ -605,7 +636,7 @@ impl Lowerer<'_> {
                 };
                 let class = class_label.is_some();
                 let pressed = states.as_ref().is_some_and(|s| index >= s.pressed);
-                // Where an author wrote it (the source map
+                // Where an author wrote it (LLP 1122 D6; the source map
                 // checks the name at the place against the source). A
                 // conditional class's row is either style's, and a folded
                 // `:disabled` or `:checked` row is a choice over the base
@@ -635,8 +666,8 @@ impl Lowerer<'_> {
                 } else {
                     Origin::Own(written)
                 };
-                // A folded `:disabled` or `:checked` row: its base's
-                // attribute where an author wrote it,
+                // A folded `:disabled` or `:checked` row (LLP 1122's queue
+                // item (2)): its base's attribute where an author wrote it,
                 // and each part folded over it, each the class's by its span.
                 let fold = (states.as_ref())
                     .filter(|s| index >= s.base_len && index < s.pressed)
@@ -685,7 +716,7 @@ impl Lowerer<'_> {
                 origins.resize(bindings.len(), origin);
             }
         }
-        // No box where no split shows it (the web shell shows it).
+        // @ref LLP 1116.006 D2 — no box where no split shows it (the web shell shows it).
         if routes::split_placeholder(expanded).is_some() {
             let none = self.fixed(true, "none");
             bindings.push(style_row(StyleId::Display, none, IMPLIED));
@@ -711,13 +742,52 @@ impl Lowerer<'_> {
                 origins.resize(bindings.len(), Origin::Tag);
             }
         } else if let Some(a) = crate::fields::textfield_elsewhere(expanded) {
+            // @ref LLP 1116.007 D4
             return err(
                 "lower-appearance",
                 "`appearance=\"textfield\"` is for a text field (an `input`, a `textarea`): it drops a number input's stepper and changes nothing else. Write `\"auto\"` or `\"none\"` here",
                 a.span,
             );
         }
-        // A transform drag needs both halves:
+        // The web draws a hit slop as a pseudo-element, which an element the
+        // browser replaces cannot have (Charlie, 2026-11-10).
+        if matches!(
+            t.node_type,
+            NodeType::Image
+                | NodeType::TextInput
+                | NodeType::Control
+                | NodeType::Video
+                | NodeType::WebView
+        ) {
+            if let Some(a) = expanded
+                .iter()
+                .find(|a| a.name.starts_with("-exact-hit-slop"))
+            {
+                return err(
+                    "lower-hit-slop",
+                    format!("`{}` on `{tag}`: the web draws a slop as a pseudo-element, which a replaced element has none of. Put it on the box or button that holds the `{tag}`", a.name),
+                    a.span,
+                );
+            }
+        }
+        // @ref LLP 1123 D4 — the opt-out is a content owner's: a route or a
+        // tab panel, whose host clears its chrome. On any other box it would
+        // turn nothing off.
+        if let Some(a) = expanded.iter().find(|a| a.name == "-exact-safe-area") {
+            let owner = expanded.iter().any(|b| {
+                b.name == "navigationKey"
+                    || (b.name == "role"
+                        && matches!(&b.value, contract_syntax::Expr::Str(r, _) if r == "tabpanel"))
+            });
+            if !owner {
+                return err(
+                    "lower-attr-value",
+                    format!("`{}` turns off a content owner's clearance of its chrome, so it goes on a route (a box with `navigationKey`) or a `tabpanel`; elsewhere pad with `var(--exact-safe-area-inset-*)`", a.name),
+                    a.span,
+                );
+            }
+        }
+        // @ref LLP 1057.003 C6 — a transform drag needs both halves:
         // the page's geometry and the release. A handle with one is
         // never admitted by any host, so it would sit inert, unsaid.
         let has = |k: EventKind| handlers.iter().any(|(kind, ..)| *kind == k);
@@ -744,7 +814,7 @@ impl Lowerer<'_> {
                         .err(),
                     );
         }
-        // Rows a control derives.
+        // @ref LLP 1069.001 D8 — rows a control derives.
         if control.is_some() && controls::derived_rows(&mut bindings) {
             if let Some(origins) = &mut origins {
                 origins.resize(bindings.len(), Origin::Own(None));
@@ -754,6 +824,7 @@ impl Lowerer<'_> {
             let rest: Vec<&Attr> = expanded
                 .iter()
                 .filter(|a| native::leftover(tag, a))
+                .chain(declared)
                 .collect();
             let made =
                 self.native_bindings(tag, &rest, scope, locals, &mut bindings, &mut handlers);
@@ -805,20 +876,17 @@ impl Lowerer<'_> {
             );
         }
         if t.node_type.is_text_leaf() {
-            // Regions have no node of their own: a dynamic Markdown
-            // paragraph's each/when still produces only text runs.
-            // An image in the text is the paragraph's own child,
-            // never a run's: its box is placed in the paragraph.
+            // Regions have no node of their own: a `for`, `if` or `match`
+            // among a paragraph's runs produces only its runs (LLP 1011.002
+            // D1). An image in the text is the paragraph's own child, never
+            // a run's: its box is placed in the paragraph.
             fn run(c: &Node, images: bool) -> bool {
                 match c {
                     Node::Element { tag, .. } => {
                         matches!(tag.as_str(), "text" | "time") || images && tag == "image"
                     }
-                    Node::Each { body, .. } => body.iter().all(|c| run(c, images)),
-                    Node::When {
-                        then, otherwise, ..
-                    } => then.iter().chain(otherwise).all(|c| run(c, images)),
-                    _ => false,
+                    Node::Use { .. } | Node::Children { .. } => false,
+                    region => region.children().all(|c| run(c, images)),
                 }
             }
             // A `text` that holds runs, not a string or a `time` value.
@@ -827,15 +895,12 @@ impl Lowerer<'_> {
                 && positional.is_empty()
                 && !expanded.iter().any(|a| a.name == "text");
             // Columns lay a paragraph's lines out apart, which an image's
-            // place is not read from ("Not built").
+            // place is not read from (LLP 1011.002, "Not built").
             fn has_image(c: &Node) -> bool {
                 match c {
                     Node::Element { tag, .. } => tag == "image",
-                    Node::Each { body, .. } => body.iter().any(has_image),
-                    Node::When {
-                        then, otherwise, ..
-                    } => then.iter().chain(otherwise).any(has_image),
-                    _ => false,
+                    Node::Use { .. } | Node::Children { .. } => false,
+                    region => region.children().any(has_image),
                 }
             }
             let columns = expanded
@@ -908,7 +973,7 @@ impl Lowerer<'_> {
                 })
                 .or_insert(Some(style));
         }
-        // Its host-known states' looks, each row lowered
+        // @ref LLP 1121 D8 — its host-known states' looks, each row lowered
         // as the node's own literal rows are (before the node is made: a
         // refusal leaves no node behind).
         let (mut look_rows, mut look_sites) = (Vec::new(), Vec::new());
@@ -1028,7 +1093,8 @@ impl Lowerer<'_> {
                     .any(|(id, v)| *id == StyleId::PositionType && *v != "static"),
             button_context: controls::button_context(tag, control, self.popover_child),
             popover_child: expanded.iter().any(|a| a.name == "popover"),
-            bounded: values::bounded_column(tag, expanded, self.parent_bounded_column),
+            bounded: scroll_bounds::bounded_column(tag, expanded, self.parent_bounded_column),
+            stacks: scroll_bounds::stacks(tag, t.fixed_styles, expanded),
             horizontal_flex: if attrs
                 .iter()
                 .any(|a| a.name == "class" && !matches!(a.value, Expr::Ident(..)))

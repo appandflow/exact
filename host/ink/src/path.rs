@@ -1,4 +1,5 @@
 //! Device-space coverage preserves tiny-skia's fractional edges and clip order.
+//! @ref LLP 1149 D1.2, D2.3.
 use crate::atlas::{Atlas, Entry};
 use crate::device::{Device, Error, Result};
 use tiny_skia::{FillRule, Mask, Path, PathSegment, Transform};

@@ -3,7 +3,7 @@
 //! This is intentionally not a general ASN.1 implementation. Accepting a
 //! broader grammar here would make key import less reviewable, not more useful.
 //!
-//! Key material crosses only through explicit import/export.
+//! @ref LLP 0059.000#314-cryptosubtle--pure-ungated-author-required — key material crosses only through explicit import/export
 
 use super::{Error, Result};
 

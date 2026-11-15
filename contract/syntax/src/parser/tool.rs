@@ -1,4 +1,4 @@
-//! The `tool` line (`crate::tool`).
+//! The `tool` line (LLP 1111 D2; `crate::tool`).
 
 use super::*;
 use crate::tool::{Consequence, Tool};

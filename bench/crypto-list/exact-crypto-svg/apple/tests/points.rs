@@ -1,4 +1,4 @@
-//! The view's `chartPoints` (app.contract) against the string the
+//! The view's `chartPoints` (app.contract, LLP 1017.003) against the string the
 //! data source formatted before (exact-cm's `points`, Rust `{:.2}`), for every
 //! coin in coins.json: the same coordinates, so the same pixels.
 use exact_kernel::{Kernel, PropValue};

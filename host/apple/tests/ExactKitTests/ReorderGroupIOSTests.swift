@@ -74,7 +74,7 @@ final class ReorderGroupIOSTests: XCTestCase {
     /// At its last pixel read back a ULP off the grid's value (UIKit hands
     /// 5/3 back as 1.6666666666666665), a scroller can scroll no further
     /// toward that edge, so autoscroll passes to its ancestor (PixelGrid.same;
-    /// otherwise smooth correction livelocks).
+    /// Astra's audit on the smooth-correction livelock).
     func testAScrollerAtItsLastPixelReadBackOffTheGridCannotScrollOn() throws {
         let (p, _) = fixture(ReorderGroupRecorder(), nested: true)
         let inner = try XCTUnwrap(p.views[1]?.scroll)

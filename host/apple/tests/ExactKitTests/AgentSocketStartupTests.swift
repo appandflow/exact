@@ -1,4 +1,4 @@
-// Bounded physical-device carrier admission before authentication.
+// @ref LLP 1012#summary — bounded physical-device carrier admission before authentication.
 import XCTest
 import Darwin
 @testable import ExactKit

@@ -1,5 +1,5 @@
 //! What the bake wrote into the binary, read back: `compat.json` beside the
-//! plan, which is where a host finds the
+//! plan (LLP 1030 D3a; 1030.000 D4, D7), which is where a host finds the
 //! app id, the cohort, the channel and its origin, the verification keys,
 //! and the activation policy — nothing here is hand-declared.
 //!
@@ -9,7 +9,7 @@
 use crate::envelope::{base64_decode, sha256_hex};
 use crate::store::{Embedded, Trust};
 
-/// When a staged bundle applies (`deploy.activate`).
+/// When a staged bundle applies (LLP 1030.000 D4, `deploy.activate`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Activate {
     /// The next launch boots it; `deliveryActivate` applies it now.
@@ -35,7 +35,7 @@ pub struct Baked {
     /// The activation policy.
     pub activate: Activate,
     /// Whether this binary links an update store at all (`inputs.store.L`
-    /// of `A`). A stripped binary (`0`) opens none.
+    /// of `A`; LLP 1030 D4). A stripped binary (`0`) opens none.
     pub store_linked: bool,
 }
 

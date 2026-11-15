@@ -1,16 +1,16 @@
-// The root tab bar as the window's sidebar. Where an
+// @ref LLP 1115.002 D3 — the root tab bar as the window's sidebar. Where an
 // app's root `tablist` is placed as the tabs recipe writes it (the web's
-// rule for its own sidebar: a horizontal bar, a direct
+// rule for its own sidebar, LLP 1116.004 D1.1: a horizontal bar, a direct
 // child of the root's flex column, in flow), a Mac window shows the tabs as
 // AppKit's source list in a real sidebar beside the page. Which tablist is
-// the root's is the kernel's rule (`Kernel::root_tabs`);
+// the root's is the kernel's rule (`Kernel::root_tabs`, LLP 1115.001 D11);
 // what a tab shows is `TabFace`'s, as UIKit's tab bar item's is.
 //
 // This host says whether the sidebar is wanted and what it shows. The
 // window's owner composes it (`ExactSidebarController`, SidebarViewsMac.swift):
 // a view mounted in someone else's window claims no chrome. While a
 // controller shows the rows, the authored tablist is hidden and its box is
-// the platform's (`HostCovers`), so the page simply narrows. A row a
+// the platform's (`HostCovers`, D8.1), so the page simply narrows. A row a
 // person chooses presses its authored tab: selection, history and a
 // re-press at a tab's root stay the app's, and the selected row is the
 // tab whose stack holds the route the root shows.
@@ -49,9 +49,14 @@ final class SidebarHost {
     /// What a sidebar would show now; nil for an app with no root tab bar,
     /// one whose placement is the author's, or the agent's own chrome.
     private(set) var shown: Shown?
-    var wanted: Bool { shown != nil }
+    /// A window opened at a route shows that route alone (LLP 1030.004
+    /// D2): no sidebar, and the root tab bar is put away as one stands for it.
+    var rooted = false
+    var wanted: Bool { shown != nil && !rooted }
     /// The window's owner hears when `wanted` changes, after the batch.
     var onWanted: (() -> Void)?
+    /// The window keeps its composition across a reset until the new tree is read.
+    private var lastWanted = false
     /// The owner's split view, while it holds this session's view.
     private(set) weak var controller: ExactSidebarController?
     /// The authored tablist the sidebar stands for, hidden while it does.
@@ -73,7 +78,7 @@ final class SidebarHost {
         if let said { presenter.session?.log("sidebar: \(said)") }
     }
 
-    /// The authored tablist hidden while the sidebar shows it.
+    /// LLP 1080.001 D3: the authored tablist hidden while the sidebar shows it.
     func hides(_ node: NodeView) -> Bool { projected === node }
     /// Whether the sidebar shows this tablist's tabs: no segmented control
     /// is made of it (SegmentsMac.swift).
@@ -118,10 +123,13 @@ final class SidebarHost {
         guard !syncing else { return }
         syncing = true
         defer { syncing = false }
-        let was = wanted, stood = projected, inBar = controller?.view.window.map(inToolbar(of:))
+        let stood = projected, inBar = controller?.view.window.map(inToolbar(of:))
         read(batch)
         present()
-        if wanted != was { presenter.afterBatch { [weak self] in self?.onWanted?() } }
+        if wanted != lastWanted {
+            lastWanted = wanted
+            presenter.afterBatch { [weak self] in self?.onWanted?() }
+        }
         // With no batch to run them, the passes that read the projection.
         if batch == nil, stood !== projected || inBar != controller?.view.window.map(inToolbar(of:)) {
             presenter.afterBatch { [weak presenter] in
@@ -173,7 +181,7 @@ final class SidebarHost {
             return
         }
         // An explicit opt-out keeps the bar authored, including when the
-        // sidebar already stands for it.
+        // sidebar already stands for it (LLP 1075.003 §9.10).
         if host.tablist.wrote("appearance"), host.tablist.style["appearance"]?.string == "none" {
             shown = nil
             decide("kept as authored: the root tablist #\(host.tablist.id) writes appearance none")
@@ -212,8 +220,14 @@ final class SidebarHost {
     /// Show what was read, where a controller holds this session's view,
     /// and say in the same step that the tablist's box is the platform's.
     private func present() {
+        if rooted, let shown { return project(shown) }
         guard let shown, let controller, controller.hasSidebar, controller.holds(presenter) else { return unproject() }
         controller.show(shown)
+        project(shown)
+    }
+
+    /// The tablist put away, its box the platform's.
+    private func project(_ shown: Shown) {
         if projected !== shown.tablist {
             unprojectView()
             savedAccessibilityHidden = shown.tablist.isAccessibilityHidden()

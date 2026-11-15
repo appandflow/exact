@@ -1,5 +1,5 @@
-//! Permissions keyed by an argument's values: a permission per data type,
-//! as HealthKit and Health Connect keep
+//! Permissions keyed by an argument's values (LLP 1133.026 D19 items 1 and
+//! 2): a permission per data type, as HealthKit and Health Connect keep
 //! them.
 //!
 //! - **By value** (`permissionValue`): a call asks the permission its
@@ -37,8 +37,8 @@ impl<D: DataSource> Runner<D> {
                 map.remove("permission");
             }
         }
-        // A sheet shown on some targets alone (Apple's restore): elsewhere
-        // the call goes on with no ticket.
+        // A sheet shown on some targets alone (LLP 1133.015 D17: Apple's
+        // restore): elsewhere the call goes on with no ticket.
         if sub["choose"].is_object() && !here(&sub["choose"]) {
             if let Some(map) = sub.as_object_mut() {
                 map.remove("choose");
@@ -147,8 +147,8 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The ticket a request waiting on permission `permission` shares: one
-    /// already held for it, whichever interface's request asked first (two
-    /// interfaces declaring one name share its decision, as the
+    /// already held for it, whichever interface's request asked first (D19
+    /// item 2: two interfaces declaring one name share its decision, as the
     /// platform shows one prompt). Settling it releases every request held
     /// on the name (`permits.rs`).
     pub(super) fn shared_hold(&mut self, waits: super::Waits, permission: &str) -> Option<u64> {
@@ -347,7 +347,7 @@ impl<D: DataSource> Runner<D> {
                     return Err(format!("prefer permission.{n}: denied is not {}'s to say here, which stores `{word}`; prefer shared=false", self.host_target()))
                 }
                 (None, "granted" | "denied" | "prompt", _) => self.set_permission_answered(n, value, None),
-                // A fact the host keeps reads `unknown` until evidence.
+                // A fact the host keeps reads `unknown` until evidence (LLP 1133.036 D8).
                 (None, "unknown", _) if self.host_keeps(n) => self.set_permission_answered(n, value, None),
                 (None, other, _) => {
                     return Err(format!("prefer permission.{n}: granted, denied or prompt, or shared= or since=, not `{other}`"))

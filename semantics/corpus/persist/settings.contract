@@ -1,4 +1,4 @@
-// `state … persist`: a persisted state starts from the
+// `state … persist` (LLP 1116 D5): a persisted state starts from the
 // device's store where it holds a value of the state's type, else from its
 // initializer; after every commit that stands the store holds the state's
 // value (each step's `store` lines). A test starts from an empty store;

@@ -1,6 +1,6 @@
 //! WYSIWYG Markdown editing over the source string.
 //!
-//! The editor's value is the Markdown source and nothing
+//! @ref LLP 1045 D1/D5 — the editor's value is the Markdown source and nothing
 //! else. Syntax is hidden, never removed: a host draws [`Editor::lines`], one
 //! per source line, with [`view::HIDDEN`] segments kept out of layout, so the
 //! drawn text is the source and the platform's own typing, composition and
@@ -34,8 +34,8 @@ pub use projection::Deco;
 pub use view::Line;
 
 /// Each link's and image's `[` (or `![`) and `](target)` in `styled`, in
-/// UTF-16 code units: the destinations a host that hides only those (Apple)
-/// keeps out of layout, with the opener a deletion keeps beside
+/// UTF-16 code units: the destinations a host that hides only those (Apple,
+/// LLP 1045 D5) keeps out of layout, with the opener a deletion keeps beside
 /// a kept destination. A destination that spans a line break is left shown:
 /// hidden, its newline would leave an empty line.
 pub fn link_destinations(source: &str, styled: &exact_markdown::Styled) -> Vec<[u32; 4]> {

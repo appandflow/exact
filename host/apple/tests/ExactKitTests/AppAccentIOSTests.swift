@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// The root's `accent-color` is the app's accent, its window's
+/// LLP 1095: the root's `accent-color` is the app's accent, its window's
 /// tint, and behind an alert only the accent dims.
 final class AppAccentIOSTests: XCTestCase {
     private var window: UIWindow!
@@ -174,7 +174,7 @@ final class AppAccentIOSTests: XCTestCase {
         let p3: [String: Any] = ["c": [255, 0, 0, 255], "cs": [["s": "display-p3", "v": [1.0, 0.0, 0.0, 1.0]]]]
         _ = presenter(view(1, style: ["accent_color": p3]) + [["op": "roots", "ids": [1]]])
         let space = try XCTUnwrap(window.tintColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).cgColor.colorSpace?.name)
-        // Exact makes a P3 colour in the extended space, unclipped
+        // Exact makes a P3 colour in the extended space, unclipped (LLP 1100 D2)
         XCTAssertEqual(space as String, CGColorSpace.extendedDisplayP3 as String, "the window's tint is the authored Display P3 red, not its clipped sRGB")
     }
 
@@ -501,7 +501,7 @@ final class AppAccentIOSTests: XCTestCase {
         XCTAssertNotEqual(accent.renderingMode, .alwaysOriginal, "the accent follows the tint, which UIKit greys")
     }
 
-    /// A symbol in a box of another shape keeps its aspect under
+    /// LLP 1011 §4: a symbol in a box of another shape keeps its aspect under
     /// CSS's default `object-fit: fill`, as an SVG does; `cover` and `none` say otherwise.
     func testASymbolKeepsItsAspectUnderFill() throws {
         func symbol(_ id: Int, _ style: [String: Any]) -> [[String: Any]] {

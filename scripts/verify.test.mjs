@@ -1,4 +1,4 @@
-// `bun exact.mjs verify` is one call a builder can stop on: a clean run in a few
+// LLP 1116.004 D7, 1116.005 D7: `bun exact.mjs verify` is one call a builder can stop on: a clean run in a few
 // lines, a failing test that fails it, a check finding or a compiler warning said once, reported but not failing
 // it, each test's end screen checked under its name, and one relaunch on a test's store.
 // `bun test ./scripts/verify.test.mjs` (the last test builds and drives a new app in Chrome: about a minute).
@@ -11,7 +11,8 @@ import { resolve, toNamespacedPath } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
 import { findings } from '../host/apple/feel/analyze.mjs';
 import { chromium } from './agent-launch.mjs';
-import { ago, appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, recordedServerAddress, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, reusable, savedChanges, screenTexts, serverUrl, shotName, storedTexts, warningsOfBuild } from './verify.mjs';
+import { ancestors, parentsOf } from './processes.mjs';
+import { ago, appServer, buildProgress, buildWarnings, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, reusable, savedChanges, screenTexts, serverChoice, serverUrl, shotName, storedTexts, warningsOfBuild } from './verify.mjs';
 import { semanticsSummary } from './verify-semantics.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
@@ -25,19 +26,18 @@ function onPort(dir) {
 const runs = (lines, screen) => SIZES.flatMap((size) => ['light', 'dark'].map((scheme) => ({ ...(screen ? { screen } : {}), size, scheme, asked: scheme, lines: lines(size, scheme), hidden: 0 })));
 const shots = SIZES.flatMap(([w, h]) => ['light', 'dark'].map((scheme) => `/app/.exact/verify/web-${w}x${h}-${scheme}.png`));
 
-test('contract verify beside the run: a line, the receipt; a failure\'s own lines, not the routine ones', () => {
+test('contract verify beside the run: one line of counts and the report path; a failure\'s own lines', () => {
   const receipt = ['verify receipt — reproduce: contract verify app.contract --walks 20', '  scripts: 2 tests delivered (2 whole; 0 in part: none; 0 skipped: none), 1 explored, 20 walks',
-    '  suggestions: 3 observed candidates; 2 printed; 1 dropped', '    dropped set "q is one of 6 values": `q`: the value is not bounded', '  properties: 0 held, 0 false, 0 counted only, 0 not exercised'];
+    '  suggestions: 3 observed candidates; 2 printed; 1 dropped', '    dropped set "q is one of 6 values": `q`: the value is not bounded', '  properties: 1 held, 0 false, 2 counted only, 3 not exercised'];
   const routine = ['undeliverable parser step kinds: drag, reload', 'WHOLE /app/app.test.contract: adds; kept: /x.events', 'NOTE /app/app.test.contract: adds: with the oracle\'s data, after step 0: Text("n", "1") does not hold',
-    'OUTSIDE walk 1 from "boot": # unsupported: roster entry `toLowerCase`', 'runner: 1.0s; 22 search scripts; 0 findings; 0 shrink candidates', 'properties: 0 held, 0 false, 0 counted only, 0 not exercised; 0 violations, 0 counted-only line steps'];
+    'OUTSIDE walk 1 from "boot": # unsupported: roster entry `toLowerCase`', 'runner: 1.0s; 22 search scripts; 1 finding; 0 shrink candidates', 'properties: 1 held, 0 false, 2 counted only, 3 not exercised; 0 violations, 4 counted-only line steps'];
   const suggestions = ['Observed over 23 scripts and 400 steps and code-consistent, not proved; keep the ones the app means:', '', 'always "n is a whole number"', '  expect state n whole', '', 'after "add" "add writes only n"', '  only writes n', ''];
   const clean = semanticsSummary({ exit: 0, output: [...routine, ...suggestions, ...receipt].join('\n'), errors: '' }, '.exact/verify/properties.txt');
-  assert.deepEqual(clean, ['contract verify: done; 2 suggested properties (observed, not proved: keep the ones the app means); every line: .exact/verify/properties.txt',
-    ...receipt.filter((l) => !l.includes('dropped set'))]);
+  assert.deepEqual(clean, ['contract verify: done; 1 finding; properties: 1 held, 0 false, 2 counted only, 3 not exercised; 2 suggested properties (observed, not proved: keep the ones the app means); report and receipt: .exact/verify/properties.txt']);
   const false_ = ['property "n stays small": false', '  after tap "add" at step 3: n = 7'];
-  const failed = semanticsSummary({ exit: 1, output: [...routine, ...false_, ...suggestions, ...receipt].join('\n'), errors: 'cargo: a warning\n' }, 'p.txt');
-  assert.deepEqual(failed.slice(0, 4), ['contract verify: failed (exit 1); 2 suggested properties (observed, not proved: keep the ones the app means); every line: p.txt', ...false_, 'cargo: a warning']);
-  assert.equal(failed.at(-1), receipt.at(-1));
+  const failed = semanticsSummary({ exit: 1, output: [...routine, ...false_, ...suggestions, ...receipt].join('\n').replaceAll('0 false', '1 false'), errors: 'cargo: a warning\n' }, 'p.txt');
+  assert.deepEqual(failed, ['contract verify: failed (exit 1); 1 finding; properties: 1 held, 1 false, 2 counted only, 3 not exercised; 2 suggested properties (observed, not proved: keep the ones the app means); report and receipt: p.txt', ...false_, 'cargo: a warning']);
+  assert.deepEqual(semanticsSummary({ exit: 1, output: '', errors: 'could not compile\n' }, 'p.txt'), ['contract verify: failed (exit 1); report and receipt: p.txt', 'could not compile']);
 });
 
 test('the report: clean in four lines; a failed test fails it; a finding is said once, where it was', () => {
@@ -50,7 +50,7 @@ test('the report: clean in four lines; a failed test fails it; a finding is said
     'verify: clean in 4.0 s',
   ]);
   assert.equal(clean.exit, 0);
-  // `--shots <dir>`: the line says where they were copied too.
+  // `--shots <dir>` (LLP 1116.008 D2): the line says where they were copied too.
   assert.equal(report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots, copied: '/app/shots', ms: 4000, cwd: '/app' }).lines[2],
     'screenshots (.exact/verify, copied to shots): web-390x844-light.png web-390x844-dark.png web-1280x900-light.png web-1280x900-dark.png');
 
@@ -79,6 +79,10 @@ test('the report: clean in four lines; a failed test fails it; a finding is said
   assert.equal(found.lines[2], '  (1280x900 only) contrast Text "Due"#12 [16,78 60×18]: 1.3:1 (#dddddd on #ffffff), needs 4.5:1');
   assert.equal(found.lines.at(-1), 'verify: 1 problem (1 finding; the tests passed) in 5.0 s');
   assert.equal(found.exit, 0);
+  // `--strict` gates on the count: the same report exits 1, its lines unchanged (LLP 1156.001 D1).
+  const strict = report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(([w]) => (w === 1280 ? [contrast] : [])), shots, ms: 5000, cwd: '/app', strict: true });
+  assert.deepEqual([strict.lines, strict.exit], [found.lines, 1]);
+  assert.equal(report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots, ms: 4000, cwd: '/app', strict: true }).exit, 0);
   const stuck = report({ host: 'web', built: null, tested: { none: true }, checks: [{ size: null, label: '390x844', error: 'the page never drew\nstack' }], shots: [], ms: 9000 });
   assert.deepEqual(stuck.lines, ['tests: none (no *.test.contract)', 'check 390x844: could not drive: the page never drew', 'verify: 1 problem (1 failure to compile or drive) in 9.0 s']);
   assert.equal(stuck.exit, 1);
@@ -89,7 +93,7 @@ test('the report: clean in four lines; a failed test fails it; a finding is said
   assert.equal(unrun.exit, 1);
 });
 
-// Each test's end screen is in the one report, its findings under the test's name and said once
+// LLP 1116.005 D7: each test's end screen is in the one report, its findings under the test's name and said once
 // with the first screen's; the relaunch is a line of its own, and what it lost a finding.
 test('the journeys: a test end\'s finding under its name, deduplicated across screens; the relaunch line', () => {
   const clipped = ([w]) => `  clipped  Text "Total"#9 [16,96 ${w - 330}×18]: its text is 40 px wider than its box, which clips it`;
@@ -154,7 +158,7 @@ test('the relaunch: the store of a passing test that wrote the most; what came b
   assert.deepEqual(slow.problems.map((p) => p.trim().split(/\s+/)[0]), ['loading', 'failed']);
 });
 
-// A test that pinned its date left data a month-filtered screen shows only under that date, so the
+// LLP 1116.007 D3.4: a test that pinned its date left data a month-filtered screen shows only under that date, so the
 // relaunch is made under the test's launch facts and compared with a fresh launch under them; only a test whose facts
 // are not the driver's own asks for that second fresh launch.
 test('the relaunch keeps a test\'s pinned date, zone, locale and seed', () => {
@@ -170,6 +174,10 @@ test('the relaunch keeps a test\'s pinned date, zone, locale and seed', () => {
   const dark = { ...defaults, media: { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce' } };
   assert.equal(pinnedLaunch(test(dark), defaults), true);
   assert.deepEqual(relaunchFacts(test(dark)).media, dark.media);
+  assert.equal(pinnedLaunch(test({ ...defaults, permissions: {} }), defaults), false);
+  const allowed = { ...defaults, permissions: { 'permission.notifications': 'granted' } };
+  assert.equal(pinnedLaunch(test(allowed), defaults), true);
+  assert.deepEqual(relaunchFacts(test(allowed)).permissions, allowed.permissions);
 
   assert.equal(pinnedLaunch({ name: 'saves', end: { keep: true } }, defaults), false); // a test run without launch facts
 
@@ -181,7 +189,7 @@ test('the relaunch keeps a test\'s pinned date, zone, locale and seed', () => {
   assert.equal(judgeRelaunch(saved, october([]), october([])).problems.length, 1);
 });
 
-// A `reload` relaunches at the virtual time the test had reached, and so does verify's relaunch; a test
+// LLP 1116.009 D1: a `reload` relaunches at the virtual time the test had reached, and so does verify's relaunch; a test
 // that only moved the clock pinned nothing, but its first screen may say another day, so the comparison is made at that day.
 test('the relaunch starts at the date the test reached, which moves the comparison with it and pins nothing', () => {
   const defaults = { epoch: Date.parse('2026-01-01T00:00:00Z'), timeZone: 'UTC', locale: 'en-US', seed: 1 };
@@ -212,11 +220,11 @@ test('the compiler\'s warnings: a group before the tests, by rule as findings ar
   assert.equal(many.exit, 0);
 });
 
-// `tamber-unreachable` names where the platform's own look stands: said, never counted (2026-10-30).
+// `forma-unreachable` names where the platform's own look stands: said, never counted (LLP 1121 D9, 2026-10-30).
 test('a compiler warning that is information is said apart and not counted', () => {
-  const note = 'app.contract:32:62 warning [tamber-unreachable] accent-color on macOS switches: NSSwitch draws the system accent (the first at line 34)';
+  const note = 'app.contract:32:62 warning [forma-unreachable] accent-color on macOS switches: NSSwitch draws the system accent (the first at line 34; LLP 1121 D9)';
   const r = report({ host: 'web', built: null, compiler: [note], tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000 });
-  assert.deepEqual(r.lines.slice(0, 2), ['compiler: 1 note, not counted (the platform\'s own look stands there)', `  ${note}`]);
+  assert.deepEqual(r.lines.slice(0, 2), ['compiler: 1 note, not counted (the platform\'s own look stands there; LLP 1121 D9)', `  ${note}`]);
   assert.equal(r.lines.at(-1), 'verify: clean in 4.0 s');
   assert.equal(r.problems, 0);
 });
@@ -243,7 +251,7 @@ test('the compiler\'s warnings are read from the build\'s JSON, every one, in th
   // The report counts them all, in the build's order.
   const r = report({ host: 'ios', built: null, compiler: said, tested: { none: true }, checks: [], shots: [], ms: 1000 });
   assert.equal(r.lines[0], 'compiler: 22 warnings');
-  // Many findings are said by kind in the closing line; a compiler warning is no kind verify.accept takes.
+  // Many findings are said by kind in the closing line (LLP 1143 D5); a compiler warning is no kind verify.accept takes.
   assert.equal(r.lines.at(-1), 'verify: 22 problems (22 findings: 20 lower-symbol-platform, 1 lower-header-unplaced, 1 lower-symbol-alias; the tests passed) in 1.0 s');
   assert.ok(!r.lines.some((l) => l.startsWith('most findings are')));
   // A file elsewhere, or none, is kept as given; a build with no JSON (Cargo failing to build the compiler, a text
@@ -252,9 +260,20 @@ test('the compiler\'s warnings are read from the build\'s JSON, every one, in th
   assert.deepEqual(warningsOfBuild(`error: could not compile\n${cwd}/app.contract:9:5 warning [lower-header-unplaced] text form\n`, cwd), ['app.contract:9:5 warning [lower-header-unplaced] text form']);
 });
 
-// A screen survives a reload. Each test's end screen is reloaded where it stands and its texts compared;
-// a flashcards study screen reloaded into "0 / 0", a focus timer's settings into 25 and 5 over the saved 30 and 10.
-// The first is a note (a session in progress lives in memory), the second a finding (a saved value came back different).
+// An outside workspace carries every crates.io patch exact2 requires (LLP 1036.001 D2); Cargo says each one the app's
+// graph does not use, on the runs that build, which flipped verify between clean and four problems.
+test('the build\'s warnings leave out the unused patches exact2 requires, never the author\'s own', () => {
+  const vendored = (name, dir = name) => `warning: patch \`${name} v0.11.1 (${resolve(import.meta.dir, '..', 'vendor', dir)})\` was not used in the crate graph`;
+  const own = 'warning: patch `itoa v1.0.99 (/work/app/patches/itoa)` was not used in the crate graph';
+  const moved = 'warning: patch `parley v0.11.1 (/work/app/patches/parley)` was not used in the crate graph';
+  const output = [vendored('accesskit_windows', 'accesskit-windows'), vendored('fontique'), vendored('parley'), vendored('wgpu-hal'),
+    'help: Check that the patched package version and available features are compatible', own, moved, 'warning: unused variable: `x`'].join('\n');
+  assert.deepEqual(buildWarnings(output), [own, moved, 'warning: unused variable: `x`']);
+});
+
+// LLP 1116.010 D6: a screen survives a reload. Each test's end screen is reloaded where it stands and its texts compared;
+// round 12's flashcards study screen reloaded into "0 / 0", focus-timer's settings into 25 and 5 over the saved 30 and 10.
+// LLP 1116.011 D5: the first is a note (a session in progress lives in memory), the second a finding (a saved value came back different).
 test('a reload: the texts a screen shows, what it forgives, and the note that names the route', () => {
   const node = (depth, props, extra = {}) => ({ id: 1, type: 'Text', depth, props, ...extra });
   const nodes = [
@@ -308,13 +327,13 @@ test('a reload: the texts a screen shows, what it forgives, and the note that na
   assert.equal(judgeReload(shown('/', 'Home'), shown('/other', 'Home')), null); // the same words on another URL are nothing to say
 });
 
-// A reload that changes the screen is a note; it is a finding only when a saved value came back different.
+// LLP 1116.011 D5: a reload that changes the screen is a note; it is a finding only when a saved value came back different.
 test('a reload: the persisted states, and the evidence that something saved was lost', () => {
   assert.deepEqual(persistedStates('/no/such/app'), []);
   const dir = mkdtempSync(resolve(tmpdir(), 'verify-persist-'));
   try {
-    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  state goal = 2000 persist\n  state last-seen = "" persist // kept\n  state draft = ""\n  state label = "persist"\n  state note = "x" // persist\n  state tab = "home"  persist  \n  view\n    text "x"\n');
-    assert.deepEqual(persistedStates(dir), ['goal', 'last-seen', 'tab']);
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  state goal = 2000 persist\n  state last-seen = "" persist // kept\n  state draft = ""\n  state label = "persist"\n  state note = "x" // persist\n  state tab = "home"  persist  \n  state typed-goal: number = 8 persist\n  state saved: string[] = [] persist\n  state typed: string = "persist"\n  view\n    text "x"\n');
+    assert.deepEqual(persistedStates(dir), ['goal', 'last-seen', 'tab', 'typed-goal', 'saved']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 
   const node = (testId, value, extra = {}) => ({ id: 1, type: 'TextInput', depth: 1, props: { testId, value }, ...extra });
@@ -376,11 +395,11 @@ test('the report: each test end reloaded; a saved value lost is a finding once a
   const stuck = report({ ...base, tested: { passed: 1, failed: 0, results: [] },
     reloads: [{ test: 'saves', ran: true, error: 'reload: the app\'s storage did not finish before the restart: x\nmore' }] });
   assert.deepEqual(stuck.lines.slice(2, 4), ['reload 1 test end: 1 finding', '  reload   "saves": could not reload the end screen: reload: the app\'s storage did not finish before the restart: x']);
-  // The iOS report has no reload: a native host's cold launch is `/`.
+  // The iOS report has no end-route reload: relaunch uses its launch location, defaulting to the manifest's `start_url`.
   assert.ok(!report({ ...base, host: 'ios', reloads: [{ test: 'a', ran: false }] }).lines.some((l) => l.startsWith('reload')));
 });
 
-// What the host refused while the app ran is in the journal (and, on iOS, the host's stderr); verify shows it first.
+// LLP 1116.010 D5: what the host refused while the app ran is in the journal (and, on iOS, the host's stderr); verify shows it first.
 test('run-time refusals: found in the journal and the host\'s lines, shown first, counted as findings', () => {
   const swipe = 'swipeContent on #243 is refused: "delete-1" names no one descendant of it; a row needs one full-size descendant and uniquely named descendant press controls with accessible names';
   assert.deepEqual(refusalsOf({
@@ -411,7 +430,7 @@ test('check\'s text splits by scheme, counting what its own cap left out', () =>
   assert.equal(light.lines.length, 12);
   assert.equal(light.hidden, 1);
   assert.deepEqual([dark.lines, dark.hidden], [[], 0]);
-  // Advice is kept apart, never a finding: a check with only advice is clean.
+  // Advice (LLP 1116.004 D1.3) is kept apart, never a finding: a check with only advice is clean.
   const [wide] = groups('check web · light: no findings (text fits)\n  advice   tabs: a bottom tab bar 1280 px wide');
   assert.deepEqual([wide.lines, wide.advice], [[], ['  advice   tabs: a bottom tab bar 1280 px wide']]);
   const r = report({ host: 'web', built: { ms: 1000, said: [], warnings: [] }, compiler: [], tested: { passed: 1, failed: 0, results: [] },
@@ -420,340 +439,57 @@ test('check\'s text splits by scheme, counting what its own cap left out', () =>
   assert.ok(r.lines.includes('  advice   tabs: a bottom tab bar 1280 px wide'));
 });
 
-// The server an app calls, found where the rest pattern and the builders put it.
-// An entry that does not read DB (itself, or in a module it imports) is refused in one line naming it.
-test('the app\'s server: its entry, the URL app.ts calls, and why it cannot be run on an empty database', () => {
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-server-'));
-  const put = (files) => { rmSync(dir, { recursive: true, force: true }); for (const [path, text] of Object.entries(files)) { mkdirSync(resolve(dir, path, '..'), { recursive: true }); writeFileSync(resolve(dir, path), text); } };
-  const reads = "const db = new Database(process.env.DB ?? 'data.db');\n";
+// The handle spans files and later verify passes; closing a client does not empty a backend.
+test.skipIf(!!chromium().unavailable).each([true, false])('owned servers start each test empty across files, replay and tour (database: %s)', async (database) => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-test-isolation-'));
+  const { startServer } = await import('./verify.mjs');
+  const { runTests } = await import('./agent-test.mjs');
   try {
-    put({ 'app.ts': "const API = 'http://127.0.0.1:6810'; // a phone reaches http://192.168.1.2:6810\n", 'server/index.ts': reads });
-    assert.deepEqual(appServer(dir), { entry: 'server/index.ts', args: [], database: true, url: 'http://127.0.0.1:6810', port: 6810, why: null, refusal: null, settings: {} });
-    put({ 'app.ts': "export const API = 'http://127.0.0.1:8787';\n", 'server.ts': reads, 'srv/main.ts': reads, 'app.json': JSON.stringify({ commands: { server: ['bun', '--watch', 'srv/main.ts'] } }) });
-    assert.equal(appServer(dir).entry, 'srv/main.ts');
-    put({ 'app.ts': "import type { Answer } from './app.contract.d.ts';\nimport { API } from './api';\n", 'api.ts': "export const API = 'http://localhost:3000/v1/';\n", 'server/server.ts': 'const DB = Bun.env.DB;\n' });
-    assert.deepEqual([serverUrl(dir), appServer(dir).port, appServer(dir).refusal], ['http://localhost:3000/v1', 3000, null]);
-    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': "new Database('data.db');\n" });
-    assert.match(appServer(dir).refusal, /^server\.ts does not read its database's path from DB, so it cannot be run on an empty one: write new Database\(process\.env\.DB \?\? 'data\.db'\) in it .*"commands": \{ "server": \["bun", "server\/index\.ts"\] \}$/);
-    assert.equal(appServer(dir).why, null);
-    // The entry app.json names is the one it looked at, and says so.
-    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': reads, 'srv/main.ts': 'Bun.serve({});\n', 'app.json': JSON.stringify({ commands: { server: ['bun', 'srv/main.ts'] } }) });
-    assert.match(appServer(dir).refusal, /^srv\/main\.ts \(app\.json's commands\.server\) does not read /);
-    put({ 'app.ts': "const API = 'https://api.example.com';\n", 'server.ts': reads });
-    assert.match(appServer(dir).why, /^server\.ts is left alone: app\.ts calls no local URL/);
-    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n" });
-    assert.equal(appServer(dir), null);
-    // A setting app.ts reads, as the build inlines it: the environment's, else .env.local's, else .env's,
-    // else the default; a value that is no local URL leaves the server alone, though the default it overrides is one.
-    const setting = { 'app.ts': "export const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080';\nexport const grants = `net.fetch ${API}`;\n", 'app.json': JSON.stringify({ env: ['API_BASE_URL'], server: { database: false } }), 'server.ts': 'Bun.serve({});\n' };
-    put(setting);
-    assert.equal(serverUrl(dir, {}), 'http://127.0.0.1:8080');
-    put({ ...setting, '.env': 'API_BASE_URL=http://127.0.0.1:8787\n' });
-    assert.deepEqual([appServer(dir, {}).url, appServer(dir, {}).refusal], ['http://127.0.0.1:8787', null]);
-    put({ ...setting, '.env': 'API_BASE_URL=http://127.0.0.1:8787\n', '.env.local': 'API_BASE_URL=http://localhost:9000\n' });
-    assert.equal(serverUrl(dir, {}), 'http://localhost:9000');
-    assert.equal(serverUrl(dir, { API_BASE_URL: 'http://127.0.0.1:7000' }), 'http://127.0.0.1:7000');
-    assert.equal(appServer(dir, { API_BASE_URL: 'https://api.example.com' }).url, null);
-    assert.match(appServer(dir, { API_BASE_URL: 'https://api.example.com' }).why, /^server\.ts is left alone: app\.ts calls no local URL/);
-    // The spellings of reading DB, and a root shim that only imports the backend that reads it (book-club, polls, event-rsvp).
-    for (const spelling of ['Bun.env.DB', 'process.env["DB"]', "process.env['DB'] ?? 'x.db'", 'env.DB', 'process.env?.DB', "const { DB } = process.env;", "const { DB: path = 'x.db', PORT } = Bun.env;", 'start(process.env.DB)']) {
-      put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': `${spelling}\n` });
-      assert.equal(appServer(dir).refusal, null, spelling);
+    const dir = resolve(parent, database ? 'database' : 'memory');
+    createApp(dir); applyPattern(dir, 'rest');
+    const port = onPort(dir);
+    const test = (name) => `test "${name}"\n  expect state lib.items.length == 0\n  request POST "/items" {"title":"Milk"} as ada\n  clock +4000\n  clock data\n  expect state lib.items.length == 1\n  reload\n  expect state lib.items.length == 1\n`;
+    const file = resolve(dir, 'app.test.contract'), second = resolve(dir, 'other.test.contract');
+    writeFileSync(file, test('first writes') + test('second starts empty'));
+    writeFileSync(second, 'test "another file starts empty"\n  expect state lib.items.length == 0\n');
+    if (!database) {
+      writeFileSync(resolve(dir, 'server.py'), `import http.server, json, os, signal\nitems = []\nclass Handler(http.server.BaseHTTPRequestHandler):\n def log_message(self, *args): pass\n def do_GET(self):\n  self.send_response(200); self.send_header('Access-Control-Allow-Origin', '*'); self.end_headers(); self.wfile.write(json.dumps(items).encode())\n def do_POST(self):\n  self.rfile.read(int(self.headers.get('Content-Length', 0))); items.append(dict(id=len(items)+1,title='Milk',notes='',locked=0)); self.do_GET()\n def do_OPTIONS(self):\n  self.send_response(204); self.send_header('Access-Control-Allow-Origin', '*'); self.send_header('Access-Control-Allow-Headers', '*'); self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'); self.end_headers()\nhttp.server.HTTPServer.allow_reuse_address = True\n# The launcher exits on TERM; this child proves group-wide escalation still reaches it.\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\nhttp.server.HTTPServer(('127.0.0.1', int(os.environ['PORT'])), Handler).serve_forever()\n`);
+      writeFileSync(resolve(dir, 'launcher.py'), `import os, subprocess, sys\nchild = subprocess.Popen([sys.executable, 'server.py'])\nopen('.exact/child.pid', 'w').write(str(child.pid))\nchild.wait()\n`);
+      const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, server: { database: false }, commands: { server: ['python3', 'launcher.py'] } }));
     }
-    for (const reader of ["process.env.DB_PATH", 'const DB = "data.db"', '// the DB is data.db']) {
-      put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': `${reader}\n` });
-      assert.match(appServer(dir).refusal, /^server\.ts does not read/, reader);
-    }
-    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': "import './server/index.ts';\n", 'server/index.ts': "import { serve } from './polls';\nserve();\n", 'server/polls.ts': reads });
-    assert.equal(appServer(dir).refusal, null);
-    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': "export * from './a';\n", 'a.ts': "import('./b');\n", 'b.ts': "import './a';\nconst x = require('./c');\n", 'c.js': 'new Database("data.db");\n' });
-    assert.match(appServer(dir).refusal, /^server\.ts does not read/); // the cycle ends
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-// A real child records its arguments and environment. The port lock, HTTP readiness and process listing are stubbed,
-// in a separate process so Bun's module mock cannot replace the lock for other tests.
-function stubServerRun(body) {
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-server-command-'));
-  const script = `
-    import assert from 'node:assert/strict';
-    import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-    import { resolve } from 'node:path';
-    import { spawnSync } from 'node:child_process';
-    import { mock, spyOn } from 'bun:test';
-    const dir = ${JSON.stringify(dir)}, scripts = ${JSON.stringify(import.meta.dir)};
-    const argv = ['--world', 'transcript', '--label', 'two words', '--reset-on-identify'];
-    const manifest = { name: 'Server test', app: { id: 'dev.exact.server-test', name: 'Server test' }, commands: { server: ['bun', 'server.ts', ...argv] }, server: { database: false } };
-    const save = () => writeFileSync(resolve(dir, 'app.json'), JSON.stringify(manifest));
-    save();
-    writeFileSync(resolve(dir, 'app.contract'), 'component App\\n  view\\n    text "Test"\\n');
-    writeFileSync(resolve(dir, 'app.ts'), 'export const origin = "http://127.0.0.1:4790";');
-    const ready = resolve(dir, 'ready.json');
-    const serving = ${JSON.stringify("import { writeFileSync } from 'node:fs';\nwriteFileSync('ready.json', JSON.stringify({ argv: process.argv.slice(2), db: process.env['D' + 'B'] ?? null, port: process.env.PORT }));\nsetInterval(() => {}, 1000);\n")};
-    writeFileSync(resolve(dir, 'server.ts'), serving);
-    const record = () => JSON.parse(readFileSync(ready, 'utf8'));
-    let taken = 0, given = 0;
-    mock.module(resolve(scripts, 'port-lock.mjs'), () => ({ holderOf: async () => null, takePort: async (port) => {
-      assert.equal(port, 4790); taken++; return () => { given++; };
-    } }));
-    spyOn(globalThis, 'fetch').mockImplementation(async () => {
-      if (!existsSync(ready)) throw new Error('not ready');
-      return new Response('ready');
-    });
-    const children = [], spawn = Bun.spawn;
-    spyOn(Bun, 'spawn').mockImplementation((...args) => { const child = spawn(...args); children.push(child); return child; });
-    const processes = await import('node:child_process'), spawnSyncReal = processes.spawnSync;
-    mock.module('node:child_process', () => ({ ...processes, spawnSync: (command, args, options) => command === 'ps'
-      ? { stdout: children.some((child) => child.pid === Number(args.at(-1))) ? 'bun server.ts' : '' }
-      : spawnSyncReal(command, args, options) }));
-    const { appServer, startServer, withAppServer, driveServer } = await import(resolve(scripts, 'verify.mjs'));
-    process.env.DB = resolve(dir, 'inherited.db');
-    try { ${body} }
-    finally { for (const child of children) { if (child.exitCode == null) child.kill('SIGKILL'); await child.exited; } }
-  `;
-  try {
-    const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 20_000 });
-    assert.equal(r.status, 0, r.stdout + r.stderr + (r.error ?? ''));
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-}
-
-test('server command arguments reach the child in order, with DB and PORT for a database server', () => {
-  stubServerRun(`
-    delete manifest.server; save();
-    writeFileSync(resolve(dir, 'server.ts'), "import { writeFileSync as write } from 'node:fs'; write(process.env.DB, 'scratch');\\n" + serving);
-    const server = appServer(dir);
-    assert.equal(server.refusal, null);
-    const running = await startServer(dir, server, 'test');
-    const db = resolve(dir, '.exact/test/db.sqlite');
-    assert.deepEqual(record(), { argv, db, port: '4790' });
-    assert.equal(readFileSync(db, 'utf8'), 'scratch');
-    assert.equal(readFileSync(resolve(dir, '.exact/test/owner'), 'utf8').trim(), String(process.pid));
-    await running.stop();
-    assert.notEqual(await children[0].exited, 0);
-    assert.equal(existsSync(resolve(dir, '.exact/test')), false);
-    assert.deepEqual([taken, given], [1, 1]);
-  `);
-}, 30_000);
-
-// A server that imports app.ts (the site pattern's) reads its settings as the build has them, though
-// Bun's own .env loading under NODE_ENV=test skips .env.local, so it listens where discovery looks.
-test('the settings app.ts reads reach the server as the build has them', () => {
-  stubServerRun(`
-    manifest.env = ['API_BASE_URL']; save();
-    delete process.env.API_BASE_URL;
-    process.env.NODE_ENV = 'test';
-    writeFileSync(resolve(dir, 'app.ts'), "export const origin = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080';\\n");
-    writeFileSync(resolve(dir, '.env'), 'API_BASE_URL=http://127.0.0.1:8787\\n');
-    writeFileSync(resolve(dir, '.env.local'), 'API_BASE_URL=http://127.0.0.1:4790\\n');
-    // As site's server.ts does: its address is app.ts's, read through Bun's import.meta.env.
-    writeFileSync(resolve(dir, 'server.ts'), "import { writeFileSync } from 'node:fs';\\nimport { origin } from './app.ts';\\nwriteFileSync('ready.json', JSON.stringify({ api: origin, port: process.env.PORT }));\\nsetInterval(() => {}, 1000);\\n");
-    // Discovery read under one environment; the server is given what it read, whatever this process inherited.
-    const server = appServer(dir, { ...process.env });
-    process.env.API_BASE_URL = 'http://127.0.0.1:8080';
-    assert.equal(server.url, 'http://127.0.0.1:4790');
-    const running = await startServer(dir, server, 'test');
-    assert.deepEqual(record(), { api: 'http://127.0.0.1:4790', port: '4790' });
-    await running.stop();
-  `);
-}, 30_000);
-
-test('database: false omits inherited DB, preserves database files, and keeps refusal and cleanup behavior', () => {
-  stubServerRun(`
-    const server = appServer(dir);
-    assert.equal(server.refusal, null);
-    const runDir = resolve(dir, '.exact/test');
-    mkdirSync(runDir, { recursive: true });
-    const files = ['db.sqlite', 'db.sqlite-wal', 'db.sqlite-shm', 'db.sqlite-journal'];
-    for (const file of files) writeFileSync(resolve(runDir, file), 'untouched');
-    await assert.rejects(withAppServer(dir, async () => {
-      assert.deepEqual(record(), { argv, db: null, port: '4790' });
-      throw new Error('test failed');
-    }, { verb: 'test', optional: true }), /test failed/);
-    for (const file of files) assert.equal(readFileSync(resolve(runDir, file), 'utf8'), 'untouched');
-    assert.equal(existsSync(resolve(runDir, 'owner')), false);
-    assert.notEqual(await children[0].exited, 0);
-    assert.deepEqual([taken, given], [1, 1]);
-    assert.equal(await withAppServer(dir, () => assert.fail('an answering server must be refused'), { verb: 'test' }), 1);
-    assert.equal(children.length, 1);
-    assert.deepEqual([taken, given], [2, 2]);
-    rmSync(ready);
-    rmSync(runDir, { recursive: true });
-    const running = await startServer(dir, server, 'test');
-    assert.deepEqual(record(), { argv, db: null, port: '4790' });
-    assert.deepEqual(readdirSync(runDir), ['owner']);
-    await running.stop();
-    assert.equal(existsSync(runDir), false);
-    delete manifest.server; save();
-    assert.match(appServer(dir).refusal, /does not read its database's path from DB/);
-    assert.equal(await withAppServer(dir, () => assert.fail('a database server without DB must be refused'), { optional: true }), 1);
-    assert.equal(children.length, 2);
-  `);
-}, 30_000);
-
-test('agent --test starts and stops the app server on web, ios and macos, and reuses its parent server', () => {
-  stubServerRun(`
-    const { main } = await import(resolve(scripts, 'agent.mjs'));
-    const args = ['--app', dir, '--test', resolve(dir, 'app.test.contract')];
-    for (const host of ['web', 'ios', 'macos']) {
-      const code = await main([host, ...args], { runTests: async (options) => {
-        assert.equal(options.host, host);
-        assert.equal(options.file, args[3]);
-        assert.deepEqual(record(), { argv, db: null, port: '4790' });
-        assert.equal(children.at(-1).exitCode, null);
-        return { results: [], passed: 1, failed: 0 };
-      } });
-      assert.equal(code, 0);
-      assert.notEqual(await children.at(-1).exited, 0);
-      assert.equal(existsSync(resolve(dir, '.exact/test')), false);
-      rmSync(ready);
-    }
-    const result = await withAppServer(dir, async () => {
-      const source = 'const { main } = await import(' + JSON.stringify(resolve(scripts, 'agent.mjs')) + ');' +
-        'process.exit(await main(' + JSON.stringify(['web', ...args]) + ', { runTests: async () => ({ results: [], passed: 1, failed: 0 }) }));';
-      const child = spawnSync(process.execPath, ['-e', source], { encoding: 'utf8', timeout: 10_000 });
-      assert.equal(child.status, 0, child.stdout + child.stderr);
-      assert.equal(children.at(-1).exitCode, null, 'the parent server still runs');
-      return 0;
-    }, { verb: 'test', optional: true });
-    assert.equal(result, 0);
-    assert.notEqual(await children.at(-1).exited, 0);
-    assert.deepEqual([taken, given], [4, 4]);
-    rmSync(ready);
-    rmSync(resolve(dir, 'server.ts'));
-    assert.equal(await main(['web', ...args], { runTests: async () => ({ results: [], passed: 0, failed: 1 }) }), 1);
-    assert.equal(children.length, 4, 'an app with no server still runs its tests');
-  `);
-}, 30_000);
-
-test('an agent drive passes server arguments without DB or a scratch database', () => {
-  stubServerRun(`
-    const lease = resolve(dir, '.exact/agent-server');
-    mkdirSync(lease, { recursive: true });
-    const old = resolve(lease, 'db.sqlite');
-    writeFileSync(old, 'untouched');
-    const running = await driveServer(dir, 'one', () => {}, { fresh: true });
-    assert.deepEqual(record(), { argv, db: null, port: '4790' });
-    assert.equal(existsSync(resolve(dir, '.exact/agent/one')), false);
-    await running.stop();
-    assert.notEqual(await children[0].exited, 0);
-    assert.equal(readFileSync(old, 'utf8'), 'untouched');
-    assert.deepEqual(readdirSync(lease), ['db.sqlite']);
-  `);
-});
-
-test('recorded server addresses preserve accepted default ports and paths, refusing credentials and queries', () => {
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-server-address-'));
-  try {
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ server: { database: false } }));
-    writeFileSync(resolve(dir, 'server.ts'), 'Bun.serve({});\n');
-    for (const [url, port] of [
-      ['http://127.0.0.1:80', 80], ['http://127.0.0.1:080', 80], ['https://localhost:443', 443],
-      ['https://[::1]:0443/api', 443], ['http://localhost:80/health', 80], ['http://127.0.0.1:8080/api/v1/', 8080],
-    ]) {
-      writeFileSync(resolve(dir, 'app.ts'), `export const API = ${JSON.stringify(url)};\n`);
-      const accepted = appServer(dir, {});
-      assert.equal(accepted.url, url.replace(/\/$/, ''));
-      assert.equal(accepted.port, port);
-      assert.deepEqual(recordedServerAddress(accepted.url), { url: accepted.url, port });
-    }
-    for (const url of [null, {}, 'file:///tmp/server', 'ftp://localhost:80', 'http://user:pw@localhost:80',
-      'http://@localhost:80', 'http://localhost:80/?', 'http://localhost:80/?q=x', 'http://localhost:80/#',
-      'http://localhost:80/#x', 'http://:80', 'http://localhost:65536']) assert.equal(recordedServerAddress(url), null);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('fixture drives isolate checkouts, refuse foreign servers and clean overlapping ports', async () => {
-  const parent = mkdtempSync(resolve(tmpdir(), 'exact-fixture-checkouts-')), running = [], fixturePids = new Map();
-  const { backendOriginSelection } = await import('../js/bake/src/typescript.mjs');
-  const env = { ...process.env }; delete env.PORT; delete env.EXACT_BACKEND_ORIGIN;
-  const script = `import { driveServer, appServer } from ${JSON.stringify(resolve(import.meta.dir, 'verify.mjs'))};
-let running;
-try {
-  running = await driveServer(process.argv[1], 'fixture', () => {});
-  console.log(JSON.stringify({ origin: appServer(process.argv[1]).url }));
-  for await (const line of console) break;
-} catch (e) { console.log(JSON.stringify({ error: e.message })); }
-finally { await running?.stop(); }
-process.exit(0);`;
-  const drive = async (dir, extra = {}) => {
-    const child = Bun.spawn([process.execPath, '-e', script, dir], { env: { ...env, ...extra }, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
-    running.push(child);
-    const reader = child.stdout.values()[Symbol.asyncIterator](), first = await reader.next();
-    const result = JSON.parse(new TextDecoder().decode(first.value));
-    if (result.origin) for (const file of readdirSync(resolve(dir, '.exact/agent-server')).filter(f => /^server-\d+$/.test(f))) {
-      fixturePids.set(Number(file.slice(7)), realpathSync(dir));
-    }
-    return { ...result, child, stop: async () => { child.stdin.write('\n'); await child.stdin.flush(); await child.exited; } };
-  };
-  const fixtures = [], ports = new Set();
-  try {
-    for (let i = 0; fixtures.length < 2 && i < 100; i++) {
-      const dir = resolve(parent, `checkout-${i}`);
-      mkdirSync(resolve(dir, 'fixture'), { recursive: true });
-      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ commands: { server: ['bun', 'fixture/server.ts'] }, server: { database: false } }));
-      writeFileSync(resolve(dir, 'app.ts'), 'export const origin = "http://127.0.0.1:4790";\n');
-      const selected = backendOriginSelection(dir, {}), port = Number(new URL(selected.origin).port);
-      assert.equal(backendOriginSelection(dir, {}).origin, selected.origin);
-      if (ports.has(port)) continue;
-      let probe; try { probe = Bun.serve({ hostname: '127.0.0.1', port, fetch: () => new Response('') }); } catch { continue; }
-      probe.stop(true); ports.add(port);
-      writeFileSync(resolve(dir, 'fixture/server.ts'), `Bun.serve({hostname:'127.0.0.1', port:Number(process.env.PORT), fetch:()=>Response.json({world:${JSON.stringify(dir)}})});\n`);
-      fixtures.push(dir);
-    }
-    assert.equal(fixtures.length, 2, 'two unused checkout ports');
-    const [a, b] = await Promise.all(fixtures.map(dir => drive(dir)));
-    assert.notEqual(a.origin, b.origin);
-    assert.deepEqual(await Promise.all([a, b].map(x => fetch(x.origin).then(r => r.json()))), fixtures.map(world => ({ world })));
-    const conflict = await drive(fixtures[1], { EXACT_BACKEND_ORIGIN: a.origin });
-    assert.match(conflict.error, /fixture does not belong.*--backend.*PORT=/);
-    await conflict.child.exited;
-    // A matching command and cwd are insufficient without the launch record.
-    const lease = resolve(fixtures[0], '.exact/agent-server');
-    const record = readdirSync(lease).find(f => /^server-\d+$/.test(f)), path = resolve(lease, record), held = readFileSync(path, 'utf8');
-    await b.stop();
-    const foreignLease = resolve(fixtures[1], '.exact/agent-server');
-    mkdirSync(foreignLease, { recursive: true });
-    const copied = resolve(foreignLease, record);
-    for (const text of [held, JSON.stringify({ ...JSON.parse(held), directory: realpathSync(fixtures[1]), origin: a.origin }), 'null']) {
-      writeFileSync(copied, text);
-      try {
-        const refused = await drive(fixtures[1], { EXACT_BACKEND_ORIGIN: a.origin });
-        assert.match(refused.error, /fixture does not belong/);
-        await refused.child.exited;
-        assert.equal((await fetch(a.origin).then(r => r.json())).world, fixtures[0], 'refusal cleanup leaves the foreign server running');
-        assert.equal(readFileSync(copied, 'utf8'), text, 'an unowned live process record is left alone');
-      } finally { rmSync(copied, { force: true }); }
-    }
-    rmSync(path);
+    let running;
     try {
-      const unknown = await drive(fixtures[0]);
-      assert.match(unknown.error, /fixture does not belong/);
-      await unknown.child.exited;
-      assert.equal((await fetch(a.origin).then(r => r.json())).world, fixtures[0]);
-    } finally { writeFileSync(path, held); }
-    const parallel = await drive(fixtures[0], { EXACT_BACKEND_ORIGIN: b.origin });
-    assert.equal(parallel.origin, b.origin);
-    assert.equal((await fetch(parallel.origin).then(r => r.json())).world, fixtures[0]);
-    const shared = await drive(fixtures[0]);
-    assert.equal(shared.origin, a.origin);
-    await a.stop();
-    assert.equal((await fetch(shared.origin).then(r => r.json())).world, fixtures[0]);
-    await shared.stop();
-    assert.equal((await fetch(a.origin).then(r => r.json())).world, fixtures[0], 'the other port keeps this checkout leased');
-    await parallel.stop();
-    for (const origin of [a.origin, parallel.origin]) {
-      assert.equal(await fetch(origin, { signal: AbortSignal.timeout(1000) }).then(() => true, () => false), false, 'the last drive stops every owned port');
+      const built = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'web-build'], { cwd: dir, encoding: 'utf8', timeout: 240_000 });
+      assert.equal(built.status, 0, built.stdout + built.stderr);
+      running = await startServer(dir, appServer(dir), 'test');
+      const drive = (file, options = {}) => runTests({ host: 'web', app: dir, file, running, ...options });
+      for (const [fileToRun, options] of [[file, {}], [second, {}], [file, { only: 'first writes' }], [second, { atStep: async () => {} }]]) {
+        const r = await drive(fileToRun, options);
+        assert.equal(r.failed, 0, JSON.stringify(r.results));
+        assert.equal(r.passed, options.only || fileToRun === second ? 1 : 2);
+      }
+      await running.stop(); running = null;
+      assert.equal(await fetch(`http://127.0.0.1:${port}`).then(() => true, () => false), false);
+      assert.equal(existsSync(resolve(dir, '.exact/test/owner')), false);
+      for (const verb of ['test', 'verify']) {
+        const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, 'web', ...(verb === 'verify' ? ['--json'] : [])],
+          { cwd: dir, encoding: 'utf8', timeout: 240_000, env: { ...process.env, EXACT_FEEDBACK: '0' } });
+        assert.equal(r.status, 0, r.stdout + r.stderr);
+        if (verb === 'test') assert.match(r.stdout, /2 passed, 0 failed/);
+        else {
+          const verdict = JSON.parse(r.stdout);
+          assert.equal(verdict.tests.passed, 3, r.stdout);
+          assert.equal(verdict.relaunch.test, 'second starts empty');
+          assert.deepEqual(verdict.relaunch.problems, [], r.stdout);
+        }
+      }
+    } finally {
+      await running?.stop();
+      if (!database && existsSync(resolve(dir, '.exact/child.pid'))) try { process.kill(Number(readFileSync(resolve(dir, '.exact/child.pid'), 'utf8')), 'SIGKILL'); } catch {}
     }
-    assert.equal(existsSync(lease), false, 'both server records are removed');
-  } finally {
-    for (const child of running) { if (child.exitCode == null) child.kill('SIGTERM'); await child.exited; }
-    for (const [pid, dir] of fixturePids) {
-      const cwd = spawnSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { encoding: 'utf8' }).stdout?.match(/^n(.+)$/m)?.[1];
-      if (cwd === dir) try { process.kill(pid, 'SIGTERM'); } catch {}
-    }
-    rmSync(parent, { recursive: true, force: true });
-  }
-}, 30000);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 300_000);
 
 // The rest pattern, verified as a builder would with a data.db of their own: verify runs its server on an empty
 // database and leaves theirs as it was; with their dev server up it refuses in one line and leaves that one running.
@@ -773,23 +509,24 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
     const verify = () => { const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'verify'], { cwd: dir, encoding: 'utf8', timeout: 240_000, env: { ...process.env, EXACT_FEEDBACK: '0' } }); return { ...r, lines: r.stdout.trim().split('\n') }; };
     const clean = verify();
     assert.equal(clean.status, 0, clean.stdout + clean.stderr);
-    assert.equal(clean.lines[0], `server: bun server.ts at http://127.0.0.1:${port}, on an empty database (.exact/verify/db.sqlite, removed after)`, clean.stdout);
-    assert.ok(clean.lines.includes('tests: 1 passed, 0 failed'), clean.stdout);
+    assert.equal(clean.lines[0], `server: bun server.ts at http://127.0.0.1:${port}, on an empty database for each test (.exact/verify/db.sqlite, removed after)`, clean.stdout);
+    assert.ok(clean.lines.includes('tests: 3 passed, 0 failed'), clean.stdout);
     // The rest pattern's test ends on an empty list as Grace: the relaunch holds its persona, not new rows.
     assert.match(clean.stdout, /^relaunch on .*: its state holds what the test left/m);
     assert.doesNotMatch(clean.stdout, /^ +lost /m);
     assert.ok(readFileSync(resolve(dir, 'data.db')).equals(before), 'the builder\'s data.db is as it was');
     assert.deepEqual(['data.db-wal', '.exact/verify/db.sqlite'].filter((f) => existsSync(resolve(dir, f))), []);
-    // `test` runs the same server on the same terms (not the builder's to start, nor `api-test`'s to know),
+    // LLP 1116.007 D2: `test` runs the same server on the same terms (it was the builder's to start, and `api-test`'s to know),
     // and an older app's api-test, whose test.mjs runs `test` under `withAppServer`, still passes on the one server it started.
     const plain = (verb = 'test') => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, 'web'], { cwd: dir, encoding: 'utf8', timeout: 240_000, env: { ...process.env, EXACT_FEEDBACK: '0' } });
     const tested = plain();
     assert.equal(tested.status, 0, tested.stdout + tested.stderr);
-    assert.match(tested.stderr, new RegExp(`^test: bun server\\.ts at http://127\\.0\\.0\\.1:${port}, on an empty database \\(\\.exact/test/db\\.sqlite, removed after\\)$`, 'm'));
-    assert.match(tested.stdout, /^1 passed, 0 failed$/m);
+    assert.match(tested.stderr, new RegExp(`^test: bun server\\.ts at http://127\\.0\\.0\\.1:${port}, on an empty database for each test \\(\\.exact/test/db\\.sqlite, removed after\\)$`, 'm'));
+    assert.match(tested.stdout, /^3 passed, 0 failed$/m);
     assert.ok(readFileSync(resolve(dir, 'data.db')).equals(before), 'test leaves the builder\'s data.db as it was');
-    writeFileSync(resolve(dir, 'test.mjs'), "const { withAppServer } = await import(`${process.env.EXACT2}/scripts/verify.mjs`);\nprocess.exit(await withAppServer(import.meta.dir, () =>\n  Bun.spawn(['bun', 'exact.mjs', 'test', ...process.argv.slice(2)], { cwd: import.meta.dir, stdio: ['inherit', 'inherit', 'inherit'] }).exited));\n");
+    writeFileSync(resolve(dir, 'test.mjs'), "const { withAppServer } = await import(`${process.env.EXACT}/scripts/verify.mjs`);\nprocess.exit(await withAppServer(import.meta.dir, () =>\n  Bun.spawn(['bun', 'exact.mjs', 'test', ...process.argv.slice(2)], { cwd: import.meta.dir, stdio: ['inherit', 'inherit', 'inherit'] }).exited));\n");
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')), commands: { 'api-test': ['bun', 'test.mjs'] } }, null, 2));
+    writeFileSync(resolve(dir, 'app.test.contract'), 'test "the wrapper’s server"\n  expect tree has "empty-add"\n');
     const old = plain('api-test');
     assert.equal(old.status, 0, old.stdout + old.stderr);
     assert.match(old.stdout, /^1 passed, 0 failed$/m);
@@ -808,7 +545,7 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
       assert.match(held.stderr, new RegExp(`^test: http://127\\.0\\.0\\.1:${port} already answers \\(pid ${dev.pid}: .*server\\.ts\\)`, 'm'));
       assert.equal(dev.exitCode, null, 'the dev server runs on');
     } finally { dev.kill(); await dev.exited; }
-    // A server.ts that hardcodes its database stops both before anything builds or runs: one line on
+    // LLP 1116.008 D1: a server.ts that hardcodes its database stops both before anything builds or runs: one line on
     // stderr naming the entry and the fix, a non-zero exit, no output, and no server started.
     const server = readFileSync(resolve(dir, 'server.ts'), 'utf8');
     writeFileSync(resolve(dir, 'server.ts'), server.replace("process.env.DB ?? 'data.db'", "'data.db'"));
@@ -821,7 +558,7 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 300_000);
 
-// `agent` starts the app's server for a drive when nothing answers where app.ts calls it, on a database of
+// LLP 1116.008 D1: `agent` starts the app's server for a drive when nothing answers where app.ts calls it, on a database of
 // its own, and the last of several overlapping drives stops it; a server the builder runs is used and left running.
 test('agent\'s server: started on a database of its own, shared by overlapping drives, stopped by the last, the builder\'s left alone', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-drive-server-'));
@@ -904,14 +641,16 @@ test('agent\'s server: started on a database of its own, shared by overlapping d
     assert.match(await c.said(), /^agent: started server\.ts at \S+ for this drive \(an empty database\); stopped after\n$/);
     assert.deepEqual([await up(), existsSync(resolve(dir, '.exact/agent-server'))], [false, false]);
 
-    // The builder's own server answers: used, said nothing of, and still running after.
+    // The builder's own server answers: used, said in one line naming it, and still running after.
     const theirs = Bun.spawn([process.execPath, 'server.ts'], { cwd: dir, env: { ...process.env, DB: resolve(dir, 'theirs.db') }, stdout: 'ignore', stderr: 'ignore' });
     try {
       for (let i = 0; !(await up()); i++) { assert.ok(i < 100, 'their server answers'); await Bun.sleep(100); }
       const d = drive('three');
       assert.equal(await d.next(), 'up');
       assert.equal(await d.end(), 'stopped');
-      assert.equal(await d.said(), '');
+      const named = await d.said();
+      assert.ok(named.startsWith(`agent: ${url} already answers (pid ${theirs.pid}: `), named);
+      assert.ok(named.endsWith('), a server no drive started: this drive uses it and its data, not a database of its own; stop it to have the drive start server.ts itself\n'), named);
       assert.deepEqual([await up(), theirs.exitCode], [true, null]);
       // Asked empty, a drive is refused rather than writing into theirs.
       assert.match(await drive('three', 'fresh').next(), /but something already answers at /);
@@ -944,13 +683,13 @@ test.skipIf(!!chromium().unavailable)('agent on a server app: its server for the
       const other = agent(...flags, 'clock data', 'state lib.items');
       assert.match(other.stdout, /^\[\]$/m, other.stdout + other.stderr);
     }
-    // A server the builder runs is used, and runs on.
+    // A server the builder runs is used, said so, and runs on.
     const theirs = Bun.spawn([process.execPath, 'server.ts'], { cwd: dir, stdout: 'ignore', stderr: 'ignore' });
     try {
       for (let i = 0; !(await fetch(`${url}/health`).then((r) => r.ok, () => false)); i++) { assert.ok(i < 100, 'their server answers'); await Bun.sleep(100); }
       const used = agent('--storage', 's3', 'clock data', 'state lib.items');
       assert.equal(used.status, 0, used.stdout + used.stderr);
-      assert.doesNotMatch(used.stderr, /^agent: /m);
+      assert.deepEqual(used.stderr.match(/^agent: .*$/gm), [`agent: ${url} already answers (pid ${theirs.pid}: ${used.stderr.match(/\(pid \d+: ([^)]*)\)/)?.[1]}), a server no drive started: this drive uses it and its data, not a database of its own; stop it to have the drive start server.ts itself`]);
       assert.equal(theirs.exitCode, null, 'their server runs on');
     } finally { theirs.kill(); await theirs.exited; rmSync(resolve(dir, 'data.db'), { force: true }); }
   } finally { rmSync(parent, { recursive: true, force: true }); }
@@ -968,11 +707,7 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
       const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, ...args], { cwd: dir, encoding: 'utf8', timeout: 180_000, env: { ...process.env, EXACT_FEEDBACK: '0' } });
       return { ...r, lines: r.stdout.trim().split('\n') };
     };
-    // `contract verify`'s summary and receipt come after verify's own report and before its verdict, the last line.
-    const verify = (...args) => {
-      const r = exact('verify', ...args), at = r.lines.findIndex((l) => l.startsWith('contract verify: '));
-      return at >= 0 && !args.includes('--json') ? { ...r, lines: [...r.lines.slice(0, at), r.lines.at(-1)], semantics: r.lines.slice(at, -1).join('\n') } : r;
-    };
+    const verify = (...args) => exact('verify', ...args);
     const warned = (text) => text.split('\n').filter((l) => / warning \[/.test(l));
     // The build `test web` runs first says its count, and here names nothing; its drive's stdout is the tests'.
     const quiet = exact('test', 'web');
@@ -981,34 +716,55 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.deepEqual([warned(quiet.stderr), warned(quiet.stdout)], [[], []]);
     const clean = verify('--shots', 'out/shots');
     assert.equal(clean.status, 0, clean.stdout + clean.stderr);
-    assert.ok(clean.lines.length <= 9, clean.stdout);
+    assert.ok(clean.lines.length <= 10, clean.stdout);
     assert.ok(clean.lines.includes("largest text size (root font size 53 px at 390x844, iOS's body at its largest), 5 screens: nothing spills"), clean.stdout); // 4, and 1 the tests pass through
     assert.ok(!clean.lines.some((l) => l.startsWith('compiler:')), clean.stdout);
     assert.ok(clean.lines.includes('tests: 2 passed, 0 failed'), clean.stdout);
     assert.ok(clean.lines.includes('check first screen, 2 test ends, relaunch · 390x844, 1280x900 · light, dark: no findings'), clean.stdout);
+    assert.ok(clean.lines.includes('tree --ax first screen, 2 test ends, relaunch: no findings'), clean.stdout); // LLP 1166.002 D1
     // The starter keeps nothing: the relaunch on the second test's store opens as a fresh launch does, and says so.
     assert.match(clean.stdout, /^relaunch on "the header's button likes it"'s store \(\d+\.\d s of real time\): the first screen is a fresh launch's; that test wrote no storage$/m);
-    assert.match(clean.lines.at(-1), /^verify: clean in \d+\.\d s$/);
+    assert.match(clean.lines.at(-1), /^verify: clean in \d+\.\d s; contract verify: done; 0 findings; properties: 0 held, 0 false, 0 counted only, 0 not exercised; \d+ suggested properties .*; report and receipt: \.exact\/verify\/properties\.txt$/);
     assert.equal(clean.lines.at(-2), 'open it: bun exact.mjs web (serves what verify checked)'); // how a person opens it, with no dev server of the builder's own
-    assert.match(clean.semantics, /^verify receipt — reproduce: contract verify .*app\.contract /m, clean.stdout);
+    const properties = resolve(dir, '.exact/verify/properties.txt'), full = readFileSync(properties, 'utf8');
+    assert.match(full, /^Observed over .*not proved/m);
+    assert.match(full, /^(always|after|never) /m);
+    assert.match(full, /^verify receipt — reproduce: contract verify .*app\.contract /m);
+    assert.match(full, /^ {2}app sha256:.*tests sha256:.*embedding sha256:/m);
+    assert.match(full, /^ {2}suggestions: .* printed; .* dropped/m);
+    assert.doesNotMatch(clean.stdout, /^verify receipt|^Observed over/m);
     for (const [w, h] of SIZES) for (const scheme of ['light', 'dark']) assert.ok(existsSync(resolve(dir, `.exact/verify/web-${w}x${h}-${scheme}.png`)), `${w}x${h} ${scheme}`);
     for (const f of ['web-t1-the-greeting-loads.png', 'web-t2-the-header-s-button-likes-it.png', 'web-relaunch.png']) assert.ok(existsSync(resolve(dir, '.exact/verify', f)), f);
-    // `--shots out/shots` made the directory and copied every one, under the names verify keeps.
+    // `--shots out/shots` made the directory and copied every one, under the names verify keeps (LLP 1116.008 D2).
     const kept = readdirSync(resolve(dir, '.exact/verify')).filter((f) => f.endsWith('.png')).sort();
     assert.equal(kept.length, 7);
     assert.deepEqual(readdirSync(resolve(dir, 'out/shots')).sort(), kept);
     assert.ok(readFileSync(resolve(dir, 'out/shots/web-relaunch.png')).equals(readFileSync(resolve(dir, '.exact/verify/web-relaunch.png'))));
     assert.match(clean.stdout, /^screenshots \(\.exact\/verify, copied to out\/shots\): /m);
     const bare = verify('--shots');
-    assert.deepEqual([bare.status, bare.stdout, bare.stderr], [2, '', 'verify: --shots takes a directory: the screenshots are copied there, under the names in .exact/verify/\n']);
+    assert.deepEqual([bare.status, bare.stdout, bare.stderr], [2, '', 'verify: --shots needs a value (--shots <dir>)\n']);
 
     const tests = resolve(dir, 'app.test.contract'), authored = readFileSync(tests, 'utf8');
+    const property = '\nafter "like" "liking writes nothing"\n  writes none\n';
+    writeFileSync(tests, authored + property);
+    const semanticFailed = verify();
+    assert.equal(semanticFailed.status, 1, semanticFailed.stdout + semanticFailed.stderr);
+    assert.ok(semanticFailed.lines.includes('tests: 2 passed, 0 failed'), semanticFailed.stdout);
+    assert.match(semanticFailed.stdout, /^PROPERTY "liking writes nothing" is false/m);
+    assert.match(semanticFailed.lines.at(-1), /^verify: clean in \d+\.\d s; contract verify: failed \(exit 1\); .*properties: 0 held, 1 false, 0 counted only, 0 not exercised;/);
+    assert.match(readFileSync(properties, 'utf8'), /^verify receipt — reproduce:/m);
+    writeFileSync(tests, authored.replace('expect state liked == true', 'expect state liked == false') + property);
+    const both = verify('--json'), bothJSON = JSON.parse(both.stdout);
+    assert.deepEqual([both.status, bothJSON.exit, bothJSON.tests.failed, bothJSON.semantics.exit], [1, 1, 1, 1], both.stdout + both.stderr);
+    assert.deepEqual(Object.keys(bothJSON.semantics).sort(), ['exit', 'output']);
+    assert.match(bothJSON.semantics.output, /^PROPERTY "liking writes nothing" is false/m);
+    assert.match(bothJSON.semantics.output, /^verify receipt — reproduce:/m);
     writeFileSync(tests, authored.replace('expect state liked == true', 'expect state liked == false'));
     const failing = verify();
     assert.equal(failing.status, 1, failing.stdout + failing.stderr);
     assert.ok(failing.lines.includes('tests: 1 passed, 1 failed'), failing.stdout);
     assert.match(failing.stdout, /^ {2}FAIL "the header's button likes it": line \d+: /m);
-    assert.match(failing.lines.at(-1), /^verify: 1 problem \(1 failed test\) in /);
+    assert.match(failing.lines.at(-1), /^verify: 1 problem \(1 failed test\) in /, failing.stdout + failing.stderr);
 
     writeFileSync(tests, authored);
     const view = resolve(dir, 'app.contract'), source = readFileSync(view, 'utf8');
@@ -1031,7 +787,7 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.match(found.stdout, /^ {2}\(light only\) contrast Text "Faint"#\d+ \[.*\]: 1\.\d:1 \(#dddddd on #ffffff(?:, [^)]*)?\), needs 4\.5:1/m);
     assert.match(found.lines.at(-1), /^verify: 2 problems \(2 findings; the tests passed\) in /);
 
-    // A test's own `screenshot` step joins --shots, named by the test.
+    // A test's own `screenshot` step joins --shots, named by the test (LLP 1116.008 D2).
     writeFileSync(tests, authored.replace('  expect state liked == true', '  expect state liked == true\n  screenshot "own/after-like.png"'));
     const own = verify('--shots', 'out/shots');
     assert.equal(own.status, 0, own.stdout + own.stderr);
@@ -1042,15 +798,20 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     const json = verify('--json');
     assert.equal(json.status, 0, json.stderr);
     const r = JSON.parse(json.stdout);
+    assert.equal(r.semantics.exit, 0);
+    assert.match(r.semantics.output, /^verify receipt — reproduce:/m);
     assert.deepEqual([r.host, r.built, r.tests.passed, r.tests.failed, r.problems, r.exit, r.screenshots.length, r.compiler.length], ['web', null, 2, 0, 2, 0, 7, 1]);
     // Each screen at each width and scheme: the first screen, the two test ends (in their own sessions), the relaunch.
     const onScreen = (screen) => r.checks.filter((c) => c.screen === screen).map((c) => `${c.size.join('x')} ${c.scheme} ${c.findings.map((f) => f.kind).join(',')}`);
     for (const screen of ['first screen', 'the greeting loads', "the header's button likes it", 'relaunch']) assert.deepEqual(onScreen(screen), ['390x844 light contrast', '390x844 dark ', '1280x900 light contrast', '1280x900 dark '], screen);
     assert.deepEqual([r.relaunch.test, r.relaunch.problems, r.tests.results.map((t) => t.shot.split('/').at(-1))], ["the header's button likes it", [], ['web-t1-the-greeting-loads.png', 'web-t2-the-header-s-button-likes-it.png']]);
     assert.deepEqual(r.reloads.map((x) => [x.ran, x.finding]), [[true, null], [true, null]]); // each end screen reloaded: the same
+    // The accessibility tree, read once a screen whatever its widths and schemes (LLP 1166.002 D1).
+    assert.deepEqual(r.ax.map((a) => [a.screen, a.source, a.findings.length, a.incomplete ?? null]), ['first screen', 'the greeting loads', "the header's button likes it", 'relaunch'].map((s) => [s, 'chrome-cdp', 0, null]));
+    assert.equal(r.axUnread, 0); // every screen's tree read whole, so the closing line is a plain "verify: clean"
 
-    // A call the host refuses is the report's first line, and a count kept only in memory is lost by a
-    // reload: the page's URL and storage hold nothing of it. The starter's greeting source goes with its view.
+    // A call the host refuses is the report's first line (LLP 1116.010 D5), and a count kept only in memory is lost by a
+    // reload: the page's URL and storage hold nothing of it (D6). The starter's greeting source goes with its view.
     // The app's id is app.json's alone (029cd282d3): app.ts need not name it.
     writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nexport const grants = '';\nconst sources: Sources = {};\nexport const answer: Answer = (name, args, store, storage, native) => (sources as any)[name](args, store, storage, native);\n`);
     writeFileSync(view, 'component App\n  state which = "nope"\n  state count = 0\n  action poke\n    showPicker(which)\n    count = count + 1\n  view\n    column padding=16\n      button press=poke testId="poke"\n        text "Poke"\n      text `Pokes: ${count}` testId="count"\n');
@@ -1059,11 +820,20 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.equal(poked.status, 0, poked.stdout + poked.stderr);
     assert.equal(poked.lines[0], "refused at run time: 1 (the host's journal, 'logs'; each is a call or a wiring the app got wrong)");
     assert.match(poked.lines[1], /^ {2}picker: refused: no file input with id "nope" \(test "poking counts, and asks for/);
-    // The count lived in memory by design, so its reload is a note, shown and not counted.
+    // LLP 1116.011 D5: the count lived in memory by design, so its reload is a note, shown and not counted.
     assert.match(poked.stdout, /^reload 1 test end: no findings\nreload note: 1 screen reloads into another state \(not counted\)\n {2}note {5}\/ reloads into another state: "Pokes: 2" → "Pokes: 0" \("poking counts[^\n]*\n {2}a saved value must survive a reload; a game or a draft in progress may not\n/m);
     assert.match(poked.lines.at(-1), /^verify: 1 problem \(1 finding; the tests passed\) in /);
+
+    // LLP 1166.002 D1: a field with no name is the accessibility tree's finding at each screen it is on, failing --strict.
+    writeFileSync(view, 'component App\n  state note = ""\n  action setNote(v: string)\n    note = v\n  view\n    column padding=16\n      input value=note input=setNote testId="note"\n      text note testId="echo"\n');
+    writeFileSync(tests, 'test "a note echoes"\n  type "note" "hi"\n  expect text "echo" == "hi"\n');
+    const unnamed = verify('--strict');
+    assert.equal(unnamed.status, 1, unnamed.stdout + unnamed.stderr);
+    assert.ok(unnamed.lines.includes('tree --ax first screen, 1 test end, relaunch: 1 finding'), unnamed.stdout);
+    assert.match(unnamed.stdout, /^ {2}unnamed {2}note: a textbox with no name: a screen reader says only its role; give it aria-label=/m);
+    assert.match(unnamed.lines.at(-1), /^verify: 1 problem \(1 finding; the tests passed\) in /);
   } finally { rmSync(parent, { recursive: true, force: true }); }
-}, 300_000); // A new app's offline Cargo resolution and its first web build, then four runs.
+}, 360_000); // A new app's offline Cargo resolution and its first web build, then four runs.
 
 // The euxy port (friction item 12): a faithful port's palette and keys are its design. app.json `verify.accept` names a
 // finding by its kind and its node's testId (or its control's, for a label; `*` a prefix), and verify says those apart.
@@ -1105,8 +875,8 @@ test('a finding on a view only one scheme shows is accepted by the testId that s
   assert.match(r.text, /check ios · dark \(1 accepted\): no findings/);
 });
 
-// Each screen again at the largest text size; what spills is said once, where, with a remedy that keeps the
-// text's size, counted in the last line without failing the run.
+// LLP 1116.019 D2: each screen again at the largest text size; what spills is said once, where, with a remedy that keeps the
+// text's size, counted in the last line without failing the run (LLP 1116.020 D4).
 test('the largest text size: its findings once each with the screens they were on and a remedy, counted, never failing; a screen it could not read is named', async () => {
   const { judge, line } = await import('./agent-check.mjs');
   const { largeRemedy } = await import('./verify.mjs');
@@ -1141,13 +911,17 @@ test('the largest text size: its findings once each with the screens they were o
   ]);
   assert.equal(r.lines.at(-1), 'verify: 3 problems (3 at the largest text size; the tests passed) in 2.0 s');
   assert.equal(r.exit, 0);
+  // Each page whose findings were read at that size is a picture, named with its screen (LLP 1156.001 D3).
+  const shots = ['/app/.exact/verify/ios-largest-1.png', '/app/.exact/verify/ios-largest-2.png'];
+  const pictured = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large: [{ ...large[0], shots }], shots: [], ms: 2000, cwd: '/app' });
+  assert.ok(pictured.lines.includes('  pictures at that size: first screen: .exact/verify/ios-largest-1.png .exact/verify/ios-largest-2.png'), pictured.lines.join('\n'));
   const both = report({ host: 'ios', built: null, compiler: ['a warning'], tested: { passed: 1, failed: 0, results: [] }, checks: [], large, shots: [], ms: 2000 });
   assert.equal(both.lines.at(-1), 'verify: 4 problems (1 finding, 3 at the largest text size; the tests passed) in 2.0 s');
   const web = report({ host: 'web', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large: [{ screen: 'first screen', size: [390, 844], rootFontSize: 53, lines: [] }], shots: [], ms: 2000 });
   assert.equal(web.lines[1], 'largest text size (root font size 53 px at 390x844, iOS\'s body at its largest), 1 screen: nothing spills');
 });
 
-// An event-RSVP app at the largest text size: a centred caption wider than its column runs past both of its sides and
+// Round 21's event-rsvp at the largest text size: a centred caption wider than its column runs past both of its sides and
 // 1.7 pt into the next column's caption, which read "GoingMaybe" while verify said nothing spills. Two texts set flush on
 // purpose only touch, and texts whose boxes overlap where their lines are drawn apart (`ink`) do not run together.
 test('the largest text size: a text past its column, and two texts that run into each other', async () => {
@@ -1169,7 +943,7 @@ test('the largest text size: a text past its column, and two texts that run into
   assert.match(lines[1], /^ {2}overlap {2}Text "Going"#13 \[22,314 110×52\]: overlaps Text "Maybe"#16 by 1\.7×52; wrap the row/);
 });
 
-// An expense tracker at the largest text size: a month's name, clamped to two lines and centred between two
+// Round 22's expense-tracker at the largest text size: a month's name, clamped to two lines and centred between two
 // buttons, ran 57 pt past its box and under the next-month button while verify said nothing spills. A clamp answers the
 // lines past it, not a line wider than the box, and a control is judged against where a text is drawn.
 test('the largest text size: a clamped word wider than its box, drawn under the button beside it', async () => {
@@ -1185,8 +959,8 @@ test('the largest text size: a clamped word wider than its box, drawn under the 
 });
 
 // A label a list's row cuts is given the row's room and its row grows taller, as UIKit's cells do at the accessibility sizes
-// (a grouped list's standard cell already hyphenates); never the flex-wrap the row does not take, the line-clamp that reads as a
-// tell, nor `hyphens` on whole headings; an iOS test end at a window the phone shows scaled
+// (a grouped list's standard cell already hyphenates); never the flex-wrap the row does not take, the line-clamp round 22's graders named a
+// tell, nor the `hyphens` round 26's builders put on whole headings; an iOS test end at a window the phone shows scaled
 // measures no contrast or target.
 test('the largest text size in a list row; a scaled iOS test end', async () => {
   const { largeRemedy, scaledEnd } = await import('./verify.mjs');
@@ -1221,7 +995,7 @@ test('the tour at the largest text size: only what the visited screens did not s
   assert.deepEqual(tourNews(visited, toured), [{ screen: 'line 36 of "study"', lines: [toured[0].lines[1]] }]);
 });
 
-// A font size the app's Contract fixes is a finding, named where it is written, with the rem it would be;
+// LLP 1116.020 D4: a font size the app's Contract fixes is a finding, named where it is written, with the rem it would be;
 // app.json's `verify.accept` takes one by its node's testId, and a test file is no screen.
 test("fixed type: each fixed font size in the app's Contract, counted; an accepted one listed apart", async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'verify-fixed-'));
@@ -1241,7 +1015,7 @@ test("fixed type: each fixed font size in the app's Contract, counted; an accept
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-// A symbol sized in points beside text, and a word broken inside, are named beside the fixed sizes.
+// LLP 1116.021 D6: a symbol sized in points beside text, and a word broken inside, are named beside the fixed sizes.
 test('fixed type: a symbol sized in points and a word broken inside are findings too', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'verify-fixed-'));
   try {
@@ -1256,7 +1030,7 @@ test('fixed type: a symbol sized in points and a word broken inside are findings
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('a relaunch names the requests the server holds, as no finding', () => {
+test('a relaunch names the requests the server holds, as no finding (LLP 1016.000 D9)', () => {
   const test = { name: 't', end: { ops: 1, resources: {}, slots: {} } };
   const shown = { texts: new Set(['Feed']), resources: {}, slots: {} };
   const r = judgeRelaunch(test, shown, shown, { busy: [], failed: {}, heldBy: ['changes'] });
@@ -1265,7 +1039,7 @@ test('a relaunch names the requests the server holds, as no finding', () => {
   assert.equal(judgeRelaunch(test, shown, shown, {}).notes, undefined);
 });
 
-// Many findings are said by kind in the closing line, which is the line a builder copies; a check kind that
+// LLP 1143 D5: many findings are said by kind in the closing line, which is the line a builder copies; a check kind that
 // is most of them names verify.accept, which takes those the app's design means.
 test('many findings: the closing line names their kinds, and a check kind that dominates names verify.accept', () => {
   const tap = (n) => `  tap-target Button "Row ${n}"#${n} [0,${n * 40} 30×30]: 30×30 pt, needs 44×44`;
@@ -1380,3 +1154,262 @@ test('scrolling: the scrub and a carousel join the summary; their hitches and th
   const along = findings(feel({ along: 'bad' }));
   assert.deepEqual(along.map((f) => [f.metric, f.value, f.owner]), [['carousel: a mostly-vertical drag', '0.95, 40', 'exact']]);
 });
+
+test('every drive after the build, and the run recorded, select the app the caller named, under EXACT_APP_DIR of another basename', () => {
+  // `EXACT_APP_DIR=…/copy verify web --app original` (a staged design tool's): its drives and its record are
+  // `original`'s, whose crates are `original-*`, never `copy`'s. The build, server, drives and record are stubbed.
+  const root = mkdtempSync(resolve(tmpdir(), 'exact-verify-selector-')), dir = resolve(root, 'copy');
+  mkdirSync(dir);
+  writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    text "Test"\n');
+  writeFileSync(resolve(dir, 'app.test.contract'), 'test "a"\n  expect text "Test" == "Test"\n');
+  const seen = resolve(root, 'seen.jsonl'), preload = resolve(root, 'stub.mjs'), scripts = import.meta.dir;
+  writeFileSync(preload, `
+    import { mock } from 'bun:test';
+    import { appendFileSync } from 'node:fs';
+    const scripts = ${JSON.stringify(scripts)}, at = (p) => scripts + '/' + p;
+    // Before the first await: verify.mjs imports it statically, and Bun runs the entry once this file awaits.
+    mock.module(at('verify-semantics.mjs'), () => ({ contractVerify: () => ({ stop() {}, done: Promise.resolve({ exit: 0, output: '', errors: '' }) }), semanticsSummary: () => [] }));
+    const { resolveApp } = await import(at('app.mjs'));
+    const note = (by, selector) => { const a = resolveApp(selector); appendFileSync(${JSON.stringify(seen)}, JSON.stringify([by, a.name, a.dir, a.crate('gpu')]) + '\\n'); };
+    const real = async (p) => ({ ...(await import(at(p))) });
+    const launch = await real('agent-launch.mjs'), serve = await real('../host/web/serve.mjs'), web = await real('../host/web-js/module.mjs'), driven = await real('agent-test.mjs');
+    mock.module(at('../host/web/serve.mjs'), () => ({ ...serve, builtAppMatches: async () => true, jsTargetBuild: () => true }));
+    mock.module(at('../host/web-js/module.mjs'), () => ({ ...web, fresh: () => true }));
+    mock.module(at('agent-launch.mjs'), () => ({ ...launch, webChanges: () => ({ all: [], app: [] }), driveStore: () => ({ base: ${JSON.stringify(root)}, profile: ${JSON.stringify(root)} }), removeBrowserProfile: async () => {} }));
+    mock.module(at('agent-test.mjs'), () => ({ ...driven, sweepTestStores() {}, runTests: async ({ app }) => {
+      note('runTests', app);
+      return { passed: 1, failed: 0, results: [{ name: 'a', failures: [], store: 'test', end: { ops: 1, resources: {} } }] };
+    } }));
+    mock.module(at('agent.mjs'), () => ({ open: async ({ app }) => { note('open', app); throw new Error('stubbed drive'); } }));
+    mock.module(at('evidence.mjs'), () => ({ recordRun: (app) => note('recordRun', app) }));
+  `);
+  try {
+    const r = spawnSync(process.execPath, ['--preload', preload, resolve(scripts, 'verify.mjs'), 'web', '--app', 'original', '--json'],
+      { cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, encoding: 'utf8', timeout: 30_000 });
+    const lines = existsSync(seen) ? readFileSync(seen, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [];
+    // The tests and the tour; a first screen at each width; the relaunch on the test's store; the run.
+    assert.deepEqual(lines.map(([by]) => by).sort(), ['open', 'open', 'open', 'recordRun', 'runTests', 'runTests'], r.stdout + r.stderr);
+    for (const [, name, at, gpu] of lines) assert.deepEqual([name, at, gpu], ['original', realpathSync(dir), 'original-gpu']);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 60_000);
+
+test('verify shows a drive build as it starts and as it runs, not its other lines', () => {
+  const lines = ['building for ios: app.contract changed', 'waiting for the build in another drive', '  still building (60 s): Compiling exact-kernel', 'kept the plan', 'warning: x'];
+  assert.deepEqual(lines.filter(buildProgress), lines.slice(0, 3));
+});
+
+test('a server owner two processes up is found on every platform: the parent table, then the walk up it', () => {
+  // `ps -A -o pid=,ppid=` pads its columns; Win32_Process's lines are as written.
+  const posix = parentsOf('    1     0\n  420     1\n  500   420\n  612   500\n');
+  assert.deepEqual(ancestors(612, posix), ['612', '500', '420']);
+  const windows = parentsOf('0 0\r\n4 0\r\n7100 4\r\n7200 7100\r\n7300 7200\r\n');
+  assert.deepEqual(ancestors(7300, windows), ['7300', '7200', '7100', '4']);
+  assert.deepEqual(ancestors(7300, new Map()), ['7300'], 'a parent table that could not be read');
+  assert.deepEqual(ancestors(10, new Map([[10, 11], [11, 10]])), ['10', '11'], 'a reused pid makes no loop');
+  assert.ok(ancestors().includes(String(process.ppid)));
+});
+
+// The compiler, test runner and verify orchestration run. Host I/O, build/freshness checks,
+// server lifecycle, semantics checks and evidence writes are substituted; the tour is skipped.
+// The epoch-now case also controls wall time.
+test.each(['moved clock', 'resource date', 'pinned date', 'duplicate names', 'extra replay result', 'end screenshot', 'authored screenshot', 'epoch now', 'first screen writes', 'signal exit', 'first screen crash', 'relaunch crash'])('an owned-server relaunch preserves its evidence: %s', (scenario) => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-verify-replay-')), preload = resolve(dir, 'stub.mjs');
+  const duplicate = scenario === 'duplicate names', extra = scenario === 'extra replay result';
+  const authoredShot = ['authored screenshot', 'extra replay result'].includes(scenario) ? resolve(dir, 'authored.png') : null;
+  const steps = (value) => `  type "field" "${value}"\n  clock +86400000\n${authoredShot ? '  screenshot '+JSON.stringify(authoredShot)+'\n' : ''}`;
+  writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    text "Test"\n');
+  writeFileSync(resolve(dir, 'app.test.contract'), duplicate
+    ? 'test "same" on ios\n  clock data\ntest "same" on web\n' + steps('Saved long value') + 'test "same"\n' + steps('x')
+    : 'test "saved"\n' + (scenario === 'epoch now' ? '  epoch now\n' : scenario === 'pinned date' ? '  epoch "2026-10-01T00:00:00Z"\n' : '') + steps('Saved long value'));
+  if (scenario === 'first screen crash') rmSync(resolve(dir, 'app.test.contract'));
+  if (duplicate) {
+    writeFileSync(resolve(dir, 'other.test.contract'), readFileSync(resolve(dir, 'app.test.contract')));
+    writeFileSync(resolve(dir, 'app.test.contract'), 'test \"same\"\n' + steps('x'));
+  }
+  writeFileSync(preload, `
+    import assert from 'node:assert/strict';
+    import {mock} from 'bun:test';
+    import {writeFileSync} from 'node:fs';
+    const scripts = ${JSON.stringify(import.meta.dir)}, at = p => scripts + '/' + p, dir = ${JSON.stringify(dir)};
+    mock.module(at('verify-semantics.mjs'), () => ({contractVerify:()=>({stop(){},done:Promise.resolve({exit:0,output:'',errors:''})}),semanticsSummary:()=>[]}));
+    const real = async p => ({...await import(at(p))});
+    const launch = await real('agent-launch.mjs'), serve = await real('../host/web/serve.mjs'), web = await real('../host/web-js/module.mjs'), server = await real('app-server.mjs');
+    mock.module(at('../host/web/serve.mjs'),()=>({...serve,builtAppMatches:async()=>true,jsTargetBuild:()=>true}));
+    mock.module(at('../host/web-js/module.mjs'),()=>({...web,fresh:()=>true}));
+    mock.module(at('agent-launch.mjs'),()=>({...launch,webChanges:()=>({all:[],app:[]}),driveStore:()=>({base:dir+'/stores',profile:dir+'/stores'}),removeBrowserProfile:async()=>{}}));
+    let wall=Date.parse('2026-11-13T23:59:59Z');
+    if(${scenario === 'epoch now'})Date.now=()=>wall;
+    let used = false, serverItems = [], died = null, restarts = 0;
+    const reset = async()=>{serverItems=[];used=false;died=null;restarts++;writeFileSync(dir+'/restarts.json',JSON.stringify(restarts));};
+    mock.module(at('app-server.mjs'),()=>({...server,appServer:()=>({entry:'server.ts',args:[],url:'http://127.0.0.1:1',port:1,database:false}),answering:async()=>false,
+      startServer:async()=>({fresh:reset,beforeTest:async()=>{if(used)await reset();used=true;},check(){},stop:async()=>{},exited:()=>${scenario === 'signal exit' ? 143 : 'died'},exits:()=>${scenario === 'signal exit' ? "['server.ts exited (signal SIGTERM) during the run']" : "died == null ? [] : ['server.ts exited (code 23) during the run']"},tail:()=>''})}));
+    mock.module(at('evidence.mjs'),()=>({recordRun(){}}));
+    const captures = {};
+    mock.module(at('agent-check.mjs'),()=>({checkOp:async(s,args,{shots})=>{
+      const vp = {w:s.width,h:844}, path=shots?.(vp,'light');
+      if(path){captures[path]=(captures[path]??0)+1;writeFileSync(path,String(captures[path]));writeFileSync(dir+'/captures.json',JSON.stringify(captures));}
+      if(${scenario === 'first screen crash'} && path?.endsWith('390x844-light.png'))died=23;
+      if(${scenario === 'relaunch crash'} && path?.endsWith('web-relaunch.png'))died=23;
+      return {text:'check web · light: no findings (text fits)',check:[{viewport:vp,scheme:'light',findings:[]}]};
+    }}));
+    mock.module(at('agent.mjs'),()=>({open:async(o)=>{
+      const epoch = o.epoch ?? launch.launchFacts({}).epoch;
+      if(${scenario === 'first screen writes'} && o.epoch == null){assert.deepEqual(serverItems,[],'each width opens an empty server');serverItems.push('opened');}
+      const s = {host:'ios',now:0,width:o.size?.[0]??390,items:o.env?.EXACT_AGENT_STORAGE_FRESH ? [...serverItems] : [],ops:0,
+        screenshot:async(path)=>{captures[path]=(captures[path]??0)+1;writeFileSync(path,String(captures[path]));writeFileSync(dir+'/captures.json',JSON.stringify(captures));return{};},
+        clock:async(arg)=>{if(/^\\+\\d+$/.test(arg))s.now+=Number(arg.slice(1));return{};},
+        type:async(id,value)=>{s.items=[value];serverItems=[value];s.ops++;return{};},
+        state:async()=>({mutationRequests:0,resources:{day:Math.floor((epoch+s.now)/86400000),items:s.items},background:{done:s.ops,failed:0}}),
+        tree:async()=>({nodes:[{id:1,type:'Text',props:{text:${scenario === 'resource date' ? "'Unchanged heading'" : "'Day '+Math.floor((epoch+s.now)/86400000)"}}}]}),
+        op:async()=>({clock:s.now,lines:[]}),logs:async()=>({lines:[]}),close:async()=>{},resize:async(w)=>{s.width=w;},prefer:async()=>({})};
+      // Model a saved value lost by the app on relaunch, with a date still shown on the first screen.
+      return s;
+    }}));
+    const driven = await real('agent-test.mjs');
+    mock.module(at('agent-test.mjs'),()=>({...driven,runTests:async(options)=>{
+      if(options.atStep){if(${scenario === 'relaunch crash'})await options.running.fresh();return {passed:0,failed:0,results:[]};}
+      const replay = options.only != null || options.testIndex != null;
+      if(replay && ${scenario === 'epoch now'})wall+=2000;
+      const r = await driven.runTests(options);
+      if(replay){writeFileSync(dir+'/replayed.json',JSON.stringify({file:options.file.split('/').at(-1),index:options.testIndex,results:r.results.map(t=>({index:t.index,skipped:t.skipped}))}));
+        if(${extra})r.results.push({...r.results[0]});}
+      return r;
+    }}));
+  `);
+  try {
+    const r = spawnSync(process.execPath, ['--preload', preload, resolve(import.meta.dir, 'verify.mjs'), 'web', '--app', dir, '--json', '--shots', resolve(dir, 'shots')],
+      {encoding:'utf8',timeout:30000});
+    const verdict = JSON.parse(r.stdout);
+    if(scenario === 'first screen writes')assert.ok(verdict.checks.every(c=>!c.error),r.stdout+r.stderr);
+    if(scenario === 'signal exit')assert.match(verdict.server.died,/exited \(signal SIGTERM\)/);
+    if(['first screen crash','relaunch crash'].includes(scenario)){
+      assert.match(verdict.server.died ?? '',/exited \(code 23\)/, r.stdout+r.stderr);
+      assert.equal(r.status,1,'a server crash fails verify');
+      assert.ok(JSON.parse(readFileSync(resolve(dir,'restarts.json'),'utf8')) >= 3,'later restarts succeed');
+    }
+    if (extra) assert.match(verdict.relaunch.error, /exactly one.*executed result/, r.stdout + r.stderr);
+    else if (duplicate) {
+      assert.equal(verdict.relaunch.error, undefined, r.stdout + r.stderr);
+      assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'replayed.json'), 'utf8')), {file:'other.test.contract',index:1,results:[{index:1}]});
+    } else if (!['end screenshot','first screen crash'].includes(scenario)) assert.ok(verdict.relaunch.problems?.some(p=>p.includes('lost')), r.stdout + r.stderr);
+    const captures = JSON.parse(readFileSync(resolve(dir, 'captures.json'), 'utf8'));
+    if (authoredShot) {
+      assert.equal(captures[authoredShot],1,'replay must not overwrite an authored screenshot, even if replay fails');
+      assert.equal(readFileSync(resolve(dir,'shots','web-t1-authored.png'),'utf8'),'1');
+      assert.ok(Object.keys(captures).some(p=>p.includes('/replay/')), 'replay writes its own screenshot');
+    }
+    const originals = Object.entries(captures).filter(([p])=>/web-t\d+-/.test(p));
+    assert.equal(originals.length, scenario === 'first screen crash' ? 0 : duplicate ? 3 : 1);
+    for (const [path,count] of originals) {
+      assert.equal(count,1, 'replay must not overwrite '+path);
+      assert.equal(readFileSync(resolve(dir,'shots',path.split('/').at(-1)),'utf8'),'1');
+    }
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}, 30000);
+
+// These exercise native verify orchestration with host I/O substituted; no Windows or iOS device is used.
+test.each(['ios', 'windows'])('verify %s captures a fresh server after replay', (host) => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-verify-capture-')), preload = resolve(dir, 'stub.mjs');
+  writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    text "Test"\n');
+  writeFileSync(resolve(dir, 'app.test.contract'), 'test "saved"\n');
+  writeFileSync(preload, `
+    import {mock} from 'bun:test';
+    import {writeFileSync} from 'node:fs';
+    const at=p=>${JSON.stringify(import.meta.dir)}+'/'+p, dir=${JSON.stringify(dir)}, host=${JSON.stringify(host)};
+    mock.module(at('verify-semantics.mjs'),()=>({contractVerify:()=>({stop(){},done:Promise.resolve({exit:0,output:'',errors:''})}),semanticsSummary:()=>[]}));
+    const real=async p=>({...await import(at(p))});
+    const build=await real('agent-build.mjs'), server=await real('app-server.mjs'), driven=await real('agent-test.mjs');
+    const cp=await import('node:child_process'), spawn=cp.spawn;
+    mock.module('node:child_process',()=>({...cp,spawn:()=>spawn(process.execPath,['-e','console.log("[]")'])}));
+    mock.module(at('agent-build.mjs'),()=>({...build,buildFirst:async()=>0,windowsBuildFirst:async()=>0,windowsBuild:()=>({bin:'unused'})}));
+    let rows=[],used=false,passes=0;
+    const reset=async()=>{rows=[];used=false;};
+    mock.module(at('app-server.mjs'),()=>({...server,appServer:()=>({entry:'server.ts',args:[],url:'http://127.0.0.1:1',port:1,database:false}),answering:async()=>false,
+      startServer:async()=>({fresh:reset,beforeTest:async()=>{if(used)await reset();used=true;},check(){},stop:async()=>{},exits:()=>[],tail:()=>''})}));
+    mock.module(at('agent-test.mjs'),()=>({...driven,runTests:async(o)=>{
+      await o.running.beforeTest(); rows=['test leftover']; passes++;
+      return {passed:1,failed:0,results:[{name:'saved',index:0,store:'kept',failures:[],end:{ops:1,resources:{}}}]};
+    }}));
+    const capture=()=>writeFileSync(dir+'/capture.json',JSON.stringify({rows,passes}));
+    mock.module(at('../host/windows/build.mjs'),()=>({openOnDesktop:async()=>{capture();return {error:'captured'};}}));
+    mock.module(at('agent-check.mjs'),()=>({checkOp:async()=>({text:'check ios · light: no findings (text fits)',check:[{viewport:{w:390,h:844},scheme:'light',findings:[]}]})}));
+    mock.module(at('agent.mjs'),()=>({open:async(o)=>{
+      if(o.touch){capture();throw new Error('captured');}
+      return {host,clock:async()=>({}),state:async()=>({resources:{},background:{done:0,failed:0}}),tree:async()=>({nodes:[]}),
+        op:async()=>({}),logs:async()=>({lines:[]}),layout:async()=>({}),screenshot:async()=>{},close:async()=>{}};
+    }}));
+    mock.module(at('evidence.mjs'),()=>({recordRun(){}}));
+    if(host==='windows')Object.defineProperty(process,'platform',{value:'win32'});
+  `);
+  try {
+    const r = spawnSync(process.execPath, ['--preload', preload, resolve(import.meta.dir, 'verify.mjs'), host, '--app', dir, '--json'], {encoding:'utf8',timeout:30000});
+    assert.ok(existsSync(resolve(dir, 'capture.json')), r.stdout + r.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'capture.json'), 'utf8')), {rows:[],passes:2}, 'capture sees the empty server after the chosen test was replayed');
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+}, 30000);
+
+
+// The tour and server lifecycle run unchanged; only the host, build and server process I/O are substituted.
+test('verify retains an earlier tour server crash after a later tour test succeeds', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-verify-tour-')), preload = resolve(dir, 'stub.mjs');
+  writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    text "Test"\n');
+  writeFileSync(resolve(dir, 'app.test.contract'), 'test "early"\n  clock data\ntest "late"\n  clock data\n');
+  writeFileSync(preload, `
+    import assert from 'node:assert/strict';
+    import {mock,spyOn} from 'bun:test';
+    import {writeFileSync} from 'node:fs';
+    const at=p=>${JSON.stringify(import.meta.dir)}+'/'+p, dir=${JSON.stringify(dir)};
+    mock.module(at('verify-semantics.mjs'),()=>({contractVerify:()=>({stop(){},done:Promise.resolve({exit:0,output:'',errors:''})}),semanticsSummary:()=>[]}));
+    const real=async p=>({...await import(at(p))});
+    const launch=await real('agent-launch.mjs'), serve=await real('../host/web/serve.mjs'), web=await real('../host/web-js/module.mjs');
+    mock.module(at('../host/web/serve.mjs'),()=>({...serve,builtAppMatches:async()=>true,jsTargetBuild:()=>true}));
+    mock.module(at('../host/web-js/module.mjs'),()=>({...web,fresh:()=>true}));
+    mock.module(at('agent-launch.mjs'),()=>({...launch,webChanges:()=>({all:[],app:[]}),driveStore:()=>({base:dir+'/stores',profile:dir+'/stores'}),removeBrowserProfile:async()=>{}}));
+    const ports=await real('port-lock.mjs');
+    mock.module(at('port-lock.mjs'),()=>({...ports,holderOf:async()=>null,takePort:async()=>()=>{}}));
+    mock.module('node:net',()=>({createServer:()=>({once(){},listen(o,done){done();},close(done){done();}})}));
+    let child=null, end=null, launches=0, touring=false, tours=0;
+    const spawnServer=Bun.spawn;
+    spyOn(Bun,'spawn').mockImplementation((args,o)=>{
+      if(args[1]!=='server.ts')return spawnServer(args,o);
+      launches++;
+      child={pid:65000,exitCode:null,signalCode:null,stderr:new ReadableStream({start(c){c.close();}}),exited:new Promise(done=>{end=done;})};
+      return child;
+    });
+    spyOn(process,'kill').mockImplementation((pid,signal)=>{
+      assert.equal(pid,-65000);child.signalCode=signal;end(143);return true;
+    });
+    const cp=await import('node:child_process'), spawn=cp.spawnSync;
+    mock.module('node:child_process',()=>({...cp,spawnSync:(cmd,args,o)=>cmd==='ps'
+      ? {status:0,stdout:child?.exitCode==null && !child?.signalCode && child ? '65000 65000 S original' : ''} : spawn(cmd,args,o)}));
+    spyOn(globalThis,'fetch').mockImplementation(async()=>{if(!child)throw new Error('not ready');return new Response('ok');});
+    const server=await real('app-server.mjs');
+    mock.module(at('app-server.mjs'),()=>({...server,appServer:()=>({entry:'server.ts',args:[],url:'http://127.0.0.1:1',port:1,database:false})}));
+    mock.module(at('evidence.mjs'),()=>({recordRun(){}}));
+    mock.module(at('agent-check.mjs'),()=>({judge:()=>[],checkOp:async()=>({text:'check web · light: no findings (text fits)',check:[{viewport:{w:390,h:844},scheme:'light',findings:[]}]})}));
+    mock.module(at('agent.mjs'),()=>({open:async()=>{
+      const tour=touring ? ++tours : 0;
+      if(tour===2)writeFileSync(dir+'/later.json',JSON.stringify({launches,alive:child.exitCode==null && !child.signalCode}));
+      return {host:'web',now:0,carrier:{reset:async()=>{}},
+        clock:async()=>{if(tour===1 && child.exitCode==null){child.exitCode=23;end(23);}return{};},
+        state:async()=>({mutationRequests:0,resources:{},background:{done:0,failed:0}}),tree:async()=>({nodes:[]}),
+        op:async()=>({clock:0,nodes:[],lines:[],viewport:{w:390,h:844}}),logs:async()=>({lines:[]}),prefer:async()=>({}),resize:async()=>{},screenshot:async()=>{},close:async()=>{}};
+    }}));
+    const driven=await real('agent-test.mjs');
+    mock.module(at('agent-test.mjs'),()=>({...driven,runTests:async(o)=>{
+      touring=!!o.atStep;
+      const r=await driven.runTests(o);
+      if(touring){assert.deepEqual([r.passed,r.failed],[1,1]);writeFileSync(dir+'/tour.json',JSON.stringify(r));}
+      touring=false;return r;
+    }}));
+  `);
+  try {
+    const r = spawnSync(process.execPath, ['--preload', preload, resolve(import.meta.dir, 'verify.mjs'), 'web', '--app', dir, '--json'], {encoding:'utf8',timeout:30000});
+    assert.ok(existsSync(resolve(dir, 'tour.json')), r.stdout + r.stderr);
+    const verdict = JSON.parse(r.stdout), later = JSON.parse(readFileSync(resolve(dir, 'later.json'), 'utf8'));
+    assert.deepEqual([verdict.tests.passed,verdict.tests.failed],[2,0],r.stdout+r.stderr);
+    assert.equal(later.alive,true,'the later tour test starts on a healthy replacement');
+    assert.match(verdict.server.died ?? '', /server\.ts exited \(code 23\)/, r.stdout + r.stderr);
+    assert.equal(r.status,1,'a crash in any tour test fails verify');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}, 30000);

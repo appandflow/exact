@@ -1,4 +1,4 @@
-//! Native editors use the same content box in every publication.
+//! Native editors use the same content box in every publication. LLP 1104 D5.
 use super::support::*;
 use exact_kernel::*;
 
@@ -404,7 +404,7 @@ fn native_button_padding_uses_the_published_region_and_shell_bases() {
     );
 }
 
-/// A field in a popover of the region's shell is laid out in
+/// Stage 14 B: a field in a popover of the region's shell is laid out in
 /// the popover's block after the region, and its provisional chrome counts,
 /// so a host settles it as it settles the region's own.
 #[test]

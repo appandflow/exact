@@ -3,13 +3,13 @@ import AVFoundation
 import XCTest
 @testable import ExactKit
 
-/// Speech claims on the audio-session owner. The session
+/// LLP 1133.012 D4: speech claims on the audio-session owner. The session
 /// takes the strongest spoken type held, changes only while no other I/O
 /// runs, and is given up when the last speech claim goes.
 final class AudioSessionSpeechIOSTests: XCTestCase {
-    private var saved = AudioSession.category
+    private var saved = AudioSession.configuration
     override func setUp() { AudioSession.reset() }
-    override func tearDown() { AudioSession.reset(); AudioSession.category = saved }
+    override func tearDown() { AudioSession.reset(); AudioSession.configuration = saved }
 
     private var session: AVAudioSession { AVAudioSession.sharedInstance() }
 
@@ -53,6 +53,23 @@ final class AudioSessionSpeechIOSTests: XCTestCase {
         XCTAssertEqual(session.category, .ambient)
     }
 
+    /// Speech released during a capture leaves no configuration behind: the
+    /// next claim of the same type takes its own again.
+    func testSpeechAfterACaptureTakesItsConfigurationAgain() {
+        let first = AudioSession.claimSpeech(type: "transient") { _ in }
+        let capture = AudioSession.claimCapture(mode: .default, options: [.defaultToSpeaker], background: false) { _ in }
+        AudioSession.releaseSpeech(first)
+        AudioSession.releaseCapture(capture)
+        XCTAssertEqual(session.category, .ambient)
+        let again = AudioSession.claimSpeech(type: "transient") { _ in }
+        XCTAssertNotEqual(again, 0)
+        XCTAssertEqual(session.category, .playback)
+        XCTAssertEqual(session.mode, .voicePrompt)
+        XCTAssertTrue(session.categoryOptions.contains(.duckOthers), "other audio is ducked")
+        AudioSession.releaseSpeech(again)
+        XCTAssertEqual(session.category, .ambient)
+    }
+
     /// A holder that will not stop (a voice pending) keeps the session as it
     /// stands; the speech configuration applies at the boundary its release is.
     func testABusyHolderDelaysTheChangeToItsRelease() throws {
@@ -90,7 +107,7 @@ final class AudioSessionSpeechIOSTests: XCTestCase {
 
     /// A sound started during speech plays in the configuration in force.
     func testASoundDuringSpeechChangesNothing() throws {
-        AudioSession.category = .playback
+        AudioSession.configuration = .init("playback")
         let speech = AudioSession.claimSpeech(type: "transient") { _ in }
         final class Holder {}
         let sound = Holder()

@@ -1,4 +1,4 @@
-// @exact/background's conformance suite on Apple:
+// @exact/background's conformance suite on Apple (LLP 1133.017 §14 stage 2):
 // the fixture app (`test/fixture`, as `web.mjs` makes it) built for macOS or
 // an iOS simulator and driven by the agent with the implementation bound
 // (`--bind background`), so `NWPathMonitor`, `NSBackgroundActivityScheduler`
@@ -18,6 +18,7 @@
 //   for it 15 minutes on; on iOS, while a `sync` tag waits out its backoff,
 //   a refresh request and a processing one for it too. The simulator
 //   refuses every submit (`BGTaskSchedulerErrorDomain` code 1).
+// - Outside the agent, `unregisterPeriodicSync` cancels the tag's wake request.
 // - With `--long`, on the Mac: the periodic tag's scheduler fires within
 //   30 minutes, its wake raising `periodicsync`, whose handler's request
 //   lands.
@@ -32,6 +33,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { checker } from '../../camera/test/fixture.mjs';
 import { texts, until } from '../../photos/test/fixture.mjs';
+import { ensureShells } from '../../../scripts/app-shells.mjs';
 
 const here = import.meta.dir, pkg = resolve(here, '..'), root = resolve(pkg, '../..');
 const argv = process.argv.slice(2), sim = argv.includes('--sim') ? argv[argv.indexOf('--sim') + 1] : process.env.EXACT_SIM;
@@ -53,7 +55,7 @@ const puller = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
 
 function makeFixture() {
   const dir = mkdtempSync(join(tmpdir(), 'exact-background-')), app = join(dir, 'bgfixture');
-  run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app], root);
+  run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app, '--with', 'ios,mac'], root);
   for (const f of ['app.contract', 'app.ts']) cpSync(join(here, 'fixture', f), join(app, f));
   rmSync(join(app, 'app.test.contract'), { force: true });
   const id = JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).app.id;
@@ -62,6 +64,9 @@ function makeFixture() {
   manifest.dependencies = { ...manifest.dependencies, '@exact/background': `file:${pkg}` };
   writeFileSync(join(app, 'package.json'), JSON.stringify(manifest, null, 2));
   run('bun', ['install'], app);
+  // The native workspace written before the build starts: one the build wrote
+  // is newer than the build, and the driver refuses the build as stale.
+  ensureShells(app);
   return { app, id, remove: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
@@ -114,6 +119,23 @@ import Foundation
         wait { tags != nil }
         precondition(tags?.isEmpty == true, "completed sync was not retired")
         print("PASS overlapping platform wakes await one sync and retire it")
+
+        // Outside the agent the module asks the host's store, which keeps a
+        // request across launches until it falls due.
+        defaults.removeObject(forKey: "exact.background")
+        var held: Set<String> = []
+        let wakes = ExactWakes { key, request in if request == nil { held.remove(key) } else { held.insert(key) } }
+        let outside = BackgroundModule(context: ExactPackageContext(agent: false, session: "test", changed: { _ in }, log: { print($0) },
+                                                                    now: { 0 }, wakes: wakes))
+        var periodic = false
+        outside.later("registerPeriodicSync", ["tag": "digest", "minInterval": 900_000.0], preferred: nil) { _ in periodic = true }
+        wait { periodic }
+        precondition(held.contains("periodicsync digest"), "a periodic tag asked no wake: \(held)")
+        var withdrawn = false
+        outside.later("unregisterPeriodicSync", ["tag": "digest"], preferred: nil) { _ in withdrawn = true }
+        wait { withdrawn }
+        precondition(!held.contains("periodicsync digest"), "an unregistered periodic tag still holds a wake: \(held)")
+        print("PASS an unregistered periodic tag leaves no wake request")
     }
 }
 `);
@@ -130,7 +152,7 @@ for (const host of hosts.length ? hosts : ['macos']) {
   const where = host === 'ios' ? 'ios-simulator' : 'macos';
   if (host === 'ios' && !sim) throw new Error('ios: name a simulator you booted (--sim <udid>)');
   const fixture = makeFixture();
-  Object.assign(process.env, { EXACT_APP_DIR: fixture.app, EXACT2: root, EXACT_IDENTITY: process.env.EXACT_IDENTITY ?? '-' });
+  Object.assign(process.env, { EXACT_APP_DIR: fixture.app, EXACT: root, EXACT_IDENTITY: process.env.EXACT_IDENTITY ?? '-' });
   if (sim) process.env.EXACT_SIM = sim;
   // Registrations and wake requests live in the app's defaults, which no agent store holds: deleted before and after.
   // On the simulator, the app's defaults are a file in its data container.

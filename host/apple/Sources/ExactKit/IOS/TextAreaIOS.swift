@@ -53,9 +53,18 @@ enum ResignTrace {
 }
 
 final class TextField: UITextField {
+    /// Where the surface draws it, inside a placed canvas child (PlacedAccessibilityIOS.swift).
+    override var accessibilityFrame: CGRect {
+        get { placedAccessibilityFrame ?? super.accessibilityFrame }
+        set { super.accessibilityFrame = newValue }
+    }
+    override var accessibilityActivationPoint: CGPoint {
+        get { placedActivationPoint(from: super.accessibilityActivationPoint) ?? super.accessibilityActivationPoint }
+        set { super.accessibilityActivationPoint = newValue }
+    }
     weak var owner: NodeView?
     // A commit that changes no text sends no editing change: a `direction`
-    // that came while it was marked applies here.
+    // that came while it was marked applies here (LLP 1001 §1).
     override func unmarkText() {
         super.unmarkText()
         owner?.applyFieldDirection()
@@ -106,9 +115,9 @@ final class TextField: UITextField {
     }
     /// UIKit puts the caret at the end as a field takes the focus, which is
     /// no selection of the person's; one a script set while it had no focus
-    /// is shown instead.
+    /// is shown instead (x2apps codeedit #2).
     override func becomeFirstResponder() -> Bool {
-        if owner?.keepsFocus(from: self) == true { return false } // a prevented pointerdown's touch
+        if owner?.keepsFocus(from: self) == true { return false } // a prevented pointerdown's touch (LLP 1005 §3)
         let selections = owner?.presenter?.fieldSelections
         let ok = selections?.quietly { super.becomeFirstResponder() } ?? super.becomeFirstResponder()
         if ok, let owner { selections?.focused(owner) }
@@ -136,7 +145,7 @@ final class TextField: UITextField {
             selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
         } else { super.deleteBackward() }
     }
-    // DOM's clipboard events, before the field's own (Clipboard.swift).
+    // DOM's clipboard events, before the field's own (#125, Clipboard.swift).
     override func copy(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) { super.copy(sender) } }
     override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
     override func paste(_ sender: Any?) {
@@ -154,6 +163,15 @@ final class TextField: UITextField {
 }
 
 package final class TextArea: UITextView {
+    /// Where the surface draws it, inside a placed canvas child (PlacedAccessibilityIOS.swift).
+    package override var accessibilityFrame: CGRect {
+        get { placedAccessibilityFrame ?? super.accessibilityFrame }
+        set { super.accessibilityFrame = newValue }
+    }
+    package override var accessibilityActivationPoint: CGPoint {
+        get { placedActivationPoint(from: super.accessibilityActivationPoint) ?? super.accessibilityActivationPoint }
+        set { super.accessibilityActivationPoint = newValue }
+    }
     // UIKit already owns a specialized manager per editor. Its native text
     // undo actions require that manager; observe it without replacing it.
     private var textUndo: NativeTextUndo?
@@ -175,9 +193,19 @@ package final class TextArea: UITextView {
     }
 
     weak var owner: NodeView?
-    /// The Markdown styler when `markup="markdown"`.
+    /// The hardware key whose handlers ran in `pressesBegan`: UIKit's own
+    /// newline or deletion for it does not run them again (`TextField.heard`).
+    var heard: String?
+    /// The software keyboard's Return or Backspace reaches `insertText` and
+    /// `deleteBackward` with no key event: its handlers hear it here. True
+    /// when one prevented it, and the edit is skipped.
+    private func softwareKeyPrevented(_ name: String) -> Bool {
+        guard heard != name, let owner, !owner.disabled else { return false }
+        return owner.presenter?.keyDown(at: owner, name) == true
+    }
+    /// The Markdown styler when `markup="markdown"` (LLP 1045 D5).
     package var markup: MarkdownEditing?
-    /// A plain textarea's painted decorations.
+    /// A plain textarea's painted decorations (LLP 1114.007).
     var decorations: FieldDecorations?
     /// An edit is under way: the selection it moves is the edit's, not the
     /// person's, and stays where the edit puts it (`MarkupHidden.swift`).
@@ -191,7 +219,7 @@ package final class TextArea: UITextView {
     /// comes with a new length is an edit's.
     var markupSelection: NSRange?
     var markupLength = 0
-    /// Its inline atoms' accessibility elements, and the tap that presses one (FieldAtoms.swift).
+    /// Its inline atoms' accessibility elements, and the tap that presses one (FieldAtoms.swift, LLP 1045.000 D7, D8).
     var atomElements: [AtomElement] = []
     var atomTap: (AnyObject, UITapGestureRecognizer)?
     /// Where the atom under the pointer starts, and the hover that finds it, while a kind has `:hover` paint.
@@ -203,13 +231,13 @@ package final class TextArea: UITextView {
         get { super.typingAttributes }
         set { var shown = newValue; shown[.markupHidden] = nil; shown[.markupOpener] = nil; shown[.markupAtom] = nil; super.typingAttributes = shown }
     }
-    // VoiceOver reads the text without hidden link destinations.
+    // VoiceOver reads the text without hidden link destinations (LLP 1045 D1).
     package override var accessibilityValue: String? {
         get { markup != nil ? textStorage.shownText(in: NSRange(location: 0, length: textStorage.length)) : super.accessibilityValue }
         set { super.accessibilityValue = newValue }
     }
     /// A caret at a hidden link destination's edge steps, or deletes, from
-    /// its other edge, so the step is over visible text.
+    /// its other edge, so the step is over visible text (LLP 1045 D5).
     func crossHidden(backward: Bool) {
         guard let markup, markedTextRange == nil, selectedRange.length == 0,
               let from = markup.crossing(selectedRange.location, backward: backward, in: textStorage) else { return }
@@ -250,6 +278,7 @@ package final class TextArea: UITextView {
     package override func insertText(_ text: String) {
         owner?.presenter?.supersedePress() // typed text, as a key (PressHandoffIOS)
         owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go (HeldState.swift)
+        if text == "\n", markedTextRange == nil, softwareKeyPrevented("Enter") { return }
         // UIKeyInput (including the software keyboard) need not ask the
         // text-view delegate before insertion. Handle a plain Return here,
         // the app's `beforeinput` first; the command's own native insertion
@@ -267,13 +296,14 @@ package final class TextArea: UITextView {
     package override func deleteBackward() {
         owner?.presenter?.supersedePress()
         owner?.presenter?.heldKey(at: owner) // a key on a held node lets its hold go, a deletion that changes nothing included (HeldState.swift)
+        if softwareKeyPrevented("Backspace") { return }
         crossHidden(backward: true)
         if let selections = owner?.presenter?.fieldSelections {
             selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { if !rewritesSelection(with: "") { super.deleteBackward() } }
         } else { super.deleteBackward() }
     }
     /// The Markdown editor's edit in place of typing or deleting at a
-    /// selection that holds hidden source; UIKit's key input
+    /// selection that holds hidden source (LLP 1045 D5); UIKit's key input
     /// need not ask the delegate first.
     private func rewritesSelection(with text: String) -> Bool {
         guard let markup, !markup.applying, markedTextRange == nil, let owner else { return false }
@@ -291,6 +321,7 @@ package final class TextArea: UITextView {
     package override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let remaining=owner?.pressedControls(presses,down:true) ?? presses
         if remaining.isEmpty || owner?.editorKeyDown(remaining) == true { return }
+        heard = remaining.first?.key.map(NodeView.keyName)
         if let key = remaining.first?.key, key.modifierFlags.intersection([.shift, .command, .control]).isEmpty,
            key.keyCode == .keyboardLeftArrow || key.keyCode == .keyboardRightArrow {
             crossHidden(backward: key.keyCode == .keyboardLeftArrow)
@@ -298,15 +329,17 @@ package final class TextArea: UITextView {
         super.pressesBegan(remaining,with:event)
     }
     package override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        heard = nil
         let remaining=owner?.pressedControls(presses,down:false) ?? presses
         if !remaining.isEmpty {owner?.editorKeyUp(remaining); super.pressesEnded(remaining,with:event)}
     }
     package override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        heard = nil
         let remaining=owner?.pressedControls(presses,down:false) ?? presses
         if !remaining.isEmpty {super.pressesCancelled(remaining,with:event)}
     }
     package override func becomeFirstResponder() -> Bool {
-        if owner?.keepsFocus(from: self) == true { return false } // a prevented pointerdown's touch
+        if owner?.keepsFocus(from: self) == true { return false } // a prevented pointerdown's touch (LLP 1005 §3)
         let wasFirst = isFirstResponder
         let focused = super.becomeFirstResponder()
         // Read-only selection has no editing-began delegate callback.
@@ -363,7 +396,7 @@ package final class TextArea: UITextView {
         UIPasteboard.general.string = plain
         #endif
     }
-    // DOM's clipboard events, before the editor's own (Clipboard.swift).
+    // DOM's clipboard events, before the editor's own (#125, Clipboard.swift).
     package override func copy(_ sender: Any?) {
         NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) {
             guard let markup else { super.copy(sender); return }
@@ -387,7 +420,7 @@ package final class TextArea: UITextView {
     }
     #endif
     // Keep TextKit's lines the authored CSS line boxes (`setLineHeight`), and the
-    // node's `direction` the base. Updating storage attributes
+    // node's `direction` the base (LLP 1001 §1). Updating storage attributes
     // preserves the value and selected range; replacing attributedText would
     // reset a selection (including a read-only one).
     func applyLineHeight(_ height: CGFloat?, direction: NSWritingDirection) {
@@ -400,12 +433,17 @@ package final class TextArea: UITextView {
         typingAttributes.merge(attributes) { _, authored in authored }
     }
     var placeholder = "" { didSet { setNeedsDisplay() } }
-    /// The authored `::placeholder` colour; nil, UIKit's.
+    /// The authored `::placeholder` colour (LLP 1104 D3); nil, UIKit's.
     var placeholderColor: UIColor?
     // A scroll view's own drawing does not move with its content: the
-    // decorations' lines are drawn again at each new offset.
+    // decorations' lines and visible placeholder are drawn again at each offset.
     package override var contentOffset: CGPoint {
-        didSet { if contentOffset != oldValue, decorations?.drawsLines == true { setNeedsDisplay() } }
+        didSet {
+            if contentOffset != oldValue,
+               decorations?.drawsLines == true || (text.isEmpty && !placeholder.isEmpty) {
+                setNeedsDisplay()
+            }
+        }
     }
     /// The placeholder it draws may be in the tint: drawn again as the tint changes
     package override func tintColorDidChange() {
@@ -418,16 +456,19 @@ package final class TextArea: UITextView {
         if text.isEmpty, !placeholder.isEmpty {
             // Where the first line of text sits, however short the content
             // box: what overflows the view is clipped, as the web clips a
-            // textarea's placeholder at its padding box. `draw(in:)` drops a
-            // line its rect cannot hold whole, so a short box drew nothing.
-            let box = bounds.inset(by: textContainerInset)
+            // textarea's placeholder at its padding box. The container starts
+            // in content coordinates; bounds.origin is the scroll offset.
+            // String drawing drops a line its rect cannot hold whole, so the
+            // rect is one line taller than what the view shows.
+            let box = CGRect(origin: .zero, size: bounds.size).inset(by: textContainerInset)
+            let font = font ?? UIFont.systemFont(ofSize: 16)
             var attributes: [NSAttributedString.Key: Any] = [
-                .font: font ?? UIFont.systemFont(ofSize: 16),
+                .font: font,
                 .foregroundColor: placeholderColor ?? ThemeRoles.color("placeholder", in: self, or: UIColor.placeholderText),
             ]
             attributes[.paragraphStyle] = typingAttributes[.paragraphStyle]
-            // A Markdown editor's placeholder sits at its first line's start:
-            // string drawing aligns natural text by the app's
+            // A Markdown editor's placeholder sits at its first line's start
+            // (LLP 1045 D11): string drawing aligns natural text by the app's
             // layout direction, not the paragraph's, so the side is said.
             if let markup {
                 let style = (attributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
@@ -436,7 +477,10 @@ package final class TextArea: UITextView {
                 style.alignment = direction == .rightToLeft ? .right : .left
                 attributes[.paragraphStyle] = style
             }
-            (placeholder as NSString).draw(with: CGRect(x: box.minX, y: box.minY, width: max(0, box.width), height: .greatestFiniteMagnitude),
+            let paragraph = attributes[.paragraphStyle] as? NSParagraphStyle
+            let lineHeight = max(font.lineHeight, paragraph?.minimumLineHeight ?? 0) + (paragraph?.lineSpacing ?? 0)
+            let height = max(0, bounds.height - textContainerInset.top) + lineHeight
+            (placeholder as NSString).draw(with: CGRect(x: box.minX, y: box.minY, width: max(0, box.width), height: height),
                                            options: .usesLineFragmentOrigin, attributes: attributes, context: nil)
         }
     }
@@ -444,7 +488,7 @@ package final class TextArea: UITextView {
 
 extension NodeView {
     /// A single-line field is the element VoiceOver reaches: it carries the
-    /// node's name and identifier (found by `tree --ax`).
+    /// node's name and identifier (found by `tree --ax`, LLP 1080.002).
     func applyFieldName(_ f: UITextField) {
         f.accessibilityLabel = props["accessibilityLabel"]
         f.accessibilityIdentifier = props["testId"]
@@ -472,7 +516,7 @@ extension NodeView {
     }
     /// No correction (`autocorrect="off"`, or an email, URL or password
     /// input) keeps the text as typed, as HTML asks: no smart quotes or
-    /// dashes either. Otherwise the keyboard's.
+    /// dashes either (#111). Otherwise the keyboard's.
     var inputSmartQuotes: UITextSmartQuotesType { inputCorrection == .no ? .no : .default }
     var inputSmartDashes: UITextSmartDashesType { inputCorrection == .no ? .no : .default }
 
@@ -509,10 +553,10 @@ extension NodeView {
         f.textContainer.lineFragmentPadding = 0
         f.delegate = self
         #if os(iOS)
-        // Not the screen's scroller: the status bar scrolls that.
+        // Not the screen's scroller: the status bar scrolls that (LLP 1115).
         f.scrollsToTop = false
         #endif
-        addSubview(f)
+        (clipBox ?? self).addSubview(f)
         textArea = f
     }
     func configureMarkup() {
@@ -562,7 +606,8 @@ extension NodeView {
         guard let f = textArea, let t = text else { return }
         guard f.markedTextRange == nil else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")),
-            ligatures: Int(number("font_variant_ligatures")), stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style))
+            ligatures: Int(number("font_variant_ligatures")), stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style),
+            features: FontFeature.of(style))
         f.textColor = fieldInk
         f.tintColor = isNativeTextControl ? caretColor ?? ownTintColor("accent_color") : caretColor
         if isNativeTextControl {
@@ -594,7 +639,7 @@ extension NodeView {
         #endif
     }
     /// The app's value into the editor: the changed middle only, with the
-    /// selection carried through. The value the editor already
+    /// selection carried through (LLP 1045 D5). The value the editor already
     /// shows changes nothing, so a composition and its selection stand. A
     /// different one is held while text is marked, the last one written,
     /// and applied when the composition ends (`FieldComposition.swift`).
@@ -629,7 +674,7 @@ extension NodeView {
         DispatchQueue.main.async { [weak f] in f?.changingText = false }
         return true
     }
-    /// The Markdown editor's edit in place of the native one,
+    /// The Markdown editor's edit in place of the native one (LLP 1045 D5),
     /// as one undo step through UIKit's own insertion.
     func applyMarkup(_ rewrite: MarkupRewrite, in f: TextArea, _ editor: MarkdownEditing) {
         #if !os(tvOS)
@@ -659,9 +704,9 @@ extension NodeView {
         presenter?.revealCaret(of: self)
     }
     /// The node's `direction` as the base of every paragraph of a plain
-    /// field's text and what is typed next, at its side, again
+    /// field's text and what is typed next, at its side (LLP 1001 §1), again
     /// after what can bring back another's: an undo, a composition's end. A
-    /// Markdown editor says its own lines'. Attributes only.
+    /// Markdown editor says its own lines' (LLP 1045 D11). Attributes only.
     func applyBaseDirection(to tv: UITextView) {
         guard (tv as? TextArea)?.markup == nil, tv.markedTextRange == nil else { return }
         let direction = fieldBaseDirection, alignment = tv.textAlignment, storage = tv.textStorage
@@ -680,7 +725,7 @@ extension NodeView {
         if let next = directed(tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle) { tv.typingAttributes[.paragraphStyle] = next }
     }
     package func textViewDidChangeSelection(_ textView: UITextView) {
-        // A person's selection beside a hidden link destination.
+        // A person's selection beside a hidden link destination (LLP 1045 D5).
         if let f = textView as? TextArea, let editor = f.markup, !editor.applying, !editor.styling, f.markedTextRange == nil {
             let live = f.selectedRange
             let edited = f.changingText || f.placingCaret || f.markupLength != f.textStorage.length
@@ -689,7 +734,7 @@ extension NodeView {
             f.markupLength = f.textStorage.length
             if placed != live { f.selectedRange = placed }
         }
-        presenter?.fieldSelections.changed(self) // a plain textarea's `select`
+        presenter?.fieldSelections.changed(self) // a plain textarea's `select` (x2apps codeedit #2)
         guard let f = textView as? TextArea, let editor = f.markup, !editor.applying, !editor.styling, f.markedTextRange == nil else { return }
         if f.isFirstResponder { editor.bookmark = f.selectedRange }
         restyleMarkup()

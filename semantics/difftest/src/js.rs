@@ -1,5 +1,5 @@
 //! The web JS target's half (`--js`): the second implementation of Contract
-//! (host/web-js), run headless by `js/drive.mjs` under Bun and
+//! (host/web-js, LLP 1071), run headless by `js/drive.mjs` under Bun and
 //! compared with the runner line for line.
 //!
 //! Each case's program is compiled by `exact-web-js` (the build's own
@@ -193,7 +193,7 @@ fn prepare(case: &Case, dir: &Path, index: usize) -> Result<Ready, JsVerdict> {
         .collect();
     let events: Vec<String> = case.events.iter().map(event).collect();
     // The device's store at launch, and the persisted states whose `store`
-    // lines follow the slots.
+    // lines follow the slots (LLP 1116 D5).
     let stored: Vec<String> = data
         .snapshot()
         .iter()
@@ -274,7 +274,7 @@ fn field(line: &serde_json::Value, name: &str) -> Option<Vec<String>> {
 
 fn verdict(rust: Vec<String>, text: &str) -> JsVerdict {
     // The JS module exposes no commit trace. Compare configurations and
-    // outcomes, omitting `ran` lines on both sides.
+    // outcomes, omitting `ran` lines on both sides (LLP 1148 D3).
     let rust: Vec<String> = rust
         .into_iter()
         .filter(|l| !l.starts_with("ran "))

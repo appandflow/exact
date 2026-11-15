@@ -71,11 +71,14 @@ impl Drop for Lease {
 }
 
 fn module(placement: Placement, disk: &Backend) -> Placed<Module> {
+    module_over(placement, Arc::new(disk.clone()))
+}
+fn module_over(placement: Placement, secrets: Arc<dyn SharedSecrets>) -> Placed<Module> {
     let plan = contract::compile("shape Result\n  text: string\ncomponent App\n  mutation output as shape Result\n  action go(name: string)\n    send output = secret(name)\n  view\n    text \"secret\"\n").unwrap();
     let mut module = Module::new(HBC.to_vec(), "test.context", GRANTS);
     module.set_budget_ms(f64::INFINITY);
     let mut module = module.placed(placement);
-    module.configure_secrets(Arc::new(disk.clone())).unwrap();
+    module.configure_secrets(secrets).unwrap();
     module.bind(&plan);
     module.activate().unwrap();
     module
@@ -144,11 +147,27 @@ fn request(answer: &Answer) -> &Request {
     };
     r
 }
-fn acquire(m: &mut impl DataSource, s: &mut Store, id: usize, answer: &Answer) -> Answer {
+/// `answer`'s lease acquisition, landed once the lease is granted. A backend that grants on another thread, as the data
+/// crate's broker does, wakes `woke` through the module's `abort_wake`.
+fn acquire(
+    m: &mut impl DataSource,
+    s: &mut Store,
+    id: usize,
+    answer: &Answer,
+    woke: Option<&std::sync::mpsc::Receiver<()>>,
+) -> Answer {
     let token = request(answer).continuation.expect("secret acquisition");
     assert!(m.host_continuation(token));
-    let outcome = run(m.dispatch(token, s));
-    land(m, s, id, outcome)
+    let mut dispatch = m.dispatch(token, s);
+    while matches!(dispatch, Dispatch::Held) {
+        woke.expect("a held lease is waited for on `woke`")
+            .recv_timeout(Duration::from_secs(20))
+            .expect("the backend granted the lease");
+        if let Some((_, again)) = m.release(s).into_iter().find(|(t, _)| *t == token) {
+            dispatch = again;
+        }
+    }
+    land(m, s, id, run(dispatch))
 }
 fn text(answer: Answer) -> String {
     let Answer::Now(Value::Record(fields)) = answer else {
@@ -179,7 +198,7 @@ fn independent_native_realms_reload_under_the_lease_before_refreshing() {
         assert_eq!(request(&begin(&mut a, &mut sa, 0)).method, "GET");
         assert_eq!(request(&begin(&mut b, &mut sb, 0)).method, "GET");
         let aw = land(&mut a, &mut sa, 0, response(401, "expired"));
-        let post = acquire(&mut a, &mut sa, 0, &aw);
+        let post = acquire(&mut a, &mut sa, 0, &aw, None);
         assert_eq!(request(&post).method, "POST");
         assert!(String::from_utf8_lossy(&request(&post).body).contains("rotate-0"));
         let bw = land(&mut b, &mut sb, 0, response(401, "expired"));
@@ -219,7 +238,7 @@ fn callers_in_one_native_owner_do_not_block_the_lease_holders_reply() {
         begin(&mut m, &mut s, 0);
         begin(&mut m, &mut s, 1);
         let a = land(&mut m, &mut s, 0, response(401, "expired"));
-        acquire(&mut m, &mut s, 0, &a);
+        acquire(&mut m, &mut s, 0, &a, None);
         let b = land(&mut m, &mut s, 1, response(401, "expired"));
         let token = request(&b).continuation.unwrap();
         assert!(matches!(m.dispatch(token, &s), Dispatch::Held));
@@ -252,7 +271,7 @@ fn native_secret_read_and_write_failures_release_the_lease() {
             if !write {
                 disk.0.lock().unwrap().read_error = true;
             }
-            let answer = acquire(&mut m, &mut s, 0, &wait);
+            let answer = acquire(&mut m, &mut s, 0, &wait, None);
             let answer = if write {
                 disk.0.lock().unwrap().write_error = true;
                 land(&mut m, &mut s, 0, rotated())
@@ -265,6 +284,48 @@ fn native_secret_read_and_write_failures_release_the_lease() {
                 .value
                 .as_ref()
                 .is_some_and(|v| String::from_utf8_lossy(v).contains("rotate-1"))));
+        }
+    }
+}
+
+/// The secret a native host's Keychain keeps, behind the data crate's leases
+struct Keychain(Mutex<Option<String>>);
+impl exact_data::secrets::Backend for Keychain {
+    fn read(&self, _: &str) -> Result<Option<String>, String> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+    fn write(&self, _: &str, value: Option<&str>) -> Result<(), String> {
+        *self.0.lock().unwrap() = value.map(str::to_owned);
+        Ok(())
+    }
+}
+
+// A refresh the token endpoint refuses keeps the session (LLP 1146 §5, "Refresh") through the next lease, which forgets
+// a secret whose work threw after its POST
+#[test]
+fn a_refresh_the_token_endpoint_refuses_keeps_the_session_through_the_next_lease() {
+    for placement in [Placement::Main, Placement::Worker] {
+        let keychain = Arc::new(Keychain(Mutex::new(Some(OLD.into()))));
+        let leases = exact_data::secrets::Coordinator::new(
+            exact_data::secrets::Namespace::memory(),
+            keychain.clone(),
+        );
+        let mut m = module_over(placement, Arc::new(leases));
+        let (wake, woke) = std::sync::mpsc::channel();
+        m.abort_wake(Arc::new(move || {
+            let _ = wake.send(());
+        }));
+        let mut s = store();
+        for id in 0..2 {
+            begin(&mut m, &mut s, id);
+            let wait = land(&mut m, &mut s, id, response(401, "expired"));
+            let post = acquire(&mut m, &mut s, id, &wait, Some(&woke));
+            assert_eq!(request(&post).method, "POST");
+            assert!(String::from_utf8_lossy(&request(&post).body).contains("rotate-0"));
+            // A 403 that is not an OAuth reply, as Lexus's token endpoint answers from another region
+            let failed = land(&mut m, &mut s, id, response(403, "<html>Forbidden</html>"));
+            assert_eq!(text(failed), "failed:The provider's reply was unreadable.");
+            assert_eq!(keychain.0.lock().unwrap().as_deref(), Some(OLD));
         }
     }
 }
@@ -292,7 +353,8 @@ fn kept_refresh<D: DataSource>(mut m: D, disk: Backend) {
     begin(&mut m, &mut s, 0);
     begin(&mut m, &mut s, 1);
     let a = land(&mut m, &mut s, 0, response(401, "expired"));
-    assert_eq!(request(&acquire(&mut m, &mut s, 0, &a)).method, "POST");
+    let sent = acquire(&mut m, &mut s, 0, &a, None);
+    assert_eq!(request(&sent).method, "POST");
     let b = land(&mut m, &mut s, 1, response(401, "expired"));
     let bt = request(&b).continuation.unwrap();
     assert!(matches!(m.dispatch(bt, &s), Dispatch::Held));
@@ -304,6 +366,7 @@ fn kept_refresh<D: DataSource>(mut m: D, disk: Backend) {
             target: Target::Mutation(1),
             source: "secret",
             args: &b_args,
+            fetch: None,
             continuation: Some(bt),
         }],
     );
@@ -313,6 +376,7 @@ fn kept_refresh<D: DataSource>(mut m: D, disk: Backend) {
             target: Target::Mutation(0),
             source: "secret",
             args: &a_args,
+            fetch: request(&sent).fetch,
             continuation: None,
         }],
         false,
@@ -353,6 +417,101 @@ fn kept_refresh<D: DataSource>(mut m: D, disk: Backend) {
 }
 
 #[test]
+fn concurrent_protected_posts_keep_their_own_replies_after_let_go() {
+    use exact_runner::InFlight;
+    fn check(mut m: impl DataSource, disk: Backend, order: [usize; 2]) {
+        let (wake, woke) = std::sync::mpsc::channel();
+        m.abort_wake(Arc::new(move || {
+            let _ = wake.send(());
+        }));
+        let mut s = store();
+        let target = Target::Resource(0);
+        let args = [Value::str("protected")];
+        let mut answer = m.answer_for(target, &mut s, "secret", &args).unwrap();
+        for _ in 0..10 {
+            let r = request(&answer);
+            let Some(token) = r.continuation else {
+                break;
+            };
+            let fetch = r.fetch;
+            let outcome = run(m.dispatch(token, &s));
+            answer = m
+                .parse_fetch_for(target, fetch, &mut s, "secret", &args, outcome)
+                .unwrap()
+                .unwrap();
+        }
+        let mut posts = vec![request(&answer).clone()];
+        posts.extend(m.more_for(target));
+        assert_eq!(posts.len(), 2);
+        for (i, post) in posts.iter().enumerate() {
+            assert_eq!(post.method, "POST");
+            assert_eq!(
+                post.url,
+                format!("https://context.test/protected/{}", ["a", "b"][i])
+            );
+        }
+        m.forgotten(&s, &[]);
+        let view: Vec<_> = order
+            .iter()
+            .map(|&i| InFlight {
+                target,
+                source: "secret",
+                args: &args,
+                fetch: posts[i].fetch,
+                continuation: None,
+            })
+            .collect();
+        let kept = m.keep_sent(&s, &view, false);
+        assert!(
+            kept.iter().all(Option::is_some),
+            "both protected requests keep their replies"
+        );
+        assert_ne!(kept[0], kept[1]);
+        let mut expected = OLD.to_string();
+        for (step, i) in order.into_iter().enumerate() {
+            let mut outcome = response(200, ["A", "B"][i]);
+            let token = kept[step].unwrap();
+            let mut landed = false;
+            for _ in 0..10 {
+                let Some(request) = m.module_delivery(&mut s, token, outcome).unwrap() else {
+                    landed = true;
+                    break;
+                };
+                let next = request.continuation.unwrap();
+                let mut dispatch = m.dispatch(next, &s);
+                while matches!(dispatch, Dispatch::Held) {
+                    woke.recv_timeout(Duration::from_secs(20))
+                        .expect("the owner completed its turn");
+                    if let Some((_, ready)) = m.release(&s).into_iter().find(|(t, _)| *t == next) {
+                        dispatch = ready;
+                    }
+                }
+                outcome = run(dispatch);
+            }
+            assert!(landed, "the kept reply completed its module turn");
+            expected.push_str(["/a:A", "/b:B"][i]);
+            assert_eq!(s.get("token"), Some(expected.as_str()));
+            let disk = disk.0.lock().unwrap();
+            assert_eq!(disk.value.as_deref(), Some(expected.as_str()));
+            assert_eq!(disk.writes, step + 1);
+            assert_eq!(disk.held, step == 0, "the lease covers both replies");
+        }
+    }
+    for placement in [Placement::Main, Placement::Worker] {
+        for order in [[0, 1], [1, 0]] {
+            let disk = backend();
+            check(module(placement, &disk), disk, order);
+            let disk = backend();
+            let js = module(placement, &disk);
+            let rust = Placed::new(Other, Placement::Worker);
+            let mut mixed = exact_data::Mixed::new(js, rust, &["secret"], &["unused"]).unwrap();
+            mixed.activate().unwrap();
+            check(exact_data_host::Storage::new(mixed), disk, order);
+        }
+    }
+}
+
+#[test]
 fn superseded_refresh_persists_before_releasing_main_worker_and_ordered_sets() {
     for placement in [Placement::Main, Placement::Worker] {
         let disk = backend();
@@ -387,7 +546,10 @@ fn releasing_before_a_workers_acquire_envelope_is_applied_does_not_consume_it() 
     let wait = m
         .parse_for(Target::Mutation(0), &mut s, "secret", &args(0), envelope)
         .unwrap();
-    assert_eq!(request(&acquire(&mut m, &mut s, 0, &wait)).method, "POST");
+    assert_eq!(
+        request(&acquire(&mut m, &mut s, 0, &wait, None)).method,
+        "POST"
+    );
 }
 
 #[test]
@@ -420,7 +582,7 @@ fn an_interrupted_or_over_budget_lease_turn_does_not_strand_other_realms() {
         begin(&mut next, &mut next_store, 0);
         let wait = land(&mut next, &mut next_store, 0, response(401, "expired"));
         assert_eq!(
-            request(&acquire(&mut next, &mut next_store, 0, &wait)).method,
+            request(&acquire(&mut next, &mut next_store, 0, &wait, None)).method,
             "POST"
         );
     }
@@ -436,7 +598,7 @@ fn retiring_a_queued_acquire_leaves_the_holder_and_next_caller_live() {
         begin(&mut m, &mut s, 0);
         begin(&mut m, &mut s, 1);
         let a = land(&mut m, &mut s, 0, response(401, "expired"));
-        acquire(&mut m, &mut s, 0, &a);
+        acquire(&mut m, &mut s, 0, &a, None);
         let b = land(&mut m, &mut s, 1, response(401, "expired"));
         assert!(matches!(
             m.dispatch(request(&b).continuation.unwrap(), &s),
@@ -449,6 +611,7 @@ fn retiring_a_queued_acquire_leaves_the_holder_and_next_caller_live() {
                 target: Target::Mutation(0),
                 source: "secret",
                 args: &a_args,
+                fetch: None,
                 continuation: None,
             }],
         );
@@ -461,7 +624,7 @@ fn retiring_a_queued_acquire_leaves_the_holder_and_next_caller_live() {
         begin(&mut next, &mut next_store, 0);
         let next_wait = land(&mut next, &mut next_store, 0, response(401, "expired"));
         assert_eq!(
-            request(&acquire(&mut next, &mut next_store, 0, &next_wait)).method,
+            request(&acquire(&mut next, &mut next_store, 0, &next_wait, None)).method,
             "GET"
         );
         assert_eq!(disk.0.lock().unwrap().writes, 1);
@@ -470,18 +633,27 @@ fn retiring_a_queued_acquire_leaves_the_holder_and_next_caller_live() {
 
 #[test]
 fn validation_never_acquires_the_live_secret_backend() {
-    let disk = backend();
-    let plan = contract::compile("shape Result\n  text: string\ncomponent App\n  mutation output as shape Result\n  action go(name: string)\n    send output = secret(name)\n  view\n    text \"secret\"\n").unwrap();
-    let mut m = Module::new(HBC.to_vec(), "test.context", GRANTS);
-    m.set_budget_ms(f64::INFINITY);
-    m.configure_secrets(Arc::new(disk.clone())).unwrap();
-    m.bind(&plan);
-    m.activate_for_validation().unwrap();
-    let mut s = store();
-    begin(&mut m, &mut s, 0);
-    let failed = land(&mut m, &mut s, 0, response(401, "expired"));
-    assert!(text(failed).contains("validation"));
-    assert_eq!(disk.0.lock().unwrap().acquires, 0);
+    // A painted host loads the validation pass before its boot offers the
+    // session's secrets, so the offer comes after activation too.
+    for offered_after_activation in [false, true] {
+        let disk = backend();
+        let plan = contract::compile("shape Result\n  text: string\ncomponent App\n  mutation output as shape Result\n  action go(name: string)\n    send output = secret(name)\n  view\n    text \"secret\"\n").unwrap();
+        let mut m = Module::new(HBC.to_vec(), "test.context", GRANTS);
+        m.set_budget_ms(f64::INFINITY);
+        if !offered_after_activation {
+            m.configure_secrets(Arc::new(disk.clone())).unwrap();
+        }
+        m.bind(&plan);
+        m.activate_for_validation().unwrap();
+        if offered_after_activation {
+            m.configure_secrets(Arc::new(disk.clone())).unwrap();
+        }
+        let mut s = store();
+        begin(&mut m, &mut s, 0);
+        let failed = land(&mut m, &mut s, 0, response(401, "expired"));
+        assert!(text(failed).contains("validation"));
+        assert_eq!(disk.0.lock().unwrap().acquires, 0);
+    }
 }
 
 #[test]

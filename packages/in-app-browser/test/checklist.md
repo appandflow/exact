@@ -1,56 +1,66 @@
-# The in-app browser by a person
+# The in-app browser by a person (LLP 1133.024 D11–D13, stage 4)
 
-What no tool can do here: look at Safari's view and a Custom Tab over the
-app, close them, and see the default browser open. The agent drives the
-rest: the `browser` ticket on iOS and Android, and the link followed
-where the page does not show over the app (macOS, the web). Write down
-the commit, the device and its OS version beside each result.
+What the agent cannot do here, and a person or an XCUITest against a normal
+launch can: look at Safari's view and a Custom Tab over the app, close them,
+and see the default browser open. `test/excord.mjs` drives
+the rest under the agent: the `browser` ticket on iOS and Android, and the
+link followed where the page does not show over the app (macOS, the web).
+Write down the commit, the device and its OS version beside each result.
 
-A chat app that carries the module (`<app>` below) opens a page from an
-embed's title and an attachment's row. Start its fixture server first, which serves a channel whose
+Excord carries the module: an embed's title and an attachment's row open
+their page. Start its fixture server first, which serves a channel whose
 messages have link embeds:
-`bun apps/<app>/fixture/server.ts --world transcript --reset-on-identify`.
+`bun apps/excord/fixture/server.ts --world transcript --reset-on-identify`.
 
 ## iPhone or the iOS simulator, iOS 17 or later
 
-`bun host/apple/build.mjs --ios <app>-apple --run` (a simulator;
+`bun host/apple/build.mjs --ios excord-apple --run` (a simulator;
 `--device --run` on a phone).
 
 1. **Over the conversation.** Open #general and scroll to a message with a
    link preview ("exact: keep the visible row anchored"). Tap its title:
    Safari's view slides up over the conversation with Safari's own bar and
-   a Done button, at github.com.
-2. **Done returns.** Tap Done: the view goes and the conversation is where
-   it was, at the same message.
-3. **One at a time.** With the page shown, nothing else in the app can be
-   tapped; the next tap after Done opens again.
+   a dismiss control, at github.com.
+2. **Close returns.** On iOS 27, find `Close`, the accessibility label of the
+   default [dismiss style](https://developer.apple.com/documentation/safariservices/sfsafariviewcontroller/dismissbuttonstyle-swift.property)
+   (older systems may show Done). Tap it: the view goes and the conversation is
+   at the same message. If an accessibility tap leaves the sheet up, tap a
+   coordinate at the centre of that button's frame, then assert the sheet is
+   gone and the conversation is back.
+3. **One at a time.** With the page shown, nothing else in Excord can be
+   tapped; the next tap after dismissal opens again.
 4. **The app reads nothing.** Sign in to a site in the page, close it, open
-   Safari: The app never sees the page's cookies (nothing to see; this is
+   Safari: Excord never sees the page's cookies (nothing to see; this is
    the platform's).
 
 ## Mac
 
-`bun host/apple/build.mjs <app>-apple --run`.
+`bun host/apple/build.mjs excord-apple --run`.
 
 5. **The default browser.** Click the same title: the page opens in the
-   Mac's default browser, beside the app, and the app stays as it was. No
-   sheet or web view appears in the app.
+   Mac's default browser, beside Excord, and Excord stays as it was. No
+   sheet or web view appears in Excord.
 
 ## Android phone with Chrome, Android 12 or later
 
-`bun scripts/agent-android.mjs build <app> --apk`, then install the APK.
+`bun scripts/agent-android.mjs build excord --apk`, then install the APK.
 
-6. **A Custom Tab.** Tap the title: a Custom Tab opens over the app with
-   Chrome's toolbar, the page's title and a close (×) button.
+6. **A Custom Tab.** Without the GitHub app installed, tap the title: a
+   Custom Tab opens over Excord with Chrome's toolbar, the page's title and
+   a close (×) button.
 7. **Close returns.** Tap ×: back in the conversation at the same message.
-8. **No Custom Tabs browser.** With only a browser that provides no Custom
+8. **A link an app claims.** Install the GitHub app and tap the title again:
+   the GitHub app opens the page, as it does for any github.com link on
+   Android, and Back returns to the conversation. The tab carries no
+   package (LLP 1133.024 D12), so write down what opened.
+9. **No Custom Tabs browser.** With only a browser that provides no Custom
    Tabs (disable Chrome, install one without them), tap the title: the
-   page opens in that browser; the app's `inAppBrowserStatus` reads
+   page opens in that browser; Excord's `inAppBrowserStatus` reads
    `overApp` false after returning to the app.
 
 ## Web (Chromium, Firefox, Safari)
 
-`bun host/web/dev.mjs --app <app>`.
+`bun host/web/dev.mjs --app excord`.
 
-9. **A new tab.** Click the title: the page opens in a new tab or window,
-   as the browser chooses, and the app's tab stays.
+10. **A new tab.** Click the title: the page opens in a new tab or window,
+   as the browser chooses, and Excord's tab stays.

@@ -1,9 +1,10 @@
 // A transform drag's geometry facts on UIKit (`TransformGeometry`): the
-// core's, which reports them whether or not the Drag module is linked.
+// core's, which reports them whether or not the Drag module is linked
+// (LLP 1047.001 D4).
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// The photo handle's one contact: the binding's pan, now up
+/// The photo handle's one contact (LLP 1057.001 §4): the binding's pan, now up
 /// to two fingers, and a `UIPinchGestureRecognizer`, simultaneous with it —
 /// the one built-in simultaneity (precedence rule 6). Both feed the same paired
 /// `TransformDragHold`. Every sample is the pair anchored at the contact's

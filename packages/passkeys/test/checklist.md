@@ -1,4 +1,4 @@
-# Passkeys on a device (drive 9)
+# Passkeys on a device (LLP 1133.011 §10, drive 9)
 
 What the agent cannot drive: the platform's own sheet against the fixture's
 relying party at its public origin, `https://exact-auth-fixture.expo.app`. Each
@@ -48,7 +48,8 @@ this Mac, which a phone cannot reach; this checklist does not use them.
 2. Type a username, tap "Create a passkey": the system sheet names
    exact-auth-fixture.expo.app and the username; confirm with Face ID. The app
    shows "Signed in as …". If it shows "The server refused the passkey (origin
-   …)", the origin it names is the one AuthenticationServices writes: record it.
+   …)", the origin it names is the one AuthenticationServices writes: record it
+   for D6.
 3. Tap "Sign out". Tap the username field: the QuickType bar offers the passkey.
    Choose it: signed in, with no second sheet.
 4. Sign out, tap "Sign in with a passkey": the sheet lists the passkey; choose it:
@@ -61,12 +62,12 @@ this Mac, which a phone cannot reach; this checklist does not use them.
    out, tap "Sign in with a passkey" and choose it: "That passkey is not for an
    account here", and Settings › Passwords no longer lists it
    (`signalUnknownCredential`, iOS 26.2 or newer; on an older OS it stays
-   listed, which is the "nothing to tell").
+   listed, which is D13's "nothing to tell").
 
 ## Mac (macOS 14 or newer)
 
 A Mac build signs the Associated Domains entitlement only with a provisioning
-profile, which no build here makes yet: an unprofiled build reads
+profile (D6), which no build here makes yet: an unprofiled build reads
 `available: false` and shows neither button (drive 6, which the agent runs).
 With a profile: steps 2, 4, 5, 6 and 7 above; step 3 does not apply (no
 conditional request on macOS), and the sheet offers the iPhone by QR code as well

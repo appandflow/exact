@@ -1,4 +1,4 @@
-//! `atob` / `btoa` — pure, ungated.
+//! `atob` / `btoa` — pure, ungated (LLP 0059.000 §3.10).
 //!
 //! Base64 in Rust, throwing on invalid input per spec. The subtlety worth
 //! getting right: these are the *binary string* functions, not general base64.

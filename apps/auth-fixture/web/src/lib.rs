@@ -1,4 +1,4 @@
-//! The auth fixture on the web: its TypeScript runs in the
+//! The auth fixture on the web (LLP 1069.006): its TypeScript runs in the
 //! page's realm and signs in through a popup to the fixture server.
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));

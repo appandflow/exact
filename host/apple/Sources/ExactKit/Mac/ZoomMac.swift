@@ -1,4 +1,4 @@
-// View ▸ Actual Size ⌘0, Zoom In ⌘+ and Zoom Out ⌘-, as
+// View ▸ Actual Size ⌘0, Zoom In ⌘+ and Zoom Out ⌘- (LLP 1021 §5.3.1), as
 // Safari, Preview and Electron's default menu have them, and the app's
 // `setPageZoom(factor)`, as Electron's `webContents.setZoomFactor`. A page
 // zoom, as Chromium's: the page's scroll view magnifies its document
@@ -39,7 +39,8 @@ extension ExactSession {
         get { Double(presenter.viewport.magnification) }
         set {
             let viewport = presenter.viewport
-            let factor = min(max(newValue, PageZoom.range.lowerBound), PageZoom.range.upperBound)
+            let clamped = min(max(newValue, PageZoom.range.lowerBound), PageZoom.range.upperBound)
+            let factor = PageZoom.levels.first { abs($0 - clamped) <= 1e-9 } ?? clamped
             guard CGFloat(factor) != viewport.magnification else { return }
             viewport.minMagnification = CGFloat(PageZoom.range.lowerBound)
             viewport.maxMagnification = CGFloat(PageZoom.range.upperBound)

@@ -1,4 +1,4 @@
-//! Motion starts at the first frame that shows it: with the
+//! Motion starts at the first frame that shows it (LLP 1003.001): with the
 //! rule on, a curve an author's commit begins waits at its start until the
 //! next presented frame, which starts it there; inputs keep their own clock.
 

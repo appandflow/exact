@@ -1,7 +1,8 @@
-//! `navigationDetent` takes UIKit's named detents, CSS's `fit-content`,
-//! positive point heights and percentages of the sheet's maximum,
-//! space-separated; a literal with any other word is refused, `fit-content`
-//! goes alone or before `large`, and the others ascend on every screen.
+//! LLP 1075.003 §9.11, §9.13: `navigationDetent` takes UIKit's named
+//! detents, CSS's `fit-content`, positive point heights and percentages of
+//! the sheet's maximum, space-separated; a literal with any other word is
+//! refused, `fit-content` goes alone or before `large`, and the others
+//! ascend on every screen.
 
 #[test]
 fn the_detent_words_lower_and_others_are_refused() {

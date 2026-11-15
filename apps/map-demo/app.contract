@@ -1,4 +1,4 @@
-// Map Demo — `exact-map` from `@exact/maps`: MapKit on Apple
+// Map Demo — `exact-map` from `@exact/maps` (LLP 1133.021): MapKit on Apple
 // hosts, the Maps SDK on Android, and on the web the OpenStreetMap tiles
 // this app names in app.json. The markers are a list prop; the map says
 // which marker the person selected (`change`, its id) and where its camera
@@ -8,7 +8,7 @@
 use MapCamera, MapMarker from "@exact/maps"
 
 // No pointer is a TV's remote: it pans the map, but has no pinch, so the
-// zoom has buttons there.
+// zoom has buttons there (LLP 1039).
 shape Viewport
   pointer: string
 

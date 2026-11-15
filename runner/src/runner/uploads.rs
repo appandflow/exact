@@ -1,4 +1,4 @@
-//! The uploads a runner has asked: for each resource,
+//! The uploads a runner has asked (LLP 1016.000 D10): for each resource,
 //! the identifying arguments an upload was asked at and how it stands.
 //! Nothing asks an upload again at arguments it has a mark for: the
 //! resource shows the answer the upload ended with, or its failure. The
@@ -9,7 +9,7 @@
 //! none: an app records what an upload answered in its store and stops
 //! showing the resource, or the launch asks it again.
 
-use super::{DataSource, Runner, Target};
+use super::{DataSource, PendingReq, Runner, Target};
 use crate::failure::{Failure, FailureCode};
 use exact_plan::Value;
 use std::rc::Rc;
@@ -97,7 +97,19 @@ impl Uploads {
         });
     }
 
-    /// Every mark on its way under `ticket` ends as `end`, and of each
+    /// The reply's later rounds keep every argument set that shared its
+    /// upload. A failure before it went out leaves no upload to remember.
+    pub(super) fn continue_at(&mut self, ticket: u64, next: &mut PendingReq, sent: bool) {
+        if sent {
+            next.upload = true;
+            next.sent = true;
+            self.end(ticket, &UploadEnd::Sent(next.ticket));
+        } else {
+            self.unmark(ticket);
+        }
+    }
+
+    /// Every mark on its way under `ticket` becomes `end`, and of each
     /// resource's ended uploads only the newest [`ANSWERS_KEPT`] keep how
     /// they ended.
     pub(super) fn end(&mut self, ticket: u64, end: &UploadEnd) {
@@ -184,41 +196,42 @@ impl<D: DataSource> Runner<D> {
     /// Resource `i`'s identifying arguments among `args`: its `with`
     /// context reaches the source but does not identify the upload.
     pub(super) fn upload_identity<'a>(&self, i: usize, args: &'a [Value]) -> &'a [Value] {
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i);
         let n = (row.args.len as usize).saturating_sub(usize::from(row.context));
         &args[..n.min(args.len())]
     }
 
     /// How resource `i`'s upload asked at `args` stands, if it was asked.
     pub(super) fn upload_at(&self, i: usize, args: &[Value]) -> Option<&UploadEnd> {
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i);
         let (name, source) = (self.plan.str(row.name), self.plan.str(row.source));
         self.uploads.at(name, source, self.upload_identity(i, args))
     }
 
-    /// Whether an upload is in flight for resource `i`.
+    /// Whether an upload is in flight for resource `i` (LLP 1016.000 D10).
     pub(super) fn uploading(&self, i: usize) -> bool {
         (self.pending.iter()).any(|p| p.target == Target::Resource(i) && p.upload)
     }
 
     /// Whether resource `i`'s failure is an upload's, at the arguments it holds.
     pub(super) fn upload_failed(&self, i: usize) -> bool {
-        (self.failed_args[i].as_ref())
+        (self.resources[i].failed_args.as_ref())
             .is_some_and(|a| matches!(self.upload_at(i, a), Some(UploadEnd::Failed(_))))
     }
 
     /// Whether resource `i`'s answer is an upload's, in flight, ended or
-    /// failed: nothing asks it again at its arguments.
+    /// failed: nothing asks it again at its arguments (D10).
     pub(super) fn upload_stands(&self, i: usize) -> bool {
         self.uploading(i)
-            || (self.resources[i].as_ref()).is_some_and(|s| self.upload_at(i, &s.args).is_some())
+            || (self.resources[i].state.as_ref())
+                .is_some_and(|s| self.upload_at(i, &s.args).is_some())
             || self.upload_failed(i)
     }
 
     /// `target` asked an upload at `args`, handed to its host as `ticket`.
     pub(super) fn upload_sent(&mut self, target: Target, args: &[Value], ticket: u64) {
         let Target::Resource(i) = target else { return };
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i);
         let (name, source) = (self.plan.str(row.name), self.plan.str(row.source));
         let identity = self.upload_identity(i, args).to_vec();
         self.uploads.sent(name, source, &identity, ticket);
@@ -246,7 +259,7 @@ impl<D: DataSource> Runner<D> {
     /// `started` had begun to go out, and is cut off, `interrupted`. Any
     /// other never reached the network and is no upload asked: `refresh`
     /// asks it again, and a resource that shows it cut off is asked again at
-    /// the next commit.
+    /// the next commit (LLP 1016.000 D10).
     pub fn uploads_started(&mut self, started: &[u64]) {
         for ticket in std::mem::take(&mut self.uploads.let_go) {
             if started.contains(&ticket) {
@@ -258,9 +271,9 @@ impl<D: DataSource> Runner<D> {
                 .map(|m| (m.resource.clone(), m.args.clone()))
                 .collect();
             self.uploads.unmark(ticket);
-            for i in 0..self.plan.resources.len() {
-                let name = self.plan.str(self.plan.resources[i].name);
-                let shows = (self.failed_args[i].as_ref()).is_some_and(|failed| {
+            for i in 0..self.resources.len() {
+                let name = self.plan.str(self.resource_row(i).name);
+                let shows = (self.resources[i].failed_args.as_ref()).is_some_and(|failed| {
                     let identity = self.upload_identity(i, failed);
                     left.iter()
                         .any(|(r, args)| r == name && args[..] == *identity)
@@ -282,7 +295,7 @@ impl<D: DataSource> Runner<D> {
     ) -> Option<Result<crate::Answer, super::RunnerError>> {
         let failed = |f: &Failure| {
             Err(super::RunnerError::Data {
-                resource: self.plan.str(self.plan.resources[i].name).to_string(),
+                resource: self.plan.str(self.resource_row(i).name).to_string(),
                 error: super::DataError::Failed(f.code, f.message.clone(), f.reason.clone()),
             })
         };
@@ -319,7 +332,7 @@ mod tests {
     fn an_end_reaches_every_mark_of_its_ticket_and_an_unsent_one_is_forgotten() {
         let mut uploads = Uploads::default();
         uploads.sent("photo", "upload", &[Value::Number(1.0)], 4);
-        // The same request for newer arguments.
+        // The same request for newer arguments (LLP 1054.000.000 D3).
         uploads.sent("photo", "upload", &[Value::Number(2.0)], 4);
         uploads.sent("photo", "upload", &[Value::Number(3.0)], 5);
         let ok = UploadEnd::Answered(Value::str("ok"));

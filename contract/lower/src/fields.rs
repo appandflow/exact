@@ -1,4 +1,4 @@
-//! Text fields default to the platform's control.
+//! Text fields default to the platform's control (LLP 1104 r8 D1, D2).
 //! Appearance is decided once from the merged, expanded bindings: any
 //! background, border or radius row makes a default field the bare box.
 
@@ -14,7 +14,7 @@ pub enum Profile {
     /// The web and native GUI hosts.
     #[default]
     Web,
-    /// The terminal host.
+    /// The terminal host (LLP 1101).
     Terminal,
 }
 
@@ -26,6 +26,7 @@ fn typed(value: &Expr) -> bool {
     match value {
         Expr::Str(t, _) => TYPES.iter().any(|k| t.eq_ignore_ascii_case(k)),
         Expr::Ternary(_, a, b, _) => typed(a) && typed(b),
+        Expr::Let { body, .. } => typed(body),
         _ => false,
     }
 }
@@ -41,7 +42,21 @@ fn field(tag: &str, attrs: &[Attr]) -> bool {
     }
 }
 
-/// `::placeholder`'s `color` colours a text field's
+fn always_none(value: &Expr) -> bool {
+    match value {
+        Expr::Str(v, _) => v == "none",
+        Expr::Ternary(_, yes, no, _)
+        | Expr::Match {
+            some: yes,
+            none: no,
+            ..
+        } => always_none(yes) && always_none(no),
+        Expr::Let { body, .. } | Expr::Typed(body, _, _) => always_none(body),
+        _ => false,
+    }
+}
+
+/// `::placeholder`'s `color` (LLP 1104 D3) colours a text field's
 /// placeholder, and only a text field has one.
 pub(crate) fn placeholder_refusal(name: &str, tag: &str, control: Option<&str>) -> Option<String> {
     let field = control == Some("field") || tag == "textarea";
@@ -51,8 +66,8 @@ pub(crate) fn placeholder_refusal(name: &str, tag: &str, control: Option<&str>) 
     })
 }
 
-/// What an author may write for a placeholder's colour, and what to write:
-/// CSS's `::placeholder` block, and `color` alone in it.
+/// What an author may write for a placeholder's colour, and what to write
+/// (LLP 1104 D3): CSS's `::placeholder` block, and `color` alone in it.
 pub(crate) fn placeholder_hint(name: &str) -> Option<String> {
     const BLOCK: &str = "`::placeholder` on its own line under the field (or in a `style`), then `color=\"#6b7280\"` indented beneath it, CSS's `::placeholder { color }`";
     if let Some(property) = name.strip_prefix("::placeholder ") {
@@ -96,7 +111,7 @@ pub(crate) fn disables(id: StyleId) -> bool {
     )
 }
 
-/// `appearance: textfield` is CSS UI 4's compat keyword on
+/// `appearance: textfield` (LLP 1116.007 D4) is CSS UI 4's compat keyword on
 /// a text field: the platform's field without a number field's stepper. On
 /// any other element it would be a quiet `none` to the hosts that read
 /// `auto` as the platform's control (a checkbox, a select, a date), so it is
@@ -174,12 +189,10 @@ impl Lowerer<'_> {
                 });
             }
         }
-        // A field that is never native whose author wrote `appearance="none"`
-        // already has that row, and it is the author's: an
-        // implied one after it would win and take the bit off.
-        let said = !native
-            && appearance
-                .is_some_and(|a| a.written && matches!(&a.value, Expr::Str(v, _) if v == "none"));
+        // A non-native field's authored `none`, in every branch, already
+        // supplies its appearance. An implied row after it would replace
+        // the author's bit (LLP 1115.000 D2).
+        let said = !native && appearance.is_some_and(|a| a.written && always_none(&a.value));
         if (!native && !said) || (native && explicit.is_none() && !rows.is_empty()) {
             let none = self.fixed(true, "none");
             bindings.push(crate::style_row(StyleId::Appearance, none, crate::IMPLIED));

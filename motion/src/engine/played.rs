@@ -1,5 +1,5 @@
-//! Transitions a host plays itself (on Android, as animations are lowered):
-//! the engine hands one over with its curve, presents
+//! Transitions a host plays itself (LLP 1076 on Android, as LLP 1055 D7
+//! lowers animations): the engine hands one over with its curve, presents
 //! the target from then on, and stops sampling it, so nothing keeps the
 //! clock busy for it; it still measures a reversal against the curve, and
 //! drops it once it would have ended.
@@ -31,7 +31,7 @@ pub struct TransitionEnds {
     pub to: Value,
     /// Clock time it starts moving, seconds.
     pub start: f64,
-    /// Whether it waits for the frame that starts it.
+    /// Whether it waits for the frame that starts it (LLP 1003.001 D1).
     pub waits: bool,
 }
 
@@ -113,8 +113,8 @@ impl Engine {
     }
 
     /// The transition running or played on `property` of `node`, as a host
-    /// plays it, and whether it waits for the frame that starts it (its
-    /// `start` then assumes the frame comes now). Asking
+    /// plays it, and whether it waits for the frame that starts it (LLP
+    /// 1003.001 D1; its `start` then assumes the frame comes now). Asking
     /// hands nothing over.
     pub fn transition(&self, node: u64, property: Property) -> Option<(PlayedTransition, bool)> {
         let running = self.slots.get(&(node, property))?.running()?;
@@ -148,7 +148,7 @@ impl Engine {
         let running = slot.running()?;
         let curve = played_curve(running)?;
         // A played transition is its host's: it never waits for a frame
-        // here.
+        // here (LLP 1003.001 D8).
         let played = PlayedTransition {
             from: running.from,
             to: running.to,
@@ -168,7 +168,7 @@ impl Engine {
         Some(played)
     }
 
-    /// Take a transition its host plays back: the
+    /// Take a transition its host plays back (LLP 1121 D8, stage 9 G2): the
     /// host now paints something over the property (a press row, a look
     /// naming it) that composes on the engine's sample. It is sampled again
     /// from where its curve is now, presented there, and runs on to its
@@ -193,7 +193,7 @@ impl Engine {
         true
     }
 
-    /// A `d` transition its host plays: the paths at its
+    /// A `d` transition its host plays (LLP 1115.003 D4): the paths at its
     /// ends, when it starts moving and its curve, from progress 0 to 1.
     /// `None` when `node`'s `d` is not moving or the engine samples it.
     pub fn played_path(

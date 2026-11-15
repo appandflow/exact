@@ -47,12 +47,12 @@ fn property_program(
     let path = canonical.as_path();
     let src = crate::read_source(path)?;
     let root = path.parent().unwrap_or_else(|| Path::new("."));
-    let (file, _) = crate::sources::load(path, &src, root)?;
-    let expanded = contract_syntax::expand(&file).map_err(CompileError::from)?;
+    let (file, sources) = crate::sources::load(path, &src, root)?;
+    let expanded = contract_syntax::expand(&file).map_err(|e| sources.resolve(e.into()))?;
     Ok((file, expanded))
 }
 
-/// The `test` blocks of a file — normally `app.test.contract`
+/// The `test` blocks of a file (LLP 1017 P7) — normally `app.test.contract`
 /// beside the app, holding nothing else. Parsed, never compiled: a test is a
 /// script for the agent driver (`scripts/agent.mjs --test`), and its steps
 /// are the eight operations plus `expect` lines that read their replies.
@@ -65,7 +65,7 @@ pub fn tests(src: &str) -> Result<Vec<TestDecl>, CompileError> {
         .into_iter()
         .map(|mut test| {
             // By fact, among the test's own leading launch lines: a `fail
-            // fetch` line by its prefix; a later one is a step.
+            // fetch` line by its prefix (LLP 1103 D3); a later one is a step.
             let leading = test
                 .steps
                 .iter()

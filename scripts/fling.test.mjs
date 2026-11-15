@@ -1,4 +1,4 @@
-// The fling report's arithmetic, without a simulator.
+// LLP 1144 D1: the fling report's arithmetic, without a simulator.
 import { test, expect } from 'bun:test';
 import { parseArgs, framesBetween, report } from './fling.mjs';
 
@@ -21,8 +21,8 @@ test('the frames between two reads are the window\'s, with the late frames\' pha
 });
 
 test('arguments: a target is required, and --to ops keep their order', () => {
-  expect(() => parseArgs(['ios', 'chat'])).toThrow(/--target/);
-  const a = parseArgs(['ios', 'chat', '--target', 'transcript', '--to', 'tap channel-general', '--to', 'wait 500', '--flings', '4']);
+  expect(() => parseArgs(['ios', 'excord'])).toThrow(/--target/);
+  const a = parseArgs(['ios', 'excord', '--target', 'transcript', '--to', 'tap channel-general', '--to', 'wait 500', '--flings', '4']);
   expect([a.target, a.to, a.flings]).toEqual(['transcript', ['tap channel-general', 'wait 500'], 4]);
 });
 

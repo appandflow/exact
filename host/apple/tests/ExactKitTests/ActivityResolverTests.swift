@@ -1,4 +1,4 @@
-// The extension's resolver, cache and presentation,
+// The extension's resolver, cache and presentation (LLP 1126.001 WP10, D9),
 // driven as the extension drives them: generations published in a group
 // root, the embedded plans with their identity, the shape-digest gate, the
 // kept last-good state and its outdated presentation, the preview as the
@@ -66,7 +66,7 @@ final class ActivityResolverTests: XCTestCase {
         return laid.snapshot.nodes.values.filter { $0.kind == "text" || $0.kind == "time" }.flatMap(\.lines).map(\.text)
     }
 
-    /// The generation the attributes name, never `current`; the
+    /// D9: the generation the attributes name, never `current`; the
     /// embedded plans only as the generation their identity makes; else
     /// a refusal, and nothing in its place.
     func testTheNamedGenerationIsPinnedTheEmbeddedOnlyByIdentityElseRefused() throws {

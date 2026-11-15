@@ -75,7 +75,7 @@ const sources: Sources = {
     }
   },
   status: () => ({ text: JSON.stringify(processStatus()) }),
-  // What an install does under the home directory: a launcher written
+  // What an install does under the home directory (D6, D6a): a launcher written
   // and made executable, a lock taken, a digest, and a link checked.
   install: async (_args, _store, storage) => {
     const fs = storage.fs;
@@ -99,7 +99,7 @@ const sources: Sources = {
     }
   },
   // A lock its answer takes and never unlocks: the answer's end releases it,
-  // so the next press takes it again at once.
+  // so the next press takes it again at once (D6a).
   relock: async (_args, _store, storage) => {
     try {
       await storage.fs.flock('home:/.fixture/.relock', { timeout: 0 });

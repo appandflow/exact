@@ -1,4 +1,4 @@
-//! Native threshold-zero observations of intersection visibility.
+//! Native threshold-zero observations. @ref LLP 1005 §Intersection visibility.
 use super::{DataSource, Runner};
 use exact_kernel::{NodeKey, ViewId};
 use exact_plan::EventKind;
@@ -117,5 +117,11 @@ impl<D: DataSource> Runner<D> {
     /// px, or the page does (`None`). Noted, never dispatched from this call.
     pub fn scrolled(&mut self, view: Option<ViewId>, left: f64, top: f64) {
         self.scrolled.note(&self.kernel, view, left, top);
+    }
+
+    /// Where the host last showed a scroll container, or the page (`None`),
+    /// in CSS px; zero for one it has noted no offset for.
+    pub fn scroll_offset(&self, view: Option<ViewId>) -> (f64, f64) {
+        self.scrolled.shown(&self.kernel, view)
     }
 }

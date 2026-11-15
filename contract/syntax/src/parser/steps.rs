@@ -102,7 +102,7 @@ impl Parser {
         }
     }
 
-    /// `test "name"` with a block of steps: the agent API's
+    /// `test "name"` with a block of steps (LLP 1017 P7): the agent API's
     /// operations by their names, and `expect` lines over their replies.
     pub(super) fn test_decl(&mut self) -> R<TestDecl> {
         let span = self.expect_word("test")?;
@@ -116,7 +116,7 @@ impl Parser {
             .iter()
             .take_while(|s| !launch_word(s).is_empty())
             .count();
-        // Fetch faults and media preferences may also change between steps.
+        // Fetch faults and preferences may also change between steps.
         let late = steps[leading..].iter().find(|s| {
             !launch_word(s).is_empty() && !matches!(s, Step::FailFetch { .. } | Step::Prefer { .. })
         });
@@ -154,7 +154,7 @@ impl Parser {
         })
     }
 
-    /// `perf` and its indented steps. The counts repeat only on
+    /// `perf` and its indented steps (LLP 1146 D3). The counts repeat only on
     /// the agent's clock, so a step that waits on the wall clock is refused.
     fn perf_block(&mut self, span: Span) -> R<Step> {
         self.newline()?;
@@ -162,7 +162,16 @@ impl Parser {
         for step in &steps {
             let refused = match step {
                 Step::Perf { .. } | Step::ExpectPerf { .. } => Some("a `perf` block measures steps; its `expect perf` lines follow it, and blocks do not nest".to_string()),
-                Step::Clock { arg, .. } if arg.ends_with(" real") => Some(format!("`clock {arg}` lets the wall clock run, so the counts would depend on the machine's speed; step the agent's clock (`clock +N`, `clock data`, `clock settle`)")),
+                // `clock +N real`, `clock held` and `clock until` let real
+                // time pass while the agent's clock stands.
+                Step::Clock { arg, .. }
+                    if arg.ends_with(" real")
+                        || arg == "held"
+                        || arg.starts_with("held ")
+                        || arg.starts_with("until ") =>
+                {
+                    Some(format!("`clock {arg}` lets the wall clock run, so the counts would depend on the machine's speed; step the agent's clock (`clock +N`, `clock data`, `clock settle`)"))
+                }
                 s if !launch_word(s).is_empty() => Some(format!("`{}` is a launch line and leads the test, not a `perf` block", launch_word(s))),
                 _ => None,
             };
@@ -320,7 +329,7 @@ impl Parser {
         }
     }
 
-    /// `request METHOD "/path" [json] [as persona]`: a
+    /// `request METHOD "/path" [json] [as persona]` (LLP 1116.006 D8): a
     /// write through the app's server as another person, by the driver.
     fn request_step(&mut self, span: Span) -> R<Step> {
         const METHODS: [&str; 5] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
@@ -347,8 +356,15 @@ impl Parser {
                 span,
             });
         }
+        // Any JSON value; `as` and `expect`, the only other words after the
+        // path, are not JSON.
         let body = match self.peek_kind() {
-            TokenKind::Punct("{") | TokenKind::Punct("[") => Some(self.json_value()?),
+            TokenKind::Punct("{" | "[" | "-") | TokenKind::Str(_) | TokenKind::Number(_) => {
+                Some(self.json_value()?)
+            }
+            TokenKind::Ident(w) if matches!(w.as_str(), "true" | "false" | "null") => {
+                Some(self.json_value()?)
+            }
             _ => None,
         };
         let persona = if self.at_ident("as") {
@@ -371,7 +387,7 @@ impl Parser {
         } else {
             None
         };
-        // `expect 409`, the status a refusal answers.
+        // LLP 1116.010 D3: `expect 409`, the status a refusal answers.
         let status = if self.at_ident("expect") {
             self.next();
             match self.peek_kind().clone() {
@@ -403,7 +419,7 @@ impl Parser {
     }
 
     /// A state's name, then fields and list indexes at any depth, joined by
-    /// `.` (`gateway.state`, `rows.0`).
+    /// `.` (`gateway.state`, `rows.0`: feed F10, drums R7).
     fn state_path(&mut self) -> R<String> {
         let (mut name, _) = self.ident()?;
         while self.eat_punct(".") {
@@ -430,8 +446,9 @@ impl Parser {
         Ok(name)
     }
 
-    /// `clock until state <path> == <literal> within <ms>`, after `until`:
-    /// the driver's own words, the literal as JSON text.
+    /// `clock until state <path> == <literal> within <ms>` (rules/DEFERRED.md,
+    /// "Agent API", 2026-10-26), after `until`: the driver's own words, the
+    /// literal as JSON text.
     fn clock_until(&mut self) -> R<String> {
         if !self.at_ident("state") {
             return self.err(
@@ -540,12 +557,17 @@ impl Parser {
             "tap" if self.at_ident("midi") => return self.tap_midi(span),
             "prefer" if self.at_ident("midi") => return self.prefer_midi(span),
             "prefer" => {
-                let (name, _) = self.ident()?;
+                // A module's permission is dotted (`permission.notifications`).
+                let (mut name, _) = self.ident()?;
+                while self.eat_punct(".") {
+                    name.push('.');
+                    name.push_str(&self.ident()?.0);
+                }
                 let value = match self.next() {
-                    Token { kind: TokenKind::Ident(value), .. } => value,
+                    Token { kind: TokenKind::Ident(value) | TokenKind::Str(value), .. } => value,
                     token => return Err(SyntaxError {
                         id: "syntax-expected-step",
-                        message: "`prefer` takes a CSS media feature and its value, as `prefer prefers-color-scheme dark`".into(),
+                        message: "`prefer` takes a preference, `root-font-size` or a module's permission and its value, as `prefer prefers-color-scheme dark`, `prefer root-font-size \"24\"` or `prefer permission.notifications granted`".into(),
                         span: token.span,
                     }),
                 };
@@ -555,7 +577,7 @@ impl Parser {
                 let target = self.str_lit("a testId")?;
                 if self.at_ident("drag") {
                     self.next();
-                    // `drag to "B" [at x y]` or `drag dx dy`.
+                    // `drag to "B" [at x y]` (LLP 1094 D12) or `drag dx dy`.
                     let (dx, dy, to) = if self.at_ident("to") {
                         self.next();
                         let to = self.str_lit("the testId the drag ends on")?;
@@ -575,12 +597,14 @@ impl Parser {
                     };
                     let (mut press, mut over, mut hold) = (None, None, None);
                     let (mut from, mut mouse) = (None, false);
-                    // Quoted reads or `clock`, last, while the finger is down.
+                    let mut into = None;
+                    // Quoted reads or `clock`, last, while the finger is down (drums R8).
                     let mut during = Vec::new();
                     while let TokenKind::Ident(w) = self.peek_kind().clone() {
                         let twice = match w.as_str() {
                             "from" => from.is_some(),
                             "mouse" => mouse,
+                            "into" => into.is_some(),
                             _ => false,
                         };
                         if twice {
@@ -592,6 +616,12 @@ impl Parser {
                         if w == "mouse" {
                             self.next();
                             mouse = true;
+                            continue;
+                        }
+                        if w == "into" {
+                            self.next();
+                            self.expect_word("keyboard")?;
+                            into = Some("keyboard".to_string());
                             continue;
                         }
                         if w == "from" {
@@ -650,6 +680,7 @@ impl Parser {
                         to,
                         from,
                         mouse,
+                        into,
                         press,
                         over,
                         hold,
@@ -697,6 +728,16 @@ impl Parser {
                         }
                     }
                     TokenKind::Ident(w) if w == "mediasession" => self.tap_media_session()?,
+                    TokenKind::Ident(w) if w == "history" => {
+                        self.next();
+                        let delta = self.step_number("the history delta, a nonzero integer")?;
+                        if delta == 0.0 || delta.fract() != 0.0
+                            || !(i32::MIN as f64..=i32::MAX as f64).contains(&delta)
+                        {
+                            return self.err("syntax-expected-step", "`history` takes a nonzero 32-bit integer");
+                        }
+                        TapForm::History(delta as i32)
+                    }
                     _ => TapForm::Press,
                 };
                 let modifiers = if form == TapForm::Press && self.at_ident("modifiers") {
@@ -717,7 +758,7 @@ impl Parser {
                 if self.at_ident("key") {
                     self.next();
                     let key = self.str_lit("the key's name")?;
-                    // `down` / `up` / `for <ms>`: one of them, on the virtual clock.
+                    // `down` / `up` / `for <ms>`: one of them, on the virtual clock (platformer R7).
                     let (mut phase, mut duration) = (None, None);
                     if self.at_ident("down") || self.at_ident("up") {
                         phase = Some(if self.at_ident("down") { "down" } else { "up" }.to_string());
@@ -767,7 +808,7 @@ impl Parser {
                     }
                 }
             }
-            // `pick "id" "path"…` or `pick "id" cancel`.
+            // `pick "id" "path"…` or `pick "id" cancel` (files F11).
             "pick" => {
                 let target = self.str_lit("the picker's node id, or its capability")?;
                 let mut paths = Vec::new();
@@ -786,7 +827,7 @@ impl Parser {
                     span,
                 }
             }
-            // `authorize` or `authorize cancel`.
+            // `authorize` or `authorize cancel` (LLP 1146 D4).
             "authorize" => {
                 let cancel = self.at_ident("cancel");
                 if cancel {
@@ -807,7 +848,7 @@ impl Parser {
                         w
                     }
                     // `clock held [<resource>…] [<n>s|<n>ms]`: real time passes, the
-                    // clock frozen, until each held request, or
+                    // clock frozen, until each held request (LLP 1016.000 D9), or
                     // each named, has had a reply, within the bound (the driver's
                     // `clock held`, 20 s unless given).
                     TokenKind::Ident(w) if w == "held" => {
@@ -850,7 +891,7 @@ impl Parser {
                             TokenKind::Number(n) => {
                                 self.next();
                                 // `clock +ms real`: that much real time passes
-                                // with the clock (media, the network).
+                                // with the clock (media, the network: LLP 1042 §3).
                                 match self.peek_kind() {
                                     TokenKind::Ident(w) if w == "real" => {
                                         self.next();
@@ -944,7 +985,7 @@ impl Parser {
                 tag: self.launch_str("locale", "a BCP 47 tag, as \"fr-FR\",")?,
                 span,
             },
-            // `at "/item/7#moves"`: where the app opens.
+            // @ref LLP 1153 D5 — `at "/item/7#moves"`: where the app opens.
             "at" => {
                 let location = self.launch_str("at", "a location, as \"/item/7#moves\",")?;
                 if !location.starts_with('/') {
@@ -957,7 +998,7 @@ impl Parser {
             }
             "seed" => {
                 let seed = self.step_number("the seed, a whole number")?;
-                // Below 2^32, as every host draws it.
+                // Below 2^32, as every host draws it (LLP 1116.005 D5).
                 if seed.fract() != 0.0 || !(0.0..=4_294_967_295.0).contains(&seed) {
                     return self.err(
                         "syntax-expected-step",
@@ -966,7 +1007,7 @@ impl Parser {
                 }
                 Step::Seed { seed, span }
             }
-            // `fresh ["seed.json"]`: the Snapback dev
+            // @ref LLP 1086 D13 — `fresh ["seed.json"]`: the Snapback dev
             // server emptied (and seeded) before the test opens.
             "fresh" => {
                 let seed = match self.peek_kind().clone() {
@@ -986,7 +1027,7 @@ impl Parser {
                 self.next();
                 Step::BeforeData { span }
             }
-            // `fail fetch "<prefix>" [times N]`, `pass fetch "<prefix>"`.
+            // @ref LLP 1103 D3 — `fail fetch "<prefix>" [times N]`, `pass fetch "<prefix>"`.
             "fail" | "pass" => {
                 if !self.at_ident("fetch") {
                     return self.err(
@@ -1015,11 +1056,11 @@ impl Parser {
                     Step::FailFetch { prefix, times, span }
                 }
             }
-            // `request POST "/items" {"title": "Bread"} as grace`.
+            // @ref LLP 1116.006 D8 — `request POST "/items" {"title": "Bread"} as grace`.
             "request" => self.request_step(span)?,
             "reload" => Step::Reload { span },
             "close" => Step::Close { span },
-            // The platform's Back from what is on top: it names no target.
+            // @ref LLP 1116.006 D4 — the platform's Back from what is on top: it names no target.
             "back" => {
                 if !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
                     return self.err(
@@ -1045,7 +1086,7 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `refusal`, `sound`, `midi`, `wakelock`, `mediasession`, `perf`, or `no failures`, found {}",
+                                "`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `focused`, `refusal`, `sound`, `midi`, `wakelock`, `mediasession`, `perf`, or `no failures`, found {}",
                                 describe(&other)
                             ),
                         )
@@ -1061,7 +1102,7 @@ impl Parser {
                             self.next();
                             false
                         } else {
-                            // `lacks`, `contains`, `not has`: the rewrite, not only the forms.
+                            // `lacks`, `contains`, `not has` (app farm waves 1 and 2): the rewrite, not only the forms.
                             let found = match self.peek_kind() {
                                 TokenKind::Ident(w) => w.clone(),
                                 _ => String::new(),
@@ -1092,7 +1133,7 @@ impl Parser {
                             span,
                         }
                     }
-                    // A control's `disabled`, asserted rather than tapped.
+                    // LLP 1116.010 D3: a control's `disabled`, asserted rather than tapped.
                     "disabled" | "enabled" => {
                         let target = self.str_lit("a testId")?;
                         Step::ExpectDisabled {
@@ -1101,6 +1142,10 @@ impl Parser {
                             span,
                         }
                     }
+                    "focused" => Step::ExpectFocused {
+                        target: self.str_lit("a testId")?,
+                        span,
+                    },
                     "text" => {
                         let target = self.str_lit("a testId")?;
                         let other = match self.peek_kind() {
@@ -1146,40 +1191,46 @@ impl Parser {
                     }
                     "state" => {
                         let name = self.state_path()?;
-                        self.expect_punct("==")?;
-                        // `-3` is a number. Other expressions stay refused.
-                        let value = match self.expr()? {
-                            Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {
-                                let Expr::Number(n, _) = *inner else { unreachable!() };
-                                Expr::Number(-n, span)
-                            }
-                            other => other,
+                        let comparison = if self.eat_punct("==") {
+                            StateComparison::Equal
+                        } else if self.eat_punct(">=") {
+                            StateComparison::AtLeast
+                        } else if self.eat_punct("<=") {
+                            StateComparison::AtMost
+                        } else if self.at_ident("in") {
+                            self.next();
+                            StateComparison::In
+                        } else {
+                            return self.err("syntax-expected-step", "`expect state` takes `==`, `>=`, `<=`, or `in`");
                         };
-                        let empty = matches!(&value, Expr::List(items, _) if items.is_empty());
-                        if !empty
-                            && !matches!(
-                                value,
-                                Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_)
-                            )
-                        {
-                            return Err(SyntaxError {
-                                id: "syntax-expected-step",
-                                message: "`expect state name ==` takes a number, a string, a bool, `none`, or `[]`".into(),
-                                span,
-                            });
+                        let value = match comparison {
+                            StateComparison::AtLeast | StateComparison::AtMost => Expr::Number(self.step_number("a numeric bound")?, span),
+                            StateComparison::In => {
+                                let mut values = vec![self.state_literal()?];
+                                while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Dedent | TokenKind::Eof) {
+                                    values.push(self.state_literal()?);
+                                }
+                                Expr::List(values, span)
+                            }
+                            StateComparison::Equal => self.state_literal()?,
+                        };
+                        if !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Dedent | TokenKind::Eof) {
+                            return self.err("syntax-expected-step", "`expect state` compares literals, not expressions");
                         }
-                        Step::ExpectState { name, value, span }
+                        Step::ExpectState { name, comparison, value, span }
                     }
                     other => {
-                        // `expect value` for a field is a common guess.
+                        // r32 t1 tried `expect value` for a field.
                         let hint = if other == "value" || other == "checked" {
                             "; `expect text` reads a control's value too (a checkbox with a `checked` binding reads `true` or `false`)"
+                        } else if other == "focus" {
+                            "; for the node that holds the focus, write `expect focused \"<testId>\"`"
                         } else {
                             ""
                         };
                         return self.err(
                             "syntax-expected-step",
-                            format!("`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `refusal`, `sound`, `midi`, `wakelock`, `mediasession`, `perf`, or `no failures`, not `{other}`{hint}"),
+                            format!("`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `focused`, `refusal`, `sound`, `midi`, `wakelock`, `mediasession`, `perf`, or `no failures`, not `{other}`{hint}"),
                         );
                     }
                 }
@@ -1214,7 +1265,7 @@ fn json_string(s: &str) -> String {
     out
 }
 
-/// A drag's `during` op is a read or the clock, not a second finger.
+/// A drag's `during` op is a read or the clock, not a second finger (drums R8).
 /// A filmed screenshot (`over … every`) loops on the clock.
 fn during_read(op: &str) -> bool {
     let mut words = op.split_whitespace();
@@ -1228,7 +1279,7 @@ fn during_read(op: &str) -> bool {
 }
 
 /// The words of a test's launch lines, which a test file may also write at
-/// its top level for every test in it.
+/// its top level for every test in it (habits F7, calendar F13).
 pub(super) const LAUNCH: [&str; 10] = [
     "size",
     "at",
@@ -1289,4 +1340,32 @@ fn iso_date(s: &str) -> bool {
             }
         })
         && (b.len() == 10 || b[10] == b'T')
+}
+
+impl Parser {
+    fn state_literal(&mut self) -> R<Expr> {
+        let span = self.peek().span;
+        if self.at_punct("-") || matches!(self.peek_kind(), TokenKind::Number(_)) {
+            return self
+                .step_number("a literal number")
+                .map(|n| Expr::Number(n, span));
+        }
+        let token = self.next();
+        match token.kind {
+            TokenKind::Str(value) => Ok(Expr::Str(value, span)),
+            TokenKind::Ident(word) if word == "true" || word == "false" => {
+                Ok(Expr::Bool(word == "true", span))
+            }
+            TokenKind::Ident(word) if word == "none" => Ok(Expr::None(span)),
+            TokenKind::Punct("[") => {
+                self.expect_punct("]")?;
+                Ok(Expr::List(Vec::new(), span))
+            }
+            _ => Err(SyntaxError {
+                id: "syntax-expected-step",
+                message: "`expect state` takes a number, a string, a bool, `none`, or `[]`".into(),
+                span,
+            }),
+        }
+    }
 }

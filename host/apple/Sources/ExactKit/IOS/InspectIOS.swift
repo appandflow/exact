@@ -1,10 +1,10 @@
-// Inspect mode on iOS (T2c): the platform half of
+// Inspect mode on iOS (LLP 1122 D4, D5; T2c): the platform half of
 // Inspect.swift. While it is on, the window (ExactWindow) gives every touch
 // and press here instead of to the app, so none reaches it, the banner's
 // close included (it is pressed here). A tap selects the plan node the
 // window's own hit test lands on, the real tap path: from the hit view up to
 // the nearest view that stands for a plan node, a walk that stops at a
-// system bar (the chrome rule: a plan node the bar hosts, its title or an
+// system bar (D5's chrome rule: a plan node the bar hosts, its title or an
 // item, is selectable; UIKit's own parts select nothing, and say so).
 #if EXACT_INSPECT && os(iOS)
 import UIKit
@@ -188,7 +188,7 @@ enum InspectHost {
     /// native bar or control stands in for is hidden in the content).
     static func shown(_ view: UIView) -> Bool {
         var at: UIView? = view
-        while let v = at { if v.isHidden || v.alpha < 0.01 { return false }; at = v.superview }
+        while let v = at { if v.isHidden || v.alpha < 0.01 || (v as? NodeView)?.drawnBySurface == true { return false }; at = v.superview }
         return true
     }
 

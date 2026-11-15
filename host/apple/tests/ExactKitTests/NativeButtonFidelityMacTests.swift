@@ -1,4 +1,4 @@
-// Real AppKit geometry and independent pixel references.
+// @ref LLP 1069.011.001 §4, D1–D17: real AppKit geometry and independent pixel references.
 #if os(macOS)
 import AppKit
 import CExact
@@ -146,11 +146,11 @@ final class NativeButtonFidelityMacTests: XCTestCase {
         XCTAssertEqual(try button(session, "control-tile").imagePosition, .imageAbove)
         XCTAssertNotNil(try button(session, "resend-code").contentTintColor)
         XCTAssertNotNil(try button(session, "sign-in").bezelColor)
-        // An icon-only button's label is its help tag; a titled one has none unasked.
+        // LLP 1115 wave 1: an icon-only button's label is its help tag; a titled one has none unasked.
         XCTAssertEqual(try button(session, "clear").toolTip, "Clear")
         XCTAssertNil(try button(session, "sign-in").toolTip)
     }
-    /// `plain` is SwiftUI's, in the label colour;
+    /// LLP 1115 wave 1: `plain` is SwiftUI's, in the label colour;
     /// `borderless` keeps the accent; an authored colour wins over both.
     func testPlainDrawsInLabelColourAndBorderlessInTheAccent() {
         var f = ButtonFace(); f.title = "Title"; f.macos = "borderless"
@@ -218,21 +218,126 @@ final class NativeButtonFidelityMacTests: XCTestCase {
             }
         }
     }
+    func testBorderlessImageFittingHasAPlatformSizedTarget() throws {
+        _ = NSApplication.shared
+        let cache = ButtonMeasureCache(), appearance = NSAppearance(named: .aqua)!
+        for symbol in ["plus", "xmark"] {
+            for size in ["mini", "small", "medium", "large"] {
+                var face = ButtonFace(); face.symbol = symbol; face.macos = "borderless"
+                face.rows.button["control_size"] = .string(size)
+                let hand = NSButton(image: try XCTUnwrap(NSImage(systemSymbolName: symbol, accessibilityDescription: nil)), target: nil, action: nil)
+                hand.bezelStyle = .push
+                hand.controlSize = size == "mini" ? .mini : size == "small" ? .small : size == "large" ? .large : .regular
+                hand.font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: hand.controlSize))
+                hand.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: hand.font!.pointSize, weight: .regular)
+                let target = hand.fittingSize.height
+                let glyph = configured(face).fittingSize
+                for kind in [UInt8(1), 2] {
+                    let answer = cache.measure(face, widthKind: kind, width: 0, appearance: appearance, scale: 1)
+                    XCTAssertEqual(answer.width, Float(max(target, glyph.width)), symbol + size)
+                    XCTAssertEqual(answer.height, Float(max(target, glyph.height)), symbol + size)
+                }
+                face.rows.button["padding_left"] = .number(0)
+                let partial = cache.measure(face, widthKind: 2, width: 0, appearance: appearance, scale: 2)
+                let halfInset = max(0, target - glyph.width) / 2
+                XCTAssertEqual(partial.width, Float(ceil((glyph.width + halfInset) * 2) / 2), "an unauthored side keeps its platform inset")
+                XCTAssertEqual(partial.height, Float(max(target, glyph.height)))
+            }
+        }
+    }
+    func testBorderlessImageTargetsHonorAuthoredDimensionsAndPadding() throws {
+        let win = makeWindow(), session = ExactApp.shared.makeSession(label: "borderless-targets")
+        defer { session.destroy() }
+        win.contentView = session.presenter.viewport
+        let source = root.appendingPathComponent("target/1104-b3/borderless.contract")
+        try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        component Borderless
+          view
+            column align-items="start" gap=8
+              button buttonStyle="borderless" testId="plus" aria-label="Add"
+                image "symbol:sf/plus"
+              button buttonStyle="plain" testId="close" aria-label="Close"
+                image "symbol:sf/xmark"
+              button buttonStyle="borderless" testId="fixed" aria-label="Fixed" width=17 height=16
+                image "symbol:sf/plus"
+              button buttonStyle="borderless" testId="padded" aria-label="Padded" padding-top=2 padding-right=11 padding-bottom=5 padding-left=3
+                image "symbol:sf/xmark"
+              button buttonStyle="borderless" testId="zero" aria-label="Zero" padding=0
+                image "symbol:sf/plus"
+              button buttonStyle="borderless" testId="wide" aria-label="Wide" width=40 padding-left=3 padding-right=11
+                image "symbol:sf/plus"
+
+        """.write(to: source, atomically: true, encoding: .utf8)
+        XCTAssertNil(session.boot(plan: try compile(source), size: win.contentLayoutRect.size).error)
+        for name in ["plus", "close", "fixed", "padded", "zero", "wide"] {
+            let native = try button(session, name), node = try XCTUnwrap(native.owner)
+            let face = try XCTUnwrap(native.written?.face), hand = configured(face)
+            let glyph = hand.fittingSize
+            hand.isBordered = true
+            let target = hand.fittingSize.height
+            let expected: NSSize
+            switch name {
+            case "fixed": expected = NSSize(width: 17, height: 16)
+            case "padded": expected = NSSize(width: glyph.width + 14, height: glyph.height + 7)
+            case "zero": expected = glyph
+            case "wide": expected = NSSize(width: 40, height: max(target, glyph.height))
+            default: expected = NSSize(width: max(target, glyph.width), height: max(target, glyph.height))
+            }
+            XCTAssertEqual(node.bounds.size, expected, name)
+            for point in [NSPoint(x: 1, y: 1), NSPoint(x: expected.width - 1, y: expected.height - 1)] {
+                XCTAssertTrue(native.hitTest(node.convert(point, to: native.superview)) === native, name)
+            }
+            let cell = try XCTUnwrap(native.cell as? NSButtonCell)
+            let inset = name == "padded" ? NSRect(x: 3, y: 2, width: native.bounds.width - 14, height: native.bounds.height - 7)
+                : name == "wide" ? NSRect(x: 3, y: 0, width: 26, height: native.bounds.height) : native.bounds
+            let reference = try XCTUnwrap(hand.cell as? NSButtonCell)
+            hand.isBordered = false
+            XCTAssertEqual(cell.imageRect(forBounds: native.bounds), reference.imageRect(forBounds: inset), name)
+        }
+    }
     func testCacheKeysIncludeFaceRowsStyleSizeWidthAppearanceAndScale() throws {
         let cache = ButtonMeasureCache(), aqua = NSAppearance(named: .aqua)!
         cache.configure(aqua, scale: 1)
         let plain = try data()
-        XCTAssertEqual(cache.answer(face: plain, widthKind: 0, width: 100).provisional, 1)
-        XCTAssertEqual(cache.answer(face: plain, widthKind: 0, width: 100).provisional, 0)
-        XCTAssertEqual(cache.misses, 1)
+        // A miss is measured before it is answered: exact, never provisional, so the kernel keeps it.
+        func ask(_ face: Data, _ kind: UInt8 = 0, _ width: Float = 100, measures: Bool, _ label: String) {
+            let misses = cache.misses
+            XCTAssertEqual(cache.answer(face: face, widthKind: kind, width: width).provisional, 0, label)
+            XCTAssertEqual(cache.misses, misses + (measures ? 1 : 0), label)
+        }
+        ask(plain, measures: true, "first")
+        ask(plain, measures: false, "again")
         for variant in [try data(title: "Other"), try data(["title": ["font_weight": 600]]), try data(style: "gray"), try data(["button": ["control_size": "large"]])] {
-            XCTAssertEqual(cache.answer(face: variant, widthKind: 0, width: 100).provisional, 1)
+            ask(variant, measures: true, "variant")
         }
-        for (kind, width) in [(UInt8(0), Float(300)), (1, 0), (2, 0)] { XCTAssertEqual(cache.answer(face: plain, widthKind: kind, width: width).provisional, 1) }
+        for (kind, width) in [(UInt8(0), Float(300)), (1, 0), (2, 0)] { ask(plain, kind, width, measures: true, "offer \(kind) \(width)") }
         for (appearance, scale) in [(NSAppearance(named: .darkAqua)!, CGFloat(1)), (aqua, CGFloat(2))] {
-            XCTAssertTrue(cache.configure(appearance, scale: scale)); XCTAssertEqual(cache.answer(face: plain, widthKind: 0, width: 100).provisional, 1)
-            XCTAssertEqual(cache.answer(face: plain, widthKind: 0, width: 100).provisional, 0)
+            XCTAssertTrue(cache.configure(appearance, scale: scale))
+            ask(plain, measures: true, "new traits"); ask(plain, measures: false, "new traits, again")
         }
+    }
+    /// Titles and widths a session has stopped asking for are released; a
+    /// face its layouts keep asking for stays measured.
+    func testTheCacheKeepsRecentFacesWithinItsBudget() throws {
+        let cache = ButtonMeasureCache()
+        cache.configure(NSAppearance(named: .aqua)!, scale: 1)
+        let live = try data(title: "Live")
+        func ask(_ face: Data, _ width: Float, step: Int) {
+            _ = cache.answer(face: face, widthKind: 0, width: width)
+            guard step % 50 == 0 else { return }
+            let misses = cache.misses
+            _ = cache.answer(face: live, widthKind: 0, width: 100)
+            if step > 0 { XCTAssertEqual(cache.misses, misses, "the live face at step \(step)") }
+        }
+        for n in 0..<1_000 { ask(try data(title: "Title \(n)"), 100, step: n) }
+        for n in 0..<1_000 { ask(try data(title: "Title"), 100 + Float(n), step: n) }
+        let face = try data(title: "Title 1000").count
+        let (entries, bytes) = cache.retained
+        XCTAssertLessThanOrEqual(entries, 2 * 257, "two generations of 256, and the one that passed it")
+        XCTAssertLessThanOrEqual(bytes, entries * face)
+        XCTAssertTrue(cache.configure(NSAppearance(named: .darkAqua)!, scale: 1))
+        XCTAssertEqual(cache.retained.entries, 0, "a change of traits releases the old measurements")
     }
     func testColdLaunchAndNewFaceAfterLaunchPublishOnlyExactGeometry() throws {
         let win = makeWindow(), session = ExactApp.shared.makeSession(label: "new-button-measure")
@@ -328,13 +433,13 @@ final class NativeButtonFidelityMacTests: XCTestCase {
         let small = ["get-app", "try-demo", "subscriptions", "sign-out", "clear"].contains(name)
         let fontSize = small ? 13 : NSFont.systemFontSize(for: b.controlSize)
         if small || name == "sign-in" {
-            // CSS 600 is AppKit's semibold.
+            // CSS 600 is AppKit's semibold (LLP 1019 §13 D11).
             b.font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
         } else { b.font = NSFont.systemFont(ofSize: fontSize) }
         let green = NSColor(red: 52.0 / 255, green: 199.0 / 255, blue: 89.0 / 255, alpha: 1)
         let tint = name.hasPrefix("a-") || name == "wide" ? green : NSColor.controlAccentColor
         if !glass && accent.contains(name) || ["prominent-glass", "prominent-clear-glass"].contains(name) { b.bezelColor = tint }
-        // `plain` is SwiftUI's: the label colour, not the accent.
+        // `plain` is SwiftUI's: the label colour, not the accent (LLP 1115 wave 1).
         let plain: Set<String> = ["plain", "get-app", "try-demo", "subscriptions", "sign-out", "clear", "a-plain"]
         b.contentTintColor = b.isBordered ? nil : plain.contains(name) ? .labelColor : tint
         b.title = titles[name] ?? (symbols[name] == nil ? name : "")
@@ -390,7 +495,7 @@ final class NativeButtonFidelityMacTests: XCTestCase {
     func testAllFixtureRowsPixelDiffAgainstHandConfiguredAppKit() throws {
         let session = try fixture(); defer { session.destroy() }
         let host = try XCTUnwrap(window.contentView)
-        // The fixture's radios are its radio group's segments, which AppKit's segmented control draws.
+        // The fixture's radios are its radio group's segments, which AppKit's segmented control draws (LLP 1116.004 D5.2).
         let buttons = session.presenter.controls.controls.values.compactMap { $0 as? NativeButtonMac }
             .filter { $0.owner?.props["accessibilityRole"] != "radio" }
             .sorted { ($0.written?.testId ?? "") < ($1.written?.testId ?? "") }

@@ -3,7 +3,8 @@
 // ICU (no bundled ICU code or data), plus the pointer table through which the
 // shims call the entry points only icu.dll exports.
 //
-// The stated floor is Windows 10 2004, so the shims see only the API that release exports.
+// @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — the stated floor is
+// Windows 10 2004, so the shims see only the API that release exports.
 //
 // <icu.h> gates each declaration on the first Windows release that exported
 // it (NTDDI_VERSION blocks). Pinning NTDDI_VERSION here, before any Windows
@@ -40,7 +41,7 @@ static_assert(NTDDI_VERSION == NTDDI_WIN10_VB,
 
 #include <cstdlib>
 
-// The probe is the binding.
+// @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — the probe is the binding.
 //
 // Everything else the shims call links against the frozen icuuc/icuin import
 // libraries that the Hermes VM already imports at load time. The entry points

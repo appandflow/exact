@@ -1,4 +1,4 @@
-// The File System Access API's pickers: each chosen file
+// The File System Access API's pickers (LLP 1069.010 D2): each chosen file
 // or folder arrives as a `doc:` handle, `change` on the element the command
 // names (one per line under `multiple`); a dismissed picker is `cancel`.
 component App

@@ -1,4 +1,4 @@
-# @exact/photos's fixture: the app's data source,
+# @exact/photos's fixture (LLP 1133.019 stage 3): the app's data source,
 # which holds its grants and runs the image codec; the library is read from
 # the Contract.
 [package]
@@ -12,8 +12,6 @@ publish = false
 [lib]
 name = "photos_fixture_data"
 crate-type = ["rlib"]
-test = false
-bench = false
 
 [dependencies]
 exact-plan = { path = "../../../plan" }

@@ -1,4 +1,4 @@
-//! Persisted-answer identity and request context.
+//! Persisted-answer identity and request context (LLP 1027.005 D3–D6).
 use super::*;
 
 #[path = "kept_identity_tests.rs"]
@@ -21,8 +21,8 @@ struct Source {
     value: Value,
     asks: Vec<Vec<Value>>,
     parses: Vec<Vec<Value>>,
-    /// A device line whose app keeps no answers: Health's,
-    /// the contacts' or a calendar's.
+    /// A device line whose app keeps no answers: Health's (LLP 1069.008.000
+    /// D7), the contacts' or a calendar's (LLP 1133.018 D8).
     private: Option<&'static str>,
 }
 
@@ -199,7 +199,7 @@ fn shows(r: &Runner<Source>, value: &str) {
 }
 
 fn state(r: &Runner<Source>) -> &ResourceState {
-    r.resources[0].as_ref().unwrap()
+    r.resources[0].state.as_ref().unwrap()
 }
 
 fn answer_writes(r: &Runner<Source>) -> usize {
@@ -251,11 +251,11 @@ fn seed_survives_two_context_changes_and_activation_asks_the_latest_full_argumen
     assert_eq!(r.data.asks, [full("A", "200", 2.)]);
     shows(&r, "fresh");
     assert!(!state(&r).kept_seed);
-    assert!(!r.stale[0]);
+    assert!(!r.resources[0].stale);
     assert!(
         r.journal()
             .any(|l| l.contains("answer answered differently from its kept answer")),
-        "a contradicted kept answer is journaled"
+        "a contradicted kept answer is journaled (LLP 1102 §3.17)"
     );
     assert_eq!(state(&r).args, full("A", "200", 2.));
     assert_eq!(
@@ -286,7 +286,7 @@ fn refusal_before_readiness_restores_the_seed_and_its_identity_eligibility() {
     let before = r.kernel().export(None).unwrap();
     assert!(matches!(
         r.act("refuse", vec![Value::str("B")]),
-        Err(RunnerError::Trap(_))
+        Err(RunnerError::Evaluation { .. })
     ));
     assert_eq!(r.kernel().export(None).unwrap(), before);
     shows(&r, "kept");
@@ -304,7 +304,7 @@ fn an_activation_answer_outside_its_shape_fails_it_and_keeps_nothing() {
     r.data.ready = true;
     r.data.value = Value::Bool(false);
     // The answer outside its shape fails the resource, not the activation,
-    // which commits: the seed still shows, is not eligible, and
+    // which commits: the seed still shows, is not eligible (D4), and
     // nothing is persisted.
     assert!(r.data_ready().is_ok());
     shows(&r, "kept");
@@ -313,7 +313,7 @@ fn an_activation_answer_outside_its_shape_fails_it_and_keeps_nothing() {
         .iter()
         .any(|(name, _)| *name == "answer"));
     assert!(!state(&r).kept_seed);
-    assert!(r.stale[0]);
+    assert!(r.resources[0].stale);
     assert_eq!(answer_writes(&r), 0);
     r.data.value = Value::str("valid");
     r.data_ready().unwrap();
@@ -327,7 +327,10 @@ fn async_activation_is_provisional_and_a_context_change_supersedes_its_full_requ
     r.data.ready = true;
     r.data.later = true;
     r.data_ready().unwrap();
-    let first = r.take_requests().remove(0).ticket;
+    let first = r.take_requests().remove(0);
+    // The launch's own ask, not a refresh (LLP 1162.000 D1).
+    assert!(!first.forced);
+    let first = first.ticket;
     shows(&r, "kept");
     assert!(
         !state(&r).kept_seed,
@@ -395,7 +398,7 @@ fn failed_activation_writes_nothing_and_only_the_full_failed_arguments_suppress_
     let ticket = r.take_requests().remove(0).ticket;
     r.fulfill(ticket, Outcome::Storage(vec![])).unwrap();
     assert!(!r.has_pending());
-    assert_eq!(r.failed_args[0], Some(full("A", "100", 0.)));
+    assert_eq!(r.resources[0].failed_args, Some(full("A", "100", 0.)));
     assert!(!state(&r).kept_seed);
     shows(&r, "kept");
     provisional(&r);
@@ -404,7 +407,7 @@ fn failed_activation_writes_nothing_and_only_the_full_failed_arguments_suppress_
     r.data.fail = false;
     r.act("minute", vec![Value::str("200")]).unwrap();
     assert_eq!(r.data.asks.len(), 2);
-    assert!(r.failed_args[0].is_none());
+    assert!(r.resources[0].failed_args.is_none());
     let ticket = r.take_requests().remove(0).ticket;
     r.fulfill(ticket, Outcome::Storage(vec![])).unwrap();
     shows(&r, "fresh");
@@ -624,7 +627,7 @@ fn a_ready_source_gets_no_kept_seed_even_when_its_first_answer_is_slow() {
 }
 
 #[test]
-fn runner_owned_facts_never_admit_or_persist_kept_answers() {
+fn runner_owned_facts_forget_stale_kept_answers_and_never_persist_live_values() {
     let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     let number = b.primitive(TypeKind::Number);
     let time = b.record("Time", &[("epochAtZero", number)]);
@@ -646,8 +649,76 @@ fn runner_owned_facts_never_admit_or_persist_kept_answers() {
         r.resource("answer"),
         Some(&Value::record(vec![Value::Number(1000.)]))
     );
-    assert_eq!(answer_writes(&r), 0);
+    let writes: Vec<_> = r
+        .store
+        .writes()
+        .iter()
+        .filter(|w| w.name == kept::kept_name("answer"))
+        .collect();
+    assert_eq!(writes.len(), 1, "only the stale entry's removal");
+    assert!(writes[0].value.is_none());
+    assert!(r.store.kept(&kept::kept_name("answer")).is_none());
     assert!(r.data.asks.is_empty());
+}
+
+#[test]
+fn only_explicitly_kept_surface_facts_retain_a_launch_snapshot() {
+    for source in exact_plan::RUNNER_OWNED_SOURCES {
+        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        let number = b.primitive(TypeKind::Number);
+        let record = b.record("Record", &[("value", number)]);
+        let name = b.str("world");
+        let mut arg = Asm::new();
+        arg.str(name);
+        let arg = b.code(arg);
+        let row = b.resource("answer", source, &[arg], record, None);
+        b.set_resource_reader(row, true);
+        b.surface("world", &[]);
+        b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+        let mut plan = b.finish().unwrap();
+        let snapshot = entry(
+            &[Value::str("world")],
+            &Value::record(vec![Value::Number(9.)]),
+        );
+        for keep in [false, true] {
+            plan.resources[0].keep = keep;
+            let allowed = keep && *source == crate::surface_record::SOURCE;
+            assert_eq!(
+                kept::kept_surface(&plan, 0),
+                allowed,
+                "{source}, keep={keep}"
+            );
+            assert_eq!(
+                kept::obsolete(&plan, snapshot.iter().map(|(name, _)| name)).is_empty(),
+                allowed,
+                "{source}, keep={keep}"
+            );
+            let decoded = Plan::decode(&plan.encode()).unwrap();
+            assert_eq!(
+                kept::kept_surface(&decoded, 0),
+                allowed,
+                "{source}, keep={keep}"
+            );
+        }
+        plan.resources[0].transient = true;
+        assert!(!kept::kept_surface(&plan, 0), "{source}");
+        assert!(
+            !kept::obsolete(&plan, snapshot.iter().map(|(name, _)| name)).is_empty(),
+            "{source}"
+        );
+        let decoded = Plan::decode(&plan.encode()).unwrap();
+        assert!(!kept::kept_surface(&decoded, 0), "{source}");
+        plan.resources[0].transient = false;
+        plan.surfaces = Default::default();
+        assert!(
+            !kept::kept_surface(&plan, 0),
+            "a kept reader needs a declared surface: {source}"
+        );
+        assert!(
+            !kept::obsolete(&plan, snapshot.iter().map(|(name, _)| name)).is_empty(),
+            "{source}"
+        );
+    }
 }
 
 #[test]
@@ -671,12 +742,45 @@ fn a_cold_boot_forgets_kept_answers_no_declared_reader_seeds() {
     assert_eq!(answer_writes(&r), 0);
 }
 
+/// What a host leaves out of its snapshot (past `Store::KEPT_TOTAL_BYTES`)
+/// it names after the boot, and what the boot would have forgotten is.
+#[test]
+fn a_cold_boot_forgets_the_kept_entries_the_host_did_not_read() {
+    let removed = |r: &Runner<Source>| -> Vec<String> {
+        (r.store.writes().iter())
+            .filter(|w| w.value.is_none())
+            .map(|w| w.name.clone())
+            .collect()
+    };
+    let (answer, gone) = (kept::kept_name("answer"), kept::kept_name("gone"));
+    let mut r = seeded();
+    r.forget_unread_kept(&[answer.clone(), gone.clone()]);
+    shows(&r, "kept");
+    assert_eq!(removed(&r), [gone], "a read entry stays");
+    let mut transient = plan(2, false);
+    transient.resources[0].transient = true;
+    let mut r = boot(transient, Source::default(), Vec::new());
+    r.forget_unread_kept(std::slice::from_ref(&answer));
+    assert_eq!(
+        removed(&r),
+        std::slice::from_ref(&answer),
+        "a transient reader's"
+    );
+    let source = Source {
+        private: Some("health-read"),
+        ..Source::default()
+    };
+    let mut r = boot(plan(2, false), source, Vec::new());
+    r.forget_unread_kept(std::slice::from_ref(&answer));
+    assert_eq!(removed(&r), [answer], "an app that keeps no answers");
+}
+
 #[test]
 fn an_app_granting_a_private_store_neither_seeds_nor_keeps_answers() {
     // A reader's answer kept before the grant (or by an older build) is
     // forgotten on disk and does not paint the first frame; the fresh answer
-    // is never kept: Health's rule, and the contacts'
-    // and calendars'. The source loads after first pixel,
+    // is never kept: Health's rule (LLP 1069.008.000 D7), and the contacts'
+    // and calendars' (LLP 1133.018 D8). The source loads after first pixel,
     // as an app's TypeScript does.
     for line in ["health-read", "contacts", "calendar", "calendar-write-only"] {
         let source = Source {
@@ -716,6 +820,7 @@ fn the_runner_answers_exactly_the_plan_s_own_sources() {
         crate::viewport::SOURCE,
         crate::page::SOURCE,
         crate::surface_record::SOURCE,
+        crate::canvas_performance::SOURCE,
         crate::time::SOURCE,
         crate::transport::SOURCE,
         crate::midi::SOURCE,
@@ -738,11 +843,11 @@ fn a_kept_seed_failed_by_a_refused_activation_stays_failed_across_context() {
     // Activation refused by the app itself: the seed fails for its
     // identifying arguments, and a context change asks nothing.
     r.give_up(&[0], &RunnerError::Cycle);
-    assert!(r.failed_args[0].is_some());
+    assert!(r.resources[0].failed_args.is_some());
     let asks = r.data.asks.len();
     r.act("minute", vec![Value::str("300")]).unwrap();
     assert_eq!(r.data.asks.len(), asks);
-    assert!(r.failed_args[0].is_some());
+    assert!(r.resources[0].failed_args.is_some());
     shows(&r, "kept");
 }
 
@@ -756,7 +861,7 @@ fn a_refused_commit_does_not_forget_a_kept_answer() {
     r.data.value = Value::str(&"x".repeat(kept::MAX_KEPT_BYTES));
     assert!(matches!(
         r.act("refuse", vec![Value::str("B")]),
-        Err(RunnerError::Trap(_))
+        Err(RunnerError::Evaluation { .. })
     ));
     assert!(
         kept_answer(&r),
@@ -770,7 +875,7 @@ fn a_refused_commit_does_not_forget_a_kept_answer() {
 fn a_refusal_after_boot_is_journaled_and_a_rolled_back_one_is_not() {
     let refused = |r: &Runner<Source>| -> Vec<String> {
         r.journal()
-            .filter(|l| l.contains("refused its kept answer"))
+            .filter(|l| l.contains("did not use its kept answer"))
             .map(str::to_string)
             .collect()
     };
@@ -778,13 +883,14 @@ fn a_refusal_after_boot_is_journaled_and_a_rolled_back_one_is_not() {
     // A refusal the trap undoes is not said; the seed stands.
     assert!(r.act("refuse", vec![Value::str("B")]).is_err());
     assert!(refused(&r).is_empty());
-    // An identity change that stands is, with the arguments it asks for.
+    // An identity change that stands is, with the argument that differs
+    // and the state it reads.
     r.act("car", vec![Value::str("C")]).unwrap();
     let lines = refused(&r);
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(
         lines[0].ends_with(
-            "answer refused its kept answer: kept for [\"A\"], this launch asks for [\"C\"]"
+            "answer did not use its kept answer: kept for [\"A\"], this launch asks for [\"C\"]: identifying argument 1 is \"C\", reading state car = \"C\""
         ),
         "{lines:?}"
     );
@@ -829,4 +935,26 @@ fn kept_answers_over_their_total_forget_the_longest_other() {
         "{}",
         said[0]
     );
+}
+
+/// `resource … transient` (LLP 1156.005 D4): the answer is neither shown
+/// from the store at launch nor written there, and an entry an earlier build
+/// kept is forgotten at boot.
+#[test]
+fn a_transient_resource_keeps_nothing_and_forgets_what_was_kept() {
+    let mut transient = plan(0, false);
+    transient.resources[0].transient = true;
+    let snapshot = entry(&full("A", "100", 0.), &Value::str("kept"));
+    let mut r = boot(transient, Source::default(), snapshot);
+    shows(&r, "loading");
+    assert_eq!(r.store.kept(&kept::kept_name("answer")), None);
+    // The one write is the boot's forgetting.
+    let forgotten = answer_writes(&r);
+    r.data.ready = true;
+    r.data.value = Value::str("fresh");
+    r.data_ready().unwrap();
+    shows(&r, "fresh");
+    r.act("minute", vec![Value::str("200")]).unwrap();
+    assert_eq!(answer_writes(&r), forgotten);
+    assert_eq!(r.store.kept(&kept::kept_name("answer")), None);
 }

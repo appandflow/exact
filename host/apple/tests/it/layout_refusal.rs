@@ -1,4 +1,4 @@
-//! A valid viewport can still fail the first layout.
+//! @ref LLP 1039 D2 — a valid viewport can still fail the first layout.
 use exact_apple::abi::{Bridge, Hooks};
 use exact_runner::{DataError, DataSource, Value};
 
@@ -116,7 +116,7 @@ fn two_prepared_sessions_keep_live_hosts_when_one_valid_viewport_layout_fails() 
 
 #[test]
 fn url_location_boot_and_live_navigate_share_the_apple_buffer_abi() {
-    // Both ordinary and prepared first boots use the URL.
+    // @ref LLP 1038 D5/D8 — both ordinary and prepared first boots use the URL.
     let source = "routes nav\n  home \"/\"\n    post \"/post/:post\"\ncomponent App\n  state first = top(nav).url\n  action follow(location: string)\n    nav = open(nav, location)\n  view\n    main navigate=follow navigationKey=`${top(nav).id}` navigationBack=\"back\"\n      text top(nav).url\n";
     let plan = contract::compile(source).unwrap().encode();
     for prepared in [false, true] {
@@ -124,7 +124,7 @@ fn url_location_boot_and_live_navigate_share_the_apple_buffer_abi() {
         let n = bridge.input_write(b"s2b://post/42?q=a b#fragment");
         let n = bridge.location_of(n);
         let location = bridge.output_bytes(n as usize).to_vec();
-        assert_eq!(location, b"/post/42?q=a%20b#fragment"); // the fragment kept
+        assert_eq!(location, b"/post/42?q=a%20b#fragment"); // the fragment kept (LLP 1153 D5)
         let n = bridge.input_write(&location);
         bridge.set_launch_location(n);
         let n = if prepared {

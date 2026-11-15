@@ -1,4 +1,4 @@
-//! What a plan uses is read from its rows, never declared.
+//! @ref LLP 1047 D2 — what a plan uses is read from its rows, never declared.
 
 use exact_runner::{uses, Capability, Uses};
 
@@ -27,7 +27,7 @@ fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
     let css =
         used("component A\n  view\n    text \"a\" opacity=0.5 transition=\"opacity 200ms ease\"\n");
     // The browser plays an easing transition; a native engine plays it as
-    // `transitions`, never as motion.
+    // `transitions` (LLP 1047.001), never as motion.
     assert_eq!(css.to_string(), "transitions");
     assert!(!css.has(Capability::Motion));
     let none = used("component A\n  view\n    text \"a\" opacity=0.5 transition=\"none\"\n");
@@ -53,7 +53,7 @@ fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
     );
     assert!(
         release.has(Capability::Motion) && !release.has(Capability::Drag),
-        "a pan's release velocity is the engine's tracker"
+        "a pan's release velocity is the engine's tracker (LLP 1057 §10.6)"
     );
     let drag = used(
         "component A\n  view\n    column id=\"sheet\" height=100\n      column heightDragFor=\"sheet\"\n",
@@ -102,7 +102,7 @@ fn the_router_is_a_plan_with_routes() {
 
 #[test]
 fn format_is_a_call_of_format_date_or_format_number_anywhere() {
-    // `formatTime` is the core's, as `formatClockTime` was.
+    // `formatTime` is the core's, as `formatClockTime` was (LLP 1054.000.003 D1).
     let time = used("component A\n  view\n    text formatTime(0, 0, \"short\")\n");
     assert_eq!(time, Uses::NONE);
     let date = used("component A\n  view\n    text formatDate(0, 0, \"medium\")\n");
@@ -124,7 +124,7 @@ fn format_is_a_call_of_format_date_or_format_number_anywhere() {
     assert!(wrapped.has(Capability::Format));
 }
 
-/// `toLowerCase` and `toUpperCase` reach the case tables
+/// LLP 1088 D2: `toLowerCase` and `toUpperCase` reach the case tables
 /// `text-transform` links, so a call links them; `slice` and `replaceAll`
 /// need nothing.
 #[test]
@@ -141,7 +141,7 @@ fn to_lower_case_links_the_case_tables_and_slice_links_nothing() {
 
 #[test]
 fn materials_and_backdrop_filter_are_linked_by_use() {
-    // The web core carries neither unless a plan names one.
+    // @ref LLP 1053.000 §2 — the web core carries neither unless a plan names one.
     let plain = used("component A\n  view\n    text \"a\" white-space=\"pre\"\n");
     assert!(!plain.has(Capability::Materials) && !plain.has(Capability::Backdrop));
     assert!(
@@ -156,7 +156,7 @@ fn materials_and_backdrop_filter_are_linked_by_use() {
 
 #[test]
 fn drag_timelines_are_linked_by_use() {
-    // The web core carries their grammar only when a plan sets a row.
+    // @ref LLP 1057.003 — the web core carries their grammar only when a plan sets a row.
     assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Timelines));
     for row in [
         "-exact-drag-timeline=\"--dismiss\"",
@@ -175,7 +175,7 @@ fn drag_timelines_are_linked_by_use() {
 
 #[test]
 fn text_transform_is_linked_by_use() {
-    // The web core carries no case tables unless a plan binds the row.
+    // @ref LLP 1064 D5 — the web core carries no case tables unless a plan binds the row.
     assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::TextTransform));
     assert!(
         used("component A\n  view\n    text \"a\" text-transform=\"uppercase\"\n")
@@ -189,7 +189,7 @@ fn text_transform_is_linked_by_use() {
 
 #[test]
 fn filter_and_clip_path_are_linked_by_use() {
-    // The web core carries neither grammar unless a plan binds one.
+    // @ref LLP 1055.000 D10, D14 — the web core carries neither grammar unless a plan binds one.
     assert!(!used("component A\n  view\n    box opacity=0.5\n").has(Capability::Effects));
     assert!(used("component A\n  view\n    box filter=\"blur(2px)\"\n").has(Capability::Effects));
     assert!(used("component A\n  view\n    box clip-path=\"none\"\n").has(Capability::Effects));
@@ -197,7 +197,7 @@ fn filter_and_clip_path_are_linked_by_use() {
 
 #[test]
 fn css_animations_are_linked_by_use() {
-    // The web core carries neither grammar unless a plan animates.
+    // @ref LLP 1055 D5 — the web core carries neither grammar unless a plan animates.
     assert!(!used("component A\n  view\n    box opacity=0.5\n").has(Capability::Animations));
     // `none` parses too, so a binding alone links the grammar.
     assert!(used("component A\n  view\n    box animation=\"none\"\n").has(Capability::Animations));
@@ -213,7 +213,7 @@ fn css_animations_are_linked_by_use() {
 
 #[test]
 fn gradients_are_linked_by_use() {
-    // The web core carries no gradient grammar unless a plan binds the row.
+    // @ref LLP 1066 — the web core carries no gradient grammar unless a plan binds the row.
     assert!(!used("component A\n  view\n    box opacity=0.5\n").has(Capability::Gradients));
     assert!(used(
         "component A\n  view\n    view background-image=\"linear-gradient(#000, #fff)\"\n"
@@ -222,8 +222,55 @@ fn gradients_are_linked_by_use() {
 }
 
 #[test]
+fn visual_grammars_follow_literal_class_and_computed_rows() {
+    assert_eq!(used("component A\n  view\n    text \"a\"\n"), Uses::NONE);
+    for (row, value, capability) in [
+        ("box-shadow", "0 2px 4px #000", "shadows"),
+        ("text-shadow", "1px 2px #000", "shadows"),
+        ("corner-shape", "squircle", "corners"),
+        ("rotate", "y 30deg", "rotate"),
+        ("-webkit-text-stroke", "1px #f00", "text_stroke"),
+        ("-webkit-text-stroke-width", "1px", "text_stroke"),
+        ("-webkit-text-stroke-color", "#f00", "text_stroke"),
+        ("-exact-symbol-palette", "#f00 #00f", "symbol_palette"),
+        (
+            "background-image",
+            "conic-gradient(#f00, #00f)",
+            "gradients",
+        ),
+        ("mask-image", "linear-gradient(#000, #fff)", "gradients"),
+    ] {
+        for source in [
+            format!("component A\n  view\n    text \"a\" {row}=\"{value}\"\n"),
+            format!("style S\n  {row}=\"{value}\"\ncomponent A\n  view\n    text \"a\" class=S\n"),
+            format!(
+                "component A\n  state paint = \"{value}\"\n  view\n    text \"a\" {row}=paint\n"
+            ),
+        ] {
+            assert_eq!(used(&source).to_string(), capability, "{source}");
+        }
+    }
+}
+
+#[test]
+fn decoration_styles_link_their_visual_grammars() {
+    let field = "component A\n  view\n    textarea decorations=TextDecorations(value=\"a\", spans=[TextDecorationSpan(name=\"glow\", start=0, end=1)])\n";
+    assert_eq!(used(field), Uses::NONE);
+    assert_eq!(
+        used(&format!("decoration glow color=\"#000\"\n{field}")),
+        Uses::NONE
+    );
+    let shadow = "decoration glow text-shadow=\"0 0 1px #000\"\n";
+    assert_eq!(used(&format!("{shadow}{field}")).to_string(), "shadows");
+    assert_eq!(
+        used(&format!("{shadow}component A\n  view\n    text \"a\"\n")),
+        Uses::NONE
+    );
+}
+
+#[test]
 fn data_words_and_tabs_are_linked_by_use() {
-    // The web core carries neither the
+    // @ref LLP 1075.003 §3.3, §3.7 — the web core carries neither the
     // `dataset` reading nor the tabs' walk unless a plan binds the row.
     let plain = used("component A\n  view\n    box testId=\"a\"\n");
     assert!(!plain.has(Capability::Dataset) && !plain.has(Capability::Tabs));
@@ -266,7 +313,7 @@ fn a_set_names_what_it_holds_beyond_another() {
 
 #[test]
 fn share_is_a_plan_that_runs_the_command() {
-    // Linked by use on the web (the web core's size).
+    // @ref LLP 1069.003 — linked by use on the web (the web core's size).
     assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Share));
     let shares = used(
         "component A\n  action send\n    share(text=\"hello\")\n  view\n    button \"Share\" press=send\n",
@@ -276,7 +323,7 @@ fn share_is_a_plan_that_runs_the_command() {
 
 #[test]
 fn documents_are_a_plan_that_runs_save_file_or_a_file_picker() {
-    // Linked by use on the web (the web core's size).
+    // @ref LLP 1069.010 — linked by use on the web (the web core's size).
     assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Documents));
     let picks = used(
         "component A\n  action open\n    showOpenFilePicker(\"opened\")\n  view\n    button \"Open\" press=open\n",
@@ -286,13 +333,13 @@ fn documents_are_a_plan_that_runs_save_file_or_a_file_picker() {
 
 #[test]
 fn the_picker_is_a_file_input_or_show_picker() {
-    // Linked by use on the web (the web core's size).
+    // @ref LLP 1069.002 — linked by use on the web (the web core's size).
     assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Picker));
     let input = used("component A\n  view\n    input type=\"file\" accept=\"image/*\" id=\"f\"\n");
     assert!(input.has(Capability::Picker));
 }
 
-/// E: iOS's photo picker is a file input whose `accept` is
+/// LLP 1047.001.000 E: iOS's photo picker is a file input whose `accept` is
 /// only images and videos (the compiler takes only a literal); a document
 /// input links the picker without it.
 #[test]
@@ -318,7 +365,7 @@ fn the_media_picker_is_a_file_input_that_accepts_only_media() {
 
 #[test]
 fn svg_islands_are_a_mask_a_filter_element_or_a_filter_on_an_svg_element() {
-    // What makes a native host open its island module.
+    // @ref LLP 1055.000 D10, D14 — what makes a native host open its island module.
     let islands = |s: &str| {
         exact_runner::svg_islands(&contract::compile(s).unwrap_or_else(|e| panic!("{e}")))
     };
@@ -341,7 +388,7 @@ fn svg_islands_are_a_mask_a_filter_element_or_a_filter_on_an_svg_element() {
     ));
 }
 
-/// A grouped list (`list appearance="auto"`, which Contract
+/// LLP 1047.001 D2: a grouped list (`list appearance="auto"`, which Contract
 /// marks with `listStyle`) is a native capability; a plain list is not.
 #[test]
 fn a_grouped_list_is_a_list_whose_appearance_is_auto() {
@@ -351,10 +398,10 @@ fn a_grouped_list_is_a_list_whose_appearance_is_auto() {
         "component A\n  view\n    list appearance=\"auto\"\n      section\n        text \"a\"\n",
     );
     assert!(grouped.has(Capability::GroupedLists));
-    assert_eq!(grouped.to_string(), "grouped_lists");
+    assert_eq!(grouped.to_string(), "grouped_lists, corners");
 }
 
-/// A date or time control, which on Android links
+/// LLP 1115.001.000 D2: a date or time control, which on Android links
 /// Compose Material 3 for its picker.
 #[test]
 fn dates_are_a_date_or_time_control() {
@@ -364,4 +411,22 @@ fn dates_are_a_date_or_time_control() {
     }
     assert!(!used("component A\n  view\n    input value=\"\"\n").has(Capability::Dates));
     assert!(!used("component A\n  view\n    input type=\"file\"\n").has(Capability::Dates));
+}
+
+/// LLP 1035.006.000 D5: a tip links the tips capability (TipKit on Apple);
+/// one whose title is always empty shows nothing and links nothing.
+#[test]
+fn tips_are_an_element_with_a_tip() {
+    let button = |attrs: &str| {
+        format!("component A\n  state t = \"\"\n  view\n    button id=\"add\"{attrs}\n      text \"Add\"\n")
+    };
+    let tipped = used(&button(" tip=\"Add a station\""));
+    assert!(tipped.has(Capability::Tips));
+    assert_eq!(tipped.to_string(), "tips");
+    assert!(
+        used(&button(" tip=t")).has(Capability::Tips),
+        "a computed title may be one"
+    );
+    assert!(!used(&button(" tip=\"\"")).has(Capability::Tips));
+    assert!(!used(&button("")).has(Capability::Tips));
 }

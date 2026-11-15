@@ -1,4 +1,4 @@
-// The sample host's decision on leaving the app,
+// The sample host's decision on leaving the app (LLP 1133.024 D22 item 7),
 // a step of `smoke.mjs host`: a package's ask, posted for one session's view
 // as `ExactPackageContext.leave` posts it, answered by the host's delegate
 // for that session alone, and refused outside the host's list.

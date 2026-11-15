@@ -1,4 +1,4 @@
-// CSS `corner-shape` and `-exact-continuous`, shared by UIKit
+// CSS `corner-shape` and `-exact-continuous` (LLP 1077 D1), shared by UIKit
 // and AppKit. The outline is the kernel's (`exact_corner_outline`), so every
 // host draws one shape for one name; the one case Core Animation says
 // itself is `-exact-continuous` with one radius, `cornerCurve = .continuous`.

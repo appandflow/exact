@@ -1,6 +1,7 @@
-// Which lists are tables on the Mac, and a list the runner does not window
-// as one: its children are the table's rows. The runner's windowed list is
-// `TableFeedMacTests`'; the keys and the clicks, `TableFeedKeyMacTests`'.
+// @ref LLP 1115.002 D5, LLP 1115.000 D16 — which lists are tables on the
+// Mac, and a list the runner does not window as one: its children are the
+// table's rows. The runner's windowed list is `TableFeedMacTests`'; the keys
+// and the clicks, `TableFeedKeyMacTests`'.
 #if os(macOS)
 import AppKit
 import XCTest
@@ -33,7 +34,7 @@ final class TableListMacTests: XCTestCase {
         let f = try TableFixture(count: 0, source: Self.plain)
         fixture = f
         // Three rows ranked before they leave, checked against the table, whose cells hold the live rows, and against
-        // the list's badge (item 4)
+        // the list's badge (LLP 1083.000 §4, item 4)
         let (plain, raised, lowered, badge) = try (f.node("row-0"), f.node("row-1"), f.node("row-2"), f.node("badge"))
         XCTAssertTrue([plain, raised, lowered].allSatisfy { $0.superview is TableRowCell })
         raised.setRank(10)
@@ -337,7 +338,7 @@ final class TableListMacTests: XCTestCase {
 }
 
 extension TableListMacTests {
-    /// Found on Shelf's library as a `list` (its test "a
+    /// A fix to stage 3b, found on Shelf's library as a `list` (its test "a
     /// swipe deletes" under the platform's chrome): a row is as wide as its
     /// list and an inset table's cell is narrower by the table's margin at
     /// each side, so what a row shows beside its cell was drawn and could
@@ -813,7 +814,12 @@ extension TableListMacTests {
         }
     }
 
+    /// Rows that leave the window are built anew, or rebound to new items
+    /// (LLP 1078): either way a row's separator is its own item's.
     func testWindowedSeparatorUsesItsAuthoredRowsLocalAppearanceAcrossRemounting() throws {
+        for reuse in [false, true] { try windowedSeparatorAppearance(reuse: reuse) }
+    }
+    private func windowedSeparatorAppearance(reuse: Bool) throws {
         let source = """
         component WindowedRowScheme
           state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -841,7 +847,8 @@ extension TableListMacTests {
                     text `Row ${r}`
 
         """
-        let f = try TableFixture(count: 0, source: source)
+        fixture?.close()
+        let f = try TableFixture(count: 0, source: source, reuse: reuse)
         fixture = f
         let first = try f.node("windowed-0")
         let firstRow = try XCTUnwrap(f.feed.rows.first { $0.root == first.id })
@@ -849,8 +856,9 @@ extension TableListMacTests {
         XCTAssertNotNil(firstRow.node.props["listItemKey"])
 
         f.scroll(to: 4_000)
-        XCTAssertNil(f.presenter.views[first.id], "the old authored row left the mounted window")
-        XCTAssertNil(f.presenter.views[firstRow.node.id], "the old wrapper left the mounted window")
+        XCTAssertFalse(f.presenter.views[first.id] === first && first.props["testId"] == "windowed-0", "the old authored row left the mounted window")
+        XCTAssertFalse(f.shows(firstRow.node, item: 0), "the old wrapper left the mounted window")
+        XCTAssertEqual(f.presenter.views[firstRow.node.id] == nil, !reuse, "destroyed, or rebound to another item")
         let portRows = f.table.rows(in: f.table.convert(f.clip.bounds, from: f.document))
         let mountedRow = try XCTUnwrap(f.feed.rows.first { NSLocationInRange($0.index, portRows) }, "a visible row is mounted after scrolling")
         let row = try XCTUnwrap(f.presenter.views[mountedRow.root])
@@ -902,7 +910,7 @@ extension TableListMacTests {
 
         f.scroll(to: 0)
         let returned = try f.node("windowed-0")
-        XCTAssertFalse(returned === first, "returning creates the current authored row again")
+        if !reuse { XCTAssertFalse(returned === first, "returning creates the current authored row again") }
         f.window.appearance = NSAppearance(named: .darkAqua)
         try press("windowed-light")
         var picture = try separatorPicture(f, name: "painted-windowed-returned-light")
@@ -945,8 +953,13 @@ extension TableListMacTests {
         try assertSeparator(f, picture, row: "edge-0", present: false, note: "reset removes the painted separator")
     }
 
+    /// Rows that leave the window are built anew, or rebound to new items (LLP 1078).
     func testWindowedSeparatorOwnershipSurvivesRemountingAndChromeChanges() throws {
-        let f = try TableFixture(count: 0, source: Self.separatorSource(windowed: true))
+        for reuse in [false, true] { try windowedSeparatorOwnership(reuse: reuse) }
+    }
+    private func windowedSeparatorOwnership(reuse: Bool) throws {
+        fixture?.close()
+        let f = try TableFixture(count: 0, source: Self.separatorSource(windowed: true), reuse: reuse)
         fixture = f
         let first = try f.node("edge-0"), own = try f.node("edge-1")
         let wrapped = try XCTUnwrap(f.feed.rows.first { $0.root == own.id })
@@ -954,9 +967,10 @@ extension TableListMacTests {
         XCTAssertNotNil(wrapped.node.props["listItemKey"])
         try checkInteriorSeparators(f, name: "windowed-start", last: false)
         f.scroll(to: 4_000)
-        XCTAssertNil(f.presenter.views[first.id], "the old first row left the mounted window")
+        XCTAssertFalse(f.presenter.views[first.id] === first && first.props["testId"] == "edge-0", "the old first row left the mounted window")
+        XCTAssertEqual(f.presenter.views[first.id] == nil, !reuse, "destroyed, or rebound to another item")
         f.scroll(to: 0)
-        XCTAssertFalse(try f.node("edge-0") === first)
+        if !reuse { XCTAssertFalse(try f.node("edge-0") === first) }
         XCTAssertTrue(try f.node("edge-1").wrote("border_style_bottom"))
         try checkInteriorSeparators(f, name: "windowed-return", last: false)
         let retained = try f.node("edge-1")

@@ -1,4 +1,4 @@
-//! CSS `font-variation-settings` (CSS Fonts 4 §7.2).
+//! CSS `font-variation-settings` (CSS Fonts 4 §7.2). @ref LLP 1019 D9.
 
 /// `normal`, or up to [`Self::MAX`] axes by four-letter tag, each set to a
 /// number in the axis's own units. A tag named twice keeps its last value,

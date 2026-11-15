@@ -1,5 +1,5 @@
-// Animated GIF and WebP under the agent's clock.
-// The browser plays an animated `<img>` on its own time, which no API
+// @ref LLP 1011.000 — animated GIF and WebP under the agent's clock (LLP
+// 1012). The browser plays an animated `<img>` on its own time, which no API
 // seeks, so in agent mode each one is held: Chrome's own decoder
 // (`ImageDecoder`) gives its frames, and the `<img>` shows the frame the
 // clock says, by Chrome's rules (cc's `ImageAnimationController`, Blink's

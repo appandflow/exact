@@ -1,4 +1,4 @@
-//! The base scale on the wasm web: a boot says the
+//! The base scale on the wasm web (LLP 1121 stage 11 B2): a boot says the
 //! neutral look (the role table's switch, which is the metrics' column too),
 //! and a base name reads the kernel's neutral column, as every other row of
 //! the look does. (The scale has no web column: `Column::Web` reads the
@@ -25,9 +25,9 @@ fn a_web_boot_reads_the_base_scale_in_the_neutral_column() {
     let batch = String::from_utf8_lossy(bridge.output_bytes(len as usize)).into_owned();
     assert_eq!(metrics::column(), metrics::Column::Neutral);
     let neutral = |n: &str| scale::css(scale::of(n, metrics::Column::Neutral).unwrap());
-    // The neutral column's, not iOS's: they differ here (4 and 5), so the
-    // batch tells them apart. (`Column::Web` reads the neutral cell too; the
-    // boot's switch is what this holds.)
+    // The neutral column's, not iOS's (which the old first look copied): they
+    // differ here (4 and 5), so the batch tells them apart. (`Column::Web`
+    // reads the neutral cell too, B1; the boot's switch is what this holds.)
     assert_ne!(
         neutral("space.xs"),
         scale::css(scale::of("space.xs", metrics::Column::Ios).unwrap())
@@ -48,17 +48,18 @@ fn a_web_boot_reads_the_base_scale_in_the_neutral_column() {
     );
 }
 
-/// A shadow token whose lengths are over base names reads
+/// Stage 12 B3: a shadow token whose lengths are over base names reads
 /// through the kernel (`theme::measure`) on the wasm web too, each length
 /// the neutral column's px, which the batch's `box-shadow` writes.
 #[test]
 fn a_web_boot_folds_a_shadow_over_base_names_in_the_neutral_column() {
+    exact_web::link(exact_web_capabilities::linked!(shadows));
     let dir = std::env::temp_dir().join(format!("exact-web-shadow-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
-        dir.join("app.tamber"),
-        "tamber t\n\ntheme\n  card.shadow: box-shadow = 0 space.md calc(space.sm * 2) #000\n",
+        dir.join("app.forma"),
+        "forma t\n\ntheme\n  card.shadow: box-shadow = 0 space.md calc(space.sm * 2) #000\n",
     )
     .unwrap();
     std::fs::write(

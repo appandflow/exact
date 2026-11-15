@@ -1,8 +1,8 @@
-//! `@exact/passkeys` under its declared substitute, the
+//! `@exact/passkeys` under its declared substitute (LLP 1133.011 §9), the
 //! package's own `exact.json`: a ceremony is data code's alone, admitted by
 //! its RP ID's grant, held under a `credential` ticket whose args a software
 //! authenticator signs over, one sheet at a time, its PRF output withheld,
-//! and a registration dropped before data code had it disposed of.
+//! and a registration dropped before data code had it disposed of (D11).
 
 use exact_runner::{
     Answer, CallOrigin, DataError, DataSource, Dispatch, HoldAnswer, Outcome, Reply, Request,
@@ -226,7 +226,7 @@ fn json_of(outcome: Outcome) -> Json {
     serde_json::from_slice(&body).unwrap()
 }
 
-/// Contract may not call a ceremony; the compiler says where to.
+/// D12: Contract may not call a ceremony; the compiler says where to.
 #[test]
 fn a_contract_call_of_a_ceremony_is_refused() {
     let source = "use create from \"@exact/passkeys\"\n\ncomponent App\n  view\n    column\n      text \"x\"\n";
@@ -239,7 +239,7 @@ fn a_contract_call_of_a_ceremony_is_refused() {
     assert!(errors.contains("app.ts"), "{errors}");
 }
 
-/// A ceremony holds a `credential` ticket naming what an authenticator
+/// §9: a ceremony holds a `credential` ticket naming what an authenticator
 /// signs over; a typed response answers it with its PRF output withheld.
 #[test]
 fn a_ceremony_is_a_ticket_and_its_answer_keeps_no_prf_output() {
@@ -288,7 +288,7 @@ fn a_ceremony_is_a_ticket_and_its_answer_keeps_no_prf_output() {
     assert!(!extensions.to_string().contains("cred-1"), "{extensions}");
 }
 
-/// The RP ID must be a granted line's target; natively an omitted one,
+/// D6: the RP ID must be a granted line's target; natively an omitted one,
 /// or `localhost`, has no association. Each fails before any ticket.
 #[test]
 fn an_rp_id_the_grants_do_not_name_fails_security_error_at_once() {
@@ -303,7 +303,7 @@ fn an_rp_id_the_grants_do_not_name_fails_security_error_at_once() {
     assert!(logs.contains("needs `auth.passkey evil.example`"), "{logs}");
 }
 
-/// A ceremony a tool's call starts fails `person-required`
+/// D8, drive 7: a ceremony a tool's call starts fails `person-required`
 /// with no ticket, whatever its grants allow.
 #[test]
 fn a_tool_s_ceremony_is_refused_person_required() {
@@ -326,7 +326,7 @@ fn a_tool_s_ceremony_is_refused_person_required() {
     );
 }
 
-/// A modal ceremony ends a held conditional one with `AbortError`; one
+/// D9: a modal ceremony ends a held conditional one with `AbortError`; one
 /// that arrives while a modal one is held waits, with no ticket, until it ends.
 #[test]
 fn one_sheet_at_a_time() {
@@ -358,7 +358,7 @@ fn one_sheet_at_a_time() {
     assert_eq!(json_of(behind.recv().unwrap())["error"], "NotAllowedError");
 }
 
-/// A registration answered after its mutation was superseded never
+/// D11: a registration answered after its mutation was superseded never
 /// reaches data code's server; the journal records its disposal.
 #[test]
 fn a_dropped_registration_is_disposed_of() {
@@ -384,7 +384,7 @@ fn a_dropped_registration_is_disposed_of() {
     assert!(data.0.lock().unwrap().is_empty(), "no data code read it");
 }
 
-/// A signal answers nothing, at once, and is listed without its arguments.
+/// §9: a signal answers nothing, at once, and is listed without its arguments.
 #[test]
 fn a_signal_is_recorded() {
     let (_app, mut r, _) = boot("signal");
@@ -408,7 +408,7 @@ fn a_signal_is_recorded() {
     assert!(!extensions.contains("cred-3"), "{extensions}");
 }
 
-/// A Mac build without a provisioning profile has no credential
+/// §9, D6: a Mac build without a provisioning profile has no credential
 /// manager an app can use: `available` reads false, and a ceremony fails
 /// `NotSupportedError` with no ticket.
 #[cfg(target_os = "macos")]

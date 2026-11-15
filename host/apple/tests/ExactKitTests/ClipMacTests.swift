@@ -4,7 +4,7 @@ import CoreImage
 import XCTest
 @testable import ExactKit
 
-/// What an AppKit node clips: `overflow: hidden` clips its
+/// What an AppKit node clips (LLP 1054 P2/P3): `overflow: hidden` clips its
 /// subviews to the rounded border box, as UIKit does, and a clamped
 /// paragraph clips its own drawing, as CSS's line-clamp implies overflow.
 /// And what the mouse finds there: visible overflow, and through a
@@ -40,7 +40,7 @@ final class ClipMacTests: XCTestCase {
 
     /// An ellipsized label (`overflow-x: hidden`, whose other axis CSS
     /// computes to `auto`) clips its own text and holds no scroll view: one
-    /// that did would take the clicks its button should hear.
+    /// took the clicks its button should hear (files diary F15).
     func testAnEllipsizedLabelClipsAndLeavesItsButtonTheClick() throws {
         _ = NSApplication.shared
         let p = Presenter()
@@ -65,20 +65,20 @@ final class ClipMacTests: XCTestCase {
     /// Visible overflow is hit where it paints, as CSS hit-tests it: a
     /// popup positioned beyond its parent's box takes the click (ledger
     /// F13), and a raised sibling's overflow is hit over the content after
-    /// it; a clipping parent's overflow is not hit.
+    /// it (shop F18); a clipping parent's overflow is not hit.
     func testVisibleOverflowIsHitWhereItPaints() throws {
         _ = NSApplication.shared
         let p = Presenter()
         p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view", "style": ["display": "flex"]],
-            // `z-index: 5` reaches a host as its paint rank, twice the index.
+            // `z-index: 5` reaches a host as its paint rank, twice the index (LLP 1083.000 D4).
             ["op": "create", "id": 2, "kind": "view", "style": [:]],
             ["op": "rank", "id": 2, "rank": 10],
             ["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "style": ["position_type": "absolute"]],
             ["op": "create", "id": 4, "kind": "view", "style": [:]],
             ["op": "children", "id": 2, "ids": [3]],
-            // The kernel sends paint rank separately from style.
+            // LLP 1083: the kernel sends paint rank separately from style.
             ["op": "rank", "id": 2, "rank": 10],
             ["op": "children", "id": 1, "ids": [2, 4]],
             ["op": "roots", "ids": [1]],
@@ -157,7 +157,7 @@ final class ClipMacTests: XCTestCase {
     }
 
     /// A native module's view inside a `pointer-events: none` box takes no
-    /// click: the button around it does, as on the web.
+    /// click: the button around it does (paint F9), as on the web.
     func testAPointerEventsNoneBoxsPlatformViewLetsTheClickThrough() throws {
         _ = NSApplication.shared
         let p = Presenter()
@@ -248,7 +248,7 @@ final class ClipMacTests: XCTestCase {
     }
 
     /// A backdrop is read inside its box and mirrored past it, as Chrome
-    /// reads it: the chain mirrors the frame, follows it and its
+    /// reads it (#129): the chain mirrors the frame, follows it and its
     /// scale, and a turned box reads past its edges.
     func testABackdropMirrorsItsBoxAndFollowsItsFrame() throws {
         let n = node("view", ["backdrop_filter": [["blur": 4]]])

@@ -7,7 +7,7 @@ import android.util.Log
 import android.view.View
 
 /**
- * An app's own Kotlin at its nodes: access hatches on Android. The app's
+ * An app's own Kotlin at its nodes: access hatches on Android (LLP 1075.003.000.001, LLP 1115.001.000 D4). The app's
  * Kotlin in `modules/android` defines one `class Hatches : ExactHatches()` in package `exact.app`; the reader makes it the
  * first time exact2 tells a moment, which is after first pixel, and calls it on the main thread. The scopes and
  * moments are the other hosts': [app] when the hatches connect and when a root `data-*` word changes, [element] when
@@ -40,7 +40,7 @@ abstract class ExactHatches {
     open fun elementEnded(element: ExactElement) {}
 
     /**
-     * A hatched date or time control's picker, about to open: set what it offers, or take it
+     * A hatched date or time control's picker, about to open (LLP 1115.001.000 D3): set what it offers, or take it
      * over ([ExactPicker.show]). Called on every press, with what the control holds then.
      */
     open fun picker(element: ExactElement, picker: ExactPicker) {}
@@ -93,8 +93,8 @@ class ExactElement internal constructor(val node: Int, private val reader: Hatch
     /** A declared `data-*` word's value (`data("tone")` for `data-tone`). */
     fun data(word: String): String? = words[word]
 
-    /** The node's platform view where it is one: a text field's `EditText` once the reader hosts it. Null for a painted
-     * node. exact2 keeps what it sets (its text, its look, its place); the app may add to it. */
+    /** The node's platform view where it is one: a text field's `EditText` once the reader hosts it (LLP 1115.001
+     * D8). Null for a painted node. exact2 keeps what it sets (its text, its look, its place); the app may add to it. */
     val view: View? get() = if (reader.current(this)) reader.view(node) else null
 
     /** Press the node, as a person would: run by exact2 between its turns. False when this handle's node has left. */
@@ -219,7 +219,7 @@ internal class HatchReader(activity: ExactActivity, private val hatches: ExactHa
                     else -> moment(w, i)
                 }
             } catch (e: Exception) {
-                // A throw in the app's hatch: that call is lost, the app goes on.
+                // A throw in the app's hatch: that call is lost, the app goes on (LLP 1075.003.000.001 D8).
                 Log.e(TAG, "hatch: $e")
             }
             i = next

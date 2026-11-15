@@ -4,7 +4,7 @@ import XCTest
 import ExactCore
 @testable import ExactKit
 
-/// On UIKit, a textarea's decorations paint over its TextKit 2
+/// LLP 1114.007 on UIKit: a textarea's decorations paint over its TextKit 2
 /// layout, never in its storage; `rangeFrame` reads the field's own layout.
 ///   bun host/apple/build.mjs --test --ios
 final class FieldDecorationsIOSTests: XCTestCase {
@@ -56,12 +56,12 @@ final class FieldDecorationsIOSTests: XCTestCase {
         field.unmarkText()
     }
 
-    /// A range's box is its text's (the font's content area at the baseline
-    /// TextKit lays the line on), not the line's, which a tall line height
-    /// grows: the grammar's, as Chrome and Linux answer. The baseline is
-    /// read here from the layout fragment's line, apart from the reader's
-    /// segment, on a hard line and on a soft-wrapped one; an empty last
-    /// line's caret is its own line's.
+    /// A range's box is its text's (the font's content area at the
+    /// baseline TextKit lays the line on), not the line's, which a tall
+    /// line height grows: the grammar's, as Chrome and Linux answer
+    /// (theme2's 22:27 ruling). The baseline is read here from the layout
+    /// fragment's line, apart from the reader's segment, on a hard line and
+    /// on a soft-wrapped one; an empty last line's caret is its own line's.
     func testRangeFrameIsTheTextsBoxUnderATallLine() throws {
         let value = "abc def\nghi and a line long enough to wrap in the field at least once\n"
         let (p, _, field) = try presenter(value, spans: [])

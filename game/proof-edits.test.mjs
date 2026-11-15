@@ -117,7 +117,7 @@ test('host session evidence refuses pins when no edited world was observed', () 
 
 // Builds a generated game, then drives the host ABI and Contract lifecycle. E10
 // keeps these native/browser builds separate from the recorder's unit tests.
-test('real admission survives canvas removal and remount inside one clock operation', async () => {
+test('E10 real admission survives canvas removal and remount inside one clock operation', async () => {
   const {createGame} = await import('./new.mjs');
   const {mkdirSync, readFileSync, existsSync} = await import('node:fs');
   const {resolve} = await import('node:path');

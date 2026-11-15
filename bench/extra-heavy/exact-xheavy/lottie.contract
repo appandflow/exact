@@ -1,6 +1,6 @@
 // The motion row's third tile (SPEC 13). The other stacks play `anim/motion-0N.json` in
-// lottie-ios; exact2 refuses Lottie (and Rive),
-// so the Bodymovin file is ported by hand to inline SVG and CSS `@keyframes`
+// lottie-ios; exact2 refuses Lottie (rules/DEFERRED.md: "No `lottie`, `rive`, …", upheld by
+// Charlie 2026-09-27), so the Bodymovin file is ported by hand to inline SVG and CSS `@keyframes`
 // (a declared difference, SPEC Decisions). Each file is the same three shape layers on a
 // 240 × 240 stage, 60 fps, 120 frames (a 2 s loop), top layer first in Lottie and last here:
 //

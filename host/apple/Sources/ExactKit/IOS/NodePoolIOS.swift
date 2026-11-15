@@ -1,5 +1,5 @@
 // A virtualized list's retired rows lend their views to the rows it builds
-// next (the host side of reuse). The runner never reuses a view id
+// next (LLP 1050.000's reuse, host side). The runner never reuses a view id
 // (`runner/src/instance/collection/api.rs`): a row it retires is destroyed
 // and the next is created under new ids. Building a row's views costs most
 // of a row in UIKit — making each view and moving it into the window, where
@@ -20,37 +20,37 @@
 // - geometry and presentation: frame, transform, translate/scale/rotate,
 //   opacity, hidden; `content`; the create's frame and present ops set them;
 // - paint: the text raster, paragraph and inline runs (the new row's
-//   `paragraph` op sets its own), layout caches, the live-region text, the
-//   layer's bitmap; a raster image, its sublayer and its load (the
-//   generation moves, so no completion lands); the symbol's key (its size is
-//   reported again for the new id), keeping the glyph view unless the new
-//   node shows no symbol;
+//   `paragraph` op sets its own), column fragments and rules, layout caches,
+//   the live-region text and layer bitmap; raster images, their sublayers
+//   and loads (the generation moves, so no completion lands); the symbol's
+//   key (its size is reported again for the new id), keeping the glyph view
+//   unless the new node shows no symbol;
 // - input and accessibility: interaction enabled, the element, traits,
 //   label, value, hint, identifier, hidden-elements, all set again by props;
 // - motion: an `svg`'s scene layers and every Core Animation spec the view
 //   ran (`SvgHost.forget`, on release), so no animation of the old row
-//   plays on the new one (the new row's scene op starts its
+//   plays on the new one (LLP 1055 D8; the new row's scene op starts its
 //   own). SVG elements are not views: an `svg` parks as one leaf.
-// - identity: the view's `incarnation`, zeroed when it
+// - identity (LLP 1068 §4.9): the view's `incarnation`, zeroed when it
 //   parks, before the reset, and a never-used one issued at the take, in
 //   the batch that installs its props and handlers; an asynchronous
 //   callback captures it and is dropped when it changed.
-// Heavy leaves: a video, web view, native-module view,
+// Heavy leaves (LLP 1068 §4.0): a video, web view, native-module view,
 // canvas, input or text area with no node children is a hole in its row's
 // shape. The row's other views park; the leaf is destroyed as any destroy
 // goes, before they park, and the next row's leaf is built fresh by its
 // create op. A material's effect view is dropped at park and made again
-// from the next row's props. Nothing heavy is reused. A native
+// from the next row's props (§4.1). Nothing heavy is reused. A native
 // button is a control but not heavy: at rest it parks with its `UIButton`,
 // which the next row's sync takes back and configures only where its face
 // differs (`ControlHost.parks`).
 // What makes a view ineligible instead of reset: a kind other than plain
 // boxes, text, images, buttons, `svg`s, waiting scrolls and heavy leaves; a
-// live UIScrollView other than an inner list or carousel at rest (a
-// `list` or `scroll` in the row); a platform subview other than the node's glyph, its
+// live UIScrollView other than an inner list or carousel at rest (LLP 1068
+// §4.2.1, a `list` or `scroll` in the row); a platform subview other than the node's glyph, its
 // material or its clip box; a placement; gesture recognizers or
 // interactions (menus, reorder handles, drags) other than a context menu's
-// at rest (`contextual`); a press, drag or swipe in
+// at rest (LLP 1021 §5.1, `contextual`); a press, drag or swipe in
 // progress, or a projected swipe row; focus, a focus ring, editing, a
 // pending focus — on a heavy leaf too; flow shapes, a context transform, a
 // pending scroll; a view kept by a modal's retiring root; a subtree node
@@ -64,7 +64,7 @@ final class NodePool {
     unowned let presenter: Presenter
     init(_ presenter: Presenter) {
         self.presenter = presenter
-        // Memory pressure takes every parked tree.
+        // Memory pressure takes every parked tree (LLP 1068 §6).
         memory = NotificationCenter.default.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main) { [weak self] _ in
             self?.reset()
         }
@@ -76,8 +76,8 @@ final class NodePool {
     /// hole (nil) for each heavy leaf, the sources its images showed (a tree
     /// showing the new row's symbols again sets no image: UIKit resolves
     /// each one it is given), and when it parked.
-    /// `list`: an inner list's card, parked under that list's view, counted
-    /// apart from the rows.
+    /// `list`: an inner list's card, parked under that list's view (LLP 1068
+    /// §4.2.1), counted apart from the rows.
     private struct Tree { let views: [NodeView?]; let images: String; let parked: UInt64; var list: ObjectIdentifier? = nil }
     private var parked: [String: [Tree]] = [:]
     private var roots = Set<ObjectIdentifier>()
@@ -87,18 +87,18 @@ final class NodePool {
     /// dragged scroll indicator passes a port of rows and its lead in a
     /// frame, about 20 of a chat's bubbles (8 evicted most of them).
     static let perShape = 32, capacity = 64
-    /// Cards parked under inner lists: per list and in all.
+    /// Cards parked under inner lists (LLP 1068 §4.2.1): per list and in all.
     static let perList = 12, innerCapacity = 96
     private(set) var innerCount = 0
     static let kinds: Set<String> = ["view", "text", "image", "button", "scroll", "svg"]
-    /// Kinds whose live scroll view parks as an inner list.
+    /// Kinds whose live scroll view parks as an inner list (LLP 1068 §4.2.1).
     static let scrollers: Set<String> = ["list", "scroll"]
-    /// Kinds whose platform view is heavy: a row pools around them.
-    /// A 2D canvas (`canvas2d`) is one, its bitmap not pooled: its view
-    /// and replayer go with the row's node, and the next
+    /// Kinds whose platform view is heavy: a row pools around them (LLP 1068 §4.0).
+    /// A 2D canvas (`canvas2d`, LLP 1056 D10) is one until stage 3 pools its
+    /// bitmap: its view and replayer go with the row's node, and the next
     /// row's canvas is a new view drawn by its own lifetime's lists. A
-    /// control (a switch, a checkbox, a select, a slider, a date) is one
-    /// too: its node and its `UIControl` go as an
+    /// control (a switch, a checkbox, a select, a slider, a date, LLP
+    /// 1069.011.000 D8) is one too: its node and its `UIControl` go as an
     /// unpooled control goes, and the next row's is built fresh, so no
     /// value, touch or callback crosses rows. A native button at rest holds
     /// none of those and parks with its `UIButton` (`button`).
@@ -106,12 +106,12 @@ final class NodePool {
     /// A native button's shape: a control that parks with its `UIButton`
     /// (`ControlHost.parks`), not a hole.
     static let button = "button*"
-    /// What `state` reports: parks, takes, evictions, and the
+    /// What `state` reports (LLP 1068 §6): parks, takes, evictions, and the
     /// heavy leaves destroyed at a park and built at a take, by kind.
     private(set) var parks = 0, takes = 0, evictions = 0
     private(set) var leavesDropped: [String: Int] = [:], leavesBuilt: [String: Int] = [:]
 
-    /// The last incarnation issued; zero is never issued.
+    /// The last incarnation issued (LLP 1068 §4.9); zero is never issued.
     private static var issued: UInt64 = 0
     static func issue() -> UInt64 { issued += 1; return issued }
 
@@ -214,7 +214,7 @@ final class NodePool {
     private func shape(_ view: NodeView, _ views: inout [NodeView?], _ leaves: inout [NodeView],
                        _ lists: inout [NodeView]) -> String? {
         // An inner list at rest parks with its row; its content is not part
-        // of the row's shape.
+        // of the row's shape (LLP 1068 §4.2.1).
         if Self.scrollers.contains(view.kind), view.scroll != nil, !view.swipeOwner {
             guard !lists.isEmpty || !views.isEmpty, atRest(view) else { return nil }
             views.append(view); lists.append(view)
@@ -238,7 +238,7 @@ final class NodePool {
     }
     /// An inner list that nothing moves: not under the reader's hand,
     /// decelerating or animating, not being corrected, no refresh running,
-    /// unzoomed, no authored scroll pending.
+    /// unzoomed, no authored scroll pending (LLP 1068 §4.2.1).
     private func atRest(_ list: NodeView) -> Bool {
         guard let sv = list.scroll else { return false }
         #if os(tvOS)
@@ -273,7 +273,7 @@ final class NodePool {
         return park(root, under: nil)
     }
     /// Park `root`'s tree: a collection's row (`under` nil), or an inner
-    /// list's card. False, and nothing touched, when any of
+    /// list's card (LLP 1068 §4.2.1). False, and nothing touched, when any of
     /// it is ineligible.
     private func park(_ root: NodeView, under list: NodeView?) -> Bool {
         var views: [NodeView?] = [], leaves: [NodeView] = [], lists: [NodeView] = []
@@ -349,9 +349,9 @@ final class NodePool {
             && v.interactions.allSatisfy({ contextual($0, of: v) })
             && v.flowShapes.isEmpty && v.contextTransform.isIdentity
             && v.pendingScrollLeft == nil && v.pendingScrollTop == nil
-            // A hatched node's view is the app's to keep,
-            // unless its hatch undoes what it adds (`reusable`); the checks
-            // above still refuse a view
+            // A hatched node's view is the app's to keep (LLP 1075.003.000),
+            // unless its hatch undoes what it adds (`reusable`, LLP
+            // 1075.003.000.000 §8); the checks above still refuse a view
             // with interactions or gestures left on it. Its props and the mark
             // stay until it is forgotten, after its own destroy op.
             && unhatched(v)
@@ -370,11 +370,11 @@ final class NodePool {
     }
     /// Not a hatched node, or one whose hatch undoes what it adds: a hatched
     /// heavy leaf is destroyed as any is, but its row stays out of the pool
-    /// as the journal says.
+    /// as the journal says (LLP 1075.003.000 §3.3).
     private func unhatched(_ v: NodeView) -> Bool { v.props["hatch"] == nil || v.hatchReusable }
     /// Not placed, focused, editing or about to be: a leaf so held keeps
     /// its row out of the pool, destroyed as before.
-    /// A context menu's own: the node's long-press
+    /// A context menu's own (LLP 1021 §5.1): the node's long-press
     /// recognizer at rest, and its menu's interaction while no menu shows
     /// from it. They follow the node's handlers and props, so the next row's
     /// create ops and the menu host's sync set them again (`park` takes the
@@ -411,8 +411,8 @@ final class NodePool {
         var image: [UInt32: String] = [:], scrolls = Set<UInt32>(), buttons = Set<UInt32>()
         var flat = Set<UInt32>()
         for op in batch.ops where op.op == .create {
-            // A flat leaf is a layer, not a view: no part of a row's shape,
-            // as a parked row's subviews do not hold it.
+            // A flat leaf is a layer, not a view: no part of a row's shape
+            // (LLP 1068 §6.1), as a parked row's subviews do not hold it.
             if presenter.flats.batchFlat.contains(op.id) { flat.insert(op.id); continue }
             kind[op.id] = op.kind
             if op.kind == "image" { image[op.id] = op.props["imageSource"] ?? "" }
@@ -432,7 +432,7 @@ final class NodePool {
         return created
     }
     /// The collection list a node this batch creates will be a row of, and
-    /// its row's root (the heavy-leaf hold asks which list a new leaf is in).
+    /// its row's root (LLP 1068 §5.1 asks which list a new leaf is in).
     func list(creating id: UInt32) -> NodeView? {
         guard depth >= 1, let c = createdNodes() else { return nil }
         var root = id
@@ -459,7 +459,7 @@ final class NodePool {
             c.kind[node] == "list" && presenter.collections.owns(node) || c.scrolls.contains(node) && list(creating: node) != nil
         }
         var root = id
-        // An inner list's cards claim their own trees.
+        // An inner list's cards claim their own trees (LLP 1068 §4.2.1).
         while let up = c.parent[root], c.kind[up] != nil, !inner(up) { root = up }
         guard tried.insert(root).inserted, let up = c.parent[root], let list = presenter.views[up],
               list.kind == "list" && presenter.collections.owns(list.id) || inner(up),
@@ -504,7 +504,7 @@ final class NodePool {
     }
     private func rebound(_ view: NodeView, _ id: UInt32) -> NodeView { view.rebind(id); return view }
 
-    /// What `layout agree` checks: each parked tree's root,
+    /// What `layout agree` checks (LLP 1080.001 D2): each parked tree's root,
     /// which must stay hidden, and every view of every parked tree.
     var inspection: (roots: [NodeView], members: Set<ObjectIdentifier>) {
         var roots: [NodeView] = [], members = Set<ObjectIdentifier>()
@@ -515,7 +515,7 @@ final class NodePool {
         return (roots, members)
     }
 
-    /// `state`'s pool section: what is parked, by shape
+    /// `state`'s pool section (LLP 1068 §6): what is parked, by shape
     /// count and in total, and the counters since launch.
     var observation: [String: Any] {
         ["parked": count, "shapes": parked.count, "capacity": Self.capacity, "perShape": Self.perShape,
@@ -528,6 +528,7 @@ extension NodeView {
     /// Parked (`NodePool`): what `forget` drops, except the view's presenter
     /// and its empty text hierarchy or symbol glyph view, which the next row reuses.
     func recycle() {
+        trackClipboardHandlers(false)
         holdGone() // a held state goes with its node, parked under its row (HeldState.swift)
         cancelPressContact()
         pressContact = nil
@@ -536,6 +537,10 @@ extension NodeView {
         cancelSurfaceControls()
         invalidateText()
         cachedTextLayout = nil
+        if columnRecord != nil {
+            columnRecord = nil
+            layoutColumnRules()
+        }
         parkTextRaster()
         liveText = nil
         loadGeneration += 1
@@ -550,19 +555,20 @@ extension NodeView {
         // The next node's hatch decides again.
         hatchReusable = false
         content = .zero
+        fitContentHeight = nil
         // The next node's layout sends its own content box, if any
         kernelContentBox = nil; kernelPadding = nil
         needsCapture = false; paintedThisTurn = false
         // A parked view keeps no bitmap: its create ops paint it again.
         if layer.contents != nil { layer.contents = nil }
-        // Its material goes, its children back in the node:
+        // Its material goes, its children back in the node (LLP 1068 §4.1):
         // the next row's props make a new one.
         if materialView != nil { props["backgroundMaterial"] = nil; props["defaultSurface"] = nil; updateMaterial() }
         // `glassGroupAuto` with it: a row recycled onto a numeric group must
-        // not report the old one's `auto`.
+        // not report the old one's `auto` (LLP 1053.000.000.000).
         if glassGroupView != nil { props["glassGroup"] = nil; props["glassGroupAuto"] = nil; syncGlassGroup() }
     }
-    /// An inner list parked with its row: back to a new
+    /// An inner list parked with its row (LLP 1068 §4.2.1): back to a new
     /// list's scroll, with its delegate detached while it resets.
     func recycleScroll() {
         guard let sv = scroll else { return }
@@ -581,7 +587,7 @@ extension NodeView {
         }
     }
     /// Taken for `newID`: a fresh view's state, before its create ops, and
-    /// a never-used incarnation. The create ops that install
+    /// a never-used incarnation (LLP 1068 §4.9). The create ops that install
     /// its props and handlers run in this batch, before any callback can.
     func rebind(_ newID: UInt32) {
         cancelPressContact()
@@ -593,7 +599,7 @@ extension NodeView {
         if presenter?.pressHandoff?.control === self { presenter?.pressHandoff = nil } // another node's view now
         // UIKit's setters are not free, even to the same value.
         if isHidden { isHidden = false }
-        if alpha != 1 { alpha = 1 }
+        if alpha != 1 || boxFilter != nil { presentOpacity(1) }
         translatePx = .zero; translatePercent = .zero; layoutOffset = .zero; layoutResize = .zero; endSurface(); scale = 1; rotate = 0; stopPressEase(); press = PressFeedback(); dropPressPaint()
         if !transform.isIdentity { transform = .identity }
         if !isUserInteractionEnabled { isUserInteractionEnabled = true }
@@ -607,7 +613,7 @@ extension NodeView {
         if accessibilityHint != nil { accessibilityHint = nil }
         if accessibilityViewIsModal { accessibilityViewIsModal = false }
         props = [:]
-        // The presenter's indexes for the new id: each is
+        // The presenter's indexes for the new id (LLP 1068 §4.0): each is
         // filled by a property observer a rebind does not fire.
         if scroll != nil { presenter?.scrollers.insert(newID) }
         if materialView != nil { presenter?.materialNodes.insert(newID) }

@@ -1,4 +1,4 @@
-// The emulator half of android.mjs: the fixture under the agent with the implementation
+// The emulator half of android.mjs (LLP 1133.030 §14 stage 2): the fixture under the agent with the implementation
 // bound, on the wall clock. The system's own screens (the notification dialog, the notification shade's Stop and
 // Repeat) are pressed through `uiautomator`; the exact-alarm switch is set with `appops`, as its Settings page does.
 import { resolve } from 'node:path';

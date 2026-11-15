@@ -9,11 +9,40 @@ use crate::NodeType;
 use taffy::prelude::length;
 
 impl Kernel {
+    pub(crate) fn replace_bar_symbols(&mut self, mut wanted: Vec<(u32, f32)>) {
+        wanted.sort_by_key(|(slot, _)| *slot);
+        if wanted == self.arena.bar_symbols {
+            return;
+        }
+        let old = std::mem::replace(&mut self.arena.bar_symbols, wanted);
+        let mut changed: Vec<_> = old
+            .iter()
+            .chain(&self.arena.bar_symbols)
+            .filter(|(slot, _)| {
+                old.iter().find(|(s, _)| s == slot).map(|(_, n)| n)
+                    != self
+                        .arena
+                        .bar_symbols
+                        .iter()
+                        .find(|(s, _)| s == slot)
+                        .map(|(_, n)| n)
+            })
+            .map(|(slot, _)| *slot)
+            .collect();
+        changed.sort_unstable();
+        changed.dedup();
+        for slot in changed {
+            if self.arena.is_live(slot) {
+                self.intrinsic_changed(slot);
+            }
+        }
+    }
+
     /// Host intrinsic size (`None` to forget it). Replaced elements keep
     /// their natural ratio; a projected tablist or radio group (a segmented
-    /// control) uses the height as its automatic
-    /// minimum; a form control takes it as its size, with no ratio,
-    /// as does a native module. Other nodes and nonpositive/nonfinite sizes are refused.
+    /// control, LLP 1116.004 D5.2) uses the height as its automatic
+    /// minimum (LLP 1059); a form control takes it as its size, with no ratio
+    /// (LLP 1069.001 D3), as does a native module (LLP 1024 D4). Other nodes and nonpositive/nonfinite sizes are refused.
     pub fn set_intrinsic_size(
         &mut self,
         view: ViewId,
@@ -176,7 +205,7 @@ impl Kernel {
 
     /// An image in a paragraph's text took a new natural size, or a size
     /// the environment resolves: its box is the paragraph's measurement
-    ///.
+    /// (LLP 1011.002).
     pub(super) fn inline_image_resized(&mut self, slot: u32) {
         if !self.arena.is_inline_image(slot) {
             return;
@@ -214,7 +243,7 @@ impl Kernel {
     /// and its ratio. A host's report does not replace a measured size while
     /// those inputs stand. A symbol the measurer cannot size has the size its
     /// host reports. With `laid_out_only`, a symbol in a box covered whole
-    /// (`display: none`: a closed popover or dialog) stays owed
+    /// (`display: none`: a closed popover or dialog, LLP 1021 §5) stays owed
     /// until a layout places it, so one a UIKit menu shows is never measured.
     pub(crate) fn measure_symbols(&mut self, laid_out_only: bool) {
         // Ask about every symbol again, one the measurer declined too, under a new measurer or new traits (a content size, a scale)
@@ -283,15 +312,15 @@ fn covered_whole(arena: &NodeArena, slot: u32) -> bool {
 /// tablist's box, a segmented control its content box. Its measured height
 /// supplies the automatic minimum, so even a short authored row reserves the
 /// control. Its width is the narrowest the control can be, the automatic
-/// minimum width in place of the hidden tabs' own: UIKit's
+/// minimum width in place of the hidden tabs' own (LLP 1116.004 D2): UIKit's
 /// fits its segments to any box, so a grouped row's tablist shrinks to the
 /// row; AppKit's keeps its natural width. An explicit CSS min-height or
 /// min-width still owns that constraint; no natural ratio or preferred width
 /// is inferred from this container measurement. A radio group is never a
-/// tab bar but always the segmented control, whose height
+/// tab bar but always the segmented control (LLP 1116.004 D5.2), whose height
 /// is its own: its automatic height is the measured one, so the hidden
 /// radios, whose text follows Dynamic Type where the control's does not, no
-/// longer make it taller.
+/// longer make it taller (LLP 1116.019 D1).
 pub(crate) fn apply_projection(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     if arena.node_type(slot).is_replaced()
         || matches!(

@@ -1,6 +1,6 @@
-// @exact/translation's conformance suite on the web: the vision and
-// translation fixture app built for the web and driven in each engine
-// with the implementation bound.
+// @exact/translation's conformance suite on the web (LLP 1133.027 §12 stages
+// 0 and 3): the vision and translation fixture app built for the web and
+// driven in each engine with the implementation bound.
 //
 // No engine here translates headless: Playwright's Chromium has
 // `Translator`, whose `availability()` never answers without Chrome's
@@ -9,13 +9,13 @@
 // `not-supported` and a create fails `NotSupportedError`, and then with a
 // stand-in `Translator` and `LanguageDetector` (below) written to the
 // specification's interface (https://webmachinelearning.github.io/translation-api/),
-// which holds the implementation to it: availability by pair, a create
+// which holds the implementation to it (D16): availability by pair, a create
 // inside the press with its download's progress, translate, detect and
 // destroy. It proves nothing of a browser's own models: that is a person in
 // Chrome (`test/checklist.md`).
 //
-// `agent.mjs` drives the fixture under the agent, on the web and Apple (the
-// agent script: drives 7 and 8's module half).
+// `agent.mjs` drives the fixture under the agent, on the web and Apple (§9's
+// script: drives 7 and 8's module half).
 //
 // usage: bun packages/translation/test/web.mjs [chromium] [firefox] [webkit]
 //   (every engine by default; `bunx playwright@1.64.1 install firefox webkit` first)
@@ -65,7 +65,7 @@ for (const engine of engines) {
       } else {
         // An engine with the API answers its own state; no create is pressed, since one would start a download.
         const a = await until(page, 'pair', t => /^(unavailable|downloadable|downloading|available) /.test(t), 5000);
-        console.log(`NOTE ${engine} has Translator; ja to en reads ${JSON.stringify(a)} (Chromium headless never answers `availability()` without the model component; the page shows the reader's empty value meanwhile)`);
+        console.log(`NOTE ${engine} has Translator; ja to en reads ${JSON.stringify(a)} (Chromium headless never answers availability() without the model component; the page shows the reader's empty value meanwhile)`);
       }
       check(engine, 'no page errors', !errors.length, errors.join('; '));
       await context.close();

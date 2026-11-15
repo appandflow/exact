@@ -1,4 +1,4 @@
-//! Clock timelines: animations on one share a phase, a lone
+//! Clock timelines (LLP 1055.002): animations on one share a phase, a lone
 //! one starts at its first keyframe, a late joiner's start is cut short and
 //! never its end, and a resume rejoins.
 
@@ -285,7 +285,7 @@ fn removing_a_node_forgets_its_clock() {
 
 /// A resume from where an animation was held shows what the hold showed, so
 /// it presents nothing (a list row's waiting animation starting as the row
-/// shows is not a reason to paint the row again); the frames
+/// shows is not a reason to paint the row again, LLP 1055 D13); the frames
 /// after it move.
 #[test]
 fn a_resume_from_its_held_time_presents_nothing_until_time_passes() {

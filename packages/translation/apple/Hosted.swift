@@ -1,8 +1,8 @@
-// A translator's hosted view: before iOS and macOS 26 a
+// A translator's hosted view (LLP 1133.027 D9): before iOS and macOS 26 a
 // `TranslationSession` exists only inside SwiftUI's `translationTask`, and on
 // every version a download's sheet comes from one. Each translator that needs
 // a session hosts a zero-size view carrying the task with its fixed
-// configuration, under the session's own view: on iOS a
+// configuration, under the session's own view (D17 item 3): on iOS a
 // `UIHostingController` made a child of the window's root view controller,
 // so it gets the appearance calls that start the task; on macOS an
 // `NSHostingView`, which runs its tasks once it is in a window. Inside the

@@ -1,6 +1,7 @@
 //! The motion evaluator.
 //!
-//! One representation, two executors.
+//! @ref LLP 1002 (motion v1 — one representation, two executors)
+//! @ref LLP 1003 (motion v1 — what this crate is, as built)
 //!
 //! Motion is CSS's `transition` model. A property's **target** is its style
 //! value in the kernel; a `transition` row on the node says how the property
@@ -20,13 +21,16 @@
 //! - [`transition`] — the declaration, and CSS's rules for starting,
 //!   interrupting, and reversing a transition.
 //! - [`path`] — a path's `d` as a value, and when two interpolate.
-//! - [`color`] — CSS colours as premultiplied values.
-//! - [`animation`] — CSS `@keyframes` and `animation`, sampled in closed form.
+//! - [`color`] — CSS colours as premultiplied values (LLP 1055.000 D6).
+//! - [`animation`] — CSS `@keyframes` and `animation`, sampled in closed form
+//!   (LLP 1055 D5).
 //! - [`engine`] — per-node presentation state under a seekable clock.
 //! - [`uikit`] — UIKit's spring parameterisations, resolved to the springs
-//!   UIKit builds.
+//!   UIKit builds (LLP 1099).
 //! - [`velocity`] — a pointer-velocity estimate for hosts without one.
 //! - [`math`] — pinned transcendentals, so the same input yields the same bits.
+//! - [`word`] — the words of a `transition` or `animation` value, read in any
+//!   ASCII case where CSS reads them so.
 //!
 //! Time is a number the host supplies. Every value is a closed-form function
 //! of that number, so advancing the clock to `t` in one step or in sixty gives
@@ -48,6 +52,7 @@ pub mod spring;
 pub mod transition;
 pub mod uikit;
 pub mod velocity;
+pub mod word;
 
 pub use animation::link as link_animations;
 pub use animation::{

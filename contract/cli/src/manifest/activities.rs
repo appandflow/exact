@@ -1,4 +1,5 @@
 //! Activity entries share the app's cohort, never a generated Swift state type.
+//! @ref LLP 1126.001 WP8, LLP 1126 D9.
 use super::Manifest;
 use serde_json::Value;
 use std::collections::HashSet;

@@ -25,7 +25,7 @@ const SHAFT_FREQUENCY: f64 = 3.;
 
 /// Which of the water's effects the renderer may draw: both by default.
 /// Clearing one turns it off at present time and leaves the saved `Water`
-/// as it is (the lowest quality rung).
+/// as it is (LLP 1139.003's lowest rung).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WaterEffects {
     /// Caustics on lit surfaces under the water.

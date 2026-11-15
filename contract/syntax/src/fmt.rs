@@ -1,4 +1,4 @@
-//! Source-preserving formatting.
+//! Source-preserving formatting. @ref LLP 1035.005 D1.
 //!
 //! The parser identifies safe attribute/argument breaks. The lexer's exact
 //! ranges preserve literal spelling and comments;
@@ -42,7 +42,7 @@ pub fn format(src: &str) -> Result<String, SyntaxError> {
         });
     }
     // Nor may a break change what a line means: a moved line that does not
-    // begin `name=` would become a child. The tree, spans
+    // begin `name=` would become a child (habits F5). The tree, spans
     // aside, must be the one that was read.
     let (formatted_file, _) = parse_tokens(after)?;
     if erase_spans(file) != erase_spans(formatted_file) {
@@ -126,6 +126,14 @@ fn text<'a>(t: &Token, lines: &[&'a str]) -> &'a str {
     &lines[t.span.line as usize - 1][t.span.col as usize - 1..t.span.end_col as usize - 1]
 }
 
+fn line_content(line: usize, raw: &str) -> &str {
+    if line == 0 {
+        raw.strip_prefix('\u{feff}').unwrap_or(raw)
+    } else {
+        raw
+    }
+}
+
 struct Layout<'a> {
     tokens: &'a [Token],
     lines: &'a [&'a str],
@@ -137,7 +145,7 @@ struct Layout<'a> {
     /// A token that stays against the one before it: a keyframe selector's
     /// `%` (`50%`), a test's viewport height (`1200x800`).
     attached: BTreeSet<Span>,
-    /// A conditional's `:`, spaced as its `?` is: `a ? b : c`.
+    /// A conditional's `:`, spaced as its `?` is: `a ? b : c` (habits F5).
     ternary_colons: BTreeSet<Span>,
     /// An element's tag, which keeps its space before a positional expression:
     /// `text (n > 0 ? a : b)`, not a call `text(…)`.
@@ -173,7 +181,8 @@ impl<'a> Layout<'a> {
                             .count();
                         levels[line] = depth;
                         indents[line] = depth + brackets.saturating_sub(leading_closes);
-                        let width = lines[line].len() - lines[line].trim_start().len();
+                        let content = line_content(line, lines[line]);
+                        let width = content.len() - content.trim_start().len();
                         widths.entry(width).or_default().push((line, indents[line]));
                     }
                     by_line[line].push(i);
@@ -189,8 +198,9 @@ impl<'a> Layout<'a> {
         // Comments do not participate in indentation grammar. Keep them at
         // the level of the nearest code line with their original indentation.
         for (line, raw) in lines.iter().enumerate() {
-            if by_line[line].is_empty() && !raw.trim().is_empty() {
-                let width = raw.len() - raw.trim_start().len();
+            let content = line_content(line, raw);
+            if by_line[line].is_empty() && !content.trim().is_empty() {
+                let width = content.len() - content.trim_start().len();
                 indents[line] = width / 2;
                 if let Some(nearby) = widths.get(&width) {
                     let at = nearby.partition_point(|(l, _)| *l < line);
@@ -260,6 +270,12 @@ impl<'a> Layout<'a> {
                 self.ty(ty);
             }
         }
+        for source in &file.sources {
+            self.ty(&source.shape);
+            for ty in source.params.iter().filter_map(|p| p.ty.as_ref()) {
+                self.ty(ty);
+            }
+        }
         for style in file
             .styles
             .iter()
@@ -290,7 +306,7 @@ impl<'a> Layout<'a> {
             }
         }
         // A test step's numbers are signed literals, not arithmetic:
-        // `drag 10 -4`, and `size 1200x800` is one word.
+        // `drag 10 -4` (habits F5's sweep), and `size 1200x800` is one word.
         for step in file
             .launch
             .iter()
@@ -317,11 +333,25 @@ impl<'a> Layout<'a> {
                 {
                     self.attached.insert(next.span);
                 }
+                // The MIDI parser joins touching tokens into one hex byte (`3c`).
+                if matches!(
+                    step,
+                    crate::Step::Midi {
+                        step: crate::MidiStep::Tap { .. } | crate::MidiStep::Expect { .. },
+                        ..
+                    }
+                ) && t.span.line == next.span.line
+                    && t.span.end_col == next.span.col
+                    && matches!(t.kind, TokenKind::Number(_) | TokenKind::Ident(_))
+                    && matches!(next.kind, TokenKind::Number(_) | TokenKind::Ident(_))
+                {
+                    self.attached.insert(next.span);
+                }
             }
         }
         for component in file.components.iter().chain(&file.members) {
             // A part's name, lifted from its node by the parser, keeps its
-            // `=` tight as any attribute's.
+            // `=` tight as any attribute's (LLP 1139 D2).
             self.attributes
                 .extend(component.anatomy.marks.iter().map(|m| m.span));
             for ty in component
@@ -333,27 +363,48 @@ impl<'a> Layout<'a> {
             {
                 self.ty(ty);
             }
+            for state in &component.states {
+                if let crate::Expr::Typed(_, ty, _) = &state.expr {
+                    self.ty(ty);
+                }
+            }
             for resource in &component.resources {
                 self.ty(&resource.shape);
-                // A list's `key=`, tight as a `for` row's: the first `key`
-                // and `=` after its `for`.
-                let each = resource.each.as_ref().filter(|e| e.key.is_some());
-                if let Some(at) = each.and_then(|e| self.position(e.span)) {
-                    let word = (at..self.tokens.len()).find(|&j| {
-                        self.tokens[j].kind == TokenKind::Ident("key".into())
-                            && self.tokens.get(j + 1).map(|t| &t.kind)
-                                == Some(&TokenKind::Punct("="))
-                    });
-                    if let Some(j) = word {
-                        self.attributes.insert(self.tokens[j].span);
-                    }
+                if let Some(each) = &resource.each {
+                    self.keys(each.span);
                 }
             }
             for mutation in &component.mutations {
                 self.ty(&mutation.shape);
             }
+            for span in component
+                .tasks
+                .iter()
+                .map(|t| t.span)
+                .chain(component.sequences.iter().map(|s| s.span))
+            {
+                self.keys(span);
+            }
             self.nodes(&component.view);
         }
+    }
+
+    fn keys(&mut self, span: Span) {
+        let Some(start) = self.position(span) else {
+            return;
+        };
+        // A header can also contain named `key=` arguments; all stay tight.
+        // Stop at its logical newline so a body's `key = value` stays an assignment.
+        self.attributes.extend(
+            self.tokens[start..]
+                .windows(2)
+                .take_while(|pair| !matches!(pair[0].kind, TokenKind::Newline | TokenKind::Eof))
+                .filter(|pair| {
+                    matches!(&pair[0].kind, TokenKind::Ident(name) if name == "key")
+                        && pair[1].kind == TokenKind::Punct("=")
+                })
+                .map(|pair| pair[0].span),
+        );
     }
 
     fn ty(&mut self, ty: &TypeExpr) -> usize {
@@ -368,7 +419,12 @@ impl<'a> Layout<'a> {
                 self.type_angles.insert(self.tokens[end].span);
                 end + 1
             }
-            TypeExpr::List(inner, _) | TypeExpr::Option(inner, _) => {
+            TypeExpr::List(inner, _) => {
+                let end = self.ty(inner);
+                self.type_angles.insert(self.tokens[end].span);
+                end + 2
+            }
+            TypeExpr::Option(inner, _) => {
                 let end = self.ty(inner);
                 self.type_angles.insert(self.tokens[start + 1].span);
                 self.type_angles.insert(self.tokens[end].span);
@@ -436,7 +492,10 @@ impl<'a> Layout<'a> {
                     self.header(*span, args, true, None);
                     self.nodes(children);
                 }
-                Node::Each { body, .. } => self.nodes(body),
+                Node::Each { body, span, .. } => {
+                    self.keys(*span);
+                    self.nodes(body);
+                }
                 Node::When {
                     then, otherwise, ..
                 } => {
@@ -497,7 +556,7 @@ impl<'a> Layout<'a> {
                     continue;
                 }
                 // A bare flag (`autofocus`) cannot begin a continued line:
-                // one that does not begin `name=` is a child.
+                // one that does not begin `name=` is a child (habits F5).
                 // It stays on the line of the attribute before it.
                 if !component
                     && self.position(a.span).is_some_and(|i| {
@@ -552,7 +611,7 @@ impl<'a> Layout<'a> {
                 || (a == "<" && self.type_angles.contains(&previous.span))
                 || matches!(b, ")" | "]" | ",")
                 || matches!(a, "(" | "[")
-                || self.prefixes.contains(&previous.span)
+                || (self.prefixes.contains(&previous.span) && !(a == "-" && b == "-"))
                 || a == "."
                 || (b == "." && !matches!(previous.kind, TokenKind::Number(_)))
                 || (b == "("
@@ -574,7 +633,8 @@ impl<'a> Layout<'a> {
                 || (a == ":"
                     && !self.ternary_colons.contains(&previous.span)
                     && self.lines.get(previous.span.line as usize - 1).is_some_and(|l| {
-                        l.len() - l.trim_start().len() + 1 == previous.span.col as usize
+                        let content = line_content(previous.span.line as usize - 1, l);
+                        l.len() - content.trim_start().len() + 1 == previous.span.col as usize
                     }));
             if !tight {
                 out.push(' ');
@@ -586,7 +646,11 @@ impl<'a> Layout<'a> {
     fn render(&self) -> String {
         let mut out = String::new();
         for (line, raw) in self.lines.iter().enumerate() {
-            if raw.trim().is_empty() {
+            let content = line_content(line, raw);
+            if content.len() != raw.len() {
+                out.push('\u{feff}');
+            }
+            if content.trim().is_empty() {
                 out.push('\n');
                 continue;
             }
@@ -611,7 +675,7 @@ impl<'a> Layout<'a> {
             let suffix = if let Some(last) = previous {
                 &raw[last.span.end_col as usize - 1..]
             } else {
-                raw
+                content
             };
             let comment = suffix.trim_start();
             if !comment.is_empty() {

@@ -1,0 +1,9 @@
+{
+  "name": "mosaic",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@exact/convex": "file:../../packages/convex",
+    "convex": "1.49.0"
+  }
+}

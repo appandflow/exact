@@ -1,7 +1,8 @@
 //! The plan runner.
 //!
-//! Data comes from a Rust data source through one seam, and a dev reload is
-//! a restart.
+//! @ref LLP 1004 D4 (data comes from a Rust data source through one seam)
+//! @ref LLP 1004 D5 (a dev reload is a restart)
+//! @ref LLP 0485 §8 (the update loop; research)
 //!
 //! A [`Runner`] loads one validated plan against one [`DataSource`] and drives
 //! one kernel. Nothing here is app-specific: the plan is data, the data source
@@ -19,18 +20,18 @@
 //! - [`bridge`] — values to kernel props and style rows, through the kernel's
 //!   own `set_dynamic`.
 //! - [`delivery`] — what this binary and its update store know about
-//!   delivery: one resource the runner answers itself.
+//!   delivery (LLP 1030 D7): one resource the runner answers itself.
 //! - [`device`] — `device.*` grants and the one table every host's
-//!   permission spelling derives from.
+//!   permission spelling derives from (LLP 1069.008).
 //! - [`instance`] — the instance tree: nodes, `if`/`match` arms, keyed
 //!   `for` rows, and the ops that keep the kernel equal to it.
 //! - [`runner`] — boot, actions, events, resources, timers, the clock.
 //! - [`agent`] — the agent API's read operations (`tree`, `state`, `logs`),
 //!   answered from the runner and kernel for every host.
 //! - [`head`] — the document's head: the active `head` elements' fields,
-//!   for every host's page, window or scene title.
-//! - [`uses`] — what a plan uses beyond the core, from its bytes:
-//!   what a host must link to run it.
+//!   for every host's page, window or scene title (LLP 1048.003 D1).
+//! - [`uses`] — what a plan uses beyond the core, from its bytes (LLP 1047
+//!   D2): what a host must link to run it.
 //!
 //! Time is a number the host supplies (`Runner::advance`); timers fire from it,
 //! so an agent seeks instead of waiting — the same clock discipline as
@@ -43,6 +44,7 @@ pub mod activation;
 pub mod agent;
 pub mod auth;
 pub mod bridge;
+pub mod canvas_capture;
 pub use bridge::icon_of;
 pub mod commands;
 pub mod compare;
@@ -53,14 +55,18 @@ pub mod design;
 pub mod desktop;
 pub mod device;
 pub mod failure;
+pub mod fetch_template;
 pub mod file_pickers;
 mod format;
+/// The native hosts' frame-health reducer (LLP 1079.000 §5.1): Apple's and Android's collectors.
+pub mod frame_health;
 pub mod geometry;
 pub mod grants;
 pub mod hardened;
 pub mod head;
 pub mod held;
 pub mod instance;
+pub mod launch_env;
 pub mod listen;
 pub mod lists;
 pub mod local_network;
@@ -69,14 +75,17 @@ pub mod page;
 pub mod perf;
 pub mod presence;
 pub mod process;
+mod program;
+pub use program::Program;
 pub mod request;
 pub mod runner;
 pub mod save_file;
-/// The picker's helpers a host shares: types by name,
+/// The picker's helpers a host shares (LLP 1069.002): types by name,
 /// `accept` matching, the HEIC rule, a `type @t` answer's paths.
 pub use runner::picker as picker_support;
-/// A received share's helpers a host shares.
+/// A received share's helpers a host shares (LLP 1133.024 D2, D3).
 pub use runner::picker::shared as share_in;
+pub mod canvas_performance;
 pub mod machine;
 pub mod midi;
 pub mod rows;
@@ -114,40 +123,42 @@ pub use instance::{DocNode, DocTree, DocTreeError, ListLinks, SurfaceUpdate, LIS
 pub use page::Page;
 pub use process::{ProcessOp, WorkClock, PROCESS_URL};
 pub use request::{
-    io_grants, Answer, Dispatch, FailureKind, HttpScheduling, LongPoll, Message, Outcome,
-    Placement, Redirect, Reply, Request, RequestOut, Response, RetryReader, Retrying, SocketOp,
-    SocketOrigin, SocketSend, SurfaceOutcome, SurfaceRequest, Work, BODY_TO_HELD_BYTES,
-    BODY_WRITTEN, LONG_POLL_REPLY, MAX_BODY_FROM_BYTES, MAX_BODY_FROM_PATH, MAX_BODY_TO_BYTES,
-    MAX_HOST_WORK_BYTES, MAX_TIMEOUT_MS, NATIVE_URL,
+    io_grants, Answer, CacheMode, CompletionTiming, Dispatch, FailureKind, HttpScheduling,
+    LongPoll, Message, Outcome, Placement, Redirect, Reply, Request, RequestClass, RequestOut,
+    Response, RetryReader, Retrying, SocketOp, SocketOrigin, SocketSend, SurfaceOutcome,
+    SurfaceRequest, Work, BODY_TO_HELD_BYTES, BODY_WRITTEN, LONG_POLL_REPLY, MAX_BODY_FROM_BYTES,
+    MAX_BODY_FROM_PATH, MAX_BODY_TO_BYTES, MAX_HOST_WORK_BYTES, MAX_TIMEOUT_MS, NATIVE_URL,
 };
 pub use runner::{
-    canvas_engine, press_writes_router, routing, virtual_frame, Advanced, Announce, AuthLinks,
-    BackgroundState, BlockPlacement, CallOrigin, CanvasEngine, CanvasLink, CanvasList, Carried,
-    Checkpoint, Command, ControlValue, DataError, DataSource, DeviceLinks, DrawReply, DrawRequest,
-    Drawn, DropEvent, Event, FieldSelection, FormatLink, Geometry, GeometryLink, Hold, HoldAnswer,
-    InFlight, InputDetails, Interrupt, Intersection, KeyModifiers, KeyboardEvent, Limits,
-    ListTextPolicy, ListTextPosition, MouseEvent, Native, NativeCall, NativeHandler, Overlaid,
-    Picked, PickerLinks, PickerRequest, PointerEvent, PreloadWake, ResizeRect, RouterChange,
-    RouterLink, Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection,
-    SnapshotModule, SocketReader, SocketState, StackSplit, StreamCount, SurfaceAnswer, Target,
-    Timed, UploadEnd, UploadMark, WheelEvent, Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS,
-    PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
+    canvas_engine, launch_matches, press_writes_router, routing, virtual_frame, Advanced, Announce,
+    AuthLinks, BackgroundState, BlockPlacement, CallOrigin, CanvasEngine, CanvasLink, CanvasList,
+    Carried, Checkpoint, Command, Console, ControlValue, DataError, DataSource, DataSourceWrapper,
+    DeviceLinks, DrawReply, DrawRequest, Drawn, DropEvent, Event, FieldSelection, FormatLink,
+    Geometry, GeometryLink, Hold, HoldAnswer, InFlight, InputDetails, Interrupt, Intersection,
+    KeyModifiers, KeyboardEvent, Limits, ListTextPolicy, ListTextPosition, MouseEvent, Native,
+    NativeCall, NativeHandler, Overlaid, Picked, PickerLinks, PickerRequest, PointerEvent,
+    PreloadWake, ResizeRect, RouterChange, RouterLink, Routing, Runner, RunnerError, RunnerLinks,
+    ScrollEvent, SelectionDirection, SnapshotModule, SocketReader, SocketState, StackSplit,
+    StreamCount, SurfaceAnswer, Target, Timed, UploadEnd, UploadMark, WheelEvent, Write,
+    BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED,
+    TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
-pub use runner::{AppState, LiveApplied, LiveRefusal, Place, Tamber};
+pub use runner::{AppState, Forma, LiveApplied, LiveRefusal, Place};
 pub use runner::{CallHow, WakeHow};
+pub use runner::{ModuleIdentity, ModuleInstance};
 pub use upload::{UPLOAD_PROGRESS, UPLOAD_SENDING};
-/// The binding core's names: what `contract tamber gen rust`
+/// The binding core's names (LLP 1121 D12): what `contract forma gen rust`
 /// writes (`pub const SURFACE_CARD: Token<Color>`) and resolves.
-pub mod tamber {
+pub mod forma {
     pub use crate::runner::{
-        ColorKind as Color, Font, Kind, LengthKind as Length, NumberKind as Number, Place, Tamber,
+        ColorKind as Color, Font, Forma, Kind, LengthKind as Length, NumberKind as Number, Place,
         Token, TypeKind as Type,
     };
 }
 pub use secrets::{SecretLease, SecretWait, SharedSecrets};
-pub use store::{Store, StoreChange, StoreError, StoreWrite};
+pub use store::{Socket, SocketCall, Store, StoreChange, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};
-pub use viewport::{Contrast, Fold, Gamut, Hover, Pointer, Posture, Preferences, Viewport};
+pub use viewport::{Contrast, Fold, Gamut, Hover, Pointer, Posture, Preferences, Update, Viewport};
 pub use vm::Trap;
 
 /// Timer admission observations shared by all hosts.

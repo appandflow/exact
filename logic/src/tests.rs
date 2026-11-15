@@ -2,6 +2,7 @@ use super::*;
 use exact_plan::bytes::Writer;
 use exact_runner::Dispatch;
 use serde_json::json;
+use std::sync::Arc;
 
 struct Fixture;
 impl DataSource for Fixture {
@@ -20,9 +21,45 @@ impl DataSource for Fixture {
             None => Dispatch::Missing,
         }
     }
+    fn host_continuation(&self, token: u64) -> bool {
+        token == 7
+    }
+    fn keeps_sent(&self, fetch: u64) -> bool {
+        fetch == 9
+    }
+    fn module_delivery(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        let Outcome::Response(response) = outcome else {
+            panic!("a kept reply")
+        };
+        store.set_durable("token", std::str::from_utf8(&response.body).unwrap())?;
+        Ok(Some(exact_runner::Request::continuation(token + 1)))
+    }
 }
 
 crate::configured!(ConfiguredFixture, Fixture, || Swappable::off(Fixture));
+
+#[test]
+fn configured_entry_preserves_a_kept_delivery_continuation() {
+    let mut source = ConfiguredFixture::default();
+    let mut store = Store::new(source.grants(), []);
+    let outcome = Outcome::Response(exact_runner::Response {
+        status: 200,
+        headers: vec![],
+        body: b"renewed".to_vec(),
+    });
+    let request = source
+        .module_delivery(&mut store, 7, outcome)
+        .unwrap()
+        .unwrap();
+    assert_eq!(request.continuation, Some(8));
+    assert_eq!(store.get("token"), Some("renewed"));
+    assert!(store.take_writes()[0].durable);
+}
 
 #[test]
 fn configured_embedded_executor_preserves_browser_continuation_routing() {
@@ -35,6 +72,100 @@ fn configured_embedded_executor_preserves_browser_continuation_routing() {
     ));
     assert_eq!(source.placement(), exact_runner::Placement::Main);
 }
+
+#[test]
+fn configured_entry_preserves_host_continuations_and_kept_fetches() {
+    let source = ConfiguredFixture::default();
+    assert!(source.host_continuation(7));
+    assert!(!source.host_continuation(8));
+    assert!(source.keeps_sent(9));
+    assert!(!source.keeps_sent(10));
+}
+
+#[test]
+fn configured_entry_passes_the_shared_secret_backend_and_configuration_errors() {
+    #[derive(Default)]
+    struct Source(Option<Arc<dyn exact_runner::SharedSecrets>>);
+    impl DataSource for Source {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::Bool(self.0.is_some()))
+        }
+        fn configure_secrets(
+            &mut self,
+            secrets: Arc<dyn exact_runner::SharedSecrets>,
+        ) -> Result<(), DataError> {
+            if self.0.is_some() {
+                return Err(DataError::Unavailable("already configured".into()));
+            }
+            self.0 = Some(secrets);
+            Ok(())
+        }
+    }
+    struct Secrets;
+    impl exact_runner::SharedSecrets for Secrets {
+        fn acquire(
+            &self,
+            _: &str,
+            _: Arc<dyn Fn() + Send + Sync>,
+        ) -> Box<dyn exact_runner::SecretWait> {
+            panic!("configuration must not acquire a secret")
+        }
+    }
+    crate::configured!(Entry, Source, || Swappable::off(Source::default()));
+    let mut source = Entry::default();
+    let secrets: Arc<dyn exact_runner::SharedSecrets> = Arc::new(Secrets);
+    source.configure_secrets(secrets.clone()).unwrap();
+    assert_eq!(source.query("configured", &[]).unwrap(), Value::Bool(true));
+    assert!(Arc::ptr_eq(
+        source.0.embedded.as_ref().unwrap().0.as_ref().unwrap(),
+        &secrets,
+    ));
+    assert!(matches!(
+        source.configure_secrets(secrets),
+        Err(DataError::Unavailable(message)) if message == "already configured"
+    ));
+}
+
+/// A source that names no app id takes the manifest's, which the host keys
+/// its storage roots by; one that names its own keeps it, and a replacement
+/// keeps the id the binary admitted.
+#[test]
+fn a_source_without_an_id_takes_the_manifests() {
+    #[derive(Default)]
+    struct Unnamed;
+    impl DataSource for Unnamed {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::Number(1.))
+        }
+    }
+    crate::configured!(Entry, Unnamed, || Swappable::off(Unnamed)
+        .named("com.example.unnamed"));
+    assert_eq!(Entry::default().app_id(), "com.example.unnamed");
+    assert_eq!(Swappable::off(Unnamed).app_id(), "");
+    assert_eq!(
+        Swappable::wasm(Fixture).named("com.example.other").app_id(),
+        "test.logic"
+    );
+    let native = Swappable::wasm(Unnamed)
+        .with_native("abc", || Unnamed)
+        .named("com.example.unnamed");
+    let mut plan = exact_plan::builder::PlanBuilder::new(0, 0)
+        .finish()
+        .unwrap();
+    plan.app_id = "com.example.unnamed".into();
+    let plan = plan.encode();
+    let module = wasm("");
+    let mut meta: serde_json::Value = serde_json::from_str(&receipt(&plan, &module)).unwrap();
+    meta["appId"] = json!("com.example.unnamed");
+    meta["grants"] = json!("");
+    meta["source"] = json!("abc");
+    let replaced = native
+        .replacement(&plan, &meta.to_string(), module)
+        .unwrap();
+    assert!(replaced.embedded.is_some());
+    assert_eq!(replaced.app_id(), "com.example.unnamed");
+}
+
 fn encoded(op: u8, f: impl FnOnce(&mut Writer)) -> Vec<u8> {
     let mut w = Writer::default();
     w.u32(abi::ABI);
@@ -56,10 +187,17 @@ pub(crate) fn wasm_with_contract(call: &str, stateless: bool) -> Vec<u8> {
     });
     let answer = encoded(2, |w| {
         w.u8(1);
+        // No topic, no draw of randomness.
+        w.u32(0);
+        w.u32(0);
         w.u32(1);
         w.string("token");
         w.u8(1);
         w.string("new");
+        // No socket operation, no overload (LLP 1016.003 D5).
+        w.u32(0);
+        w.u8(0);
+        w.string("");
         w.u8(0);
         Value::Number(42.).encode(w)
     });
@@ -240,7 +378,92 @@ fn wasm_fuel_memory_imports_and_export_bounds_are_enforced() {
     assert!(executor.call(&vec![0; abi::MAX_MESSAGE + 1]).is_err());
 }
 
-// Work in proportion to the input passes the flat base: 100
+// A trap leaves the instance's memory as the call left it. The module keeps
+// the pages in use at address 1024: "x" needs 600 free pages above them,
+// "leaky" takes 300 and traps before it frees them. Of the 1,024 pages the
+// executor allows, one instance runs out on the second round.
+#[test]
+fn a_call_after_a_trap_runs_in_a_fresh_instance() {
+    let store = Store::new("secret.keep token", []);
+    let good = abi::call_request(None, &store, "x", &[], None)
+        .unwrap()
+        .len();
+    let used = "i32.const 1024 i32.load";
+    let reach = |pages: u32| {
+        format!(
+            "(block $done (loop $grow memory.size {used} i32.const {pages} i32.add \
+            i32.ge_u br_if $done i32.const 1 memory.grow drop br $grow))"
+        )
+    };
+    let module = wasm(&format!(
+        "local.get 2 i32.const {good} i32.gt_u
+        if {} i32.const 1024 {used} i32.const 300 i32.add i32.store unreachable end
+        {}",
+        reach(301),
+        reach(601),
+    ));
+    let plan = plan();
+    let mut candidate = Swappable::wasm(Fixture)
+        .replacement(&plan, &receipt(&plan, &module), module)
+        .unwrap();
+    candidate.activate().unwrap();
+    for _ in 0..3 {
+        assert_eq!(candidate.query("x", &[]).unwrap(), Value::Number(42.));
+        let trapped = candidate.query("leaky", &[]).unwrap_err();
+        assert!(
+            matches!(&trapped, DataError::Interface(e) if e.contains("unreachable")),
+            "{trapped:?}"
+        );
+        assert_eq!(candidate.query("x", &[]).unwrap(), Value::Number(42.));
+    }
+}
+
+// A call refused after the module ran, as a reply over the seam's bound is
+// (`exact_logic_call` answers 1), may have changed the module's own state:
+// "leaky" marks the session at 2048 and is refused, and a marked session
+// refuses every call. The next call runs in a fresh instance.
+#[test]
+fn a_call_after_a_refused_one_runs_in_a_fresh_instance() {
+    let store = Store::new("secret.keep token", []);
+    let good = abi::call_request(None, &store, "x", &[], None)
+        .unwrap()
+        .len();
+    let module = wasm(&format!(
+        "i32.const 2048 i32.load if i32.const 1 return end
+        local.get 2 i32.const {good} i32.gt_u
+        if i32.const 2048 i32.const 1 i32.store i32.const 1 return end"
+    ));
+    let plan = plan();
+    let mut candidate = Swappable::wasm(Fixture)
+        .replacement(&plan, &receipt(&plan, &module), module)
+        .unwrap();
+    candidate.activate().unwrap();
+    for _ in 0..3 {
+        assert_eq!(candidate.query("x", &[]).unwrap(), Value::Number(42.));
+        let refused = candidate.query("leaky", &[]).unwrap_err();
+        assert!(
+            matches!(&refused, DataError::Interface(e) if e.contains("refused")),
+            "{refused:?}"
+        );
+        assert_eq!(candidate.query("x", &[]).unwrap(), Value::Number(42.));
+    }
+}
+
+// This crate's dev-dependencies compile wasmi's `simd` and `memory64` in, as
+// another crate of an app may: the engine still refuses both proposals.
+#[test]
+fn wasm_refuses_simd_and_memory64_whatever_wasmi_compiles_in() {
+    let excessive = wasm("i32.const 0 global.set $out i32.const 0 global.set $len");
+    assert!(crate::wasm::load(&excessive).is_ok());
+    let simd = wasm("i32.const 0 i32x4.splat drop");
+    let refused = crate::wasm::load(&simd).err().unwrap();
+    assert!(refused.contains("SIMD"), "{refused}");
+    let memory64 = wat::parse_str("(module (memory i64 1))").unwrap();
+    let refused = crate::wasm::load(&memory64).err().unwrap();
+    assert!(refused.contains("memory64"), "{refused}");
+}
+
+// @ref LLP 1029.000 — work in proportion to the input passes the flat base: 100
 // loop turns a byte over 60,000 bytes is past 20 million fuel, within the
 // per-byte allowance.
 #[test]
@@ -254,7 +477,7 @@ fn wasm_fuel_grows_with_the_input_it_is_handed() {
     assert!(crate::wasm::budget(input.len()) > 20_000_000);
 }
 
-// The same input's loop with no bound still stops, at the
+// @ref LLP 1029.000 — the same input's loop with no bound still stops, at the
 // fuel that input bought. A test of its own, so it runs beside the one above:
 // each spends tens of millions of fuel.
 #[test]

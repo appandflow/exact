@@ -1,4 +1,4 @@
-//! `state.sounds`: the runner's voice table as the driver
+//! `state.sounds` (LLP 1096 D10): the runner's voice table as the driver
 //! reads it — the last 64 voices (each with `playbackRate` and `pan` only
 //! when not 1 and 0), or the whole record when the request asks
 //! `"sounds":"all"` (what `expect sound` reads), how many are live, how many
@@ -43,7 +43,7 @@ pub(super) fn state<D: DataSource>(runner: &Runner<D>, request: &str, s: &mut St
         } else {
             quote(&v.group, s);
         }
-        // A voice's rate and pan only when the call set them.
+        // A voice's rate and pan only when the call set them (LLP 1125 D10).
         if v.playback_rate != 1.0 {
             let _ = write!(s, ",\"playbackRate\":{}", num(v.playback_rate));
         }

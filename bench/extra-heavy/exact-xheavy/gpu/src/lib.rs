@@ -1,4 +1,4 @@
-//! The shader row's surface (SPEC 3): `wave(photo, duoA, duoB, freeze)`.
+//! The shader row's surface (SPEC 3, LLP 1009): `wave(photo, duoA, duoB, freeze)`.
 //!
 //! The photo is an app asset the surface asks for (`assets` → `asset`). Its JPEG is decoded
 //! off the main thread, downsampled to at most the box's pixel size, and uploaded once per name

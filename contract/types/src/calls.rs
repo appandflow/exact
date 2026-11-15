@@ -1,10 +1,10 @@
-//! Calls of actions: a call's arguments against its callee's
-//! parameters, cut where the call's own begin; a call is a statement
-//! and gives no value, and an action is never an argument.
+//! Calls of actions (LLP 1089): a call's arguments against its callee's
+//! parameters, cut where the call's own begin (D8); a call is a statement
+//! and gives no value, and an action is never an argument (D1, D10).
 
 use super::{checks, err, infer, routes, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
 use contract_syntax::inline::calls::{shown, MARK};
-use contract_syntax::{one_spelling_edit, Component, Expr, Span, Stmt, TemplatePart, UnOp};
+use contract_syntax::{one_spelling_edit, Component, Expr, Span, Stmt, UnOp};
 
 /// The prefix of a lifted action's capture parameters.
 pub(crate) const CAPTURE: &str = "@capture:";
@@ -28,57 +28,7 @@ fn action_head<'e>(e: &'e Expr, scope: &Scope, shapes: &Shapes) -> Option<(&'e s
 
 /// The first call of an action inside `e`, at any depth.
 fn inside<'e>(e: &'e Expr, scope: &Scope, shapes: &Shapes) -> Option<(&'e str, Span)> {
-    if let Some(found) = action_head(e, scope, shapes) {
-        return Some(found);
-    }
-    let mut found = None;
-    let mut look = |x: &'e Expr| {
-        if found.is_none() {
-            found = inside(x, scope, shapes);
-        }
-    };
-    match e {
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
-        Expr::List(items, _) => items.iter().for_each(&mut look),
-        Expr::Template(parts, _) => {
-            for p in parts {
-                if let TemplatePart::Expr(x) = p {
-                    look(x);
-                }
-            }
-        }
-        Expr::Some(x, _)
-        | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _)
-        | Expr::Typed(x, _, _)
-        | Expr::Unary(_, x, _) => look(x),
-        Expr::Call(_, args, _) => args.iter().for_each(look),
-        Expr::Binary(_, a, b, _) => {
-            look(a);
-            look(b);
-        }
-        Expr::Ternary(a, b, c, _) => {
-            look(a);
-            look(b);
-            look(c);
-        }
-        Expr::Match {
-            subject,
-            some,
-            none,
-            ..
-        } => {
-            look(subject);
-            look(some);
-            look(none);
-        }
-        Expr::Let { value, body, .. } => {
-            look(value);
-            look(body);
-        }
-        Expr::Arrow { body, .. } => look(body),
-    }
-    found
+    e.walk().find_map(|x| action_head(x, scope, shapes))
 }
 
 /// An action called for its value in one of `stmt`'s expressions: `let x =
@@ -109,7 +59,15 @@ pub(super) fn called_for_value(stmt: &Stmt, scope: &Scope, shapes: &Shapes) -> O
     })
 }
 
-/// An argument that is an action: a call's arguments are values, and an
+fn contains_action(ty: &Ty) -> bool {
+    match ty {
+        Ty::Action(_) => true,
+        Ty::Option(inner) | Ty::List(inner) => contains_action(inner),
+        _ => false,
+    }
+}
+
+/// An argument that holds an action: a call's arguments are values, and an
 /// action is passed only where a view binds it (`type-call-action-arg`).
 fn action_arg(
     callee: &str,
@@ -125,7 +83,7 @@ fn action_arg(
             ),
             other => action_head(other, scope, shapes).is_some(),
         };
-        if named {
+        if named || infer(arg, scope, shapes).is_ok_and(|ty| contains_action(&ty)) {
             return err(
                 "type-call-action-arg",
                 format!(
@@ -160,7 +118,7 @@ fn arg_types(
 }
 
 /// A call of an action prop or injected action in its component's scope,
-/// before lifting resolves it: its arguments are values of the types
+/// before lifting resolves it (D7): its arguments are values of the types
 /// its declaration gives, all of them when it gives any.
 pub(super) fn prop_args(
     name: &str,
@@ -190,7 +148,7 @@ pub(super) fn prop_args(
 
 /// A call's own arguments against its callee's own parameters: a lifted
 /// callee's captures skipped, then the arguments curried where the action
-/// was passed. The callee's body is the callee's, checked as its own
+/// was passed (D8). The callee's body is the callee's, checked as its own
 /// action; a call of the same component in a lifted action was checked in
 /// its component.
 pub(super) fn check(
@@ -309,9 +267,9 @@ fn each_call<'b>(
 }
 
 /// The calls in `c`'s action bodies give an untyped parameter of the
-/// callee its type, as a handler's arguments do: `action move(dr, dc)`
+/// callee its type, as a handler's arguments do (D8): `action move(dr, dc)`
 /// called only as `move(1, 0)`. Once, in declaration order; a type learned
-/// later does not flow back.
+/// later does not flow back (LLP 1088 §9.2).
 pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
     let shapes = &types.shapes;
     let names = crate::actions::Names::new(c);
@@ -380,7 +338,9 @@ pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
                     break;
                 }
                 if let Ok(t) = infer(arg, &scope, shapes) {
-                    if ct.actions[ci][at].contains_enum() {
+                    // Actions are not call arguments (D1). Propagating their
+                    // unknown parameter types can double a type at each call.
+                    if contains_action(&t) || ct.actions[ci][at].contains_enum() {
                         continue;
                     }
                     if let Some(u) = ct.actions[ci][at].unify(&t) {
@@ -453,7 +413,7 @@ pub(super) fn unknown_function(
         };
     }
     // The web's list operations and number formatters Contract refuses
-    // say what to do instead.
+    // (LLP 1017.003 §Diagnostics) say what to do instead.
     if let Some(why) = contract_syntax::idioms::refusal(name) {
         return TypeError {
             id: "type-refused-idiom",
@@ -461,7 +421,7 @@ pub(super) fn unknown_function(
             span,
         };
     }
-    // An `empty()` outside a resource's `else` is a list's `[]`.
+    // @ref LLP 1116.014 D1 — an `empty()` outside a resource's `else` is a list's `[]`.
     if name == crate::placeholder::EMPTY {
         return TypeError {
             id: "type-unknown-function",
@@ -473,8 +433,8 @@ pub(super) fn unknown_function(
         "`{name}` is not in the stdlib roster and is not an action; data comes from a `resource`"
     );
     // The runner's own sources (the `SOURCE` of runner/src/time.rs, viewport.rs, page.rs,
-    // delivery.rs, surface_record.rs, transport.rs, midi.rs), called like functions
-    // (`exactTime().epochAtZero`).
+    // delivery.rs, surface_record.rs, transport.rs, midi.rs), called like functions (r34 t7:
+    // `exactTime().epochAtZero`).
     if matches!(
         name,
         "exactTime"
@@ -482,12 +442,13 @@ pub(super) fn unknown_function(
             | "exactPage"
             | "exactDelivery"
             | "exactSurface"
+            | "exactCanvasPerformance"
             | "exactTransport"
             | "exactMIDI"
             | "exactActivities"
     ) {
-        let call = if name == "exactSurface" {
-            "exactSurface(\"world\")".to_string()
+        let call = if matches!(name, "exactSurface" | "exactCanvasPerformance") {
+            format!("{name}(\"world\")")
         } else {
             format!("{name}()")
         };
@@ -496,7 +457,7 @@ pub(super) fn unknown_function(
              root component, with a shape S of the fields you read, and read `r.field`"
         ));
     } else if let Some(candidate) = similar_function(name, scope, shapes) {
-        // A method's name is offered as the method.
+        // A method's name is offered as the method (LLP 1116.015 D2).
         let candidate = match candidate {
             "length" => "x.length".to_string(),
             c if contract_syntax::idioms::is_method(c) => format!("x.{c}(…)"),
@@ -516,7 +477,7 @@ fn similar_function<'a>(name: &str, scope: &'a Scope, shapes: &'a Shapes) -> Opt
         return None;
     }
     let global = |candidate: &str| {
-        matches!(candidate, "pending" | "failed" | "failure")
+        matches!(candidate, "pending" | "failed" | "failure" | "current")
             || (candidate == "path" && shapes.routes.is_some())
             || shapes.fns.contains_key(candidate)
             || super::Stdlib::from_name(candidate)
@@ -527,7 +488,7 @@ fn similar_function<'a>(name: &str, scope: &'a Scope, shapes: &'a Shapes) -> Opt
         .keys()
         .map(String::as_str)
         .chain(super::Stdlib::ALL.iter().map(|f| f.name()))
-        .chain(["pending", "failed", "failure", "path"]);
+        .chain(["pending", "failed", "failure", "current", "path"]);
     let mut found = None;
     for candidate in names {
         if !one_spelling_edit(name.as_bytes(), candidate.as_bytes()) || !global(candidate) {

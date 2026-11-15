@@ -234,7 +234,7 @@ fn a_required_gpu_fails_when_no_adapter_is_found() {
     .is_err());
 }
 
-/// A fixture's device (a test's, or a headless world's look
+/// LLP 1139.003 D2: a fixture's device (a test's, or a headless world's look
 /// frame's) never chooses the process's GPU tier; only a module's own load
 /// does, so worlds bound before and after it resolve the same rung.
 #[test]

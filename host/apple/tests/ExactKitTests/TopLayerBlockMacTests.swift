@@ -1,4 +1,4 @@
-// On the Mac a popover is laid out in the viewport, a block the
+// Stage 14 B on the Mac: a popover is laid out in the viewport, a block the
 // kernel implies, not in its positioned ancestor. The painted popover (the
 // driver's own chrome; AppKit's is `PopoverNativeMacTests`, whose host block
 // wins) is the size the web gives it, the runner reads it where it is shown,
@@ -30,9 +30,9 @@ final class TopLayerBlockMacTests: XCTestCase {
         f.settle()
     }
 
-    /// A chat app's Pins popover with no width (`top-layer-pins.contract`):
+    /// Harmony's Pins popover with no width (`top-layer-pins.contract`):
     /// its cards on one line, 368 by 64 as Chrome lays the same contract
-    /// out, not trimmed to one a line by the header 100 points wide.
+    /// out, where the header 100 points wide had trimmed it to one a line.
     func testAPaintedPopoverWithNoWidthIsTheWebsSize() throws {
         let source = try String(contentsOfFile: #filePath.replacingOccurrences(of: "ExactKitTests/TopLayerBlockMacTests.swift", with: "fixtures/top-layer-pins.contract"), encoding: .utf8)
         let f = try make(source), p = f.presenter
@@ -45,7 +45,7 @@ final class TopLayerBlockMacTests: XCTestCase {
         XCTAssertEqual(told.1.size, CGSize(width: 368, height: 64))
     }
 
-    /// A split's pane is a block a host gives; a
+    /// A split's pane is a block a host gives (LLP 1115.002 D8.2); a
     /// popover in it is in the viewport's, the window's layout viewport, as
     /// on the web: `width: 50%` is half the window, not half the pane.
     func testAPanesPopoverIsSizedByTheWindowNotThePane() throws {

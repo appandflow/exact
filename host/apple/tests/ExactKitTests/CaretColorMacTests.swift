@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// With `caret-color` unsaid the caret is AppKit's own,
+/// LLP 1115.000 D7.9: with `caret-color` unsaid the caret is AppKit's own,
 /// the colour a plain `NSTextView` and an `NSTextField`'s editor draw theirs
 /// in (`textInsertionPointColor`, the person's accent), in a field, in a bare
 /// field and in a textarea. A bare field's and a textarea's was the text's

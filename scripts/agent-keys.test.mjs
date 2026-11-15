@@ -1,23 +1,30 @@
 // The driver's held key (agent-keys.mjs `typeFor`): it repeats while held, as
-// a keyboard does, each repeat a keydown whose `repeat` is true.
+// a keyboard does (#140), each repeat a keydown whose `repeat` is true.
 import { test, expect } from 'bun:test';
 import { chordKeys } from './agent-playwright.mjs';
-import { KEY_REPEAT, validateKey, typeFor, cdpKey, withHeldModifiers, browserKey, nativeKey, typeArguments, typeCommand, tapWords, intoArguments, MalformedOperation, clockSlices, padOp, postCommand, postInto, resizeArguments } from './agent-keys.mjs';
+import { KEY_REPEAT, validateKey, typeFor, cdpKey, withHeldModifiers, browserKey, nativeKey, typeArguments, typeCommand, tapWords, tapArguments, intoArguments, MalformedOperation, clockSlices, padOp, postCommand, postInto, resizeArguments } from './agent-keys.mjs';
 import { open } from './agent.mjs';
 import { launchFacts } from './agent-launch.mjs';
 
-test('tap midi is a MIDI input\'s message, its bytes two hex digits each; a testId `midi` keeps the other forms', () => {
+test('a hover wheel accepts its point and modifiers; a plain hover refuses them', () => {
+  for (const extra of [{ at: [30, 40] }, { modifiers: 'Control' }]) {
+    expect(() => tapArguments({ hover: true, wheel: [3, 12], ...extra })).not.toThrow();
+    expect(() => tapArguments({ hover: true, ...extra })).toThrow(MalformedOperation);
+  }
+});
+
+test('tap midi is a MIDI input\'s message, its bytes two hex digits each; a testId `midi` keeps the other forms (LLP 1125 §4)', () => {
   expect(tapWords(['midi', 'keys', '90', '3c', '64'])).toEqual([null, { midi: { input: 'keys', data: [0x90, 0x3c, 0x64] } }]);
   expect(tapWords(['midi', 'at', '1', '2'])).toEqual(['midi', { at: [1, 2] }]);
   expect(tapWords(['midi'])).toEqual(['midi', {}]);
-  // Its clock: ticks in 50 ms slices, the last one short.
+  // Its clock (D9): ticks in 50 ms slices, the last one short.
   expect(tapWords(['midi', 'clk', 'clock', '125', '110'])).toEqual([null, { midi: { input: 'clk', clock: { bpm: 125, ms: 110 } } }]);
   expect(tapWords(['midi', '"clk"', 'fa'])).toEqual([null, { midi: { input: 'clk', data: [0xfa] } }]);
   expect(() => tapWords(['midi', 'clk', 'clock', '0', '100'])).toThrow('a tempo above 0');
   expect(clockSlices({ bpm: 125, ms: 110 })).toEqual([{ to: 50, ticks: [20, 40] }, { to: 100, ticks: [60, 80, 100] }, { to: 110, ticks: [] }]);
 });
 
-test('a pad on a world canvas: tap stick and type key Gamepad… reach the world as its pad 0, held across requests', async () => {
+test('a pad on a world canvas: tap stick and type key Gamepad… reach the world as its pad 0, held across requests (LLP 1127.003 D3)', async () => {
   expect(tapWords(['world', 'stick', 'left', '0.7', '-0.2'])).toEqual(['world', { stick: 'left', value: [0.7, -0.2] }]);
   expect(tapWords(['world', 'stick', 'right', '1', '0', 'for', '1500'])).toEqual(['world', { stick: 'right', value: [1, 0], for: 1500 }]);
   for (const words of [['world', 'stick', 'middle', '0', '0'], ['world', 'stick', 'left', '1'], ['world', 'stick', 'left', '1', '0', 'over', '5']]) expect(() => tapWords(words)).toThrow(MalformedOperation);
@@ -90,7 +97,7 @@ test('key phases and durations carry the malformed label; failed focus does not'
   expect(refusal.malformed).toBeUndefined();
 });
 
-test('a wheel takes one of gesture, fling, hold and release, and release is 0 0 alone', () => {
+test('a wheel takes one of gesture, fling, hold and release, and release is 0 0 alone (LLP 1142 D3)', () => {
   expect(tapWords(['list', 'wheel', '0', '-2000', 'fling'])).toEqual(['list', { wheel: [0, -2000], fling: true }]);
   expect(tapWords(['list', 'wheel', '0', '900', 'hold', 'at', '10', '20'])).toEqual(['list', { wheel: [0, 900], hold: true, at: [10, 20] }]);
   expect(tapWords(['list', 'wheel', '0', '0', 'release'])).toEqual(['list', { wheel: [0, 0], release: true }]);
@@ -143,7 +150,7 @@ test('key validation uses each browser carrier vocabulary without a target looku
   expect(() => tapWords([])).toThrow('tap: needs a target');
 });
 
-test('a held state is a form of tap, by its own word', () => {
+test('a held state is a form of tap, by its own word (LLP 1122 D8)', () => {
   expect(tapWords(['post', 'hold-state', 'active'])).toEqual(['post', { holdState: 'active' }]);
   expect(tapWords(['post', 'hold-state', 'none'])).toEqual(['post', { holdState: null }]);
   expect(() => tapWords(['post', 'hold-state', 'pressed'])).toThrow(/hold-state takes/);
@@ -159,7 +166,7 @@ test('typed host refusals precede driver frames for arbitrary messages and nativ
   await expect(nativeKey({id:2, opts:{key:'Enter'}, ask:async () => reply})).rejects.toThrow(refusalMessage(reply));
 });
 
-test('post is type <surface> message <text>: one word or one quoted string, the surface optional', async () => {
+test('post is type <surface> message <text>: one word or one quoted string, the surface optional (LLP 1139.004 D1)', async () => {
   expect(postCommand('post spawn-gulper')).toEqual([null, { message: 'spawn-gulper' }]);
   expect(postCommand('post world "spawn gulper 3"')).toEqual(['world', { message: 'spawn gulper 3' }]);
   expect(postCommand("post 'spawn gulper'")).toEqual([null, { message: 'spawn gulper' }]);
@@ -174,13 +181,13 @@ test('post is type <surface> message <text>: one word or one quoted string, the 
   await expect(postInto({ ...s, held: 'a drag' }, null, 'spawn', {})).rejects.toThrow('finger is down');
 });
 
-test('resize takes <w>x<h> and <w> <h>, and its refusal names both', () => {
+test('resize takes <w>x<h> and <w> <h>, and its refusal names both (LLP 1139.004 D4)', () => {
   expect(resizeArguments(['1280x800'])).toEqual([1280, 800]);
   expect(resizeArguments(['1280', '800'])).toEqual([1280, 800]);
   for (const words of [['1280'], ['1280', 'by', '800'], ['1280x'], []]) expect(() => resizeArguments(words)).toThrow('resize <w>x<h> or resize <w> <h>');
 });
 
-test('tap <image> pictureinpicture <control> names one control of Exact\'s picture-in-picture window', () => {
+test('tap <image> pictureinpicture <control> names one control of Exact\'s picture-in-picture window (LLP 1042 §9.1)', () => {
   expect(tapWords(['page', 'pictureinpicture', 'close'])).toEqual(['page', { pictureInPicture: 'close' }]);
   expect(tapWords(['page', 'pictureinpicture', 'hover'])).toEqual(['page', { pictureInPicture: 'hover' }]);
   expect(() => tapWords(['page', 'pictureinpicture'])).toThrow('pictureinpicture <control>');

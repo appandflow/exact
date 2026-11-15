@@ -7,8 +7,8 @@ extension BatchOp {
     /// back from the root by where it sits in the block (`x`, `y`: its
     /// margins), at the block's used size. A top-layer box is reported to
     /// the runner by its block's rectangle, which the runner maps through
-    /// the block; a popover's block is the viewport's, its
-    /// content's size, and its margins make it larger than the
+    /// the block (LLP 1123 D2); a popover's block is the viewport's, its
+    /// content's size (stage 14 B), and its margins make it larger than the
     /// border box. Nil for any other op, and for a `block` op with no size,
     /// which takes the block away.
     var blockRect: CGRect? {

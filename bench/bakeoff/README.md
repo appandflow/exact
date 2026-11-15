@@ -1,17 +1,18 @@
 # The bake-off
 
-Agents build the same iPhone app specs with Exact and with SwiftUI or UIKit, a blind grader compares
-each pair, a scroll probe measures how each app's lists feel, and what Exact lost becomes the next
-round's changes.
+The loop of LLP 1116: agents build the same iPhone app specs with Exact and with SwiftUI or UIKit, a blind grader
+compares each pair, a scroll probe measures how each app's lists feel, and what Exact lost becomes the next round's
+changes. Rounds 1 to 20 ran from `~/bakeoff`, which is gone; this directory rebuilds it, so its numbers start a new
+series and are not comparable with round 20's.
 
 | Piece | What it is |
 |---|---|
-| `specs/<id>/SPEC.md`, `data/` | twelve iPhone apps, each with a long list from seeded data (`specs/gen.mjs` writes it) |
+| `specs/<id>/SPEC.md`, `data/` | the iPhone apps, one for each pair in `pairs.json`, each with a long list from seeded data (`specs/gen.mjs` writes it) |
 | `pairs.json` | each spec's comparison stack and builder model, fixed so rounds compare pair against pair |
 | `prompts/` | the builder prompt (`common.md` plus the stack's) and the grader's |
 | `native/` | the SwiftUI and UIKit builders' skeleton: `swiftc` and an assembled `.app`, no Xcode project |
 | `build.mjs` | one build: the builder unattended, its wall clock and tokens, the app it left installed |
-| `feel/` | the scroll-feel probe: real touches, a passive recorder in the app, metrics against UIKit's physics |
+| `host/apple/feel/`, outside this directory | the scroll-feel probe that `round.mjs feel` runs: real touches, a passive recorder in the app, metrics against UIKit's physics |
 | `drive.mjs`, `drive.md` | the grader's driver: any app by bundle id, through the XCTest touch runner |
 | `grade.mjs` | one blind pairwise grade by Claude: requirements, bugs, tells, scores, a verdict |
 | `round.mjs` | a round: pin, build, feel, grade, report |

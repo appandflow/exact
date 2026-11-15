@@ -1,8 +1,8 @@
-//! `-exact-fit: shrink`. A text too wide for its box is
+//! LLP 1116.001 D1.4: `-exact-fit: shrink`. A text too wide for its box is
 //! measured at the scale that fits it, down to half its size, as UIKit's
 //! `adjustsFontSizeToFitWidth` with a 0.5 `minimumScaleFactor`; the scale is
 //! the kernel's, published to every host, and the runs a painter reads are
-//! at it. Without it, a stopwatch at the largest text size showed only ":48.".
+//! at it. The stopwatch at the largest text size showed only ":48." (round 3).
 use exact_kernel::*;
 
 /// "00:00:48.12" at 40 points: 11 glyphs of 24 = 264 wide, 48 high.
@@ -207,7 +207,145 @@ fn a_new_scale_in_a_box_that_held_is_published() {
     assert!(receipt.updated.contains(&node.key));
 }
 
-/// A stopwatch's shape: a page whose column holds a fitted
+#[test]
+fn a_fitted_paragraph_moved_through_a_fitted_parent_loses_its_old_scale() {
+    fitted_paragraph_moved_through_inline(true);
+}
+
+#[test]
+fn a_fitted_paragraph_moved_through_an_unfitted_parent_loses_its_old_scale() {
+    fitted_paragraph_moved_through_inline(false);
+}
+
+fn fitted_paragraph_moved_through_inline(parent_fits: bool) {
+    let style = [
+        (StyleId::Fit, "shrink"),
+        (StyleId::FontSize, "20"),
+        (StyleId::WhiteSpace, "nowrap"),
+    ];
+    let mut k = readout("50", &style);
+    k.apply(
+        0,
+        2,
+        &[
+            Op::CreateView {
+                id: 3,
+                node_type: NodeType::Text,
+            },
+            Op::SetStyle {
+                id: 3,
+                patch: rows(&style),
+            },
+            Op::SetProp {
+                id: 3,
+                prop: PropId::Text,
+                value: PropValue::Str(READOUT.into()),
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 3],
+            },
+        ],
+    )
+    .unwrap();
+    assert_eq!(laid(&mut k).1, 0.5);
+    assert_eq!(k.node(3).unwrap().fit_scale(), 0.5);
+
+    let mut fit_row = StyleMask::EMPTY;
+    fit_row.set(StyleId::Fit);
+    let mut ops = vec![
+        Op::ClearProp {
+            id: 3,
+            prop: PropId::Text,
+        },
+        Op::SetChildren {
+            id: 3,
+            children: vec![2],
+        },
+    ];
+    if !parent_fits {
+        ops.push(Op::ClearStyle {
+            id: 3,
+            mask: fit_row,
+            written: false,
+        });
+    }
+    k.apply(0, 3, &ops).unwrap();
+    let (_, scale, size) = laid(&mut k);
+    let expected = if parent_fits { 0.5 } else { 1.0 };
+    assert_eq!(scale, expected);
+    assert_eq!(size, 20.0 * expected);
+    assert_eq!(k.node(3).unwrap().text_runs()[0].style.font_size, size);
+
+    k.apply(
+        0,
+        4,
+        &[
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 3],
+            },
+            Op::ClearStyle {
+                id: 2,
+                mask: fit_row,
+                written: false,
+            },
+        ],
+    )
+    .unwrap();
+    let (frame, scale, size) = laid(&mut k);
+    assert_eq!((scale, size), (1.0, 20.0));
+    assert!(near(frame.width, 132.0), "{frame:?}");
+    assert!(near(frame.height, 24.0), "{frame:?}");
+}
+
+#[test]
+fn a_destroyed_fitted_text_can_be_trimmed_before_layout() {
+    let style = [
+        (StyleId::Fit, "shrink"),
+        (StyleId::FontSize, "20"),
+        (StyleId::WhiteSpace, "nowrap"),
+    ];
+    let mut k = readout("100", &style);
+    let mut ops: Vec<_> = (3..=300)
+        .map(|id| Op::CreateView {
+            id,
+            node_type: if id == 300 {
+                NodeType::Text
+            } else {
+                NodeType::View
+            },
+        })
+        .collect();
+    ops.extend([
+        Op::SetStyle {
+            id: 300,
+            patch: rows(&style),
+        },
+        Op::SetProp {
+            id: 300,
+            prop: PropId::Text,
+            value: PropValue::Str(READOUT.repeat(2).into()),
+        },
+        Op::SetChildren {
+            id: 1,
+            children: (2..=300).collect(),
+        },
+    ]);
+    k.apply(0, 2, &ops).unwrap();
+    let before = laid(&mut k);
+    assert_eq!(k.node(300).unwrap().fit_scale(), 0.5);
+    assert_eq!(k.arena().slot_count(), 300);
+
+    let ops: Vec<_> = (3..=300).map(|id| Op::DestroyView { id }).collect();
+    k.apply(0, 3, &ops).unwrap();
+    k.trim();
+    assert_eq!(k.arena().slot_count(), 2);
+    assert_eq!(laid(&mut k), before);
+    assert_eq!(k.node(1).unwrap().frame.width, 100.0);
+}
+
+/// The stopwatch's shape (round 13): a page whose column holds a fitted
 /// readout above a list, whose rows are flex rows of a flexing label and two
 /// times. A row added as the readout changes took the readout's runs for its
 /// label's: the label was measured at the readout's size, so a lap row was 92

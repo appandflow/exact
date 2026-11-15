@@ -1,4 +1,4 @@
-//! Dropping across lists: a board of three grouped lists, one
+//! Dropping across lists (LLP 1094): a board of three grouped lists, one
 //! empty, driven through the runner's session with no host: the previews
 //! on both lists, the drop on the target with its `ReorderEvent`, the hold
 //! and its endings, the keyboard's steps, and the compiler's refusals.
@@ -293,7 +293,7 @@ fn a_grouped_list_is_accepted_and_each_refusal_is_whole() {
     let (id, message) = refused("key=card.id", "key=card.id.length");
     assert_eq!(id, "lower-reorder-group");
     assert_eq!(message, "a grouped list's rows move between lists by their keys, so its `for` is keyed by a string, not a number: key it by the item's string id");
-    // A row list keeps its own reorder refusal.
+    // A row list keeps its own reorder refusal (LLP 1094 §7).
     let (id, _) = refused(
         "height=100 width=100",
         "display=\"flex\" height=100 width=100",

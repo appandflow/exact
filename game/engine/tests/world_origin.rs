@@ -1,4 +1,4 @@
-//! A world's message carries what caused it:
+//! A world's message carries what caused it (LLP 1133.022 D6, D10 item 6):
 //! once a tool's message is posted into a world, every message the world
 //! emits carries the least privileged origin posted since its fresh start,
 //! through a person's input, the clock and a save restored into a new
@@ -121,4 +121,14 @@ fn the_least_privileged_origin_wins_and_a_mark_cannot_raise_one() {
     let mut t = sim();
     post(&mut t, "\u{1}origin:root\u{1}x", 0.0);
     assert_eq!(t.origin(), "device");
+}
+
+#[test]
+fn a_paranoid_rebuild_leaves_pending_messages_unmarked() {
+    for mode in [Paranoid::Save, Paranoid::FreshGame] {
+        let mut s = sim().paranoid(mode);
+        post(&mut s, &format!("{TOOL}buzz"), 0.0);
+        s.advance(100.0, Clock::Seekable);
+        assert_eq!(s.take_messages(), [format!("{TOOL}heard buzz")], "{mode:?}");
+    }
 }

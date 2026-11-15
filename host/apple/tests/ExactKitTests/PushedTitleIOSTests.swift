@@ -4,7 +4,7 @@ import XCTest
 @testable import ExactKit
 import ExactGroupedLists
 
-/// Over `scripts/fixtures/pushed-title.contract`: a pushed
+/// LLP 1115.000 D11.1 over `scripts/fixtures/pushed-title.contract`: a pushed
 /// screen whose title is large arrives with it expanded, as UIKit shows a
 /// pushed controller whose item says `.always` in a bar that prefers large
 /// titles. It collapses as its scroller scrolls and expands again at the top,
@@ -324,8 +324,7 @@ final class PushedTitleIOSTests: XCTestCase {
         let (session, tabs, nav) = try fixture()
         let (expanded, inline) = try heights(nav)
         func select(_ index: Int) {
-            let controller = tabs.viewControllers![index]
-            if tabs.delegate?.tabBarController?(tabs, shouldSelect: controller) ?? true { tabs.selectedIndex = index }
+            tapTab(tabs, index)
             until("tab \(index) selected") { tabs.selectedIndex == index && session.presenter.navigation.transitioning == false }
             settle()
         }
@@ -359,7 +358,7 @@ final class PushedTitleIOSTests: XCTestCase {
         XCTAssertEqual(short.below, 0, accuracy: 0.5, "its first line just below the bar")
         try back(nav, depth: 1)
 
-        // A content swap under a pushed, expanded bar: the
+        // A content swap under a pushed, expanded bar (LLP 1116.005 D4): the
         // scroller replaced in place, then a reason between the header and it.
         try tap("home-open-swap", in: nav, depth: 2)
         var swap = try state(nav, "swap", "swap-first", top: "swap-first-top")
@@ -431,12 +430,12 @@ final class PushedTitleIOSTests: XCTestCase {
         try tap("home-open-rows", in: nav, depth: 2)
         let rows = try node("rows-scroll")
         let agent = Agent(session: session)
-        let down = agent.tap(["id": Int(rows.id), "scrollDrag": [0.0, -300.0]])
+        let down = agent.tap(["id": Int(rows.id), "scrollDrag": [0.0, -300.0], "ms": 100.0])
         XCTAssertNil(down["error"], "\(down)")
         settle()
         XCTAssertGreaterThan(try state(nav, "rows", "rows-scroll").scrolled, 200)
         XCTAssertEqual(nav.navigationBar.frame.height, inline, accuracy: 0.5)
-        let up = agent.tap(["id": Int(rows.id), "scrollDrag": [0.0, 600.0]])
+        let up = agent.tap(["id": Int(rows.id), "scrollDrag": [0.0, 600.0], "ms": 100.0])
         XCTAssertNil(up["error"], "\(up)")
         settle()
         XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5)
@@ -444,7 +443,7 @@ final class PushedTitleIOSTests: XCTestCase {
     }
 
     /// Header search focuses after its push and commits its final edit and blur
-    /// once before native Back removes the route.
+    /// once before native Back removes the route (LLP 1035.001 D2).
     func testHeaderSearchFocusesAfterPushAndCommitsBeforeBack() throws {
         guard hostedWindowScene() != nil else {
             throw missing("scene", "native search editing needs the hosted app responder lifecycle")

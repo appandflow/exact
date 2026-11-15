@@ -1,8 +1,8 @@
-// @exact/contacts' conformance suite on Apple: the fixture app built for
-// an iOS simulator or macOS and driven by the agent with the
-// implementation bound (`--bind contacts`), so the Contacts framework
-// answers and not the agent's address book. It never reads this Mac's own
-// contacts:
+// @exact/contacts' conformance suite on Apple (LLP 1133.018 §11, §14 stage
+// 2): the fixture app built for an iOS simulator or macOS and driven by the
+// agent with the implementation bound (`--bind contacts`), so the Contacts
+// framework answers and not the agent's address book. It never reads this
+// Mac's own contacts:
 //
 // - iOS: the simulator's own address book (a new simulator's six sample
 //   contacts), its access set by `xcrun simctl privacy`, the host's own
@@ -31,7 +31,7 @@ const SAMPLE = ['Kate Bell', 'Daniel Higgins Jr.', 'John Appleseed', 'Anna Haro'
 /** The fixture built for `host`, its plist read, and `open` bound to it. */
 async function fixtureFor(host, reads) {
   const fixture = makeFixture('contacts', { reads });
-  Object.assign(process.env, { EXACT_APP_DIR: fixture.app, EXACT2: root, EXACT_IDENTITY: process.env.EXACT_IDENTITY ?? '-' });
+  Object.assign(process.env, { EXACT_APP_DIR: fixture.app, EXACT: root, EXACT_IDENTITY: process.env.EXACT_IDENTITY ?? '-' });
   if (sim) process.env.EXACT_SIM = sim;
   run('bun', [resolve(root, 'host/apple/build.mjs'), ...(host === 'ios' ? ['--ios', '--sim', sim] : ['--bundle']), `${fixture.name}-apple`], root);
   const target = join(fixture.app, 'target'), files = readdirSync(target, { recursive: true });
@@ -93,7 +93,7 @@ for (const host of hosts.length ? hosts : ['ios', 'macos']) {
       await s.type('search', 'ZZZ');
       const none = await until(s, 'walk', (t) => t === ' 1');
       check(where, 'no match: one empty page', none === ' 1', JSON.stringify(none));
-      // The page measurements: each read's time off the main thread.
+      // D6's page measurements: each read's time off the main thread.
       const lines = (await s.logs())?.lines ?? [];
       console.log(`NOTE ${where}: ${lines.filter((l) => /page queryContacts .* in \d+ ms/.test(l)).map((l) => l.replace(/^.*page /, '')).join('; ')}`);
     } finally {

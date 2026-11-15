@@ -1,4 +1,4 @@
-//! The gameplay kit's oracles, each run against the kit and
+//! The gameplay kit's oracles (LLP 1139.001 §4), each run against the kit and
 //! against a broken stand-in that the oracle must refuse. The recipes
 //! (`game/recipes/{steering,schooling,pickup,spawner}.md`) pin the same numbers
 //! as doc-tests; these keep the negative controls.
@@ -477,7 +477,7 @@ fn spawner_child_restores_from_a_file() {
     std::fs::write(out, format!("{:?}", Kit::log(fresh.world()))).unwrap();
 }
 
-/// Two independent schedules saved mid-run continue in another
+/// LLP 1139.001 §4: two independent schedules saved mid-run continue in another
 /// process with the uninterrupted run's serials and spawn ticks.
 #[test]
 fn two_spawners_continue_identically_in_a_fresh_process() {

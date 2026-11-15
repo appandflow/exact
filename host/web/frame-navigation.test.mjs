@@ -1,7 +1,8 @@
 import { test, expect } from 'bun:test';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
+import { hostFixtureFile } from './tests/glue-fixture.mjs';
 
-// Frame navigation's web subset in real browsers: a same-origin guest's
+// LLP 1020.002 §11's web subset in real browsers: a same-origin guest's
 // navigations as FrameNavigation records, the commands a page has over its
 // frame, and a cross-origin guest's `load` and `navigate` alone.
 const SAME = 16582, CROSS = 16583;
@@ -11,7 +12,7 @@ const guest = (title, extra = '') => html(`<!doctype html><title>${title}</title
 function serve() {
   const same = Bun.serve({ port: SAME, hostname: '127.0.0.1', async fetch(request) {
     const path = new URL(request.url).pathname;
-    if (path === '/frame-navigation.js' || path === '/navigation.js') return new Response(Bun.file(new URL('.' + path, import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
+    if (path === '/frame-navigation.js' || path === '/navigation.js') return new Response(hostFixtureFile(new URL('.' + path, import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/g/a') return guest('A');
     if (path === '/g/b') return guest('B');
     if (path === '/g/redirect') return Response.redirect(`http://127.0.0.1:${SAME}/g/b`, 302);
@@ -38,7 +39,7 @@ const since = (page, from) => page.evaluate(n => events.slice(n).map(([name, r])
 const settle = (page, from, name, url) => page.waitForFunction(([n, name, url]) => events.slice(n).some(([e, r]) => e === name && (url == null || r.url.endsWith(url) || r.error === url)), [from, name, url], { timeout: 10000 });
 const count = page => page.evaluate(() => events.length);
 
-// A capture is refused on the web: the frame answers its
+// A capture is refused on the web (LLP 1020.002 D7): the frame answers its
 // `capture=` with `NotSupportedError` and the path it named, same-origin or not.
 for (const engine of ['chromium', 'firefox', 'webkit']) {
   test(`captureScreenshot answers NotSupportedError (${engine})`, async () => {
@@ -64,7 +65,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) {
 }
 
 // `color-scheme` on the frame is the guest's `prefers-color-scheme`, and
-// `zoom` its page zoom, as Chrome applies them. Firefox
+// `zoom` its page zoom, as Chrome applies them (LLP 1020.002 D6). Firefox
 // zooms the box but leaves the guest's devicePixelRatio at 1. No colour
 // scheme emulation, and first: Chrome's applies to every frame and hides
 // the frame's own, and it outlives a context of the shared browser.

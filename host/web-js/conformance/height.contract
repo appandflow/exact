@@ -1,5 +1,5 @@
 // data: interaction-gallery
-// Synthetic conformance plan: a height drag on a sheet: the
+// Synthetic conformance plan: a height drag (LLP 1041 §8.5's sheet): the
 // handle's heightDragFor names the sheet, a drag holds its height, the
 // release runs heightrelease at the height shown and the engine's
 // velocity, and the sheet springs to where the action snaps it.

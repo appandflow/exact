@@ -1,4 +1,4 @@
-//! ImageIO thumbnails into the painter's premultiplied sRGB pixels.
+//! ImageIO thumbnails into the painter's premultiplied sRGB pixels. @ref LLP 1149 D2.6.
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use std::{ffi::c_void, ptr::NonNull};
 
@@ -64,7 +64,7 @@ impl Drop for Owned {
 
 /// Decode frame zero, applying its profile and EXIF orientation, then sample
 /// into a crop of `full`. The caller reserves encoded bytes, decoder backing,
-/// thumbnail and output storage before calling.
+/// thumbnail and output storage before calling (LLP 1100 D7).
 pub fn decode(bytes: &[u8], full: [u32; 2], crop: [u32; 4]) -> Option<tiny_skia::Pixmap> {
     objc2::rc::autoreleasepool(|_| decode_inner(bytes, full, crop))
 }

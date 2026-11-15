@@ -178,7 +178,7 @@ impl Game for Grove {
     const ID: &'static str = "generated-grove";
     type Args = GroveArgs;
     fn setup(w: &mut World, args: &GroveArgs) {
-        // A flat-shaded eight-sided cone, like a forest game's generated pine.
+        // A flat-shaded eight-sided cone, like the forest's generated pine.
         let mut positions = Vec::new();
         let mut normals = Vec::new();
         for i in 0..8 {
@@ -214,13 +214,13 @@ impl Game for Grove {
         for i in 0..args.trees {
             let (x, z) = ((i % side) as f32 * 3., (i / side) as f32 * 3.);
             let tree = if args.primitive {
-                // Two primitives per tree, as a forest game's primitive variant.
+                // Two primitives per tree, as the forest's primitive variant.
                 w.spawn((Transform::at(x, 1., -z), Mesh::cylinder(0.2, 2.)));
                 w.spawn((Transform::at(x, 3., -z), Mesh::sphere(1.)))
             } else {
                 w.spawn((Transform::at(x, 0., -z), pine.clone()))
             };
-            // One to three static children per plant, as a garden game's fruit.
+            // One to three static children per plant, as the garden's fruit.
             for k in 0..if args.fruit { 1 + i % 3 } else { 0 } {
                 let at = Transform::at(0.4 * k as f32 - 0.4, 1.5, 0.3);
                 if args.primitive {
@@ -252,7 +252,7 @@ impl Game for Grove {
 /// the camera walks, on the live clock (a seekable clock observes the world): `TREES=100000 cargo test --release -p exact-game-render
 /// --test generated grove_frame_cpu -- --ignored --nocapture`; `PRIMITIVE=1`
 /// draws each tree as two primitives instead; `FRUIT=1` parents one to three
-/// static children to each tree, as a garden game's fruit.
+/// static children to each tree, as the garden's fruit.
 #[test]
 #[ignore = "release CPU measurement over static generated instances; GPU host"]
 fn grove_frame_cpu() {

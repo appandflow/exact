@@ -1,4 +1,4 @@
-// @exact/device on the Linux host, and the
+// @exact/device on the Linux host (LLP 1133.031 §12 stage 4), and the
 // Windows implementation's compile:
 //
 // - The readers over recorded answers (`linux/readers.rs`, run by
@@ -13,8 +13,8 @@
 //   `unknown`; on Linux, this machine's values, checked by range. Under the
 //   agent unbound the declaration answers.
 // - With `--cross`, the package's Rust checked for the targets this Mac
-//   cannot run, with Zig as the C compiler, as docs/reference.md's cross
-//   checks of the Linux apps and Windows Desk do: two crates added to the fixture,
+//   cannot run, with Zig as the C compiler, as the async lane's tier 2
+//   checks the Linux apps and Windows Desk: two crates added to the fixture,
 //   each the fixture's plan and the build's composition of the package with
 //   no data module, one over `exact_linux::run_composed` for
 //   `x86_64-unknown-linux-gnu` (compiling `system.rs`), and one over
@@ -79,7 +79,7 @@ if (cross) {
   // module: Hermes has no Windows build, and its Linux bundle is not one this Mac needs. The bake still runs (its
   // `packages.rs` is what composes `linux/lib.rs`), so the package's Rust is compiled for each target.
   const name = JSON.parse(readFileSync(join(app, 'linux/Cargo.toml'), 'utf8').match(/^name = (".*")$/m)[1]).replace(/-linux$/, '');
-  const exact2 = readFileSync(join(app, 'linux/Cargo.toml'), 'utf8').match(/^exact-linux = \{ path = "(.*)\/host\/linux" \}$/m)[1];
+  const exact2 = readFileSync(join(app, 'linux/Cargo.toml'), 'utf8').match(/^exact-painted = \{ path = "(.*)\/host\/painted" \}$/m)[1];
   const run_composed = { linux: 'exact_linux::run_composed::<NoData>(PLAN, COMPAT, composed)', windows: 'exact_windows::run_composed::<NoData>("Fixture", Default::default(), PLAN, COMPAT, composed)' };
   for (const os of ['linux', 'windows']) {
     const dir = join(app, `check-${os}`);
@@ -92,9 +92,9 @@ publish = false
 build = "build.rs"
 
 [dependencies]
-exact-linux = { path = "${exact2}/host/linux" }
+exact-painted = { path = "${exact2}/host/painted" }
 exact-runner = { path = "${exact2}/runner" }
-${os === 'windows' ? `exact-windows = { path = "${exact2}/host/windows" }\n` : ''}
+${os === 'windows' ? `exact-windows = { path = "${exact2}/host/windows" }\n` : `exact-linux = { path = "${exact2}/host/linux" }\n`}
 [build-dependencies]
 exact-js-bake = { path = "${exact2}/js/bake" }
 `);
@@ -113,7 +113,7 @@ impl exact_runner::DataSource for NoData {
 }
 
 fn main() {
-    let composed = exact_linux::Composed { packages: exact_packages(), ..Default::default() };
+    let composed = exact_painted::Composed { packages: exact_packages(), ..Default::default() };
     std::process::exit(${run_composed[os]});
 }
 `);

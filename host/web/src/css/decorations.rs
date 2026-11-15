@@ -1,5 +1,5 @@
-//! A `decoration` declaration's rows as the body of its `::highlight()` rule,
-//! through the same style parser and CSS writer as nodes.
+//! A `decoration` declaration's rows as the body of its `::highlight()` rule
+//! (LLP 1114.007), through the same style parser and CSS writer as nodes.
 
 use exact_kernel::{StyleId, StyleProps, StyleValue};
 use serde_json::{Map, Value};
@@ -41,7 +41,7 @@ pub fn decoration_styles(json: &str, fonts: &[String]) -> String {
     Value::Object(result).to_string()
 }
 
-/// A Markdown node's `atomFaces` with each face's `color`
+/// A Markdown node's `atomFaces` (LLP 1045.000 D2) with each face's `color`
 /// and `backgroundColor`, which the runner wrote as the wire's text, as the
 /// CSS the page sets on its pill; else empty, so the kind's paint stands.
 /// The rest stays as the runner wrote it.
@@ -82,7 +82,7 @@ mod tests {
         assert!(css.contains("text-decoration-line:underline"), "{css}");
     }
 
-    /// An atom kind's states are keys of their own, and
+    /// An atom kind's states (LLP 1045.000 D3) are keys of their own, and
     /// its ring's rows are CSS `outline`'s.
     #[test]
     fn an_atoms_state_and_ring_become_css() {
@@ -119,7 +119,7 @@ mod tests {
         assert_eq!(out[0]["backgroundColor"], "");
         assert_eq!(out[0]["label"], "A");
         // Not a colour; and a platform colour, which the runner admitted as one
-        // of the plan's literals, as its web colour.
+        // of the plan's literals (LLP 1095 D3), as its web colour.
         assert_eq!(out[1]["color"], "");
         assert_eq!(out[1]["backgroundColor"], "Highlight");
         assert_eq!(atom_faces("not json"), "not json");

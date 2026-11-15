@@ -1,4 +1,4 @@
-// A metronome and drum machine: one `sequence`
+// A metronome and drum machine, LLP 1125's stage 2 consumer: one `sequence`
 // declares what plays, and the runner plays it a second ahead on its own
 // clock. A tempo stepper, an accent on beat 1, a count-in of four, a haptic on
 // each beat, and a four-track drum pattern whose tracks loop at their own
@@ -6,13 +6,13 @@
 // changes with the beat, so it is a frame task gated on the states that show
 // it, whose action writes the beat it reads from `exactTransport()`, not the
 // time: a frame on which the beat has not changed commits nothing. With a
-// MIDI output chosen each click and drum is also a note on
+// MIDI output chosen (LLP 1125 stage 3) each click and drum is also a note on
 // the General MIDI percussion channel, and the output can be sent its clock.
-// With an input chosen to follow the sequence keeps that device's
+// With an input chosen to follow (stage 4) the sequence keeps that device's
 // time instead: it waits for Start, counts in, and plays at the device's
 // tempo, which the stepper's place shows. Share as image sends a picture of
-// the tempo card where the host draws one. A practice timer is an
-// alarm: it rings through silent mode and Focus when the
+// the tempo card where the host draws one (LLP 1125 D12). A practice timer is an
+// alarm (LLP 1133.030 D17): it rings through silent mode and Focus when the
 // time is up, stops the transport, and offers another round; its row shows
 // only where the device has alarms.
 use scheduleAlarm, cancelAlarm, pauseAlarm, resumeAlarm, alarms, alarmStatus, AlarmStatus, Alarm from "@exact/alarms"
@@ -117,8 +117,10 @@ component Metronome
   // `beat` is read too so each beat `draw` writes recomputes it.
   derive current = floor(transport.anchorBeat + (performanceNow() - transport.anchorAt) * transport.bpm / 60000) + 0 * beat
   derive shown = transport.state == "countin" ? `Count-in ${current + 5}` : transport.state == "playing" ? `Beat ${current % 4 + 1}` : transport.state == "waiting" ? "Waiting for clock" : "Stopped"
-  // Following a clock, the device's tempo while the sequence follows it.
-  derive tempo = follow != "" and transport.state != "stopped" ? transport.bpm : bpm
+  // Following a clock, the device's tempo while the sequence follows it:
+  // the stepper, which sets the tempo of its own, waits until it stops.
+  derive following = follow != "" and transport.state != "stopped"
+  derive tempo = following ? transport.bpm : bpm
 
   action toggle
     playing = not playing
@@ -135,7 +137,7 @@ component Metronome
   action setGroove(on: bool)
     groove = on
   action shareCard
-    share(title="Metronome", text=`${bpm} BPM`, files=["#card"])
+    share(title="Metronome", text=`${tempo} BPM`, files=["#card"])
   action draw
     beat = floor(transport.anchorBeat + (performanceNow() - transport.anchorAt) * transport.bpm / 60000)
   action connect
@@ -148,7 +150,7 @@ component Metronome
     follow = id
   action choosePractice(minutes: number)
     practiceMinutes = minutes
-  // The alarm asks for permission itself while it is `prompt`.
+  // The alarm asks for permission itself while it is `prompt` (D7).
   action startPractice
     now = performanceNow()
     scheduleAlarm(tag="practice", title=`Practice: ${practiceMinutes} min`, duration=practiceMinutes * 60000, snooze=practiceMinutes * 60000)
@@ -184,9 +186,9 @@ component Metronome
           text "beats a minute" font="-exact-footnote" color="-exact-secondary-label"
           text (groove ? "Kick, snare, hats and clap" : accent ? "Click, beat 1 accented" : "Click") font="-exact-footnote" testId="pattern"
         row gap=12
-          button press=slower aria-label="Slower" testId="slower"
+          button press=slower disabled=following aria-label="Slower" testId="slower"
             text "−"
-          button press=faster aria-label="Faster" testId="faster"
+          button press=faster disabled=following aria-label="Faster" testId="faster"
             text "+"
       text shown font="-exact-title-2" testId="beat"
       button press=toggle buttonStyle="filled" testId="toggle"

@@ -1,5 +1,5 @@
 /-
-What `sortBy` computes, proved of `Contract.Sort`'s
+What `sortBy` computes (LLP 1116.016 §5), proved of `Contract.Sort`'s
 definitions with core's merge sort lemmas: the key order is a strict total
 order (NaN, -0 and +0 one key; strings by UTF-16 code units), so the sort's
 answer is a permutation of the items, sorted by key in the direction asked,

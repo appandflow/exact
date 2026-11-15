@@ -1,4 +1,4 @@
-//! On a real `CAMetalLayer`: a surface that asks for HDR gets
+//! LLP 1100 D12b on a real `CAMetalLayer`: a surface that asks for HDR gets
 //! half floats in extended sRGB, EDR and its host's headroom; one that
 //! doesn't keeps the 8-bit target and a headroom of 1, through an sRGB view
 //! when it asks for one.
@@ -235,7 +235,7 @@ fn an_hdr_surface_gets_an_extended_target_and_its_hosts_headroom() {
     drop(layers);
 }
 
-/// A canvas that released its renderer for a new tier is
+/// LLP 1139.003 D2: a canvas that released its renderer for a new tier is
 /// dirty, so the agent's settle draws the new rung without moving the clock.
 #[test]
 fn a_retiered_canvas_is_drawn_again_without_the_clock() {

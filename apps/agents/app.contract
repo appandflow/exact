@@ -2,7 +2,7 @@
 // conversation is one model at one thinking effort; New Conversation is a sheet that picks both.
 // app.ts keeps the conversations in a file and streams answers from service.ts, which holds
 // the OpenRouter key; the view polls while an answer streams. "On this device" is the device's own
-// model (@exact/language-model), which app.ts prompts with no service at all.
+// model (@exact/language-model, LLP 1133.016 §10), which app.ts prompts with no service at all.
 use EmptyState from "exact:content"
 use languageModelAvailability, createLanguageModel, LanguageModelAvailability, LanguageModelInfo, LanguageModelTool from "@exact/language-model"
 
@@ -143,8 +143,8 @@ component Agents
     modelQuery = v
   action create
     send changed = command("new", "", `${newModel}|${newEffort}`, time.epochAtZero + performanceNow())
-  // A download is the person's act: this press creates the session that fetches the model,
-  // with the conversation tool where the platform runs tools.
+  // A download is the person's act (LLP 1133.016 D5): this press creates the session that fetches the model,
+  // with the conversation tool where the platform runs tools (D9).
   action download
     if device.tools
       send fetched = createLanguageModel(tools=[LanguageModelTool(name="findConversations", description="Finds the person’s earlier conversations about a topic, with their titles and an excerpt of each.", inputSchema="ConversationQuery")])
@@ -199,8 +199,8 @@ component Agents
         if e.name == "chats"
           column navigationKey=`${e.id}` navigationScroll="chats" position="absolute" inset=0 display="flex" flex-direction="column"
             header display="flex" align-items="center" gap=8 padding="8px 16px"
-              text "Agents" role="heading" aria-level=1 flex=1
-              input type="search" value=query input=search placeholder="Search" testId="search"
+              text "Agents" role="heading" aria-level=1
+              input type="search" value=query input=search placeholder="Search" flex=1 min-width=0 testId="search"
               button press=openNew aria-label="New Conversation" aria-keyshortcuts="Meta+N" -exact-menu="file dock" testId="new"
                 image "symbol:compose"
             column flex=1 min-height=0 position="relative" display="flex" flex-direction="column"

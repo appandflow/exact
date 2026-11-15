@@ -11,13 +11,13 @@ struct CollectionMeasurement: Equatable {
 
 /// What a list's report says of the reader and of the host's own motion,
 /// flag bits 5 to 7: the reader's scroll under way, a gesture since the
-/// list's `scrollIntoView`, and the host's own smooth
-/// correction running.
+/// list's `scrollIntoView` (LLP 1070.000 §2.6), and the host's own smooth
+/// correction running (§11).
 struct Reading: Equatable {
     var scrolling = false, gesture = false, animating = false
 }
 
-/// A list's port on its own axes: `offset` along the main
+/// A list's port on its own axes (LLP 1070 H1): `offset` along the main
 /// axis, the port's main and cross sizes, and the rows' cross size.
 package struct CollectionFacts: Equatable {
     package var offset: Double
@@ -28,15 +28,15 @@ package struct CollectionFacts: Equatable {
     var focus: UInt32?
     var interaction: UInt32?
     /// The main-axis padding before the rows and after them, as laid out:
-    /// the room `offset` counts past.
+    /// the room `offset` counts past (LLP 1010 §6.9).
     var paddingStart = 0.0
     var paddingEnd = 0.0
 
     /// Wire version 4: `velocity` (points/s, positive toward the end),
     /// `limit`, the rows past what it owes this report may build (nil: any),
-    /// and whether an enclosing list is moving.
+    /// and whether an enclosing list is moving (LLP 1070 F2).
     /// `createOnly` and `noBuild` split a moving list's report around the
-    /// owner thread: build only, off main; then retire only.
+    /// owner thread (LLP 1072 §5): build only, off main; then retire only.
     /// `glimpse`: `limit` bounds the rows of what shows it builds too.
     /// `reading`: flag bits 5 to 7 (`Reading`).
     func encode(view: UInt32, revision: UInt64, sequence: UInt64, velocity: Double = 0, limit: UInt32? = nil, ancestorMoving: Bool = false, createOnly: Bool = false, noBuild: Bool = false, glimpse: Bool = false, reading: Reading = Reading()) -> Data {
@@ -94,7 +94,7 @@ struct CollectionTurnBudget {
     /// Passes refused, by why: the turn had spent its two (`spent`), or a
     /// pass was running and a report's batch reentered (`busy`).
     private(set) var refusedSpent = 0, refusedBusy = 0
-    /// A rescue (what shows is uncovered) is never refused
+    /// A rescue (what shows is uncovered, LLP 1050.000 D1) is never refused
     /// for the turn's passes: a turn that spent them on other lists, or on
     /// a slice, would otherwise leave the port blank until the next slice.
     mutating func begin(rescue: Bool = false) -> Bool {
@@ -128,15 +128,15 @@ struct CollectionSnapshot {
         let offset: Double
         /// An anchor's correction: the offset it was taken at (relative).
         var from: Double? = nil
-        /// Animate there: a smooth `scrollIntoView`, or
+        /// Animate there (LLP 1070.000 §6.2): a smooth `scrollIntoView`, or
         /// a `scroll-behavior: smooth` list following its end.
         var smooth = false
     }
     let view: UInt32
-    /// The main axis: a row list scrolls on x, and `extent`,
+    /// The main axis (LLP 1070 H1): a row list scrolls on x, and `extent`,
     /// a correction's offset and every measured size run along it.
     let horizontal: Bool
-    /// The outer list whose mounted row holds this one.
+    /// The outer list whose mounted row holds this one (LLP 1070 N1).
     let parent: UInt32?
     let revision: UInt64
     let sequence: UInt64
@@ -147,9 +147,9 @@ struct CollectionSnapshot {
     let count: Int
     /// A limited report left window rows unbuilt: another report is owed.
     let pending: Bool
-    /// A `scrollIntoView` under way: its corrections are the
+    /// A `scrollIntoView` under way (LLP 1070.000): its corrections are the
     /// app's, applied whatever the reader scrolled since, until the reader's
-    /// gesture. `waiting`: it waits for the reader's scroll to end.
+    /// gesture. `waiting`: it waits for the reader's scroll to end (§2.6).
     let seeking: Bool
     let waiting: Bool
     /// Which request that is: a gesture counts against the one it began after.
@@ -209,7 +209,7 @@ struct CollectionSnapshot {
         return UInt32(exactly: n)
     }
     /// A correction's offset and an anchor's `from`: negative only in the
-    /// padding before the first row (a `scrollIntoView` there,
+    /// padding before the first row (LLP 1010 §6.9; a `scrollIntoView` there,
     /// or a report from there that a kept row's correction moves on from).
     private static func signed(_ value: Any?) -> Double? {
         guard let n = value as? NSNumber, n.doubleValue.isFinite else { return nil }
@@ -305,11 +305,11 @@ package final class CollectionHost {
     var wheelPhase: UInt = 0 // `NSEvent.Phase`'s raw value
     var contactAt: TimeInterval = 0
     #endif
-    /// The collection fill. A platform with a pump reports each moving
+    /// LLP 1050.000's fill. A platform with a pump reports each moving
     /// collection's velocity (nil at rest) and builds `fillPending` in slices;
     /// one without leaves `motion` nil, and every report is unlimited.
     var motion: ((UInt32) -> Double?)?
-    /// The reader's scroll is under way on `id`: a
+    /// The reader's scroll is under way on `id` (LLP 1070.000 §2.6): a
     /// `scrollIntoView` made meanwhile waits for it. On AppKit, whose jump
     /// would not end it: the live scroll and the motion after it. Never on
     /// UIKit, whose own calls land at once, under a finger too (the drag goes
@@ -443,7 +443,7 @@ package final class CollectionHost {
     var rescued: (() -> Void)?
     private(set) var fillPending = Set<UInt32>()
     private var sliceLimits: [UInt32: UInt32] = [:]
-    /// A moving list's slice is built off main. The
+    /// @ref LLP 1072 §3, §5 — a moving list's slice is built off main. The
     /// session sends it (`onFill`), says whether one is in flight (`filling`,
     /// when every report waits), and lands it (`drain`: wait and apply).
     var onFill: ((UInt32, Data) -> Void)?
@@ -478,7 +478,7 @@ package final class CollectionHost {
         gestureContact = nil
         generation += 1; queued = false; batchDepth = 0; correcting = false
         stopTracking?(); stopTracking = nil
-        // A list's animation goes with it, stopped where the port is.
+        // A list's animation goes with it, stopped where the port is (LLP 1070.000 §2.5).
         for view in animating { stopAnimation(view) }
         entries.removeAll(); dirty.removeAll(); interaction = nil; contactEvent = nil
         fillPending.removeAll(); sliceLimits.removeAll(); glimpses.removeAll(); glimpsing.removeAll()
@@ -517,7 +517,7 @@ package final class CollectionHost {
                         }
                         // A gesture counts against the request it began after: a new one starts with none.
                         // A request that ends or is replaced takes its animation with it, stopped where the
-                        // port is; a newer one is admitted from the report that follows.
+                        // port is (LLP 1070.000 §2.5); a newer one is admitted from the report that follows.
                         if snapshot.request != entry.snapshot.request {
                             entry.gesture = false
                             entry.requestAt = ProcessInfo.processInfo.systemUptime
@@ -546,8 +546,8 @@ package final class CollectionHost {
             let planned = entry.cursor.sequence, jumped = entry.cursor.jumpedAt
             if let previous = entry.port, previous != dimensions { entry.cursor.jump() }
             entry.port = dimensions
-            // The port went under the bar or came out from under it: the
-            // platform's clamp to the new frame and its
+            // The port went under the bar or came out from under it (LLP
+            // 1116.000 D1.3): the platform's clamp to the new frame and its
             // compensation for the new inset are not the reader moving, and
             // together they put an opened transcript's end an inset short.
             // Where the port starts stays (CSS's scrollTop), before any
@@ -564,7 +564,7 @@ package final class CollectionHost {
                 // under a pan or a fling, which go on from there. A port this
                 // same batch resized is not the reader moving either: rows
                 // put above the reader as a pull-to-refresh zone closes stay
-                // put on the page, so a correction planned
+                // put on the page (feed F14), so a correction planned
                 // before it still lands.
                 if let delta = entry.cursor.takeShift(revision: entry.snapshot.revision, correction, jumpedBefore: jumped) {
                     correcting = true
@@ -610,8 +610,8 @@ package final class CollectionHost {
         return nil
     }
     func owns(_ view: UInt32) -> Bool { entries[view] != nil }
-    /// An inner list whose outer list moves builds only what it owes: a
-    /// slice for its pending remainder would report and build
+    /// An inner list whose outer list moves builds only what it owes (LLP
+    /// 1070 F2): a slice for its pending remainder would report and build
     /// nothing, once a frame for every mounted inner list.
     func ancestorMoving(_ view: UInt32) -> Bool {
         entries[view]?.snapshot.parent.flatMap { motion?($0) } != nil
@@ -660,7 +660,7 @@ package final class CollectionHost {
         // Not the clip AppKit clamps inside a batch's layout. A request that
         // has moved the port is the reader's once the reader moves it, by
         // whatever input: its corrections no longer land whatever the port
-        // did, and the next report ends it.
+        // did, and the next report ends it (LLP 1070.000 §2.5).
         if user && batchDepth == 0 {
             if entry.authored { entry.gesture = true }
             readerMoved(view)
@@ -672,7 +672,7 @@ package final class CollectionHost {
         if !user { schedule(); return }
         // While mounted rows cover the port, the pump reports after the
         // scroll callback returns, building ahead in its slice; otherwise
-        // the rows the reader sees are built now.
+        // the rows the reader sees are built now (LLP 1050.000 D1).
         if motion != nil, covers(view) {
             glimpses.remove(view)
             fillPending.insert(view)
@@ -683,7 +683,7 @@ package final class CollectionHost {
             let bounded = glimpse?(view)
             if let bounded { sliceLimits[view] = bounded; glimpsing.insert(view) } else if motion != nil { sliceLimits[view] = 2 }
             lastVisited = view &- 1
-            // What shows cannot wait for a slice in flight: land it,
+            // What shows cannot wait for a slice in flight (T7): land it,
             // then report from the geometry that shows now.
             if filling?() == true { drain?() }
             let before = bounded == nil ? [] : Set(entry.snapshot.rows.map(\.view)), started = ProcessInfo.processInfo.systemUptime
@@ -705,7 +705,7 @@ package final class CollectionHost {
     @discardableResult
     func fillSlice(_ view: UInt32, limit: UInt32, glimpse: Bool = false) -> Int {
         // One slice in flight at a time, and none before the last one's
-        // retirement: this one stays owed.
+        // retirement: this one stays owed (LLP 1072 §3.1, §5).
         if filling?() == true { return 0 }
         if !retireOwed.isEmpty {
             dirty.formUnion(retireOwed.keys)
@@ -727,7 +727,7 @@ package final class CollectionHost {
         sliceLimits[view] = nil
         return (entries[view]?.snapshot.rows ?? []).filter { !before.contains($0.view) }.count
     }
-    /// A slice built off main has been applied: what it left
+    /// A slice built off main has been applied (LLP 1072 §5): what it left
     /// owed (rows past the window, an edge) is settled now, on main, by a
     /// retire-only report from fresh facts and the pins that hold now.
     func landed(_ view: UInt32, at now: Double) {
@@ -737,7 +737,7 @@ package final class CollectionHost {
         guard let limit = fillLimits.removeValue(forKey: view), entries[view] != nil else { return }
         retireOwed[view] = limit
         // The pump's next frame: the slice's apply and its retirement are
-        // two frames' work, not one.
+        // two frames' work, not one (LLP 1072 §5).
         fillPending.insert(view)
         requestFill?()
     }
@@ -797,10 +797,10 @@ package final class CollectionHost {
 
     func flush() {
         guard batchDepth == 0, let onFeedback, !dirty.isEmpty else { return }
-        // A slice in flight holds every report until it lands, and its
+        // A slice in flight holds every report until it lands (T4), and its
         // landing flushes again (`landed`). A continuation now would find it
         // still in flight and queue another, every main-queue turn until it
-        // lands.
+        // lands (LLP 1072 §3.2).
         if filling?() == true { return }
         observeTurns()
         // Reserve the continuation before calling Rust: its batch can reenter us.
@@ -809,7 +809,7 @@ package final class CollectionHost {
         // even if a visit re-dirties its list).
         var free = entries.count
         while !dirty.isEmpty {
-            // A slice in flight holds every report until it lands.
+            // A slice in flight holds every report until it lands (T4).
             if filling?() == true { return }
             let rescue = !rescuing.isDisjoint(with: dirty)
             guard budget.begin(rescue: rescue) else { return }
@@ -867,7 +867,7 @@ package final class CollectionHost {
                     ?? (motion != nil && (entry.lastFacts == nil || velocity != nil || entry.snapshot.pending) ? 0 : nil)
                 let further = limit.map { $0 > 0 && $0 > (entry.lastLimit ?? .max) } ?? false
                 // Off main only when the report keeps the port, the width and
-                // the pins: a report that changes them may retire.
+                // the pins: a report that changes them may retire (§5).
                 let same = entry.lastFacts.map { ($0.portMain, $0.portCross, $0.cross, $0.focus, $0.interaction)
                     == (facts.portMain, facts.portCross, facts.cross, facts.focus, facts.interaction) } ?? false
                 let glimpse = glimpsing.contains(id) && retireLimit == nil && limit != nil
@@ -893,7 +893,7 @@ package final class CollectionHost {
                     reportCovered(id, entry)
                     #endif
                     // While its outer list moves, an inner list builds only
-                    // what it owes; its pending report
+                    // what it owes (LLP 1070 F2); its pending report
                     // continues once the outer list rests.
                     let ancestorMoving = entry.snapshot.parent.flatMap { motion?($0) } != nil
                     if let offMain, let onFill {

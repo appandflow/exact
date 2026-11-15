@@ -12,7 +12,7 @@ pub const SOURCE: &str = include_str!("../app.contract");
 
 /// Compile the app.
 pub fn compile() -> Result<Plan, contract::CompileError> {
-    // By path, so a `use … from "./other.contract"` resolves.
+    // By path, so a `use … from "./other.contract"` resolves (LLP 1017 P8).
     contract::compile_path(std::path::Path::new(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/app.contract"

@@ -1,9 +1,9 @@
-// A live scan: an observer of a video track that takes no
+// A live scan (LLP 1133.027 D5): an observer of a video track that takes no
 // lease. While a consumer's lease runs the capture, the scan's
 // `AVCaptureVideoDataOutput` keeps only the newest frame, and each poll hands
 // that one frame to Vision; one still in Vision when the next poll comes is
 // waited for, not queued behind. Under the agent no capture exists and the
-// frame is the camera's agent picture.
+// frame is the camera's agent picture (D17 item 2).
 import AVFoundation
 import ExactPackage
 import Foundation
@@ -68,7 +68,7 @@ final class Scan: NSObject, ExactTrackConsumer, AVCaptureVideoDataOutputSampleBu
         source.configure { session in
             guard session.canAddOutput(output) else { return }
             session.addOutput(output)
-            // The frame upright as the viewfinder shows it: the angle a level capture takes.
+            // The frame upright as the viewfinder shows it (D5): the angle a level capture takes.
             if let connection = output.connection(with: .video) {
                 let angle = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil).videoRotationAngleForHorizonLevelCapture
                 if connection.isVideoRotationAngleSupported(angle) { connection.videoRotationAngle = angle }
@@ -126,7 +126,7 @@ final class Scan: NSObject, ExactTrackConsumer, AVCaptureVideoDataOutputSampleBu
     private func took(_ found: Result<[[String: Any]], Error>, width w: Double, height h: Double) {
         switch found {
         case .failure(let e):
-            // One frame Vision fails on is the answer's `error`; the next clears it.
+            // One frame Vision fails on is the answer's `error`; the next clears it (D2).
             error = e.localizedDescription
         case .success(let codes):
             let at = module?.context.now() ?? 0

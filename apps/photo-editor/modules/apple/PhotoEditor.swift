@@ -1,4 +1,4 @@
-// `<photo-editor>` on Apple hosts: the app's one native module.
+// `<photo-editor>` on Apple hosts (LLP 1024): the app's one native module.
 // The edit — zoom, rotation, position and a crop rectangle — lives here, in
 // the platform's own gesture recognizers (PhotoEditorIOS.swift: UIKit;
 // PhotoEditorMac.swift: AppKit). What crosses to the Contract is small:
@@ -77,7 +77,7 @@ struct PhotoEdit: Equatable {
     }
 
     /// The edit in the photo's terms, as `storage.fs.transformImage` takes
-    /// it: the clockwise angle in degrees, and the crop
+    /// it (LLP 1133.019 §11): the clockwise angle in degrees, and the crop
     /// in the turned photo's pixels (its bounding box after the turn), the
     /// canvas's crop mapped back through the fit, scale and pan. JSON.
     func inPhoto(_ image: CGSize, stage: CGSize) -> String {

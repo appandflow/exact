@@ -1,4 +1,4 @@
-//! `atomFace` in the compatibility id: the runner's
+//! @ref LLP 1045.000 D2 — `atomFace` in the compatibility id: the runner's
 //! bridge reads an `AtomFace` record by its fields
 //! (`exact_runner::decorations::ATOM_FACE_FIELDS`) and clears a Markdown
 //! node's faces when the plan's record has others, so an app whose plan

@@ -4,9 +4,9 @@ import AppKit
 /// HTML's top layer belongs to the session, not to NSApp or a second runner.
 /// The actual subtree moves; fields, selection and app state remain the same.
 /// A `dialog` that is no alert is AppKit's sheet on its window, holding that
-/// subtree (SheetsMac.swift); under the driver's own
+/// subtree (LLP 1115.002 D7.2, SheetsMac.swift); under the driver's own
 /// chrome it is painted in the page over a backdrop, as it was. A modal route
-/// is a sheet by the same means (RouteSheetMac.swift): an entry here
+/// is a sheet by the same means (D7.4, RouteSheetMac.swift): an entry here
 /// whose node is the route, which navigation shows and takes away.
 final class DialogHost {
     private(set) weak var presenter: Presenter?
@@ -49,10 +49,19 @@ final class DialogHost {
     /// The native button drawn as the open dialog's default (DefaultButtonMac.swift).
     weak var drawnDefault: NativeButtonMac?
     var active: NodeView? { entries.last?.dialog }
-    /// An open dialog's backdrop; the dialogs it lifts.
+    /// LLP 1080.001 D3: an open dialog's backdrop; the dialogs it lifts.
     func inspectionOwns(_ view: NSView) -> Bool { entries.contains { $0.backdrop === view } }
     func projects(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node } }
     var presented: [NodeView] { entries.map(\.dialog) }
+    /// A painted backdrop accepts clicks independently of its dialog's CSS.
+    /// AppKit's sheets have no authored backdrop hit in the page window.
+    var backdrop: TopLayerBackdrop? {
+        guard let presenter, let entry = entries.last, entry.sheet == nil,
+              entry.backdrop.window != nil, !entry.backdrop.isHiddenOrHasHiddenAncestor else { return nil }
+        let clip = presenter.viewport.contentView
+        let rect = clip.convertNativePresentation(entry.backdrop.visibleRect, from: entry.backdrop)
+        return (entry.dialog.id, rect.offsetBy(dx: -clip.bounds.minX, dy: -clip.bounds.minY), nil)
+    }
     init(_ presenter: Presenter) { self.presenter = presenter }
 
     func owns(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node } }
@@ -118,7 +127,7 @@ final class DialogHost {
               let parent = dialog.superview, parent.isDescendant(of: presenter.root) || parent === presenter.root
                 || entries.contains(where: { parent.isDescendant(of: $0.dialog) || parent === $0.dialog }) else { return }
         // A confirmation in the alert shape is the platform's alert, a sheet
-        // on the window (AlertsMac.swift). HTML: showModal
+        // on the window (LLP 1115.000 D7.6, AlertsMac.swift). HTML: showModal
         // on an open modal dialog does nothing.
         if presenter.alerts.isOpen(dialog) || presenter.alerts.present(dialog, from: nil, popover: false) { return }
         // Over the dialog that is open, when one is: its sheet's window.
@@ -327,6 +336,21 @@ final class DialogHost {
     /// Dismissal belongs to the sheet's modal segment; its title-row Back belongs to the pushed route.
     func dismissalOwner(of dialog: NodeView) -> NodeView { entry(ofRoute: dialog)?.routeBase ?? dialog }
 
+    /// AppKit tests charactersIgnoringModifiers for Command-period before
+    /// dispatching to an Escape button. Keep Command's layout there too.
+    func appKitEvent(_ event: NSEvent) -> NSEvent {
+        guard event.type == .keyDown,
+              event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command,
+              let characters = event.characters, characters != event.charactersIgnoringModifiers,
+              characters == "." || event.charactersIgnoringModifiers == ".",
+              let window = event.window,
+              window === active?.window || window === presenter?.alerts.sheet else { return event }
+        return NSEvent.keyEvent(with: event.type, location: event.locationInWindow,
+            modifierFlags: event.modifierFlags, timestamp: event.timestamp, windowNumber: event.windowNumber,
+            context: nil, characters: characters, charactersIgnoringModifiers: characters,
+            isARepeat: event.isARepeat, keyCode: event.keyCode) ?? event
+    }
+
     /// Shared by real key delivery and the agent's direct NSWindow delivery.
     func key(_ event: NSEvent) -> Bool {
         guard let dialog = active, event.window === dialog.window else { return false }
@@ -334,13 +358,13 @@ final class DialogHost {
         // Composition owns Escape and Tab until the input method commits it.
         if (dialog.window?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true { return false }
         // Escape, and Command-period, which AppKit gives a sheet's Cancel too.
-        let period = event.type == .keyDown && event.keyCode == 47
+        let period = event.type == .keyDown && event.characters == "."
             && event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command
         if event.keyCode == 53 || period {
             if event.type == .keyDown, !event.isARepeat, dismissalOwner(of: dialog).props["closedby"] != "none" { dismiss(dialog) }
             return true
         }
-        // Return is the default button's, when the dialog has one.
+        // Return is the default button's, when the dialog has one (LLP 1115.000 D7.3).
         if pressDefault(event, in: dialog) { return true }
         if event.type == .keyDown, event.keyCode == 48 {
             // A node that holds the focus and is no stop (the dialog itself, a `tabindex=-1` box) is where Tab
@@ -405,7 +429,7 @@ final class DialogBackdrop: NSView {
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) { NSColor.black.withAlphaComponent(0.18).setFill(); dirtyRect.fill() }
     /// A backdrop is not a control: the click that activates its window does
-    /// not also dismiss the dialog. The agent's does.
+    /// not also dismiss the dialog (LLP 1115.000 D7.9). The agent's does.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { NodeView.everyClickCounts }
     private func outside(_ event: NSEvent) -> Bool {
         guard let parent = superview else { return false }

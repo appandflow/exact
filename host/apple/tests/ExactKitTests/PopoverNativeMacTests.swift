@@ -1,4 +1,4 @@
-// A popover that is not a menu is an `NSPopover`.
+// @ref LLP 1115.002 D7.3 — a popover that is not a menu is an `NSPopover`.
 // In a whole session (`SheetFixture`'s page): the popover's own subtree is in
 // AppKit's popover, laid out there by the kernel at its content's size;
 // `auto` is transient and `manual` application-defined; its edge is its
@@ -204,7 +204,7 @@ final class PopoverNativeMacTests: XCTestCase {
     }
 
     /// A press in the popover's own window bubbles to its authored ancestors
-    /// with the point where the page has it: the page's
+    /// (LLP 1005 §Events) with the point where the page has it: the page's
     /// `clientX`/`clientY`, and offsets from the ancestor's content box.
     func testAPressInThePopoverReachesThePageWithThePagesPoint() throws {
         let f = try make(), p = f.presenter

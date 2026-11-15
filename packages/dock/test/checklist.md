@@ -1,4 +1,4 @@
-# The desktop modules by hand
+# The desktop modules by hand (LLP 1133.025)
 
 `desktop.mjs` drives what the agent can on this Mac (`bun
 packages/dock/test/desktop.mjs macos`), and the absent cells (`web`,
@@ -27,7 +27,7 @@ built, then launch that app's bundle by hand (its path is printed).
    Items lists the fixture, and macOS shows its own notice. Log out and in:
    the fixture starts with no window and its star in the menu bar; Open
    shows it, and the login line reads "launched at login". Record whether
-   `keyAELaunchedAsLogInItem` was seen: "launched at login"
+   `keyAELaunchedAsLogInItem` was seen (D6, Q9): "launched at login"
    present means it was. Then Don't Open at Login, and confirm Login Items
    no longer lists it. Never leave the fixture registered.
 7. **Global shortcut.** With another app in front, press ⌃⌥⌘K: "Presses"
@@ -41,15 +41,16 @@ built, then launch that app's bundle by hand (its path is printed).
    kept `menubarfixture` bundle: no Dock icon, no menu bar, no window; the
    star's menu ends with "Quit menubarfixture", which quits it.
 
-## Windows (waits for a Windows test machine)
+## Windows (waits for the NucBox)
 
 Built for Windows so far: the host's services (`host/windows/src/desktop.rs`:
-`RegisterHotKey`, `FlashWindowEx`, the `Run` value) and the three packages'
-Rust (`packages/*/windows/lib.rs`), cross-checked on this Mac only. Not
-built: the notification-area icon, `keepRunning`, the launch with no window,
-one instance, the startup task and the modifier pair's hook. Run these in
-the Windows test machine's signed-in console session (`docs/testing.md`,
-"Windows: the test machine"), not over SSH, with a
+`RegisterHotKey`, `FlashWindowEx`, the `Run` value), the three packages'
+Rust (`packages/*/windows/lib.rs`), `keepRunning`, the hidden login launch
+and one instance (`host/windows/src/window/lifecycle.rs`,
+`host/windows/src/instance.rs`), cross-checked on this Mac only. Not built:
+the notification-area icon, a launch with no window at every launch, the
+startup task and the modifier pair's hook (LLP 1133.025 §14). Run these in the NucBox's signed-in console
+session (`docs/testing.md`, "Windows: the NucBox"), not over SSH, with a
 development build of an app that depends on the three packages.
 
 1. **Global shortcut.** With Notepad in front, press the app's chord
@@ -65,7 +66,15 @@ development build of an app that depends on the three packages.
    HKCU\Software\Microsoft\Windows\CurrentVersion\Run` lists the app with
    `"<exe>" --login hidden`, and Settings › Apps › Startup lists it, on.
    Turn it off there: the status reads `requires-approval`. Sign out and
-   in with it on: the app starts and reads "launched at login" (a window
-   shows: the launch with no window is not built). Then Don't Open at
-   Login: the value is gone. Never leave it registered.
+   in with it on: the app starts, reads "launched at login" and shows no
+   window; starting it from Start shows the window, and Task Manager lists
+   one process. Then Don't Open at Login: the value is gone. Never leave it
+   registered.
 4. **Login Items Settings…** opens Settings › Apps › Startup.
+5. **Keep running.** With `"keepRunning": true` in `host.windows.window`:
+   the close button and Alt+F4 hide the window, Task Manager still lists the app and its global shortcut
+   still answers. Starting it from Start shows the window as it was
+   (`exactPage().restores` reads 1), and no second process stays in Task
+   Manager. The app's own button that calls `close()` ends it.
+6. **One instance.** With Shelf open (no `keepRunning`), its jump-list task
+   Add Book opens Add Book in that window, and no second window appears.

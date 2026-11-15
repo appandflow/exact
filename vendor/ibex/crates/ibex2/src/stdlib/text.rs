@@ -1,4 +1,4 @@
-//! `TextEncoder` / `TextDecoder` — pure, ungated.
+//! `TextEncoder` / `TextDecoder` — pure, ungated (LLP 0059.000 §3.3).
 //!
 //! **UTF-8 only in v1.** The measured uses are all UTF-8; `latin1`, UTF-16, and
 //! the legacy label set are out. `fatal` and `ignoreBOM` are honored.
@@ -16,9 +16,9 @@ pub fn encode(input: &str) -> Vec<u8> {
 /// and bytes written to the destination. This writes whole characters only, so
 /// a truncated buffer never receives a partial code point.
 ///
-/// This operation is the reason `ArrayBuffer` handles are in the boundary
-/// contract at all: the buffer is the caller's, and Rust writes into it rather
-/// than allocating and copying back.
+/// This is the operation LLP 0059.000 §3.3 names as the reason `ArrayBuffer`
+/// handles are in the boundary contract at all: the buffer is the caller's, and
+/// Rust writes into it rather than allocating and copying back.
 pub fn encode_into(input: &str, destination: &mut [u8]) -> (usize, usize) {
     // Take the longest prefix that fits, backing up to a character boundary so
     // a partial code point is never written, then copy it in one go.

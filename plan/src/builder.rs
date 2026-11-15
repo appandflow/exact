@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 
 /// One face of a declared family, as [`PlanBuilder::font_family`] takes it:
-/// `@font-face`'s descriptors.
+/// `@font-face`'s descriptors (LLP 1019 D2).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Face<'a> {
     /// App-relative TTF/OTF source.
@@ -36,10 +36,27 @@ pub struct PlanBuilder {
     /// shared body is indistinguishable from a copy to every reader.
     bodies: HashMap<Vec<u8>, Code, BuildHasherDefault<BodyHasher>>,
     /// The design's values (`theme` rows' and slices'), interned at
-    /// [`finish`](Self::finish) after every other string: a value-only edit
-    /// then moves no other string's id, so the plan's structure
-    /// ([`Plan::structure`]) stays.
+    /// [`finish`](Self::finish) after bytecode strings, so a value-only edit
+    /// keeps bytecode string ids stable. [`Plan::structure`] sorts the retained
+    /// strings and remaps their references, including strings the app pass
+    /// adds later (LLP 1121 stage 4).
     values: Vec<(ValueAt, String)>,
+    /// Equal type rows in insertion order, including a resumed plan's duplicates.
+    types_by: HashMap<TypeKey, Vec<TypesId>, BuildHasherDefault<BodyHasher>>,
+    types_indexed: usize,
+}
+
+/// A `types` row's structure: what makes two rows equal.
+type TypeKey = (TypeKind, Option<TypesId>, u32, u32, StrId);
+
+fn type_key(row: &TypesRow) -> TypeKey {
+    (
+        row.kind,
+        row.elem,
+        row.fields.start,
+        row.fields.len,
+        row.name,
+    )
 }
 
 /// Where a design value interned at finish goes.
@@ -89,10 +106,12 @@ impl PlanBuilder {
             interned: HashMap::default(),
             bodies: HashMap::with_capacity_and_hasher(256, Default::default()),
             values: Vec::new(),
+            types_by: HashMap::default(),
+            types_indexed: 0,
         };
         // These eight distinct stack ids are part of the plan vocabulary.
         // A host may resolve several of them to one installed face; their
-        // identities never collapse in the plan.
+        // identities never collapse in the plan (LLP 1019 D3).
         for kind in [
             StackMemberKind::SystemUi,
             StackMemberKind::UiSansSerif,
@@ -121,6 +140,8 @@ impl PlanBuilder {
             interned,
             bodies: HashMap::default(),
             values: Vec::new(),
+            types_by: HashMap::default(),
+            types_indexed: 0,
         }
     }
 
@@ -230,7 +251,9 @@ impl PlanBuilder {
         let string = self.primitive(TypeKind::String);
         let fields: Vec<_> = values.iter().map(|v| (v.as_str(), string)).collect();
         let id = self.record("enum", &fields);
+        let before = type_key(&self.plan.types[id.0 as usize]);
         self.plan.types[id.0 as usize].kind = TypeKind::String;
+        self.retyped(id, before);
         id
     }
 
@@ -278,14 +301,42 @@ impl PlanBuilder {
     fn push_type(&mut self, row: TypesRow) -> TypesId {
         // Structural interning keeps equal types equal by id, which is what
         // `Record` opcodes and `conforms` compare against.
-        if let Some(i) = self.plan.types.iter().position(|t| *t == row) {
-            return TypesId(i as u32);
+        self.index_types();
+        if let Some(rows) = self.types_by.get(&type_key(&row)) {
+            return rows[0];
         }
         self.plan.types.push(row);
+        self.index_types();
         TypesId(self.plan.types.len() as u32 - 1)
     }
 
-    /// A declared font family and its faces.
+    /// Index the `types` rows not indexed yet, each under its structure.
+    fn index_types(&mut self) {
+        for i in self.types_indexed..self.plan.types.len() {
+            let key = type_key(&self.plan.types[i]);
+            self.types_by
+                .entry(key)
+                .or_default()
+                .push(TypesId(i as u32));
+        }
+        self.types_indexed = self.plan.types.len();
+    }
+
+    /// An enum changes kind after insertion; keep the earliest equal row first.
+    fn retyped(&mut self, id: TypesId, before: TypeKey) {
+        if let Some(rows) = self.types_by.get_mut(&before) {
+            rows.retain(|row| *row != id);
+            if rows.is_empty() {
+                self.types_by.remove(&before);
+            }
+        }
+        let after = type_key(&self.plan.types[id.0 as usize]);
+        let rows = self.types_by.entry(after).or_default();
+        let at = rows.partition_point(|row| row.0 < id.0);
+        rows.insert(at, id);
+    }
+
+    /// A declared font family and its faces (LLP 1019 D1–D2).
     pub fn font_family(&mut self, name: &str, faces: &[Face<'_>]) -> FamiliesId {
         let start = self.plan.faces.len() as u32;
         for face in faces {
@@ -310,14 +361,14 @@ impl PlanBuilder {
         FamiliesId(self.plan.families.len() as u32 - 1)
     }
 
-    /// A `@keyframes` rule, its body as CSS text.
+    /// A `@keyframes` rule, its body as CSS text (LLP 1055 D5).
     pub fn keyframes(&mut self, name: &str, css: &str) -> KeyframesId {
         let (name, css) = (self.str(name), self.str(css));
         self.plan.keyframes.push(KeyframesRow { name, css });
         KeyframesId(self.plan.keyframes.len() as u32 - 1)
     }
 
-    /// A declared sound: its path, its length in frames at its
+    /// A declared sound (LLP 1096 D1): its path, its length in frames at its
     /// own rate, its channels and its digest.
     pub fn sound(&mut self, src: &str, frames: u32, rate: u32, channels: u8, digest: &str) {
         let (src, digest) = (self.str(src), self.str(digest));
@@ -330,7 +381,7 @@ impl PlanBuilder {
         });
     }
 
-    /// A `@color-profile`: its dashed name, ICC file and
+    /// A `@color-profile` (LLP 1100 D3): its dashed name, ICC file and
     /// rendering intent.
     pub fn color_profile(&mut self, name: &str, src: &str, intent: &str) -> ProfilesId {
         let (name, src, intent) = (self.str(name), self.str(src), self.str(intent));
@@ -338,14 +389,14 @@ impl PlanBuilder {
         ProfilesId(self.plan.profiles.len() as u32 - 1)
     }
 
-    /// One colour `theme` entry: its name, the role it
+    /// One colour `theme` entry (LLP 1095 D4): its name, the role it
     /// overrides (`""` for none) and the colour text it stands for.
     pub fn theme_entry(&mut self, name: &str, role: &str, value: &str) -> ThemeId {
         self.theme_token(name, role, value, 0, &[])
     }
 
-    /// A `theme` entry of `kind` (0 a colour, 1 a length, 2 a number) that
-    /// varies by the app's axes: its value for every full
+    /// A `theme` entry of `kind` (LLP 1121 D3: 0 a colour, 1 a length, 2 a
+    /// number) that varies by the app's axes (D5): its value for every full
     /// tuple, in tuple order; `value` is the default's.
     pub fn theme_token(
         &mut self,
@@ -385,13 +436,13 @@ impl PlanBuilder {
         ThemeId(self.plan.theme.len() as u32 - 1)
     }
 
-    /// One app axis: its name and values, the first the default.
+    /// One app axis (LLP 1121 D5): its name and values, the first the default.
     pub fn axis(&mut self, name: &str, values: &[&str]) {
         let (name, values) = (self.str(name), self.str(&values.join("|")));
         self.plan.axes.push(AxesRow { name, values });
     }
 
-    /// An icon token the plan keeps: its SF Symbol, the
+    /// An icon token the plan keeps (LLP 1121 D10): its SF Symbol, the
     /// SVG's viewBox and joined `d`, and the SVG's path, each empty for none.
     pub fn icon(&mut self, name: &str, sf: &str, view_box: &str, path: &str, svg: &str) {
         let row = IconsRow {
@@ -436,7 +487,7 @@ impl PlanBuilder {
         SlotsId(self.plan.slots.len() as u32 - 1)
     }
 
-    /// A route in declaration order.
+    /// A route in declaration order. @ref LLP 1038 D2.
     pub fn route(
         &mut self,
         name: &str,
@@ -466,7 +517,7 @@ impl PlanBuilder {
     }
 
     /// The source that lists a parameterized route's pages, with its
-    /// arguments.
+    /// arguments (LLP 1048.000 D2).
     pub fn set_route_pages(&mut self, id: RoutesId, source: &str, args: &[Value]) {
         let source = self.str(source);
         let args = self.data(&Value::list(args.to_vec()));
@@ -475,8 +526,8 @@ impl PlanBuilder {
         row.pages_args = args;
     }
 
-    /// A route's declared render, activation and first-paint policies; a
-    /// route that declares none is `client`,
+    /// A route's declared render, activation and first-paint policies (LLP
+    /// 1048.003 D5, LLP 1048.005); a route declares none is `client`,
     /// activation inferred, painted settled.
     pub fn set_route_policy(
         &mut self,
@@ -491,14 +542,21 @@ impl PlanBuilder {
         row.paint = paint;
     }
 
-    /// The root slot filled with the launch location.
+    /// The root slot filled with the launch location. @ref LLP 1038 D2/D5.
     pub fn set_router(&mut self, slot: SlotsId) {
         self.plan.router = Some(slot);
     }
 
-    /// One locale's texts, `(key, text)` sorted by key; the first locale is
-    /// the base.
-    pub fn locale(&mut self, name: &str, rtl: bool, texts: &[(&str, &str)]) -> LocalesId {
+    /// One locale's texts, `(key, text)` sorted by key, and its format data
+    /// (`""` for none); the first locale is the base. @ref LLP 1060 D3;
+    /// LLP 1054.000.003 D6.
+    pub fn locale(
+        &mut self,
+        name: &str,
+        rtl: bool,
+        format: &str,
+        texts: &[(&str, &str)],
+    ) -> LocalesId {
         let start = self.plan.texts.len() as u32;
         for (key, text) in texts {
             let key = self.str(key);
@@ -506,9 +564,11 @@ impl PlanBuilder {
             self.plan.texts.push(TextsRow { key, text });
         }
         let name = self.str(name);
+        let format = self.str(format);
         self.plan.locales.push(LocalesRow {
             name,
             rtl,
+            format,
             texts: TextsRange {
                 start,
                 len: texts.len() as u32,
@@ -517,21 +577,40 @@ impl PlanBuilder {
         LocalesId(self.plan.locales.len() as u32 - 1)
     }
 
-    /// The root slot holding the resolved locale.
+    /// The root slot holding the resolved locale. @ref LLP 1060 D4.
     pub fn set_locale(&mut self, slot: SlotsId) {
         self.plan.locale = Some(slot);
+    }
+
+    /// The root slot holding the locale the formatters format in.
+    /// @ref LLP 1054.000.003 D6.
+    pub fn set_format(&mut self, slot: SlotsId) {
+        self.plan.format = Some(slot);
     }
 
     /// A derive.
     pub fn derive(&mut self, name: &str, ty: TypesId, body: Code) -> DerivesId {
         let name = self.str(name);
-        self.plan.derives.push(DerivesRow { name, ty, body });
+        self.plan.derives.push(DerivesRow {
+            name,
+            ty,
+            body,
+            owner: None,
+            unsettled: false,
+        });
         DerivesId(self.plan.derives.len() as u32 - 1)
+    }
+
+    /// Mark an executable derive row that evaluates at each read in its owner's frame.
+    pub fn set_derive_unsettled(&mut self, id: DerivesId, owner: Option<ArmsId>) {
+        let row = &mut self.plan.derives[id.0 as usize];
+        row.unsettled = true;
+        row.owner = owner;
     }
 
     /// A resource: a data source name, argument expressions, its shape, and
     /// an optional compiled initial value. With non-empty arguments, also call
-    /// `set_resource_initial_args` before `finish`.
+    /// `set_resource_initial_args` before `finish` (LLP 1038 D5).
     pub fn resource(
         &mut self,
         name: &str,
@@ -564,11 +643,14 @@ impl PlanBuilder {
             placeholder: None,
             placeholder_value: self.no_data(),
             each: ArgsRange { start: 0, len: 0 },
+            transient: false,
+            keep: false,
+            gate: ArgsRange { start: 0, len: 0 },
         });
         ResourcesId(self.plan.resources.len() as u32 - 1)
     }
 
-    /// A mutation: the `option<T>` slot its reply fills, and `T`;
+    /// A mutation (LLP 1016): the `option<T>` slot its reply fills, and `T`;
     /// the source is named at each `send`.
     pub fn mutation(&mut self, name: &str, slot: SlotsId, ty: TypesId) -> MutationsId {
         let name = self.str(name);
@@ -578,7 +660,7 @@ impl PlanBuilder {
             ty,
             refreshes: MutationRefreshesRange { start: 0, len: 0 },
             then: None,
-            queue: false,
+            mode: MutationMode::Newest,
         });
         MutationsId(self.plan.mutations.len() as u32 - 1)
     }
@@ -588,12 +670,13 @@ impl PlanBuilder {
         self.plan.mutations[mutation.0 as usize].then = Some(action);
     }
 
-    /// `mutation … queue`: its sends wait their turn.
-    pub fn set_mutation_queue(&mut self, mutation: MutationsId) {
-        self.plan.mutations[mutation.0 as usize].queue = true;
+    /// `mutation … queue` (LLP 1092 D1), whose sends wait their turn, or
+    /// `mutation … parallel` (LLP 1161.000 D1), whose sends run together.
+    pub fn set_mutation_mode(&mut self, mutation: MutationsId, mode: MutationMode) {
+        self.plan.mutations[mutation.0 as usize].mode = mode;
     }
 
-    /// The resources a send to `mutation` refreshes,
+    /// The resources a send to `mutation` refreshes (LLP 1054.000.000 D1),
     /// once its resources exist.
     pub fn mutation_refreshes(&mut self, mutation: MutationsId, resources: &[ResourcesId]) {
         let start = self.plan.mutation_refreshes.len() as u32;
@@ -608,7 +691,7 @@ impl PlanBuilder {
         };
     }
 
-    /// A data-source signature: the parameter types and the
+    /// A data-source signature (LLP 1027 D2): the parameter types and the
     /// result type every `resource` and `send` naming `name` agree on.
     pub fn source(&mut self, name: &str, params: &[TypesId], ty: TypesId) -> SourcesId {
         let start = self.plan.source_params.len() as u32;
@@ -627,13 +710,13 @@ impl PlanBuilder {
         SourcesId(self.plan.sources.len() as u32 - 1)
     }
 
-    /// A native module's name: `source` is answered by
+    /// A native module's name (LLP 1133.002 D13): `source` is answered by
     /// the module through the native slot, not by the app's data.
     #[allow(clippy::too_many_arguments)]
     pub fn module(
         &mut self,
         source: SourcesId,
-        extension: &str,
+        interface: (&str, &str),
         declared: &str,
         send: bool,
         live: bool,
@@ -643,7 +726,8 @@ impl PlanBuilder {
     ) {
         let row = ModulesRow {
             source,
-            extension: self.str(extension),
+            extension: self.str(interface.0),
+            package: self.str(interface.1),
             declared: self.str(declared),
             send,
             live,
@@ -654,11 +738,58 @@ impl PlanBuilder {
         self.plan.modules.push(row);
     }
 
-    /// A native module's event the root hears: `action`
+    /// A source declared in Contract (LLP 1162.001): the runner answers
+    /// `source` with one HTTP request. `params` are its parameters' names, in
+    /// order; `headers` its request headers as written; `body` is empty,
+    /// `json` or `graphql`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fetch(
+        &mut self,
+        source: SourcesId,
+        method: &str,
+        url: &str,
+        origin: &str,
+        params: &[&str],
+        headers: &[(&str, &str)],
+        body: &str,
+        document: &str,
+        pointer: &str,
+    ) {
+        let range = |b: &mut Self, parts: &mut dyn Iterator<Item = (&str, &str)>| {
+            let start = b.plan.fetch_parts.len() as u32;
+            for (name, value) in parts {
+                let row = FetchPartsRow {
+                    name: b.str(name),
+                    value: b.str(value),
+                };
+                b.plan.fetch_parts.push(row);
+            }
+            FetchPartsRange {
+                start,
+                len: b.plan.fetch_parts.len() as u32 - start,
+            }
+        };
+        let params = range(self, &mut params.iter().map(|p| (*p, "")));
+        let headers = range(self, &mut headers.iter().copied());
+        let row = FetchesRow {
+            source,
+            method: self.str(method),
+            url: self.str(url),
+            origin: self.str(origin),
+            params,
+            headers,
+            body: self.str(body),
+            document: self.str(document),
+            pointer: self.str(pointer),
+        };
+        self.plan.fetches.push(row);
+    }
+
+    /// A native module's event the root hears (LLP 1133.004 D6): `action`
     /// runs with its arguments.
     pub fn module_event(
         &mut self,
-        extension: &str,
+        interface: (&str, &str),
         declared: &str,
         action: ActionsId,
         raised: &str,
@@ -666,7 +797,8 @@ impl PlanBuilder {
         budget: u32,
     ) {
         let row = ModuleEventsRow {
-            extension: self.str(extension),
+            extension: self.str(interface.0),
+            package: self.str(interface.1),
             declared: self.str(declared),
             action,
             raised: self.str(raised),
@@ -676,7 +808,7 @@ impl PlanBuilder {
         self.plan.module_events.push(row);
     }
 
-    /// A `tool` line: `[additive, idempotent, closed]`, and
+    /// A `tool` line (LLP 1111 D2): `[additive, idempotent, closed]`, and
     /// the derives of `[returns, fails, available]`. Its face is the
     /// app pass's (`Plan::set_tool_face`).
     pub fn tool(
@@ -755,10 +887,17 @@ impl PlanBuilder {
         self.timer_row(interval_ms, action, once, false)
     }
 
-    /// A frame task: dispatches `action` once per presented
+    /// A frame task (LLP 1073): dispatches `action` once per presented
     /// frame, or per virtual frame on a seek.
     pub fn frame_timer(&mut self, action: ActionsId) -> TimersId {
         self.timer_row(0, action, false, true)
+    }
+
+    /// A keyed action queued after a committed change, without a time delay.
+    pub fn change_task(&mut self, action: ActionsId) -> TimersId {
+        let id = self.timer_row(0, action, true, false);
+        self.plan.timers[id.0 as usize].change = true;
+        id
     }
 
     fn timer_row(
@@ -771,6 +910,7 @@ impl PlanBuilder {
         let always = self.constant(&Value::Bool(true));
         let name = self.str("");
         self.plan.timers.push(TimersRow {
+            change: false,
             interval_ms,
             wait: 0,
             max_ms: 0,
@@ -787,7 +927,7 @@ impl PlanBuilder {
         TimersId(self.plan.timers.len() as u32 - 1)
     }
 
-    /// Set the admission kind and optional waiting bound.
+    /// Set the admission kind and optional waiting bound (LLP 1147).
     pub fn set_timer_wait(&mut self, timer: TimersId, wait: u8, max_ms: u32) {
         let row = &mut self.plan.timers[timer.0 as usize];
         row.wait = wait;
@@ -799,12 +939,12 @@ impl PlanBuilder {
         self.plan.timers[timer.0 as usize].tolerance_ms = tolerance_ms;
     }
 
-    /// A task's name, for the agent.
+    /// A task's name, for the agent (LLP 1092 D10).
     pub fn set_timer_name(&mut self, timer: TimersId, name: &str) {
         self.plan.timers[timer.0 as usize].name = self.str(name);
     }
 
-    /// `task … when gate key=key`: the gate and the key as
+    /// `task … when gate key=key` (LLP 1092 D7, D9): the gate and the key as
     /// plan code; `None` keeps the task ungated or unkeyed.
     pub fn set_timer_gate(&mut self, timer: TimersId, gate: Option<Code>, key: Option<Code>) {
         let row = &mut self.plan.timers[timer.0 as usize];
@@ -818,7 +958,7 @@ impl PlanBuilder {
         }
     }
 
-    /// A `sequence`: its gate, key and `play` arguments as
+    /// A `sequence` (LLP 1125 D2): its gate, key and `play` arguments as
     /// plan code, and its `ended=` action.
     pub fn sequence(&mut self, row: SequencesRow) -> SequencesId {
         self.plan.sequences.push(row);
@@ -861,7 +1001,7 @@ impl PlanBuilder {
     }
 
     /// A canvas node's surface binding: the surface's name in the app's GPU
-    /// module and its argument expressions.
+    /// module and its argument expressions (LLP 1009 D3).
     pub fn surface(&mut self, name: &str, args: &[(&str, Code)]) -> SurfacesId {
         let start = self.plan.surface_args.len() as u32;
         for (name, expr) in args {
@@ -930,7 +1070,7 @@ impl PlanBuilder {
         NodesId(self.plan.nodes.len() as u32 - 1)
     }
 
-    /// Node `id`'s host-known state looks: each `(state,
+    /// Node `id`'s host-known state looks (LLP 1121 D8): each `(state,
     /// bindings)`, its rows after every binding so far, in node order (the
     /// node is the last made) and state order, whatever order they came in.
     pub fn set_looks(&mut self, id: NodesId, looks: &[(u8, Vec<BindingsRow>)]) {
@@ -957,7 +1097,7 @@ impl PlanBuilder {
 
     /// Make a slot owned by an arm's instance — a `for` row, an `if` or
     /// `match` arm: one value per instance, created with it, read and
-    /// written through its frame.
+    /// written through its frame (LLP 1017 P4c).
     pub fn set_slot_owner(&mut self, id: SlotsId, arm: ArmsId) {
         self.plan.slots[id.0 as usize].owner = Some(arm);
     }
@@ -968,7 +1108,7 @@ impl PlanBuilder {
         self.plan.slots[id.0 as usize].late = true;
     }
 
-    /// Mark a root slot persisted, or not.
+    /// Mark a root slot persisted (LLP 1116 D5), or not.
     pub fn set_slot_persist(&mut self, id: SlotsId, persist: bool) {
         self.plan.slots[id.0 as usize].persist = persist;
     }
@@ -983,7 +1123,7 @@ impl PlanBuilder {
         self.plan.resources[id.0 as usize].args = args;
     }
 
-    /// Over a list: the list and the
+    /// Over a list (LLP 1017.000 P4c, amended 2026-11-04): the list and the
     /// key that reads the element, `[list, key]`.
     pub fn set_resource_each(&mut self, id: ResourcesId, list: Code, key: Code) {
         let each = self.args(&[list, key]);
@@ -991,12 +1131,12 @@ impl PlanBuilder {
     }
 
     /// Set the trailing request-context count, after installing arguments.
-    /// Zero by default; validated against `args.len`.
+    /// @ref LLP 1027.005 D6 — zero by default; validated against `args.len`.
     pub fn set_resource_context(&mut self, id: ResourcesId, context: u16) {
         self.plan.resources[id.0 as usize].context = context;
     }
 
-    /// A declared `else empty(…)`'s constant.
+    /// A declared `else empty(…)`'s constant (LLP 1054.000.002 D3).
     pub fn set_resource_placeholder_value(&mut self, id: ResourcesId, v: &Value) {
         let bytes = self.data(v);
         self.plan.resources[id.0 as usize].placeholder_value = bytes;
@@ -1009,21 +1149,39 @@ impl PlanBuilder {
     }
 
     /// The evaluated arguments beside a compiled value, encoded as a list.
-    /// Bake's cache key, including an empty argument list.
+    /// @ref LLP 1038 D5 — bake's cache key, including an empty argument list.
     pub fn set_resource_initial_args(&mut self, id: ResourcesId, args: &[Value]) {
         let bytes = self.data(&Value::list(args.to_vec()));
         self.plan.resources[id.0 as usize].initial_args = bytes;
     }
 
-    /// The row whose value shows while `id`'s source hasn't answered.
+    /// The row whose value shows while `id`'s source hasn't answered (LLP
+    /// 1048.003 D6).
     pub fn set_resource_placeholder(&mut self, id: ResourcesId, placeholder: ResourcesId) {
         self.plan.resources[id.0 as usize].placeholder = Some(placeholder);
     }
 
-    /// Mark a resource as one the bake found consulting the store: its
-    /// compiled value is the empty-store placeholder.
+    /// Mark a resource as one the bake found consulting the store (LLP 1027
+    /// D4): its compiled value is the empty-store placeholder.
     pub fn set_resource_reader(&mut self, id: ResourcesId, reader: bool) {
         self.plan.resources[id.0 as usize].reader = reader;
+    }
+
+    /// Mark a resource whose answer is never kept across launches (LLP
+    /// 1156.005 D4).
+    pub fn set_resource_transient(&mut self, id: ResourcesId) {
+        self.plan.resources[id.0 as usize].transient = true;
+    }
+
+    /// Keep only successful live publications of this surface reader.
+    pub fn set_resource_keep(&mut self, id: ResourcesId) {
+        self.plan.resources[id.0 as usize].keep = true;
+    }
+
+    /// A resource's `when` (LLP 1161.002 D1): the condition under which it is asked.
+    pub fn set_resource_gate(&mut self, id: ResourcesId, gate: Code) {
+        let range = self.args(&[gate]);
+        self.plan.resources[id.0 as usize].gate = range;
     }
 
     /// Replace an action's body.

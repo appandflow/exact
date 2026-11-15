@@ -1,5 +1,5 @@
-//! Fields default native; authored backgrounds, borders and corners devolve
-//! them once, while explicit `auto` refuses those rows.
+//! LLP 1104 r8 D1/D2: fields default native; authored backgrounds, borders
+//! and corners devolve them once, while explicit `auto` refuses those rows.
 
 use exact_kernel::{Appearance, Kernel, NodeType, PropId, StyleId};
 use exact_plan::{BindingKind, Plan};
@@ -312,9 +312,72 @@ fn excluded_text_inputs_and_markdown_editor_always_get_none() {
 }
 
 #[test]
+fn non_native_fields_keep_authored_appearance_only_when_it_is_always_none() {
+    let cases = [
+        ("default", "", false),
+        ("literal", "appearance=\"none\"", true),
+        ("computed", "appearance=(on ? \"none\" : \"none\")", true),
+        (
+            "nested",
+            "appearance=(on ? (on ? \"none\" : \"none\") : \"none\")",
+            true,
+        ),
+        (
+            "matched",
+            "appearance=(match (on ? some(1) : none) { case some(n) => \"none\", case none => \"none\" })",
+            true,
+        ),
+        ("classed", "class=Bare", true),
+        ("class-choice", "class=(on ? Bare : AlsoBare)", true),
+        ("mixed", "appearance=(on ? \"none\" : \"auto\")", false),
+        (
+            "mixed-match",
+            "appearance=(match (on ? some(1) : none) { case some(n) => \"none\", case none => \"auto\" })",
+            false,
+        ),
+        ("cleared", "appearance=(on ? \"none\" : none)", false),
+        ("partial-class", "class=(on ? Bare : Plain)", false),
+    ];
+    for tag in ["textarea markup=\"markdown\"", "input type=\"hidden\""] {
+        let body = cases
+            .iter()
+            .map(|(name, attrs, _)| format!("{tag} {attrs} testId=\"{name}\"\n"))
+            .collect::<String>();
+        let plan = compile(
+            "style Bare\n  appearance=\"none\"\nstyle AlsoBare\n  appearance=\"none\"\nstyle Plain\n  opacity=1\n",
+            &body,
+        );
+        let mut r = Runner::boot(
+            Plan::decode(&plan.encode()).unwrap(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        for _ in 0..2 {
+            for (name, _, written) in cases {
+                let field = r.kernel().node(id(&r, name)).unwrap();
+                assert_eq!(field.node_type, NodeType::TextInput, "{tag}: {name}");
+                assert_eq!(field.style.appearance, Appearance::None, "{tag}: {name}");
+                assert!(field.style.mask.has(StyleId::Appearance), "{tag}: {name}");
+                assert_eq!(
+                    field.style.written.has(StyleId::Appearance),
+                    written,
+                    "{tag}: {name} ownership"
+                );
+                assert_eq!(field.says(StyleId::Appearance), written, "{tag}: {name}");
+            }
+            r.act("flip", vec![]).unwrap();
+        }
+    }
+}
+
+#[test]
 fn fields_and_buttons_share_the_literal_appearance_error() {
     for tag in ["input", "textarea", "button"] {
         for (styles, row) in [
+            ("", "appearance=(on ? \"none\" : \"none\")"),
             ("", "appearance=(on ? \"none\" : \"auto\")"),
             (
                 "style A\n  appearance=\"auto\"\nstyle B\n  opacity=1\n",
@@ -370,7 +433,7 @@ fn background_remains_a_refused_spelling_of_background_color() {
     assert!(e.message.contains("background-color"));
 }
 
-/// `outline="none"` (or
+/// LLP 1104 D6 (amended 2026-11-05): `outline="none"` (or
 /// `outline-style`) takes the focus ring off any element that takes the
 /// focus, as CSS's does: a field, a button, a link, a native control, a
 /// `tabindex` box. The row is set from the element's own attribute or a
@@ -407,10 +470,11 @@ fn outline_none_takes_any_elements_ring_off() {
     }
 }
 
-/// `appearance="textfield"`, CSS's way to drop a number input's spin buttons,
-/// is the platform's field (still native to the kernel, so its chrome and look
-/// are the field's) without the stepper; it refuses a drawn background as
-/// `auto` does, and is a text field's word only.
+/// LLP 1116.007 D4: `appearance="textfield"`, CSS's way to drop a number
+/// input's spin buttons, is the platform's field (still native to the
+/// kernel, so its chrome and look are the field's) without the stepper; it
+/// refuses a drawn background as `auto` does, and is a text field's word
+/// only.
 #[test]
 fn textfield_is_the_platforms_field_without_a_number_fields_stepper() {
     for tag in [
@@ -448,11 +512,11 @@ fn textfield_is_the_platforms_field_without_a_number_fields_stepper() {
     }
 }
 
-/// CSS's `::placeholder { color }`, a part block in a `style` or on the field
-/// itself, where its value may be computed. The field's own wins over its
-/// class's, an unset arm gives the platform's colour back, and a field without
-/// it has no row. Only `color`, only on a text field; the names an author might
-/// guess point at the block.
+/// LLP 1104 D3 (amended 2026-10-12): CSS's `::placeholder { color }`, a part
+/// block in a `style` or on the field itself, where its value may be
+/// computed. The field's own wins over its class's, an unset arm gives the
+/// platform's colour back, and a field without it has no row. Only `color`,
+/// only on a text field; the names an author might guess point at the block.
 #[test]
 fn a_placeholder_part_colours_a_text_field_and_nothing_else() {
     use exact_kernel::{Color, ColorValue};

@@ -1,4 +1,5 @@
 //! Windowless RichEdit callbacks. They retain field state, never the presenter.
+//! @ref LLP 1115.004 D7.1.6.
 #![allow(non_snake_case, non_camel_case_types)]
 use super::composition::Window;
 use std::{cell::Cell, rc::Rc};

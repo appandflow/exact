@@ -25,7 +25,7 @@ test('passed-over transform targets are journaled once until no longer valid', (
     drag.attach(b);
     drag.attach(c);
     drag.attach(d);
-    const report = 'transformDragFor: target view #3 passed over for owner view #2; one owner (first valid, never stolen)';
+    const report = 'transformDragFor: target view #3 passed over for owner view #2; one owner (first valid, never stolen; LLP 1071)';
     drag.reconcile();
     expect(lines).toEqual([report]);
     expect([...bindings.values()]).toEqual([2, 2, null, null]);
@@ -52,7 +52,7 @@ test('passed-over transform targets are journaled once until no longer valid', (
     first.valid = true;
     drag.reconcile();
     expect(bindings.get(a.id)).toBeNull();
-    expect(lines.at(-1)).toBe('transformDragFor: target view #2 passed over for owner view #3; one owner (first valid, never stolen)');
+    expect(lines.at(-1)).toBe('transformDragFor: target view #2 passed over for owner view #3; one owner (first valid, never stolen; LLP 1071)');
   } finally {
     globalThis.requestAnimationFrame = oldFrame;
   }

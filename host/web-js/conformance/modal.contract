@@ -1,6 +1,6 @@
-// linux: the Linux host presents no dialog
+// linux: the Linux host presents no dialog (LLP 1001, LLP 1021 D2)
 // Synthetic conformance plan: `showModal(id)` and `close(id)` called from an
-// action open and close a `dialog` by its id
+// action (LLP 1101.001 P5, LLP 1115 D6) open and close a `dialog` by its id
 // on both web targets, as a button's `commandfor` does. `ask` opens a
 // confirmation, the shape of Shelf's "Remove…" (an alertdialog whose buttons
 // close it themselves); `edit` opens a dialog that its own action, `done`,

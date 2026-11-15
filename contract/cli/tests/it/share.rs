@@ -1,7 +1,8 @@
-//! `share(title=, text=, url=, files=)`: named arguments lower as `(title,
-//! text, url, files)`; the command carries the node whose press ran it;
-//! under the agent it is a held request whose answer is a journal line; a
-//! file is an `app:/` path the `fs.read` grant covers or an element's `#id`.
+//! `share(title=, text=, url=, files=)` (LLP 1069.003; LLP 1125 D12): named
+//! arguments lower as `(title, text, url, files)`; the command carries the
+//! node whose press ran it (D3); under the agent it is a held request whose
+//! answer is a journal line (D2, D6); a file is an `app:/` path the
+//! `fs.read` grant covers or an element's `#id`.
 
 use exact_kernel::Kernel;
 use exact_plan::Value;
@@ -152,10 +153,10 @@ fn every_host_arm_refuses_holds_or_presents_by_one_rule() {
     assert!(exact_runner::agent::logs(&r, 0).contains("share: dismissed"));
 }
 
-/// A granted app file and the card's picture present on Apple, in order, the
-/// picture by its view; the web refuses the picture by name; a file outside
-/// `fs.read` is refused everywhere; the agent's hold records the entries and
-/// draws nothing.
+/// LLP 1125 D12: a granted app file and the card's picture present on
+/// Apple, in order, the picture by its view; the web refuses the picture by
+/// name; a file outside `fs.read` is refused everywhere; the agent's hold
+/// records the entries and draws nothing.
 #[test]
 fn files_are_granted_paths_and_pictures_of_elements() {
     let mut r = boot();
@@ -270,7 +271,7 @@ fn files_are_granted_paths_and_pictures_of_elements() {
     .unwrap();
     assert!(r.device_holds().iter().all(|h| h.ticket != ticket));
     assert!(exact_runner::agent::logs(&r, 0).contains("share: dismissed"));
-    // The document pickers' door takes the same flag: held
+    // The document pickers' door takes the same flag (LLP 1069.010): held
     // and presented, the person's choice answers the hold as `type @t` does.
     let picker = exact_runner::file_pickers::request(
         &mut r,

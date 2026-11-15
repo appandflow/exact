@@ -1,4 +1,4 @@
-// `perf` on the JS target: each plan site's work in a
+// `perf` on the JS target (LLP 1079 D1–D2): each plan site's work in a
 // development build, in the runner's units where the page has them. The
 // emitter wraps each dynamic binding of a development build in `pf(site, f)`
 // (`evaluated`, `unchanged`); the document's own mutation records give
@@ -10,6 +10,7 @@
 import { eq, owner, After, Before, journal, clock, data, Resources, Mutations } from "./rt.js";
 import { sourceTypes } from "./names.js";
 import { watch } from "./seam.js";
+import { resourceKey } from "./resource-inspection.js";
 
 const Sites = [];
 let Since = null;
@@ -121,11 +122,11 @@ export function reply(target, tags) {
   if (all.length > SITES) { truncated = true; all.length = SITES; }
   const sites = all.map(site => {
     const w = at(site);
-    // A hatched site's row names its hatch's calls and time.
+    // A hatched site's row names its hatch's calls and time (LLP 1075.003.000.001 §3.3).
     return { site, instances: live.get(site), live: w.created - w.retired, ...w, ...(globalThis.exact?.hatchPerf?.site(site) ?? {}) };
   });
-  // Each resource whose source was asked, and how often, as the runner's `resources`.
-  const resources = Resources.filter(r => r.asks).map(r => ({ name: r.name, asked: r.asks }));
+  // Each resource whose source was asked, and how often (LLP 1146 D3), as the runner's `resources`.
+  const resources = Resources.filter(r => r.asks).map(r => ({ name: r.name, ...(r.member ? { member: resourceKey(r) } : {}), asked: r.asks }));
   return { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, sites, resources, walked, truncated, work: {scope:"session", since:Since, timebase:"runner-clock-ms", counts:Object.fromEntries(["timersPrecise", "timersFrame", "timersUpdate", "timersScrollend", "timersIdle", "timersCap", "frameTasks"].flatMap((name, i) => clock.timerFirings?.[i] ? [[name, clock.timerFirings[i]]] : [])), coverage:"virtual row operations by collection site; browser layout and inherited work are unavailable"} };
 }
 
@@ -133,13 +134,13 @@ export function reply(target, tags) {
  * (main.js): a big one crossing the seam is said (seam.js). A reply is parsed
  * for the resource or mutation holding its ticket. */
 export function seam() {
-  const holder = args => (Resources.find(r => r.ticket?.args === args) ?? Mutations.find(m => m.ticket?.args === args))?.name;
+  const holder = args => (Resources.find(r => r.ticket?.args === args) ?? Mutations.find(m => m.ticket?.args === args || m.tickets?.some(t => t.args === args)))?.name;
   watch(data, { types: sourceTypes, say: line => journal.push(`t=${clock.now} ${line}`), owner: holder });
 }
 
 /** A development page (main.js, outside the agent too): its structure is
- * counted, and outside the agent its frames are sampled and ⌥⇧T posts a
- * trace. Under the agent's clock no frame is presented: `perf frames`
+ * counted, and outside the agent its frames are sampled (D3) and ⌥⇧T posts a
+ * trace (D5). Under the agent's clock no frame is presented: `perf frames`
  * is virtual (agent.js). */
 export async function develop(exact) {
   const root = document.getElementById('exact-root');
@@ -152,7 +153,7 @@ export async function develop(exact) {
   const sampler = createFrameSampler({
     origin: () => clock.start ?? 0, target: 'js', covers: ['input', 'scroll', 'commits', 'animations', 'canvas'],
     log: line => journal.push(`t=${clock.now} ${line}`),
-    // With the hatches, read in this same turn, so the sections agree.
+    // With the hatches (LLP 1075.003.000.001 §3.3), read in this same turn, so the sections agree.
     gather: async () => ({ journal: { from: journal.start, next: journal.start + journal.length, lines: journal.slice() }, perf: reply(root, tags()),
       ...(exact.hatchState ? { hatches: { state: exact.hatchState(), perf: exact.hatchPerf.reply(tags()) } } : {}) }),
   });

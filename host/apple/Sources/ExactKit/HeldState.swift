@@ -1,4 +1,4 @@
-// A held state: the build channel's `hold`
+// A held state (LLP 1122 D8, LLP 1121 stage 8 E2): the build channel's `hold`
 // and the agent's `holdState` hold one state on one node as the host's own,
 // with no handler told. The hold is kept apart from the node's real state and
 // shown beside it: `active` is the press of the node the press resolves to
@@ -154,8 +154,8 @@ enum HeldState {
         while let n = at {
             if let view = presenter.views[n] {
                 if view.disabled { return (nil, "disabled", false) }
-                // Active feedback follows the nearest declared press handler.
-                if state != "active" || view.handlers.contains("press") { found = view; break }
+                // Active feedback follows the nearest press: a declared handler or a link (LLP 1121 D8).
+                if state != "active" || view.handlers.contains("press") || view.defaultLink != nil { found = view; break }
             } else if state != "active" { return (nil, "gone", false) }
             at = presenter.logicalParent(of: n)
         }
@@ -182,15 +182,15 @@ enum HeldState {
         return (state, nil, false)
     }
 
-    /// What is held on node `id` of `presenter`, for `layout` and inspect,
-    /// on the node the hold named or the one it resolved to:
+    /// What is held on node `id` of `presenter`, for `layout` and inspect
+    /// (LLP 1122 D8), on the node the hold named or the one it resolved to:
     /// its state and the rows it shows by wire name with their CSS values, as
     /// the runner's `node` op says them: the press rows for `active`
     /// (`:active` lowers to them), else the look's rows.
     static func rows(for id: UInt32, in presenter: Presenter) -> [String: Any]? {
         guard let held = view, let state, held.id == id || asked == id, presenter.views[held.id] === held else { return nil }
-        // The runner's `node` answer for the node it is held on: its own rows (`:active` lowered to them) or its
-        // look's, each with the token it read, and its site and instance path.
+        // The runner's `node` answer for the node it is held on: its own D7 rows (`:active` lowered to them) or its
+        // look's, each with the token it read (stage 9 E), and its site and instance path.
         let node = presenter.session.flatMap { s -> [String: Any]? in
             guard let data = s.agent("{\"op\":\"node\",\"id\":\(held.id),\"plan\":true}").data(using: .utf8) else { return nil }
             return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
@@ -299,8 +299,8 @@ extension ExactApp {
 }
 
 extension Agent {
-    /// The agent's `{"op":"tap","id":V,"holdState":…}`: the state held on
-    /// the node as the real one, or let go (null).
+    /// The agent's `{"op":"tap","id":V,"holdState":…}` (LLP 1012, LLP 1122
+    /// D8): the state held on the node as the real one, or let go (null).
     func holdTap(_ req: [String: Any]) -> [String: Any] {
         let state = req["holdState"] as? String
         if req["holdState"] is NSNull == false, state == nil || !HeldState.states.contains(state!) {

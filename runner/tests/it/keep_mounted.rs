@@ -1,5 +1,5 @@
 //! `keep-mounted` keeps the rows it names mounted wherever a virtualized
-//! list's window is: a transcript's first and last
+//! list's window is (@ref LLP 1010 §6.11): a transcript's first and last
 //! message, so VoiceOver can move between them, and a playing row. 200 rows
 //! of 32 px in a 320 px port.
 

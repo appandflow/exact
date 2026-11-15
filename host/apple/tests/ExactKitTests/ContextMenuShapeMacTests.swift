@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// On a right press, only a menu-shaped popover is the Mac's
+/// LLP 1021 D3 on a right press: only a menu-shaped popover is the Mac's
 /// menu. One that is not opens as a button's popover opens, anchored to its
 /// node, and stays open through the batches after it.
 final class ContextMenuShapeMacTests: XCTestCase {

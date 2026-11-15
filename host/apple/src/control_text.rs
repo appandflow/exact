@@ -1,4 +1,4 @@
-//! UIKit control fonts, chrome and the environment seam.
+//! UIKit control fonts, chrome and the environment seam. @ref LLP 1104 D4–D5.
 use exact_kernel::{
     ControlFont, ControlTextStyles, FieldChrome, FieldChromeRequest, FieldKind, FontStyle,
 };
@@ -28,8 +28,8 @@ pub type ControlTextFn = extern "C" fn(*mut c_void, u8) -> CControlFont;
 #[repr(C)]
 pub struct CFieldChromeRequest {
     /// 0 field, 1 secure, 2 search, 3 textarea; plus 4 for a field in a
-    /// grouped list's row, which iOS draws borderless in its cell.
-    /// AppKit's field is the same anywhere.
+    /// grouped list's row, which iOS draws borderless in its cell
+    /// (LLP 1116.005 D2). AppKit's field is the same anywhere.
     pub kind: u8,
     /// Host font registry id.
     pub family_id: u16,
@@ -158,11 +158,13 @@ pub(crate) fn button_measure(
     ctx: *mut c_void,
     r: &exact_kernel::ButtonMeasureRequest,
 ) -> exact_kernel::ButtonMeasure {
-    // The `aria-label` measures nothing and is often a row's own words: with
-    // it, the host's cache, keyed by these bytes, missed for every row's
-    // button and measured a configured `UIButton` on main again.
+    // The `aria-label` and a tab's badge measure nothing. The label is often
+    // a row's own words: with it, the host's cache, keyed by these bytes,
+    // missed for every row's button and measured a configured `UIButton` on
+    // main again.
     let face = exact_kernel::PressFace {
         label: None,
+        badge: None,
         ..r.face.clone()
     };
     let face = crate::button::face_json(Some(&face), Some(&r.style), r.button_style.as_deref());

@@ -1,4 +1,4 @@
-// Accept fixture: press feedback and the user's motion preference.
+// Accept fixture: press feedback and the user's motion preference (LLP 1061).
 // A button gives under the finger (`-exact-press-scale`); an entry rises in, and a
 // reader who asked for less motion gets neither: the app reads the fact from
 // `exactViewport()` and chooses, as a stylesheet's media query would.

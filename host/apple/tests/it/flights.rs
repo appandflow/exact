@@ -1,4 +1,4 @@
-//! Shared-element flights on Apple: a handoff sends
+//! Shared-element flights on Apple (LLP 1013.000 D4): a handoff sends
 //! `flight` before the leaver's destroy, then the curve's progress as
 //! `present … "flight"`, then `land` once it settles.
 

@@ -1,8 +1,9 @@
 #if os(macOS)
 import AppKit
 
-/// AppKit owns event dispatch. A dominant rightward mouse drag recognizes only
-/// on an authored swiperight node; ordinary clicks and vertical drags still pass.
+/// AppKit owns event dispatch. A dominant sideways mouse drag recognizes only
+/// on an authored swiperight or swipeleft node, in a direction it hears;
+/// ordinary clicks and vertical drags still pass.
 final class MouseSwipe {
     weak var presenter: Presenter?
     private(set) weak var candidate: NodeView?
@@ -37,7 +38,7 @@ final class MouseSwipe {
         while let current = ancestor {
             if let view = current as? NodeView {
                 if view.disabled { return }
-                if view.handlers.contains("swiperight") {
+                if SwipeRecognition.hears(view.handlers) {
                     let action = view.style["touch_action"]?.string ?? "auto"
                     guard action == "none" || action.split(separator: " ").contains("pan-y") else { return }
                     candidate = view; origin = event.locationInWindow
@@ -54,7 +55,8 @@ final class MouseSwipe {
         if hold == nil {
             let dx = point.x - origin.x, dy = point.y - origin.y
             if abs(dy) > Gesture.slop && abs(dy) >= abs(dx) { self.candidate = nil; return false }
-            guard abs(dx) > Gesture.slop, SwipeRecognition.accepts(x: Double(dx), y: Double(dy), presentedX: Double(candidate.translate.x)) else { return false }
+            let (right, left) = SwipeRecognition.directions(candidate.handlers)
+            guard abs(dx) > Gesture.slop, SwipeRecognition.accepts(x: Double(dx), y: Double(dy), presentedX: Double(candidate.translate.x), right: right, left: left) else { return false }
             guard let started = SwipeHold(candidate) else { self.candidate = nil; return false }
             hold = started; origin = point
             presenter.selection.clear()

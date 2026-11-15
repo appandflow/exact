@@ -6,7 +6,7 @@ A use of a component is an *instance*. Its identity is the path that leads
 to it from the root — every use, region arm (a `when`/`match` arm, an
 `each` row by key and duplicate count) and `children` node on the way,
 each named by its component and node — so it is exactly "the declaration,
-which use, and the enclosing `each` keys". An instance's
+which use, and the enclosing `each` keys" (LLP 1017 P4c). An instance's
 state lives in a store under that path for as long as the instance is
 rendered: it is initialized, in the instance's scope, the first time the
 instance renders, kept while it keeps rendering, and dropped when a render
@@ -25,7 +25,7 @@ site's frame, locals, providers and fill. A handler names an action of its
 component or an `action` prop, resolved through the props to the action
 it names with the arguments curried on the way; its arguments are
 evaluated at dispatch, each in its own frame. A child's action writes its
-instance's states; a call of an `action` prop last in it
+instance's states; a call of an `action` prop last in it (LLP 1017 §11)
 runs the named action's statements after it, in that action's own frame,
 in the same commit, reading the same state.
 
@@ -154,6 +154,7 @@ def ceval : Nat → CEnv → Frame → Locals → Expr → Result Value
       | "pending", [.var x] => cpending fuel ce f ls "pending" x
       | "failed", [.var x] => cpending fuel ce f ls "failed" x
       | "failure", [.var x] => cpending fuel ce f ls "failure" x
+      | "current", [.var x] => cpending fuel ce f ls "current" x
       | _, _ => do
         let vs ← cevalList fuel ce f ls args
         stdlib ce.root name vs
@@ -228,11 +229,11 @@ def cvar : Nat → CEnv → String → InstId → List (String × Expr × Frame 
           if C.deviceResources.any (·.name == x) then ce.root.global (hoisted C.name x)
           else .error (.unbound x)
 
-/-- What `pending(x)`, `failed(x)` (`false`) or `failure(x)` (`none`) says
-of a name that is no resource. -/
+/-- What `pending(x)`, `failed(x)`, `current(x)` (`false`) or `failure(x)`
+(`none`) says of a name that is no resource. -/
 def quiet (which : String) : Value := if which = "failure" then .none else .bool false
 
-/-- `pending(x)` / `failed(x)` / `failure(x)` in an instance's frame: about
+/-- `pending(x)` / `failed(x)` / `failure(x)` / `current(x)` in an instance's frame: about
 the resource the name stands for when it is a prop (or a derive) that is a
 name; a state or a local is no resource. -/
 def cpending : Nat → CEnv → Frame → Locals → String → String → Result Value
@@ -354,7 +355,7 @@ def _root_.Contract.Components.CProgram.actionIn (p : CProgram) : Frame → Stri
 root alone. In an instance's frame an assignment writes the instance's
 state; a call of the component's own action runs its statements here, in
 the same frame, its parameters alone bound; and a command naming an
-`action` prop or injected action is a call: the action it names
+`action` prop or injected action is a call (LLP 1089): the action it names
 runs its statements here, in its own frame, its parameters bound to the
 curried arguments then the call's. Every statement reads the state the
 action started with. -/
@@ -643,7 +644,7 @@ def CConfig.empty : CConfig :=
   { slots := [], settled := {}, store := [], view := [], now := 0, timers := [] }
 
 def rootEnv (p : CProgram) (slots : List (String × Value)) (st : Settled) (now : F64) : Env :=
-  { prog := rootProgram p, slots, derives := st.derives, resources := st.resources, now }
+  { prog := rootProgram p, slots, derives := st.derives, resources := st.resources, now, idle := st.idle }
 
 /-- Render the root's view against the root's slots and settled values,
 keeping the instances `prev` holds; `every` when the host builds every tab
@@ -721,7 +722,7 @@ def cboot (p : CProgram) (o : Oracle) : CConfig × Outcome :=
     match startTimers rp slots with
     | .error e => (empty, .refused e)
     | .ok timers =>
-      -- Queued sends and gated tasks are the flat semantics'
+      -- Queued sends and gated tasks (LLP 1092) are the flat semantics'
       -- alone: `difftest expansion` writes programs without them.
       if rp.mutations.any (·.queue) || rp.tasks.any (fun t => t.gate.isSome || t.key.isSome) then
         (empty, .refused (.unsupported "queued sends and gated tasks")) else
@@ -763,7 +764,7 @@ def cadvance (p : CProgram) (o : Oracle) (c : CConfig) (t : F64) : CConfig × Ou
       if tm.next ≤ t then
         match best with
         | .none => Option.some (tm, i)
-        | .some (b, j) => if tm.next < b.next then Option.some (tm, i) else Option.some (b, j)
+        | .some (b, j) => if tm.precedes b then Option.some (tm, i) else Option.some (b, j)
       else best) Option.none
   let pick (c : CConfig) : Option (String × F64 × String) :=
     match dueThen (rootProgram p) c.armed t, due c with
@@ -787,10 +788,15 @@ def cadvance (p : CProgram) (o : Oracle) (c : CConfig) (t : F64) : CConfig × Ou
       match due c with
       | .none => finish c
       | .some (tm, i) =>
+        -- A change task's commit is applied before anything later fires,
+        -- as `advance` and the runner's `needs_apply` return: one due after
+        -- other fires waits for the next step, and one that fires ends
+        -- this step at its own time, or at `now` when it is overdue.
+        if tm.change && n + 1 < timerFireLimit then (c, .ok) else
         let timers := c.timers.set i tm.fired
-        let c := { c with timers, now := tm.next }
+        let c := { c with timers, now := if tm.change && tm.next < c.now then c.now else tm.next }
         match crunAction p o c .root tm.action [] with
-        | (c, .ok) => go n c
+        | (c, .ok) => if tm.change then (c, .ok) else go n c
         | (c, out) => (c, out)
   if t < c.now then (c, .ok) else go timerFireLimit c
 
@@ -825,7 +831,12 @@ def cdispatchAt (p : CProgram) (o : Oracle) (c : CConfig) (target event : String
 
 def cstep (p : CProgram) (o : Oracle) (c : CConfig) : Observe.Event → CConfig × Outcome
   | .tap t => cdispatchAt p o c t "press" .none
-  | .change t s => cdispatchAt p o c t "change" (.some (.str s))
+  | .change t s =>
+    let event :=
+      if ((cfindTestId t c.view).map fun n => n.handlers.any (·.event == "input")).getD false then
+        "input"
+      else "change"
+    cdispatchAt p o c t event (.some (.str s))
   | .clock ms => cadvance p o c (c.now + ms)
   | .other t e v => cdispatchAt p o c t e v
 

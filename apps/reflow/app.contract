@@ -1,7 +1,7 @@
 // Reflow: seven studies after Cheng Lou's Pretext demos, on exact2.
 //
 // Two mechanisms, one per half of Pretext. Text around shapes is the kernel's
-// (`wrap-flow` / `shape-outside`): the balls, the dragon, and
+// (`wrap-flow` / `shape-outside`, LLP 1043.000): the balls, the dragon, and
 // the obstacles in the spread are exclusions the hosts flow around. Heights
 // before layout are the data crate's: every card, column and ASCII row was
 // measured by arithmetic over advances read out of the font files below

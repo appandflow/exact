@@ -53,7 +53,7 @@ fn paragraph(runs: &[model::Run], cx: &App) -> Div {
             strikethrough: None,
         });
     }
-    // GPUI 0.2.2 has one size per text flow, so code runs take 16 pt, not 15 pt.
+    // GPUI 0.2.2 has one size per text flow; the 15 pt code-run gap is in RESULTS.md.
     text(16., FontWeight::NORMAL, 0, cx)
         .w_full()
         .child(StyledText::new(string).with_runs(styles))

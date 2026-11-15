@@ -1,10 +1,10 @@
-// The module's private realm on a dedicated Worker: the
+// The module's private realm on a dedicated Worker (LLP 1027.002 D2): the
 // same prelude, storage capability and turn discipline as the iframe realm
 // in module-glue.js, off the page's main thread. Trusted app code, NOT a
 // security sandbox. Values cross as messages; the page's runner commits.
 // Loaded only after the page's first pixel, by module-glue.js.
 import { bindAnswerStorage, createStorage, finishLetGo } from './storage.js';
-import { agentStream, keyStore } from './storage-environment.js';
+import { agentStream, keyStore, refuseCodeFromStrings } from './storage-environment.js';
 import { sameGrantDeclaration } from './grant-admission.js';
 
 const checkpoint = () => new Promise(resolve => {
@@ -30,9 +30,9 @@ function release(owner, callId) {
 const digests = new Map();
 let nextDigest = 1;
 // The runner's target first: two targets asking one source with equal
-// arguments are two calls.
+// arguments are two calls (LLP 1027 D1a).
 const key = r => JSON.stringify([r.target ?? null, r.source, r.args]);
-// A presence name's occupancy in the call's snapshot, as module-glue.js reads it: the door's
+// A presence name's occupancy in the call's snapshot (LLP 1133.010 D5), as module-glue.js reads it: the door's
 // op 18 (a value is kept), 19 (locked or pending), 20 (this device keeps locked secrets: a browser never does).
 const presenceRead = (store, op, name) => {
   const said = store.get(`exact.presence.${name}`);
@@ -44,7 +44,7 @@ const presenceRead = (store, op, name) => {
 self.__exact_host = (op, name, value) => {
   // The runner's clock as the turn was dispatched: when a timer armed now is due; none outside a turn.
   if (op === 21) return context?.clock === undefined ? undefined : String(context.clock);
-  // The prelude asks at load whether this host has a local listener: a worker never does.
+  // The prelude asks at load whether this host has a local listener (LLP 1133.005): a worker never does.
   if (op === 12 && name === 'listen') return '';
   // A fetch the app aborted: told to the page at once, in any turn, a let-go's included (module-glue.js keeps it).
   if (op === 23) { self.postMessage({ op: 'aborted', ticket: Number(name) }); return; }
@@ -53,7 +53,7 @@ self.__exact_host = (op, name, value) => {
   if (op === 6) {
     // A page module answers `native.later` on the page; nothing here can answer at once.
     if (name === 'kind' || name === 'available') return admitted.native ? 'native' : '';
-    // A topic the page module announces asks this answer again.
+    // A topic the page module announces asks this answer again (LLP 1016.002).
     if (name === 'watch') { context.topics.push(String(value)); return; }
     if (name === 'later') return admitted.native ? 'later' : '';
     throw new Error('the browser answers no native call at once; use native.later');
@@ -61,13 +61,13 @@ self.__exact_host = (op, name, value) => {
   if (op === 1) { context.requests.set(Number(name), JSON.parse(value)); requestMaps.set(Number(name), context.requests); return; }
   if (op === 2) { context.reads.push(name); return context.store.get(name); }
   if (op === 5) { context.externalRead = true; return; }
-  // A draw of secure randomness: a device read the runner counts.
+  // A draw of secure randomness: a device read the runner counts (LLP 1069.005 D2).
   if (op === 8) { context.entropy = true; return; }
-  // Under the agent, the realm's repeatable random bytes.
+  // Under the agent, the realm's repeatable random bytes (LLP 1069.005 D2b).
   if (op === 11) return stream ? Array.from(stream(Number(value)), b => b.toString(16).padStart(2, '0')).join('') : undefined;
   // `authCallback()` is the page's; `openAuthSession` refuses here: its popup
-  // must open in the press's call stack, on the page.
-  if (op === 12) { if (name === 'placement') return 'worker'; context.externalRead = true; return `${location.origin}/.exact/auth/callback`; }
+  // must open in the press's call stack, on the page (LLP 1069.006).
+  if (op === 12) { if (name === 'placement') return 'worker'; if (name === 'bake') return undefined; context.externalRead = true; return `${location.origin}/.exact/auth/callback`; }
   if (op >= 18 && op <= 20) { context.externalRead = true; return presenceRead(context.store, op, name); }
   if (!context.grants.has(name) || name.startsWith('exact.kept.')) return `secret ${name} is not granted`;
   context.writes.push([name, op === 3 ? value : null]);
@@ -76,17 +76,19 @@ self.__exact_host = (op, name, value) => {
 
 // Indirect eval runs the verified text at the worker's global scope, where
 // a classic script would: the prelude finds `this`, the module defines `exact`.
-const evaluate = source => (0, eval)(source);
+// The worker's own `eval`, taken before the module's is refused.
+const evaluate = (indirect => source => indirect(source))(eval);
 
 function init(message) {
   admitted = message.admitted;
   // Disable accidental browser I/O before the module captures globals: a
   // function, so `new WebSocket(url)` refuses by name too, as the JS target's
   // ts-fetch.js does. The prelude refuses the clock and every timer but an
-  // answer's own (binary.js `timers`), by name, as Hermes does.
+  // answer's own (time.js `timers`), by name, as Hermes does.
   for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
     Object.defineProperty(self, name, { value: function () { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
   }
+  refuseCodeFromStrings(self);
   // The worker's timers, before the prelude takes them from this global: a storage lock's bound (storage-fs.js),
   // held in this closure and never the module's.
   const timers = { set: self.setTimeout.bind(self), clear: self.clearTimeout.bind(self) };
@@ -98,7 +100,7 @@ function init(message) {
   // The page reads the drive's seed; this realm's stream starts here (D2b).
   if (message.seed !== null && message.seed !== undefined) stream = agentStream(message.seed, 'typescript');
   // A LAN dev page has no `crypto.subtle`: SHA-256 is the dev protocol's,
-  // asked of the page.
+  // asked of the page (LLP 1069.005 D1).
   if (!self.crypto.subtle && message.pageDigest) {
     self.__exact_digest = bytes => new Promise((resolve, reject) => {
       const id = nextDigest++;
@@ -106,7 +108,7 @@ function init(message) {
       postMessage({ op: 'digest', id, bytes });
     });
   }
-  // Kept keys: the CryptoKeyPair in this realm's IndexedDB.
+  // Kept keys (LLP 1069.005 D1b): the CryptoKeyPair in this realm's IndexedDB.
   self.__exact_keys = keyStore(message.storage, self.indexedDB);
   evaluate(message.binary);
   self.__exact_browser_secrets = true;
@@ -115,6 +117,7 @@ function init(message) {
   self.__exact_install_storage();
   evaluate(message.script);
   if ((self.exact?.abi !== 1 && self.exact?.abi !== 2) || self.exact.appId !== admitted.appId || !sameGrantDeclaration(admitted.grantSet, self.exact.grants) || typeof self.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
+  return self.__exact_has_overlay() === '1';
 }
 
 function begin(request) {
@@ -148,7 +151,7 @@ function finish(answer, request) {
   return result;
 }
 
-// The runner let go of every targeted call not in flight:
+// The runner let go of every targeted call not in flight (LLP 1016 D5):
 // drop it, its storage owner, and its call in the prelude.
 async function forget(inFlight) {
   const staying = new Set(inFlight.map(key));
@@ -181,7 +184,7 @@ const letGoHooks = {
 // with the module (prelude.js `settle`'s `waiting`): it parks and lets the
 // turn go, so the answer whose operation is in flight can be resumed and
 // deliver it, and is asked again after each delivery, until a pass delivers
-// nothing, as the page realm does (module-glue.js). Held in
+// nothing (LLP 1097 D3), as the page realm does (module-glue.js). Held in
 // the turn instead, it waited on an operation only that other answer's turn
 // could deliver.
 let parked = [], deliveries = 0;
@@ -228,7 +231,7 @@ async function resettle() {
 const deferred = () => { const d = {}; d.promise = new Promise((resolve, reject) => { d.resolve = resolve; d.reject = reject; }); return d; };
 
 // One turn: begin or resume; stay here through its own storage; end at an
-// answer, at a `fetch`, which the page's host runs, or
+// answer, at a `fetch`, which the page's host runs (LLP 1027.002 D3), or
 // parked behind another answer's storage. Its result comes when its `done`
 // does, perhaps after later turns.
 async function turn(request, done) {
@@ -247,7 +250,10 @@ self.onmessage = ({ data }) => {
     return;
   }
   if (data.op === 'init') {
-    try { init(data); postMessage({ token: 0, result: { ok: true } }); }
+    try {
+      const hasOverlay = init(data);
+      postMessage({ token: 0, result: { ok: true, hasOverlay } });
+    }
     catch (error) { postMessage({ token: 0, error: String(error?.message ?? error) }); }
     return;
   }

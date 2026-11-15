@@ -1,4 +1,4 @@
-//! Shared-element handoffs: a name leaving a destroyed
+//! Shared-element handoffs (LLP 1013.000 D3): a name leaving a destroyed
 //! node and arriving at a created one pairs, with the curve of either end.
 
 use exact_kernel::{Kernel, NodeType, Op, PropId, PropValue, StyleId, StyleProps, Transitions};

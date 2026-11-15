@@ -4,18 +4,20 @@ import XCTest
 @testable import ExactKit
 @testable import ExactGroupedLists
 
-/// The number pads' bar: the decimal pad has no minus key and no Return key, so
-/// a field on it gets, in the keyboard's accessory bar, ± where its `min` is
-/// below zero, which flips the sign and fires `input` as a keystroke does, and
-/// Done, always (otherwise an amount field has no way to put the pad away),
-/// which does what Return does and puts the keyboard away. A keyboard that has
-/// both keys gets no bar.
+/// The number pads' bar (LLP 1116.003 D7): the decimal pad has no minus key
+/// and no Return key, so a field on it gets, in the keyboard's accessory bar,
+/// ± where its `min` is below zero, which flips the sign and fires `input` as
+/// a keystroke does (round 5's unit converter), and Done, always (LLP
+/// 1116.008 D8; expense-tracker's amount had no way to put the pad away),
+/// which does what Return does and puts the keyboard away. A keyboard that
+/// has both keys gets no bar.
 ///
-/// Over `scripts/fixtures/pad-bar.contract`: the bar is the platform's. It
-/// paints no fill of its own (UIKit's glass keys over the content); an opaque
-/// band above the keys would be the canvas below the viewport the keys
-/// shortened, showing through. The focused field and its section stay above the
-/// keys' top, the bar's included.
+/// LLP 1116.006 D6 over `scripts/fixtures/pad-bar.contract`: the bar is the
+/// platform's. Round 8's converter showed an opaque white band across the
+/// width above the keys, clipping the TO header: the bar paints no fill of
+/// its own (UIKit's glass keys over the content), and what showed through it
+/// was the canvas below the viewport the keys had shortened. The focused
+/// field and its section stay above the keys' top, the bar's included.
 final class PadBarIOSTests: XCTestCase {
     private var session: ExactSession?
     private var sessionWindow: UIWindow?
@@ -94,7 +96,47 @@ final class PadBarIOSTests: XCTestCase {
         XCTAssertEqual(keys(node), ["padDone"])
     }
 
-    /// `type="number"` takes the number pad when it holds only whole numbers (`step` unsaid,
+    /// ± is a person's edit: a `beforeinput` handler can cancel it, `maxlength`
+    /// bounds it, and an admitted flip is one `input` with its edit's type.
+    func testThePlusMinusKeyIsAdmittedAsAnEdit() throws {
+        let (p, node, window) = field(["inputMode": "numeric", "min": "-1", "maxlength": "1", "value": "1"],
+                                      handlers: ["input", "beforeinput"])
+        defer { window.isHidden = true; p.fieldSelections.onBeforeInput = nil }
+        let field = try XCTUnwrap(node.field)
+        XCTAssertEqual(keys(node), ["toggleSign", "padDone"])
+        var heard: [String] = [], asked: [FieldInput] = [], prevent = false
+        p.onInput = { [unowned node] _, value in
+            heard.append(value)
+            node.applyProps(set: ["value": value], clear: [])
+        }
+        p.fieldSelections.onBeforeInput = { _, _, _, edit in
+            asked.append(edit)
+            p.defaultPrevented = prevent
+        }
+        node.toggleSign()
+        XCTAssertEqual(field.text, "1", "the sign would exceed maxlength")
+        XCTAssertEqual(heard, [])
+        XCTAssertEqual(asked.count, 0, "an edit maxlength refuses is not offered to beforeinput")
+        node.applyProps(set: ["value": "-1"], clear: [])
+        prevent = true
+        node.toggleSign()
+        XCTAssertEqual(field.text, "-1", "beforeinput prevented the flip")
+        XCTAssertEqual(asked.last?.inputType, "deleteContent")
+        XCTAssertEqual(asked.last?.cancelable, true)
+        XCTAssertEqual(heard, [])
+        prevent = false
+        node.toggleSign()
+        XCTAssertEqual(field.text, "1", "removing the sign shortens the field")
+        XCTAssertEqual(heard, ["1"], "one input")
+        node.applyProps(set: [:], clear: ["maxlength"])
+        node.toggleSign()
+        XCTAssertEqual(field.text, "-1")
+        XCTAssertEqual(asked.last?.inputType, "insertText")
+        XCTAssertEqual(asked.last?.data, "-")
+        XCTAssertEqual(heard, ["1", "-1"])
+    }
+
+    /// LLP 1116.019 D5: `type="number"` takes the number pad when it holds only whole numbers (`step` unsaid,
     /// HTML's 1, or whole, from a whole or unsaid `min`), and the decimal pad when it may hold a fraction.
     func testANumberFieldOfWholeNumbersGetsTheNumberPad() throws {
         let (_, node, window) = field(["type": "number"])

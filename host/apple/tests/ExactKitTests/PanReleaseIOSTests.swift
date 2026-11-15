@@ -4,7 +4,7 @@ import UIKit.UIGestureRecognizerSubclass
 import XCTest
 @testable import ExactKit
 
-/// On UIKit, `layoutPanning` releases once, after the final
+/// LLP 1057 §10.6 on UIKit: `layoutPanning` releases once, after the final
 /// delta, at UIKit's own velocity; a cancelled pan at rest. Recognizer phases
 /// are set by the test (UIKit synthesizes no touches for a unit test).
 final class PanReleaseIOSTests: XCTestCase {

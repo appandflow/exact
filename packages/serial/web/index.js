@@ -1,13 +1,13 @@
-// @exact/serial on the web: Web Serial (https://serial.spec.whatwg.org/), the browser's chooser
+// @exact/serial on the web (LLP 1133.037 D7–D9): Web Serial (https://serial.spec.whatwg.org/), the browser's chooser
 // and its remembered ports, in the interface's shapes. The page runtime (host/web-js/modules.js) calls it outside the
 // agent.
 //
 // - A port is a record with an id this page gives its `SerialPort` object; `getPorts()` is the browser's list.
 // - One reader per connection drains `port.readable` into the bytes not yet delivered, and stops reading while they
-//   reach the retained bound (the larger of `bufferSize` and two seconds of the line, at most 16 MiB), so the
-//   stream's backpressure holds the rest. Each `serialInput` answer is every byte since the last, with the non-fatal
+//   reach the retained bound (D8: the larger of `bufferSize` and two seconds of the line, at most 16 MiB), so the
+//   stream's backpressure holds the rest. Each `serialInput` answer is every byte since the last, with D9's non-fatal
 //   errors at their offsets; the reader takes the port's next `readable` after each, as Web Serial says.
-// - The web has no attached list: `attachedPorts` is refused before it reaches here.
+// - The web has no attached list (D3): `attachedPorts` is refused before it reaches here.
 
 const MOST = 16 * 1024 * 1024;
 
@@ -44,7 +44,8 @@ export function implementation({ changed }) {
           if (!c.open) break;
           const { value, done } = await reader.read();
           if (done) break;
-          if (value?.length) { c.pending.push(...value); changed('serial.serialInput'); }
+          // One byte at a time: a spread passes each as an argument, which a read near `bufferSize`'s 16 MiB exceeds.
+          if (value?.length) { for (const byte of value) c.pending.push(byte); changed('serial.serialInput'); }
         }
       } catch (e) {
         // A non-fatal error ends this readable; the port gives a new one (Web Serial's "readable" steps).
@@ -62,10 +63,26 @@ export function implementation({ changed }) {
     changed('serial.serialInput');
   }
 
+  /** `c` closed: its reader canceled, its queued writes ended, then its port. */
+  async function shut(c) {
+    c.open = false;
+    c.wake?.();
+    try { await c.reader?.cancel(); } catch { /* the port went away */ }
+    await c.writer;
+    try { await c.port.close(); } catch { /* already closed */ }
+  }
+
   const connection = args => {
     const c = connections.get(args?.connection);
     if (!c) return { error: { error: 'InvalidStateError', message: 'no such connection' } };
     return { c };
+  };
+  // A closed or unplugged handle controls nothing: its `SerialPort` may since have been opened again as another
+  // connection, which would take its writes and signals.
+  const live = args => {
+    const r = connection(args);
+    if (r.error || (r.c.open && !r.c.unplugged)) return r;
+    return { error: { error: 'InvalidStateError', message: 'the connection is closed' } };
   };
 
   return {
@@ -114,14 +131,14 @@ export function implementation({ changed }) {
       return { open: c.open && connected, connected, options: c.options };
     },
     async setSignals(args) {
-      const { c, error } = connection(args);
+      const { c, error } = live(args);
       if (error) return error;
       const signals = {};
       for (const k of ['dataTerminalReady', 'requestToSend', 'break']) if (args[k] != null) signals[k] = args[k];
       try { await c.port.setSignals(signals); return null; } catch (e) { return failure(e); }
     },
     async getSignals(args) {
-      const { c, error } = connection(args);
+      const { c, error } = live(args);
       if (error) return error;
       try { return await c.port.getSignals(); } catch (e) { return failure(e); }
     },
@@ -138,11 +155,13 @@ export function implementation({ changed }) {
       return { data: b64(bytes), errors, done, position: c.position };
     },
     async write(args) {
-      const { c, error } = connection(args);
+      const { c, error } = live(args);
       if (error) return error;
-      // Writes go out in order: each waits for the one before it.
+      // Writes go out in order: each waits for the one before it. One still waiting when the connection closes is
+      // aborted, as closing a port aborts its writable's queued chunks (Web Serial's close()).
       const bytes = unb64(args.data ?? '');
       const done = c.writer.then(async () => {
+        if (!c.open) throw new DOMException('the connection closed', 'AbortError');
         const writer = c.port.writable.getWriter();
         try { await writer.write(bytes); } finally { writer.releaseLock(); }
       });
@@ -152,18 +171,21 @@ export function implementation({ changed }) {
     async close(args) {
       const { c, error } = connection(args);
       if (error) return error;
-      c.open = false;
-      c.wake?.();
-      try { await c.reader?.cancel(); } catch { /* the port went away */ }
-      await c.writer;
-      try { await c.port.close(); } catch { /* already closed */ }
+      // An unplugged connection still closes; a closed one is done, and its port may be another connection's.
+      if (!c.open) return { error: 'InvalidStateError', message: 'the connection is closed' };
+      await shut(c);
       announce();
       return null;
     },
     async forget(args) {
       const port = ports.get(args?.port);
       if (!port) return null;
-      for (const [handle, c] of connections) if (c.port === port) { c.open = false; c.wake?.(); connections.delete(handle); }
+      // An open port cannot be forgotten: each connection on it is closed first.
+      for (const [handle, c] of connections) {
+        if (c.port !== port) continue;
+        if (c.open) await shut(c);
+        connections.delete(handle);
+      }
       try { await port.forget?.(); } catch (e) { return failure(e); }
       ports.delete(args.port);
       ids.delete(port);

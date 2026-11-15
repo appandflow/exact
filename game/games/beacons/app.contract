@@ -1,11 +1,11 @@
-// Tilt to move: while paused, a panel turns tilt on
+// @ref LLP 1133.013 §10 — tilt to move: while paused, a panel turns tilt on
 // (the press asks for motion on the web), shows the phone's tilt from the
 // level the player set, and sets it; the world takes gravity's samples as
 // input while it runs and tilt is on (data/src/lib.rs, logic/src/lib.rs).
 // While tilt is on the screen keeps the orientation the player holds
-// Steering turns the phone toward the next orientation.
+// (LLP 1133.029 §9): steering turns the phone toward the next orientation.
 use motionStatus, requestMotionPermission, startSensorInput, stopSensorInput, gravitySensor, MotionStatus, SensorInput, GravitySensor from "@exact/motion"
-// A pad in hand: the prompt names its button, the
+// @ref LLP 1133.022 §10 — a pad in hand: the prompt names its button, the
 // touch controls step aside, a lit beacon rumbles, and the last one turns
 // the light bar the beacons' amber.
 use getGamepads, playEffect, setLight, GamepadList, Gamepad, GamepadHapticsResult from "@exact/gamepad"
@@ -30,6 +30,8 @@ component Beacons
   state levelY = 0
   state levelZ = 9.80665
   resource hud = exactSurface("world") as shape Hud
+  resource preference = bindingPreference() as shape string
+  mutation savedPreference as shape string refreshes preference
   resource motion = motionStatus() as shape MotionStatus
   // Contract has no resource of a child or a conditional one: the level's
   // reading is the root's, read while the game runs.
@@ -44,6 +46,9 @@ component Beacons
 
   action play
     playing = true
+
+  action setJumpKey(useJ: bool)
+    send savedPreference = saveBindingPreference(useJ)
 
   // The input follows the pause: a paused world queues no samples, and a
   // resumed one starts on a fresh grid.
@@ -86,12 +91,17 @@ component Beacons
   view
     main width="100%" height="100%" background-color="#202731" color="#ffffff"
       if playing
-        canvas surface=world(seed=7, paused=paused, restart=again) testId="world" width="100%" height="100%" position="relative" orientationlock=(tilt ? "current" : "none") message=heard
+        canvas surface=world(seed=7, paused=paused, restart=again, bindings=preference) testId="world" width="100%" height="100%" position="relative" orientationlock=(tilt ? "current" : "none") message=heard
           text `Beacons ${hud.lit} / 3` aria-live="polite" testId="hud-lit" position="absolute" top=24 left=24 padding=12 background-color="#202731"
           button press=togglePause aria-label=(paused ? "Resume" : "Pause") testId="pause" position="absolute" top=24 right=24 padding=12 border-radius=8 background-color="#202731"
             text (paused ? "Resume" : "Pause") color="#ffffff"
           if paused and motion.available
             TiltPanel(tilt=tilt, state=motion.state, x=g.x - levelX, y=g.y - levelY, gx=g.x, gy=g.y, gz=g.z, angles=angles, setTilt=setTilt, setLevel=setLevel)
+          if paused
+            column position="absolute" bottom=160 left=24 gap=12 padding=12 background-color="#202731"
+              BindingPreference(useJ=preference != "", busy=pending(preference) or pending(savedPreference), failed=failed(preference) or failed(savedPreference), setJumpKey=setJumpKey)
+              button press=restart disabled=(pending(preference) or pending(savedPreference) or failed(preference)) testId="new-game"
+                text "New game"
           if hud.near != "" and padWord != ""
             row position="absolute" top=76 left=24 padding=12 gap=8 align-items="center" background-color="#202731"
               if padSymbol != ""
@@ -117,9 +127,25 @@ component Beacons
         column height="100%" align-items="center" justify-content="center" gap=24
           text "BEACONS" font-size=56 font-weight=600 color="#f1ce8b"
           text "A quiet field. Three lights to find." font-size=20 color="#ceddd8"
-          text "WASD / arrows to move · Space to jump · E to light" font-size=16 color="#ceddd8"
-          button press=play autofocus aria-label="Play" testId="play" padding=16 background-color="#e8ad61"
+          text (preference == "" ? "WASD / arrows to move · Space to jump · E to light" : "WASD / arrows to move · J to jump · E to light") font-size=16 color="#ceddd8"
+          BindingPreference(useJ=preference != "", busy=pending(preference) or pending(savedPreference), failed=failed(preference) or failed(savedPreference), setJumpKey=setJumpKey)
+          button press=play disabled=(pending(preference) or pending(savedPreference) or failed(preference)) autofocus aria-label="Play" testId="play" padding=16 background-color="#e8ad61"
             text "Play" font-size=20 color="#202731"
+
+component BindingPreference
+  props
+    useJ: bool
+    busy: bool
+    failed: bool
+    setJumpKey: action
+  view
+    column gap=8
+      row gap=12 align-items="center"
+        text "Use J to jump in new games"
+        input type="checkbox" switch checked=useJ disabled=busy change=setJumpKey testId="jump-preference" aria-label="Use J to jump in new games"
+      text "Current games and saves keep their controls." font-size=14
+      if failed
+        text "Could not load or save the jump preference." role="alert" testId="binding-error"
 
 component TiltPanel
   props
@@ -142,7 +168,7 @@ component TiltPanel
         text "Motion access is off for this site in Safari's settings." testId="tilt-denied" max-width="15rem" color="#ceddd8"
       if tilt and state == "granted"
         // The level: a dot in a ring at the phone's tilt from the level, gliding
-        // between the reading's polls.
+        // between the reading's polls (LLP 1133.013 D5).
         row align-items="center" gap=12
           box width=64 height=64 border-radius=32 border-width=2 border-style="solid" border-color="#ceddd8" position="relative" box-sizing="border-box"
             box testId="level-dot" position="absolute" left=24 top=24 width=12 height=12 border-radius=6 background-color="#e8ad61" translate=`${min(24, max(-24, 0 - x * 2.5))}px ${min(24, max(-24, 0 - y * 2.5))}px` transition="translate 100ms linear"

@@ -1,5 +1,5 @@
-// Synthetic conformance plan: the same keys in another order (the keyed
-// walk stops; the full keyed pass moves the rows), on Caltrain's
+// Synthetic conformance plan: the same keys in another order (LLP 1071.000
+// D2's walk stops; the full keyed pass moves the rows), on Caltrain's
 // stations: the line in its order, and every station nearest first — the
 // same rows, the same length — then a subset and back.
 shape Location

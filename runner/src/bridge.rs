@@ -1,6 +1,6 @@
 //! Values to kernel rows.
 //!
-//! Kernel ordinals get their meaning from `exact-kernel`.
+//! @ref LLP 1004 D2 (kernel ordinals get meaning from `exact-kernel`)
 //!
 //! A binding names a kernel prop or style row by ordinal and yields a
 //! [`Value`]. This is the one place a value becomes a kernel write: props
@@ -128,7 +128,7 @@ pub enum BridgeError {
     },
 }
 
-/// The icon a plan `icons` row is: the ONE
+/// @ref LLP 1121 stage 14 C2 — the icon a plan `icons` row is: the ONE
 /// place a row's path leaves its `IconPathId` (its one method), handed
 /// straight to `exact_kernel::Icon::of_row`, which strips an even-odd
 /// icon's `evenodd:` marker into its rule. Every reader of the table calls
@@ -147,12 +147,12 @@ pub fn icon_of<'a>(
     )
 }
 
-/// A Markdown node's `atomFaces` with each face's
+/// @ref LLP 1045.000 D2 — a Markdown node's `atomFaces` with each face's
 /// `color` and `backgroundColor` read as a bound colour row of `plan` reads
 /// one, in the tuple bound (a theme entry's name as the colour it stands
-/// for; a `-exact-platform-color()` only as one of the plan's
-/// literals), except that a profile the app declares is no colour here
-/// (a standard space's colour is), and written as the
+/// for, LLP 1095 D4; a `-exact-platform-color()` only as one of the plan's
+/// literals, D3), except that a profile the app declares is no colour here
+/// (LLP 1100 D3; a standard space's colour is, D1), and written as the
 /// wire's text, which a host reads with no theme bound. One that is no colour is empty, so its
 /// kind's paint stands, and is added to `refused`. Any other prop as it is.
 /// A node's faces that read a token are read again when it or the tuple
@@ -200,7 +200,7 @@ pub fn atom_face_paint(
     PropValue::Str(serde_json::Value::Array(faces).to_string().into())
 }
 
-/// A computed `symbol:` source naming an icon token, by
+/// @ref LLP 1121 D10 — a computed `symbol:` source naming an icon token, by
 /// its name or (`sf/<name>`) by its SF Symbol, written as the source form a
 /// host reads, as the compiler writes a literal one; any other value as it is.
 pub fn icon_source(plan: &exact_plan::Plan, prop: PropId, value: PropValue) -> PropValue {
@@ -222,7 +222,7 @@ pub fn icon_source(plan: &exact_plan::Plan, prop: PropId, value: PropValue) -> P
         None => plan.icons.iter().find(|i| s(i.name.0) == name),
     };
     // The row read through the one reader of it, which keeps an even-odd
-    // icon's rule; a row it doesn't read leaves the value.
+    // icon's rule (stage 14 C2); a row it doesn't read leaves the value.
     match icon.and_then(|i| icon_of(plan, i)) {
         Some(icon) => PropValue::Str(format!("symbol:{}", icon.form()).into()),
         None => value,
@@ -282,6 +282,11 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
             _ => return Err(mismatch()),
         }
     };
+    if let Some(grammar) = exact_kernel::svg::length::AttributeLength::of(prop) {
+        if !out.as_str().is_some_and(|text| grammar.accepts(text)) {
+            return Err(mismatch());
+        }
+    }
     // `none` is no material, as CSS's `backdrop-filter: none` is no backdrop.
     if prop == PropId::BackgroundMaterial
         && matches!(&out, PropValue::Str(s) if s.as_str() == "none")
@@ -289,13 +294,13 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
         return Err(BridgeError::Unset(prop));
     }
     // A computed `wakelock` outside its two words is refused here, so the
-    // row is unset (`none`) and journaled.
+    // row is unset (`none`) and journaled (LLP 1125 D11).
     if prop == PropId::Wakelock
         && !matches!(&out, PropValue::Str(s) if matches!(s.as_str(), "screen" | "none"))
     {
         return Err(mismatch());
     }
-    // And `orientationlock` outside its words.
+    // And `orientationlock` outside its words (LLP 1133.029 D2).
     if prop == PropId::Orientationlock
         && !matches!(&out, PropValue::Str(s) if crate::orientation::WORDS.contains(&s.as_str()))
     {
@@ -322,7 +327,7 @@ pub fn unsets(id: u16, value: &Value) -> bool {
 }
 
 /// [`set_style`] for a binding of `plan`: a `-exact-platform-color()` only as one
-/// of the plan's own string literals, so data, a template or
+/// of the plan's own string literals (LLP 1095 D3), so data, a template or
 /// a concatenation never chooses which platform colour a host looks up. A
 /// literal chosen by state (a ternary's arm, a class) is still the plan's.
 pub fn set_plan_style(
@@ -362,7 +367,7 @@ pub fn set_plan_style(
                     .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
             )
         });
-    // A pin's text is the plan's axes: the row holds the
+    // @ref LLP 1121 D5 — a pin's text is the plan's axes: the row holds the
     // full tuple it makes over the tuple around the node, plus one.
     if id == StyleId::Mode as u16 {
         let tuple = value
@@ -379,14 +384,14 @@ pub fn set_plan_style(
             plan.stacks.len(),
         );
     }
-    // The plan's theme, for a colour that names an entry.
+    // @ref LLP 1095 D4 — the plan's theme, for a colour that names an entry.
     let _theme = (!plan.theme.is_empty() && matches!(value, exact_plan::str_value!()))
         .then(|| exact_kernel::style::theme::bind(&theme_table(plan)));
     set_style(patch, id, value, plan.stacks.len())
 }
 
 /// The full app tuple `text`'s pins (`axis=value`, space- or comma-
-/// separated) make over `base`, axis by axis; `None` when a
+/// separated) make over `base`, axis by axis (LLP 1121 D5); `None` when a
 /// pin names no axis or value of `plan`'s.
 pub fn pinned(plan: &exact_plan::Plan, text: &str, base: u32) -> Option<u32> {
     let axes: Vec<(&str, Vec<&str>)> = plan
@@ -433,18 +438,18 @@ thread_local! {
     /// building it each.
     static THEME_TABLE: std::cell::RefCell<Option<(PlanAt, Vec<Option<exact_kernel::style::theme::Table>>)>> =
         const { std::cell::RefCell::new(None) };
-    /// The app tuple of the rows being set: the window's,
+    /// The app tuple of the rows being set (LLP 1121 D5): the window's,
     /// overridden by the nearest `-exact-mode` pin; the runner sets it
     /// around a node.
     static TUPLE: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
-    /// Tokens edited since a plan was built, by the plan and
+    /// Tokens edited since a plan was built (LLP 1121 D13), by the plan and
     /// the token's name: the default tuple's value and, when it varies,
     /// every tuple's.
     static EDITS: std::cell::RefCell<Vec<Edit>> =
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// A token's value from now on, over the plan's (a live edit): its
+/// A token's value from now on, over the plan's (LLP 1121 D13's edit): its
 /// default tuple's and, when it varies, every tuple's. The tables are built
 /// again when next bound. Whether it differs from what the token held.
 pub fn edit_token(plan: &exact_plan::Plan, name: &str, value: &str, slices: &[&str]) -> bool {
@@ -518,7 +523,7 @@ pub fn theme_table(plan: &exact_plan::Plan) -> exact_kernel::style::theme::Table
 }
 
 /// `plan`'s theme as a parse binds it in app tuple `tuple`: each entry under
-/// its name, its value that tuple's slice when it varies, and
+/// its name, its value that tuple's slice when it varies (LLP 1121 D5), and
 /// an override under its role's spelling too. Built when the plan differs
 /// from the last one this thread bound (known by its buffers' addresses,
 /// nothing scanned per row) or the tuple was not bound yet, else the one
@@ -545,7 +550,7 @@ pub fn theme_table_at(plan: &exact_plan::Plan, tuple: u32) -> exact_kernel::styl
                 .collect()
         });
         use exact_kernel::style::theme::Kind;
-        // A type or family token's family as the plan's stack:
+        // A type or family token's family as the plan's stack (stage 6 C):
         // the compiler declared one for each tuple's.
         let stacks = plan_stacks(plan);
         let stack = |family: &str| {
@@ -571,7 +576,7 @@ pub fn theme_table_at(plan: &exact_plan::Plan, tuple: u32) -> exact_kernel::styl
                 };
                 // A tint role stays the role in its row (`ColorValue::themed`).
                 let tint = roles::role(role).is_some_and(roles::tint);
-                // Whether it varies by an app axis, as edited (no inherited
+                // Whether it varies by an app axis, as edited (D7: no inherited
                 // row reads such a length or number).
                 let varies =
                     edit.map_or(row.slices.len > 0, |(_, _, _, slices)| !slices.is_empty());
@@ -609,7 +614,7 @@ pub fn theme_table_at(plan: &exact_plan::Plan, tuple: u32) -> exact_kernel::styl
     })
 }
 
-/// Whether `text` names one of `plan`'s type or family tokens:
+/// Whether `text` names one of `plan`'s type or family tokens (stage 6 C):
 /// a `font-family` row's string the kernel reads as the token's stack,
 /// never interned as an installed family.
 pub fn names_font_token(plan: &exact_plan::Plan, text: &str) -> bool {
@@ -623,7 +628,7 @@ pub fn names_font_token(plan: &exact_plan::Plan, text: &str) -> bool {
 /// Binding `b`'s value as a `font-family` row reads it (an option's
 /// inner value), and the runtime stack it names: a family list interned
 /// for the session, but never a type or family token's name, which the
-/// kernel reads as the token's stack.
+/// kernel reads as the token's stack (stage 6 C).
 pub fn family_binding<'v>(
     plan: &exact_plan::Plan,
     fonts: Option<&std::cell::RefCell<RuntimeFonts>>,
@@ -646,7 +651,7 @@ pub fn family_binding<'v>(
 
 /// A refusal when binding `b`'s `value` on site `node` names a type or
 /// family token that varies by an app axis on a node whose children
-/// inherit its rows: the compiler refuses a
+/// inherit its rows (stage 6 C, theme2's ruling): the compiler refuses a
 /// literal so; a value computed at run time is refused here, as invalid.
 pub fn inherited_varying(
     plan: &exact_plan::Plan,
@@ -682,7 +687,7 @@ pub fn inherited_varying(
 }
 
 /// The stack of `plan`'s whose members `family` names, as the compiler
-/// declared a family token's.
+/// declared a family token's (stage 6 C).
 pub fn plan_stack(plan: &exact_plan::Plan, family: &str) -> Option<u16> {
     let key = exact_kernel::style::theme::typeface::family_key_of(family);
     plan_stacks(plan)
@@ -717,8 +722,8 @@ fn plan_stacks(plan: &exact_plan::Plan) -> Vec<(String, u16)> {
         .collect()
 }
 
-/// The roles `plan`'s theme replaces, for the session
-/// that runs it: where the kernel resolves a role (its
+/// @ref LLP 1095 D4 — the roles `plan`'s theme replaces, for the session
+/// that runs it (LLP 1121 stage 5): where the kernel resolves a role (its
 /// own defaults: unsaid text is `CanvasText`) and what crosses to a host, as
 /// well as a row naming the role. Installed on the thread for a caller that
 /// emits this one plan, while the returned table is held.
@@ -737,7 +742,7 @@ pub fn role_overrides(plan: &exact_plan::Plan) -> Vec<(u8, exact_kernel::ColorVa
     // next: the cached table is rebuilt for it (never another plan's whose
     // buffers it reuses).
     THEME_TABLE.with(|cache| cache.borrow_mut().take());
-    // A plan booted afresh starts from its own tokens, though
+    // A plan booted afresh starts from its own tokens (LLP 1121 D13), though
     // its buffers may be where an edited one's were.
     let at = plan_at(plan);
     EDITS.with(|edits| edits.borrow_mut().retain(|(p, ..)| *p != at));
@@ -762,15 +767,15 @@ pub fn role_colour(value: &str) -> Option<exact_kernel::ColorValue> {
 }
 
 /// [`set_plan_style`] for one of `plan`'s style bindings, with what the
-/// binding says of the row: whether its author wrote it on this node.
-/// The kernel keeps that beside the row.
+/// binding says of the row: whether its author wrote it on this node
+/// (@ref LLP 1115.000 D2). The kernel keeps that beside the row.
 pub fn set_binding_style(
     patch: &mut StyleProps,
     binding: &exact_plan::BindingsRow,
     value: &Value,
     plan: &exact_plan::Plan,
 ) -> Result<StyleId, BridgeError> {
-    // A metric's name is the compiler's, in a sheet
+    // @ref LLP 1115.002 D6 — a metric's name is the compiler's, in a sheet
     // it writes: a row its author wrote never reads one, whatever built
     // the value (the compiler refuses the literal).
     if binding.written
@@ -831,7 +836,7 @@ pub fn set_style(
             return set_style(patch, id, &Value::Number(f64::from(initial)), stacks);
         }
         // A type or family token's name, which the kernel reads as the
-        // token's stack.
+        // token's stack (stage 6 C).
         if value
             .as_str()
             .is_some_and(|t| exact_kernel::style::theme::names(t.trim()))
@@ -891,7 +896,7 @@ pub fn set_style(
     Ok(style)
 }
 
-/// The plan's `@keyframes` by name, each parsed once per plan,
+/// The plan's `@keyframes` by name, each parsed once per plan (LLP 1055 D5),
 /// the first time an `animation` names it: a plan's rules are many and a
 /// first frame starts few of them.
 #[derive(Debug, Default)]
@@ -904,7 +909,7 @@ pub struct KeyframesTable(
 );
 
 /// How a runner resolves an `animation` list's names against the plan's
-/// `@keyframes`, when CSS animations are linked: a plan that
+/// `@keyframes`, when CSS animations are linked (LLP 1047.001): a plan that
 /// animates nothing never names a rule, and links none of the resolution.
 pub type KeyframesLink = Option<fn(&KeyframesTable, &mut exact_motion::Animations) -> Vec<String>>;
 
@@ -948,7 +953,7 @@ impl KeyframesTable {
 mod tests {
     use super::*;
 
-    /// A computed `symbol:` source naming an icon is written
+    /// Stage 14 C2: a computed `symbol:` source naming an icon is written
     /// from its row through `exact_kernel::Icon`, so an even-odd icon's
     /// source keeps its `evenodd:` marker and a nonzero one is as before.
     #[test]
@@ -1113,7 +1118,7 @@ mod tests {
         assert!(set_plan_style(&mut style, color, &Value::str("#fff"), &plan).is_ok());
     }
 
-    /// A metric's name is the compiler's. A row its author
+    /// LLP 1115.002 D6: a metric's name is the compiler's. A row its author
     /// wrote never reads one, whatever built the value; a row of a sheet
     /// the compiler wrote holds the metric's value in this process's column
     /// (the web's, until a host says its platform).
@@ -1138,7 +1143,7 @@ mod tests {
         assert!(!style.written.has(StyleId::MinHeight), "the platform's");
     }
 
-    /// Where two bindings set one row the node has the
+    /// LLP 1115.000 D2: where two bindings set one row the node has the
     /// winner's bit, an implied winner's too. A compiled plan has one
     /// binding a row, but validation admits two.
     #[test]

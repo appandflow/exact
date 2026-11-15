@@ -1,4 +1,5 @@
-// The dials panel's controls and the token grid's cells by kind: what the panel draws for each dial
+// The dials panel's controls and the token grid's cells by kind (LLP 1121
+// D4, D15; LLP 1122 D7; stage 6's kinds): what the panel draws for each dial
 // from its declared metadata, and what a cell says of a token of each kind.
 // Pure functions of `describe` and `resolve`; app.ts's resources use them.
 import type { Result } from './app.contract.d.ts';
@@ -6,7 +7,7 @@ import type { Result } from './app.contract.d.ts';
 type Design = Result<'loadDesign'>;
 type Control = Design['groups'][number]['dials'][number];
 
-/** A number as Tamber writes one: a plain number, or a length's `Npx`; null
+/** A number as Forma writes one: a plain number, or a length's `Npx`; null
  * for anything else. */
 export const numberOf = (v: string | undefined) => {
   const t = v?.trim().replace(/px$/i, '') ?? '';
@@ -88,10 +89,10 @@ const literalOf = (kind: string, v: string, tokens: ReadonlySet<string>) =>
   : kind === 'length' ? /^(0|[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?px)$/i.test(v.trim())
   : /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(v.trim());
 
-/** A dial's control from its declared metadata: its
+/** A dial's control from its declared metadata (LLP 1121 D4, D15): its
  * `control`, else its kind's own (a colour's field, a ranged number's
  * slider, else a stepper); `none` is not drawn. Metadata is kept, not
- * checked, by Tamber, so a control that does not fit the kind (a stepper
+ * checked, by Forma, so a control that does not fit the kind (a stepper
  * for a colour, a slider with no range, a select with no options) is the
  * kind's own, said in its help; a step or priority that is no number is
  * left at its default. `token` names a picker of tokens, which a dial (a
@@ -104,7 +105,7 @@ export function controlOf(d: { name: string; kind: string; value: string; range:
   const declared = m.control;
   if (declared === 'none') return null;
   const written = (m.options ?? '').split('|').map(o => o.trim()).filter(Boolean);
-  // (A param takes a token as well as a literal.)
+  // (A param takes a token as well as a literal: LLP 1121 D15.)
   const literal = (o: string) => takesTokens || literalOf(d.kind, o, tokens);
   const options = written.filter(literal);
   const dropped = written.filter(o => !literal(o));
@@ -117,11 +118,11 @@ export function controlOf(d: { name: string; kind: string; value: string; range:
   // With no step, the finest the value and the range are written in, so
   // every declared value is a step (at least 0.01).
   const finest = 10 ** -Math.max(2, decimals(d.value), decimals(d.range?.[0]), decimals(d.range?.[1]));
-  // A length's step is in px, written either way.
+  // A length's step is in px (LLP 1121 D15), written either way.
   const declaredStep = m.step !== undefined && numberOf(m.step) !== null && (d.kind === 'length' || !/px$/i.test(m.step)) ? numberOf(m.step) : null;
   const step = declaredStep !== null && declaredStep > 0 ? declaredStep : d.kind === 'number' ? finest : d.kind === 'length' ? 10 ** -Math.max(0, decimals(d.value), decimals(d.range?.[0]), decimals(d.range?.[1])) : 1;
   const priority = [1, 2, 3].includes(Number(m.priority)) ? Number(m.priority) : 2;
-  // What a number from the slider or stepper is written with (a length dial is px).
+  // What a number from the slider or stepper is written with (LLP 1121 D15: a length dial is px).
   const unit = d.kind === 'length' ? 'px' : '';
   const said = [
     declared && declared !== 'token' && !fits ? `control=${declared} does not fit this ${d.kind} dial; its own control is shown.` : '',
@@ -148,7 +149,7 @@ export function controlOf(d: { name: string; kind: string; value: string; range:
 }
 
 /** A token's value in a cell, by its kind, from `resolve`'s tuple
- * (docs/tamber-protocol.md, tamber/1.5-1.9): a length or a number as the
+ * (docs/forma-protocol.md, forma/1.5-1.9): a length or a number as the
  * server spells it, a shadow's text, a type's
  * longhands (each one it leaves unsaid named so), a family, a duration in
  * ms, an easing's curve. */

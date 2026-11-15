@@ -1,6 +1,6 @@
-//! The local network under the runner: the reach each request
+//! The local network under the runner (LLP 1133.036): the reach each request
 //! carries for the hop rule (`crate::local_network`), and the declared
-//! substitute's simulated network.
+//! substitute's simulated network (D19).
 //!
 //! A permission whose fact is the host's (`"fact": "host"`) reads `unknown`
 //! as "a reach may ask", so `unknown` holds a request under a ticket as
@@ -51,8 +51,8 @@ pub(super) fn asks_in(permission: &Json, state: &str) -> bool {
 }
 
 impl<D: DataSource> Runner<D> {
-    /// The declared substitute's simulated network (a keyed fixture): the
-    /// agent's preferred value for the
+    /// The declared substitute's simulated network (D19, the keyed fixture
+    /// of LLP 1133.022 D19 item 2): the agent's preferred value for the
     /// `browse` source is the whole network, a list of `{"name", "type",
     /// "host", "port", "hostName"?, "addresses"?, "txt"?: {key: value}}`.
     /// A browse answers the entries of its `type`, by name; a resolve the
@@ -123,7 +123,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether a reader of `row` with `args` that may not start it can join
-    /// it: a resource reads the same group under the app's origin.
+    /// it (D3): a resource reads the same group under the app's origin.
     pub(super) fn joins_running(&self, row: &ModulesRow, args: &Json) -> bool {
         if self.substitute(row)["join"] != true {
             return false;
@@ -132,7 +132,10 @@ impl<D: DataSource> Runner<D> {
         let readers = self.extensions.readers.get(&self.key(row));
         readers.into_iter().flatten().any(|(i, group)| {
             groups.contains(group)
-                && self.resources.get(*i).is_some_and(Option::is_some)
+                && self
+                    .resources
+                    .get(*i)
+                    .is_some_and(|row| row.state.is_some())
                 && self.origin_asked(*i).is_none_or(|o| o == CallOrigin::App)
         })
     }

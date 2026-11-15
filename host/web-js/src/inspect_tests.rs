@@ -1,4 +1,4 @@
-//! The JS target's inspect table says of each site what
+//! @ref LLP 1122 T2b — the JS target's inspect table says of each site what
 //! the runner's `node` op says of every view instantiated from it: its type,
 //! the rows it sets with their values, sources and tokens, and the regions
 //! above it.
@@ -126,7 +126,7 @@ fn check(dir: &std::path::Path) {
         for (name, row) in node["style"].as_object().unwrap() {
             let source = row["source"].as_str().unwrap();
             let mine = own.iter().find(|r| r["n"] == *name);
-            // A mode boundary's implied row is the page's to
+            // A mode boundary's implied row (LLP 1121 D7) is the page's to
             // find: the table says the site is a boundary.
             if row["token"]["implied"].as_bool() == Some(true) {
                 let at = match row["from"].as_u64() {

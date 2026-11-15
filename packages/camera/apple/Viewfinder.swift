@@ -1,4 +1,4 @@
-// `exact-camera` on Apple: an
+// `exact-camera` on Apple (LLP 1133.008 D1, D2, §9): an
 // `AVCaptureVideoPreviewLayer` on the track's capture session, attached on
 // the main thread, turned by the rotation coordinator, mirrored for a front
 // camera by its connection; under the agent, a layer showing the agent's
@@ -129,7 +129,7 @@ final class Viewfinder: NSObject, ExactPackageView {
         once()
     }
 
-    /// The agent's picture, mirrored for a front camera.
+    /// The agent's picture, mirrored for a front camera (§9).
     func show(picture image: CGImage?, mirrored: Bool) {
         blank()
         let layer = CALayer()

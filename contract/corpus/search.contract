@@ -1,5 +1,5 @@
 // Accept fixture: `includes`, `startsWith` and `endsWith`, the web's string
-// searches under the web's names. A launcher in miniature:
+// searches under the web's names (LLP 1017 §8.1). A launcher in miniature:
 // the rows whose two-digit code starts with the digit typed are highlighted,
 // the rows whose name includes the typed text are counted, and a file's kind
 // is read from its suffix, all in the view and none in the data source.

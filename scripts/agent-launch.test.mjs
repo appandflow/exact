@@ -1,16 +1,16 @@
-// The drive's launch facts (agent-launch.mjs `launchFacts`), and the browser it finds; the fixed
+// The drive's launch facts (agent-launch.mjs `launchFacts`, LLP 1027.000.000 D3), and the browser it finds; the fixed
 // defaults and overrides are host/web/agent.test.mjs's "launch setup" test.
 import { test, expect } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
+import { PINNED_RUST } from './app.mjs';
 import { Cdp, agentPage, chromium, chromiumBuilds, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort, pollUntil } from './agent-launch.mjs';
 import { PassThrough } from 'node:stream';
-// The Snapback device checks need the Snapback client, which a checkout may not have.
-const hasSnapback = existsSync(new URL('../snapback4/web/device-build.mjs', import.meta.url));
-import { placeReporter } from '../host/web/navigation.js';
+import { placeReporter } from '../host/web/navigation/environment.js';
 
-// Every browser carrier opens the page with the same query: the drive's auth fixture among it.
+// Every browser carrier opens the page with the same query (LLP 1146 D4): the drive's auth fixture among it.
 test('a web drive opens its page with the facts, its auth fixture, storage and hatches', () => {
   const page = agentPage(new URL('http://127.0.0.1:9/'), { facts: { epoch: '0' }, storage: 'drive', env: { EXACT_AUTH_FIXTURE: 'http://127.0.0.1:4400', EXACT_HATCHES: 'off' } });
   expect(Object.fromEntries(page.searchParams)).toEqual({ agent: '1', epoch: '0', authFixture: 'http://127.0.0.1:4400', storage: 'drive', hatches: 'off' });
@@ -25,6 +25,19 @@ test('simulator drives reject --phone and preserve explicit --sim selection', ()
   }
   expect(parseFlags(['ios', '--device', '--phone', 'phone', 'tree']).flags.phone).toBe('phone');
   expect(parseFlags(['trace', '--phone', 'phone']).flags.phone).toBe('phone');
+});
+
+// A missing value was read as the flag's default: `--url` last drove this checkout's build, `--app` last the default app.
+test('a flag that takes a value is refused by name when the value is missing or another flag', () => {
+  const valued = ['--world', '--plan', '--app', '--browser', '--test', '--session', '--open', '--url', '--seed', '--locale', '--format-locale',
+    '--time-zone', '--epoch', '--timing', '--touch', '--chrome', '--phone', '--sim', '--storage', '--port', '--pid', '--out', '--fail-fetch',
+    '--permission', '--notification', '--wake', '--call', '--bind', '--home'];
+  for (const flag of valued) {
+    expect(() => parseFlags(['web', 'tree', flag])).toThrow(`${flag} needs a value`);
+    expect(() => parseFlags(['web', flag, '--json', 'tree'])).toThrow(`${flag} needs a value`);
+  }
+  expect(parseFlags(['web', '--seed', '-3', 'tree']).flags.seed).toBe(-3);
+  expect(parseFlags(['web', '--app', 'shelf', '--url', 'http://127.0.0.1:9/', 'tree']).flags).toMatchObject({ app: 'shelf', url: 'http://127.0.0.1:9/' });
 });
 
 test('polling host I/O waits for a cold guest and bounds a hung guest', async () => {
@@ -109,26 +122,186 @@ function stampedWasm(stamp = {format: 1, version: engineVersion(), capabilities:
   const body = Buffer.concat([leb(name.length), name, Buffer.isBuffer(stamp) ? stamp : Buffer.from(JSON.stringify(stamp))]);
   return Buffer.concat([Buffer.from([0,97,115,109,1,0,0,0,0]), leb(body.length), body]);
 }
-import { timeReporter } from '../host/web/navigation.js';
+import { timeReporter } from '../host/web/navigation/environment.js';
+// The Snapback device checks need the Snapback client (snapback4/), which this repository does not ship.
+const hasSnapback = existsSync(new URL('../snapback4/web/device-build.mjs', import.meta.url));
 
-// `--reader` is a flag of the drive, said to the Android carrier as the variable it reads
-// (agent-android.mjs `androidBinary`), and never an op.
-test('--reader names the Canvas reader to the Android carrier', () => {
+// LLP 1107 D1: `--reader` and `--headless` are flags of the drive, which `main` hands to `open` as `reader`, and never
+// ops; neither sets EXACT_ANDROID_READER, which is how a script that opens a drive says it.
+test('--reader and --headless name the Android carrier as drive flags', () => {
   const before = process.env.EXACT_ANDROID_READER;
   try {
     delete process.env.EXACT_ANDROID_READER;
     expect(parseFlags(['android', '--app', 'shelf', 'tree']).flags.reader).toBeUndefined();
-    expect(process.env.EXACT_ANDROID_READER).toBeUndefined();
     const { flags, rest } = parseFlags(['android', '--reader', '--app', 'shelf', 'tree']);
     expect(flags.reader).toBe(true);
     expect(rest).toEqual(['android', 'tree']);
-    expect(process.env.EXACT_ANDROID_READER).toBe('1');
+    expect(parseFlags(['android', '--headless', 'tree']).flags.reader).toBe(false);
+    expect(process.env.EXACT_ANDROID_READER).toBeUndefined();
   } finally {
     if (before === undefined) delete process.env.EXACT_ANDROID_READER; else process.env.EXACT_ANDROID_READER = before;
   }
 });
 
-// A drive against a live backend opts into the machine's clock, read once at launch; the host is
+// A library the APK ships runs on a device with 16 KB pages outside page-size compatibility mode only with its LOAD
+// segments 16 KB aligned, which NDK r27 does not do by default. Cargo uses one rustflags source for a target: the
+// argument joins each one it may use, a `--config` for `build.rustflags`, and makes no new one (a game's
+// `-fp-contract=off` is in `build.rustflags`). A run for another target, or for the host, is left alone.
+test('the Android build links its libraries with 16 KB pages, beside the flags Cargo would use', async () => {
+  const { ANDROID_PAGE_SIZE: page, androidCargo } = await import('./cargo-check.mjs');
+  const config = ['--config', `build.rustflags=["${page}"]`];
+  const run = (env, args = ['build', '-p', 'app', '--target', 'aarch64-linux-android']) => {
+    const [, argv, { env: out }] = androidCargo('cargo', args, { env });
+    return { argv, flags: Object.fromEntries(['CARGO_ENCODED_RUSTFLAGS', 'RUSTFLAGS', 'CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS', 'CARGO_BUILD_RUSTFLAGS'].filter((k) => out[k] !== undefined).map((k) => [k, out[k]])) };
+  };
+  expect(run({})).toEqual({ argv: ['build', '-p', 'app', '--target', 'aarch64-linux-android', ...config], flags: {} });
+  expect(run({}, ['rustc', '--target=aarch64-linux-android', '--', '-Cfoo']).argv).toEqual(['rustc', '--target=aarch64-linux-android', ...config, '--', '-Cfoo']);
+  expect(run({ CARGO_BUILD_RUSTFLAGS: '--cfg b' }).flags).toEqual({ CARGO_BUILD_RUSTFLAGS: '--cfg b' });
+  expect(run({ RUSTFLAGS: '-Cdebuginfo=1' }).flags).toEqual({ RUSTFLAGS: `-Cdebuginfo=1 ${page}` });
+  expect(run({ RUSTFLAGS: '' }).flags).toEqual({ RUSTFLAGS: page });
+  expect(run({ RUSTFLAGS: '-Cdebuginfo=1', CARGO_ENCODED_RUSTFLAGS: '--cfg\x1fa b' }).flags).toEqual({ RUSTFLAGS: '-Cdebuginfo=1', CARGO_ENCODED_RUSTFLAGS: `--cfg\x1fa b\x1f${page}` });
+  expect(run({ CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS: '-llog' }).flags).toEqual({ CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS: `-llog ${page}` });
+  expect(run({ RUSTFLAGS: page, CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS: page }).flags).toEqual({ RUSTFLAGS: page, CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS: page });
+  // The host's own runs (a game's lints) and other targets'.
+  for (const args of [['clippy', '-p', 'game', '--lib'], ['build', '--target', 'aarch64-apple-ios']]) {
+    const env = { RUSTFLAGS: '-Cdebuginfo=1' };
+    expect(androidCargo('cargo', args, { env })).toEqual(['cargo', args, { env }]);
+  }
+});
+
+// What the APK build reads before packaging a library: its smallest LOAD segment alignment.
+test('an ELF file\'s LOAD alignment is its smallest PT_LOAD p_align', async () => {
+  const { loadAlignment } = await import('./agent-android.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-elf-'));
+  try {
+    const elf = (aligns) => {
+      const bytes = Buffer.alloc(64 + 56 * aligns.length);
+      bytes.writeBigUInt64LE(64n, 0x20); bytes.writeUInt16LE(56, 0x36); bytes.writeUInt16LE(aligns.length, 0x38);
+      aligns.forEach(([type, align], i) => { bytes.writeUInt32LE(type, 64 + 56 * i); bytes.writeBigUInt64LE(BigInt(align), 64 + 56 * i + 0x30); });
+      const path = resolve(dir, `${aligns.length}.so`); writeFileSync(path, bytes); return path;
+    };
+    expect(loadAlignment(elf([[1, 0x4000], [1, 0x4000], [6, 8]]))).toBe(16384); // PT_PHDR's alignment is not a LOAD's
+    expect(loadAlignment(elf([[1, 0x4000], [1, 0x1000], [2, 8], [1, 0x4000]]))).toBe(4096);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// The APK's Gradle step: `gradlew` where a POSIX shell runs it, the wrapper jar under the JDK on Windows, and a Gradle
+// that could not start said so rather than ending the build silently.
+test('the Android build starts Gradle on every host, and says when it could not', async () => {
+  const { gradleWrapper, jvmOptions, runGradle } = await import('./agent-android.mjs');
+  const reader = resolve(import.meta.dir, '../host/android');
+  for (const platform of ['darwin', 'linux']) expect(gradleWrapper(platform, {})).toEqual([resolve(reader, 'gradlew')]);
+  const jar = ['-Xmx64m', '-Xms64m', '-Dorg.gradle.appname=gradlew', '-jar', resolve(reader, 'gradle/wrapper/gradle-wrapper.jar')];
+  expect(gradleWrapper('win32', { JAVA_HOME: '/jdk' })).toEqual([resolve('/jdk', 'bin', 'java.exe'), ...jar]);
+  expect(gradleWrapper('win32', { JAVA_HOME: '"/jdk"' })[0]).toBe(resolve('/jdk', 'bin', 'java.exe'));
+  expect(gradleWrapper('win32', { JAVA_HOME: '""' })[0]).toBe('java.exe');
+  expect(gradleWrapper('win32', {})).toEqual(['java.exe', ...jar]);
+  expect(existsSync(jar.at(-1))).toBe(true);
+  // JAVA_OPTS, then GRADLE_OPTS, between the heap flags and the jar: a proxy for the distribution's download, a quoted
+  // value with a space, a Windows path's backslashes and an apostrophe, which quotes nothing on Windows.
+  const opts = { JAVA_HOME: '/jdk', JAVA_OPTS: '-Xmx2g  "-Djavax.net.ssl.trustStore=C:\\Program Files\\certs\\store" -Dtrust=C:\\Users\\O\'Brien\\certs\\corp.jks',
+    GRADLE_OPTS: '-Dhttps.proxyHost=proxy.example\t-Dhttps.proxyPort=8080 "-Dhttp.nonProxyHosts=localhost|*.lan" it\'s two\'s' };
+  expect(gradleWrapper('win32', opts)).toEqual([resolve('/jdk', 'bin', 'java.exe'), '-Xmx64m', '-Xms64m', '-Xmx2g',
+    '-Djavax.net.ssl.trustStore=C:\\Program Files\\certs\\store', "-Dtrust=C:\\Users\\O'Brien\\certs\\corp.jks",
+    '-Dhttps.proxyHost=proxy.example', '-Dhttps.proxyPort=8080', '-Dhttp.nonProxyHosts=localhost|*.lan', "it's", "two's", ...jar.slice(2)]);
+  // The C runtime's backslash and quote rules: `\"` is a literal quote, `\\"` a backslash and a quote that quotes, and
+  // `""` inside quotes one quote.
+  expect(jvmOptions('-Da=\\"x\\" "-Db=C:\\dir\\\\" -Dc=a\\\\\\"b "-Dd=say ""hi"""')).toEqual(['-Da="x"', '-Db=C:\\dir\\', '-Dc=a\\"b', '-Dd=say "hi"']);
+  expect(jvmOptions(undefined)).toEqual([]);
+  // A malformed value is named, never printed: it can hold a password.
+  const leaky = { GRADLE_OPTS: '-Dhttps.proxyPassword=hunter2 "-Xmx2g' };
+  expect(() => gradleWrapper('win32', leaky)).toThrow('GRADLE_OPTS has an unmatched " at character 31');
+  try { gradleWrapper('win32', leaky); } catch (e) { expect(e.message).not.toContain('hunter2'); }
+  const missing = resolve(tmpdir(), 'exact-no-such-jdk');
+  const said = [], error = console.error;
+  console.error = (line) => said.push(line);
+  try { expect(runGradle(['--version'], { env: { JAVA_HOME: missing, JAVA_OPTS: '-Dhttps.proxyPassword=hunter2' } }, 'win32')).toBe(false); }
+  finally { console.error = error; }
+  expect(said.join('\n')).not.toContain('hunter2');
+  expect(said).toEqual([expect.stringContaining(`could not start Gradle (${resolve(missing, 'bin', 'java.exe')}): `)]);
+});
+
+// The Windows launch gives Java what the POSIX gradlew gives it, in the same order, under a stand-in java that prints
+// its arguments. Double quotes only, where xargs and the Windows rules agree.
+test.skipIf(process.platform === 'win32')("the Windows Gradle launch passes the JVM options as gradlew does", async () => {
+  const { gradleWrapper } = await import('./agent-android.mjs');
+  const jdk = mkdtempSync(resolve(tmpdir(), 'exact-jdk-'));
+  try {
+    mkdirSync(resolve(jdk, 'bin'));
+    writeFileSync(resolve(jdk, 'bin/java'), '#!/bin/sh\nfor a; do printf "%s\\n" "$a"; done\n', { mode: 0o755 });
+    const env = { PATH: process.env.PATH, JAVA_HOME: jdk, JAVA_OPTS: '-Xmx2g "-Dtrust=/certs/my store"',
+      GRADLE_OPTS: '-Dhttps.proxyHost=proxy.example -Dhttps.proxyPort=8080 "-Dhttp.nonProxyHosts=localhost|*.lan"' };
+    const reader = resolve(import.meta.dir, '../host/android');
+    const posix = spawnSync(resolve(reader, 'gradlew'), [':app:assembleRelease', '-PappDir=/my apps/a b'], { cwd: reader, env, encoding: 'utf8' });
+    expect(posix.status).toBe(0);
+    const given = posix.stdout.trimEnd().split('\n');
+    const [, ...windows] = gradleWrapper('win32', env);
+    const jar = (args) => args.map((a) => a.endsWith('gradle-wrapper.jar') ? 'gradle-wrapper.jar' : a);
+    expect(jar(given)).toEqual(jar([...windows, ':app:assembleRelease', '-PappDir=/my apps/a b']));
+  } finally { rmSync(jdk, { recursive: true, force: true }); }
+});
+
+// What the APK build reads after packaging (LLP 1159.002 D2): AGP strips the library, and what it loads stays.
+test('an APK whose library loads other bytes than the staged one is refused', async () => {
+  const { loadedImage, keptLibrary } = await import('./agent-android.mjs');
+  // Two PT_LOADs (the first holds the ELF header, as a real one does) and a PT_NOTE; `tail` stands for what
+  // stripping removes and `shoff` for the header field it rewrites.
+  const elf = (code, { tail = 0, shoff = 0n } = {}) => {
+    const head = Buffer.alloc(64 + 56 * 3), text = Buffer.from(code);
+    head.writeBigUInt64LE(64n, 0x20); head.writeBigUInt64LE(shoff, 0x28); head.writeUInt16LE(56, 0x36); head.writeUInt16LE(3, 0x38);
+    const load = (i, offset, length) => { head.writeUInt32LE(1, 64 + 56 * i); head.writeBigUInt64LE(BigInt(offset), 64 + 56 * i + 0x08); head.writeBigUInt64LE(BigInt(length), 64 + 56 * i + 0x20); };
+    load(0, 0, head.length); load(1, head.length, text.length); head.writeUInt32LE(4, 64 + 56 * 2);
+    return Buffer.concat([head, text, Buffer.alloc(tail, 7)]);
+  };
+  const staged = elf('one build');
+  expect(loadedImage(staged)).toMatch(/^[0-9a-f]{64}$/);
+  expect(keptLibrary(staged, elf('one build', { shoff: 4096n }), ['app', 'canvas'])).toBe(null);
+  expect(keptLibrary(elf('one build', { tail: 4096 }), staged, ['app', 'canvas'])).toBe(null);
+  const kept = keptLibrary(staged, elf('another one'), ['app', 'canvas']);
+  expect(kept).toBe(`the APK holds a libexactcanvas.so that is not the one this build made (${loadedImage(elf('another one')).slice(0, 12)} in the APK, ${loadedImage(staged).slice(0, 12)} staged, by what each loads). Gradle kept an earlier build's: delete app and canvas and build again`);
+  expect(keptLibrary(staged, null, ['app', 'canvas'])).toBe("the APK holds no libexactcanvas.so. Gradle kept an earlier build's: delete app and canvas and build again");
+});
+
+test('a file is read out of a zip archive, stored or deflated, without unzip', async () => {
+  const { zipEntry } = await import('./agent-android.mjs');
+  const { deflateRawSync } = await import('node:zlib');
+  // Two entries: a stored one, then a deflated one behind a local extra field.
+  const files = [['assets/a.txt', Buffer.from('stored'), 0, 0], ['lib/arm64-v8a/libexactcanvas.so', Buffer.from('library '.repeat(40)), 8, 4]];
+  const locals = [], centrals = [];
+  let offset = 0;
+  for (const [name, bytes, method, extra] of files) {
+    const data = method ? deflateRawSync(bytes) : bytes, local = Buffer.alloc(30 + name.length + extra), central = Buffer.alloc(46 + name.length);
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(name.length, 26); local.writeUInt16LE(extra, 28); local.write(name, 30);
+    central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(method, 10); central.writeUInt32LE(data.length, 20); central.writeUInt32LE(bytes.length, 24);
+    central.writeUInt16LE(name.length, 28); central.writeUInt32LE(offset, 42); central.write(name, 46);
+    locals.push(local, data); centrals.push(central); offset += local.length + data.length;
+  }
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(files.length, 10); end.writeUInt32LE(offset, 16);
+  const zip = Buffer.concat([...locals, ...centrals, end]);
+  expect(zipEntry(zip, 'assets/a.txt')?.toString()).toBe('stored');
+  expect(zipEntry(zip, 'lib/arm64-v8a/libexactcanvas.so')?.toString()).toBe('library '.repeat(40));
+  expect(zipEntry(zip, 'lib/arm64-v8a/other.so')).toBe(null);
+  expect(zipEntry(Buffer.from('not a zip archive at all'), 'a')).toBe(null);
+});
+
+// An app's directory pins no toolchain, so the Android build asks rustup about the pinned one by name.
+test.skipIf(process.platform === 'win32')('the Android build checks the pinned toolchain for its Rust target', () => {
+  const bin = mkdtempSync(resolve(tmpdir(), 'exact-rustup-'));
+  try {
+    // A rustup whose default toolchain lacks the target and whose pinned one has it.
+    writeFileSync(resolve(bin, 'rustup'), `#!/bin/sh\necho "$*" >> '${bin}/calls'\ncase "$*" in *"--toolchain ${PINNED_RUST}"*) echo aarch64-linux-android ;; *) echo aarch64-apple-darwin ;; esac\n`, { mode: 0o755 });
+    const build = () => spawnSync(process.execPath, ['scripts/agent-android.mjs', 'build', 'no-such-app', '--apk'], { encoding: 'utf8', env: { ...process.env, PATH: bin + delimiter + process.env.PATH } });
+    expect(build().stderr).not.toContain('has no aarch64-linux-android target');
+    expect(readFileSync(resolve(bin, 'calls'), 'utf8')).toContain(`target list --installed --toolchain ${PINNED_RUST}`);
+    writeFileSync(resolve(bin, 'rustup'), '#!/bin/sh\necho aarch64-apple-darwin\n', { mode: 0o755 });
+    const missing = build();
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain(`the pinned toolchain ${PINNED_RUST} has no aarch64-linux-android target: rustup target add aarch64-linux-android --toolchain ${PINNED_RUST}`);
+  } finally { rmSync(bin, { recursive: true, force: true }); }
+});
+
+// App farm round 2: a drive against a live backend opts into the machine's clock, read once at launch; the host is
 // told those milliseconds, so `state.time.epochAtZero` is the launch instant and `clock +N` moves the date from it.
 test('--epoch now is the machine clock read once at launch, reported as that instant', () => {
   const {flags} = parseFlags(['web', '--epoch', 'now', 'state']);
@@ -155,6 +328,8 @@ test('the pinned headless shell by default, the full build for a need, and CHROM
     expect(at({}).unavailable).toMatch(/headless shell is missing .*install chromium-headless-shell/);
     for (const path of [full, shell]) { mkdirSync(dirname(path), {recursive:true}); writeFileSync(path, ''); chmodSync(path, 0o755); }
     expect(at({})).toEqual({ executable: shell, unavailable: null });
+    expect(at({CHROME: ''})).toEqual(at({}));
+    expect(at({CHROME: ''}, ['gpu'])).toEqual(at({}, ['gpu']));
     expect(at({}, ['gpu'])).toEqual({ executable: full, unavailable: null });
     expect(at({CHROME: shell}, ['gpu']).executable).toBe(shell);
     expect(at({CHROME: resolve(dir, 'missing')}).unavailable).toBeTruthy();
@@ -164,7 +339,7 @@ test('the pinned headless shell by default, the full build for a need, and CHROM
     expect(chromiumBuilds('/pw/chromium-1248/chrome-linux/chrome', 'linux', 'riscv64').shell).toBe(null);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
-// A builder on a shared machine keeps every listener in its assigned range.
+// App farm wave 1 (21 builds): a builder on a shared machine keeps every listener in its assigned range.
 test('a web drive takes its port from --port, else EXACT_PORT, and refuses anything but a port', () => {
   expect(parseFlags(['web', '--port', '50821', 'tree']).flags.port).toBe('50821');
   expect(webPort('50821', {EXACT_PORT: '50822'})).toBe(50821);
@@ -178,7 +353,7 @@ test('a web drive takes its port from --port, else EXACT_PORT, and refuses anyth
   expect(() => parseFlags(['web', '--storage', 'proof', '--keep-storage', '--reset-storage'])).toThrow('mutually exclusive');
 });
 
-// Only the drive's own flags let a program run.
+// LLP 1133.007 §7: only the drive's own flags let a program run.
 test('an inherited EXACT_AGENT_PROCESS opens no process gate', () => {
   process.env.EXACT_AGENT_PROCESS = 'path:sh=real';
   process.env.EXACT_AGENT_HOME = '/tmp/inherited';
@@ -190,7 +365,7 @@ test('an inherited EXACT_AGENT_PROCESS opens no process gate', () => {
   delete process.env.EXACT_AGENT_PROCESS;
 });
 
-// Chrome's fatal line comes before a native stack that a tail would keep instead.
+// App farm 082: Chrome's fatal line came before a native stack the tail kept instead.
 test("a Chrome that dies at launch is reported by its first fatal line, before the stack's tail", () => {
   const log = launchLog();
   log.add('[1:1:1011/000000.000:FATAL:process_singleton_posix.cc(313)] Socket path too long: /long/.org.chromium.Chromium.x/SingletonSocket');
@@ -202,12 +377,12 @@ test("a Chrome that dies at launch is reported by its first fatal line, before t
   expect(launchFailure(new Error('closed'), launchLog(), {alive: false, chrome: '/c'}).message).toContain('(it printed nothing)\nSet CHROME');
 });
 
-// `test web` against no `snapback4 dev` would fail as data mismatches. The loopback origins
+// App farm wave 1 (four builds): `test web` against no `snapback4 dev` failed as data mismatches. The loopback origins
 // app.ts fetches are asked first; a Snapback app's run is refused naming the origin, any other app's is told.
 test.skipIf(!hasSnapback)('a web test run asks the backend its app fetches first', async () => {
   const { backendPreflight, loopbackOrigins, fetchOrigins } = await import('./agent-test.mjs');
   const { createServer } = await import('node:net');
-  const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
+  const { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { resolve } = await import('node:path');
   const dist = mkdtempSync(resolve(tmpdir(), 'exact-preflight-')), server = createServer().listen(0, '127.0.0.1');
@@ -237,7 +412,7 @@ test.skipIf(!hasSnapback)('a web test run asks the backend its app fetches first
 test.skipIf(!hasSnapback)('device preflight refuses server skew, stale provenance and empty wasm before a drive', async () => {
   const { devicePreflight, deviceHash, readDeviceStamp, validateDevice } = await import('../snapback4/web/device-build.mjs');
   const { createServer } = await import('node:http');
-  const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
+  const { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { resolve } = await import('node:path');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-device-'));
@@ -321,7 +496,7 @@ test.skipIf(!hasSnapback)('Firefox and WebKit refuse missing and skewed devices 
   const { open } = await import('./agent.mjs');
   const { createApp, wireSnapback } = await import('../game/new.mjs');
   const { deviceHash } = await import('../snapback4/web/device-build.mjs');
-  const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
+  const { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { resolve } = await import('node:path');
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-carrier-preflight-'));
@@ -343,13 +518,13 @@ test.skipIf(!hasSnapback)('Firefox and WebKit refuse missing and skewed devices 
   }
 });
 
-// `fresh`: before a test, each snapback4 dev server the app
+// `fresh` (the author's ruling of 2026-10-12, via the sb4 app farm): before a test, each snapback4 dev server the app
 // fetches is emptied through `POST /dev/reset`, seeded from the line's file; a server without the door (404, as 0.4.22
 // answers) refuses the test, saying what to do. Stub servers stand in for snapback4 dev, old and new.
 test('fresh empties each snapback4 dev server through its reset door, and refuses one without it', async () => {
   const { resetBackends, freshRows } = await import('./agent-test.mjs');
   const { createServer } = await import('node:http');
-  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+  const { mkdtempSync, rmSync, symlinkSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { resolve } = await import('node:path');
   const posted = [];
@@ -392,7 +567,7 @@ test('fresh empties each snapback4 dev server through its reset door, and refuse
   } finally { for (const s of [door, old, other, shut]) s.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-// A mutation's refused reply is named with why, from either runner's line; a resource's is not.
+// A mutation's refused reply is named with why, from either runner's line (sb4 farm wave 6, E3); a resource's is not.
 test("a mutation whose reply was refused is named with the field its shape lacks", async () => {
   const { refusedReplies } = await import('./agent-test.mjs');
   const why = '`post` answered outside its shape: field `seq` is not in the shape';
@@ -486,7 +661,7 @@ test('a selected backend on this machine is a loopback origin or one of its priv
 });
 
 test('backend selection changes captured origin and grants while preserving unrelated literals', async () => {
-  const {backendOrigin, injectBackendOrigin} = await import('../js/bake/src/typescript.mjs');
+  const {backendOrigin, injectBackendOrigin, literalBackendOrigin} = await import('../js/bake/src/typescript.mjs');
   const {parseSync} = await import('rolldown/utils');
   const code = `// const origin = 'http://comment';
 const label = '☃';
@@ -503,10 +678,32 @@ const other = 'http://127.0.0.1:4400';`;
   expect(next).toContain('net.fetch https://other.example');
   expect(next).toContain("const other = 'http://127.0.0.1:4400'");
   expect(next).toContain("// const origin = 'http://comment'");
-  expect(() => injectBackendOrigin('const origin = compute();', 'http://new', parseSync)).toThrow(/top-level literal/);
+  expect(() => injectBackendOrigin('const origin = compute();', 'http://new', parseSync)).toThrow(/top-level const origin/);
+  for (const init of ["'http://127.0.0.1:4400' as const", "('http://127.0.0.1:4400' satisfies string)", '`http://127.0.0.1:4400` as const']) {
+    const wrapped = `export const origin = ${init}; export const grants = \`net.fetch \${origin}\`;`;
+    expect(literalBackendOrigin(wrapped, parseSync)).toBe('http://127.0.0.1:4400');
+    const moved = injectBackendOrigin(wrapped, 'https://backend.example', parseSync);
+    expect(literalBackendOrigin(moved, parseSync)).toBe('https://backend.example');
+    expect(parseSync('app.ts', moved).errors).toEqual([]);
+  }
   for (const value of ['file:///tmp/a', 'https://user:pw@backend.example', 'http://backend.example/path', ''])
     expect(() => backendOrigin('.', {EXACT_BACKEND_ORIGIN: value})).toThrow(/EXACT_BACKEND_ORIGIN/);
   expect(backendOrigin('.', {EXACT_BACKEND_ORIGIN: 'https://backend.example/'})).toBe('https://backend.example');
+  expect(literalBackendOrigin("const origin = 'https://example.com/app?query#fragment';", parseSync)).toBe('https://example.com');
+});
+
+test('fixture backend selection reads the declared origin through TypeScript syntax', async () => {
+  const { backendOriginSelection } = await import('../js/bake/src/typescript.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'exact-fixture-origin-'));
+  try {
+    writeFileSync(join(dir, 'app.json'), JSON.stringify({ commands: { server: ['bun', 'fixture/server.ts', '--port', '4412'] } }));
+    for (const declaration of ["const origin = 'http://127.0.0.1:4400';", 'export const origin = `http://127.0.0.1:4400` as const;']) {
+      writeFileSync(join(dir, 'app.ts'), `// const origin = 'http://localhost:1';\n${declaration}`);
+      expect(backendOriginSelection(dir, {})).toEqual({ origin: 'http://127.0.0.1:4412', source: 'commands.server --port' });
+    }
+    writeFileSync(join(dir, 'app.ts'), "// const origin = 'http://127.0.0.1:1';\nconst config = { origin: 'http://127.0.0.1:4400' };\n");
+    expect(backendOriginSelection(dir, {})).toBe(null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('a grant line beginning with development is kept without the word in a development build and left out of a production one', async () => {
@@ -729,12 +926,12 @@ test('interactive faults resolve backend, warn on impossible prefixes, and reloa
   expect(warnings[0]).toContain('matches no granted origin');
   expect(() => faultRequest('pass', ['fetch','backend'], [])).toThrow(/exactly one/);
   const calls=[];
-  const session={host:'web', now:12, logCursor:9,
+  const session={host:'web', now:12, logCursor:9, contact:{x:4,y:5},
     state: async()=>({background:{queued:1,inFlight:0},faults:[]}),
     clock:async arg=>{calls.push(arg);return {settled:true};}, carrier:{reset:async options=>{calls.push(options);}}};
   expect(await reloadWeb(session)).toEqual({reloaded:true});
   expect(calls).toEqual(['data',{keep:true,failFetch:''}]);
-  expect(session.now).toBe(0);
+  expect([session.now, session.contact]).toEqual([0, null]);
   expect(driverCapabilities()).toContain('reload (interactive)');
   await expect(reloadWeb({host:'ios', keptStore:'default'})).rejects.toThrow('on ios each drive is a new launch, so run a second drive to see a relaunch (it opens on the store `default` this one kept)');
   await expect(reloadWeb({host:'android'})).rejects.toThrow(/on android each drive is a new launch, so run a second drive to see a relaunch, and an authored test's `reload` relaunches the host$/);
@@ -769,11 +966,15 @@ test('a reused captured stage restores the authored backend after an override is
     writeFileSync(join(app,'.exact/backend-origin'),'http://127.0.0.1:4412');
     configure(stage,true,parseSync);
     expect(readFileSync(join(stage,'app.ts'),'utf8')).toContain('4412');
+    const backend = () => JSON.parse(readFileSync(join(stage,'__exact_backend.json'),'utf8'));
+    expect(backend()).toEqual({origin:'http://127.0.0.1:4412',warning:expect.stringContaining('overriding')});
     rmSync(join(app,'.exact/backend-origin'));configure(stage,true,parseSync);
     expect(readFileSync(join(stage,'app.ts'),'utf8')).toBe(source);
+    expect(backend()).toEqual({origin:'http://127.0.0.1:4400',warning:null});
     // An authored edit equal to the previous injection is still a new captured source.
     const edited=source.replace('4400','4412');writeFileSync(join(stage,'__exact_backend_source.json'),JSON.stringify(edited));
     configure(stage,true,parseSync);expect(readFileSync(join(stage,'app.ts'),'utf8')).toBe(edited);
+    expect(backend()).toEqual({origin:'http://127.0.0.1:4412',warning:null});
   } finally {if(env!==undefined) process.env.EXACT_BACKEND_ORIGIN=env;rmSync(root,{recursive:true,force:true});}
 });
 
@@ -795,7 +996,7 @@ test('web freshness tracks backend selection creation, edits and deletion',async
   const app={dir,manifest:{}},dist=join(dir,'dist'),selection=join(dir,'.exact/backend-origin');
   try {
     mkdirSync(dist);mkdirSync(join(dir,'.exact'));
-    const bake=()=>writeFileSync(join(dist,'.exact-build.json'),JSON.stringify({target:'js',inputs:webInputDigests(app,true)}));
+    const bake=()=>writeFileSync(join(dist,'.exact-build.json'),JSON.stringify({target:'js',inputs:webInputDigests(app,true,[]),inputRoots:[]}));
     bake();expect(webChanges(dist,app).all).toEqual([]);
     writeFileSync(selection,'http://127.0.0.1:4412');expect(webChanges(dist,app).app).toEqual([selection]);
     bake();expect(webChanges(dist,app).all).toEqual([]);
@@ -807,7 +1008,7 @@ test('web freshness tracks backend selection creation, edits and deletion',async
     rmSync(source);expect(webChanges(dist,app).app).toEqual([source]);
     // A source edited while the build compiled (after it read its inputs, before its marker): a change.
     writeFileSync(source,'export {};\n');
-    const inputsAt=Date.now()-10_000;writeFileSync(join(dist,'.exact-build.json'),JSON.stringify({target:'js',inputs:webInputDigests(app,true),inputsAt}));
+    const inputsAt=Date.now()-10_000;writeFileSync(join(dist,'.exact-build.json'),JSON.stringify({target:'js',inputs:webInputDigests(app,true,[]),inputsAt,inputRoots:[]}));
     writeFileSync(source,'export const edited = 1;\n');utimesSync(source,new Date(inputsAt+5_000),new Date(inputsAt+5_000));
     expect(webChanges(dist,app).app).toEqual([source]);
   } finally {rmSync(dir,{recursive:true,force:true});}
@@ -879,7 +1080,7 @@ test('backend diagnostics name the selected source and warn when a saved selecti
 });
 
 
-// A setting app.ts reads at build (`import.meta.env.NAME`), declared in app.json's `env`.
+// LLP 1153 D4: a setting app.ts reads at build (`import.meta.env.NAME`), declared in app.json's `env`.
 test('a setting is read from the environment, then .env.local, then .env, and what Bun loaded from them is never the environment', async () => {
   const {settingValues} = await import('../js/bake/src/__exact_env.mjs');
   const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-'));
@@ -909,7 +1110,7 @@ test('a setting is read from the environment, then .env.local, then .env, and wh
     // And so it reaches the module, though `.env.development`, the one file that holds it, is not read.
     writeFileSync(resolve(dir,'app.json'),JSON.stringify({env:['D']}));
     const {parseSync}=await import('rolldown/utils'), {inlineSettings}=await import('../js/bake/src/__exact_env.mjs');
-    expect(inlineSettings('const D_ = import.meta.env.D;\n',dir,parseSync,exported)).toEqual({code:'const D_ = "d-development";\n',record:{D:{value:'d-development',source:'environment'}}});
+    expect(inlineSettings('const D_ = import.meta.env.D;\n',dir,parseSync,exported)).toEqual({code:'const D_ = ("d-development" as string);\n',record:{D:{value:'d-development',source:'environment'}}});
     // An edit after the command started: the given value still wins; the one Bun loaded gives way to the file.
     writeFileSync(resolve(dir,'.env'),'A=a-edited\nC=c-env\n');
     expect(settingValues(dir,['A'],exported)).toEqual({A:{value:'a-env',source:'environment'}});
@@ -935,11 +1136,11 @@ test('import.meta.env inlines each declared setting in app.ts, its grant follows
     writeFileSync(resolve(dir,'.env'),'API_BASE_URL=http://127.0.0.1:9999\n');
     const code="const API = import.meta.env.API_BASE_URL;\nexport const grants = `net.fetch ${API}`;\n";
     const set=inline(code);
-    expect(set.code).toBe('const API = "http://127.0.0.1:9999";\nexport const grants = `net.fetch ${API}`;\n');
+    expect(set.code).toBe('const API = ("http://127.0.0.1:9999" as string);\nexport const grants = `net.fetch ${API}`;\n');
     expect(set.record).toEqual({API_BASE_URL:{value:'http://127.0.0.1:9999',source:'.env'}});
     expect(staticFacts(set.code,parseSync).grants).toBe('net.fetch http://127.0.0.1:9999');
     // Exported, wrapped, or with a default the environment overrides; a const origin it sets is one the backend selection may move.
-    expect(inline("export const API = (import.meta.env['API_BASE_URL'] ?? 'http://x') as string;",{API_BASE_URL:'https://api.example'}).code).toBe('export const API = "https://api.example";');
+    expect(inline("export const API = (import.meta.env['API_BASE_URL'] ?? 'http://x') as string;",{API_BASE_URL:'https://api.example'}).code).toBe('export const API = ("https://api.example") as string;');
     const origin=inline("const origin = import.meta.env.API_BASE_URL;\nexport const grants = `net.fetch ${origin}`;\n").code;
     expect(staticFacts(injectBackendOrigin(origin,'http://127.0.0.1:4790',parseSync),parseSync).grants).toBe('net.fetch http://127.0.0.1:4790');
     rmSync(resolve(dir,'.env'));
@@ -958,7 +1159,7 @@ test('import.meta.env inlines each declared setting in app.ts, its grant follows
     ].join('\n'));
     // One name read twice takes one default.
     declare('API_BASE_URL');
-    expect(inline("const A = import.meta.env.API_BASE_URL ?? 'http://a';\nconst B = import.meta.env.API_BASE_URL ?? 'http://a';\n").code).toBe('const A = "http://a";\nconst B = "http://a";\n');
+    expect(inline("const A = import.meta.env.API_BASE_URL ?? 'http://a';\nconst B = import.meta.env.API_BASE_URL ?? 'http://a';\n").code).toBe('const A = ("http://a" as string);\nconst B = ("http://a" as string);\n');
     expect(() => inline("const A = import.meta.env.API_BASE_URL ?? 'http://a';\nconst B = import.meta.env.API_BASE_URL ?? 'http://b';\nconst C = import.meta.env.API_BASE_URL;\n")).toThrow([
       'app.ts:2:11: import.meta.env.API_BASE_URL is read again with "http://b", and at app.ts:1:11 with "http://a": read it once, or give every read the same default',
       'app.ts:3:11: import.meta.env.API_BASE_URL is read again with no default, and at app.ts:1:11 with "http://a": read it once, or give every read the same default',
@@ -977,7 +1178,7 @@ test('a setting is a web build input by value and source, and serve finds one ch
   const {changedSettings}=await import('../js/bake/src/__exact_env.mjs');
   const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-')), dist=resolve(dir,'dist'), name='EXACT_TEST_SETTING', key=`import.meta.env.${name}`;
   const app={dir,manifest:{env:[name]}};
-  const bake=env=>writeFileSync(resolve(dist,'.exact-build.json'),JSON.stringify({target:'js',inputs:webInputDigests(app,true),env}));
+  const bake=env=>writeFileSync(resolve(dist,'.exact-build.json'),JSON.stringify({target:'js',inputs:webInputDigests(app,true,[]),inputRoots:[],env}));
   try {
     mkdirSync(dist);
     writeFileSync(resolve(dir,'.env'),`${name}=http://a.example\n`);
@@ -1034,18 +1235,52 @@ test('a setting is named the backend\'s source only where the grant takes it, an
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 
+test("another host's crate or Android's Gradle files are no input of the Apple, web or plan check", async () => {
+  const {receiptChanges,webInputs}=await import('./agent-launch.mjs');
+  const {planSources}=await import('./agent-build.mjs');
+  const {resolveApp}=await import('./app.mjs');
+  const dir=realpathSync(mkdtempSync(resolve(tmpdir(),'exact-other-hosts-'))), before=process.env.EXACT_APP_DIR;
+  try {
+    const files=['app.json','app.contract','gradle.lockfile','gradle-verification.xml',
+      ...['android','windows','linux','web'].flatMap(host=>[`${host}/Cargo.toml`,`${host}/src/lib.rs`])];
+    const inputTime=new Date('2026-01-01T00:00:00Z'), builtTime=new Date('2026-01-01T00:01:00Z'), edited=new Date('2026-01-01T00:02:00Z');
+    for (const file of files) {
+      mkdirSync(dirname(resolve(dir,file)),{recursive:true});
+      writeFileSync(resolve(dir,file),file==='app.json'?JSON.stringify({name:'Hosts',app:{id:'com.exact.hosts',name:'Hosts'}}):file==='app.contract'?'component App\n  view\n    text "x"\n':'');
+      utimesSync(resolve(dir,file),inputTime,inputTime);
+    }
+    const app=resolveApp(dir), receipt=resolve(dir,'target/receipt.json');
+    mkdirSync(dirname(receipt),{recursive:true});
+    writeFileSync(receipt,JSON.stringify({target:'aarch64-apple-darwin',started:builtTime.toISOString()}));
+    utimesSync(receipt,builtTime,builtTime);
+    for (const file of files) utimesSync(resolve(dir,file),edited,edited);
+    const contract=resolve(dir,'app.contract');
+    expect(receiptChanges(receipt,app).filter(path=>path.startsWith(dir+'/')).sort()).toEqual([contract,resolve(dir,'app.json')]);
+    expect(webInputs(app,true,+builtTime).app.filter(path=>!path.includes('/.exact/')).sort()).toEqual([contract,resolve(dir,'app.json'),resolve(dir,'web/Cargo.toml'),resolve(dir,'web/src/lib.rs')]);
+    expect(Object.keys(planSources(app))).toEqual([contract]);
+  } finally {
+    if (before===undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR=before;
+    rmSync(dir,{recursive:true,force:true});
+  }
+});
+
 test('a native build is stale when a setting its module inlined has another value now', async () => {
   const {receiptChanges}=await import('./agent-launch.mjs');
   const {resolveApp}=await import('./app.mjs');
+  const {simulatorChildEnv}=await import('../host/apple/devices.mjs');
   const dir=mkdtempSync(resolve(tmpdir(),'exact-settings-native-')), name='EXACT_TEST_SETTING', before=process.env.EXACT_APP_DIR;
   try {
     writeFileSync(resolve(dir,'app.json'),JSON.stringify({name:'Native',app:{id:'com.exact.native',name:'Native'},env:[name]}));
     writeFileSync(resolve(dir,'app.contract'),'component App\n  view\n    text "x"\n');
+    // Separate file mtimes from the receipt's millisecond precision; only the setting changes.
+    const inputTime=new Date('2026-01-01T00:00:00Z'), builtTime=new Date('2026-01-01T00:01:00Z');
+    for (const file of ['app.json','app.contract']) utimesSync(resolve(dir,file),inputTime,inputTime);
     const app=resolveApp(dir), receipt=resolve(dir,'target/receipt.json');
     mkdirSync(dirname(receipt),{recursive:true});
     // As completeBuild records a Mac build whose bake inlined the setting from the environment.
-    writeFileSync(receipt,JSON.stringify({target:'aarch64-apple-darwin',started:new Date().toISOString(),
+    writeFileSync(receipt,JSON.stringify({target:'aarch64-apple-darwin',started:builtTime.toISOString(),
       build:{binary:{inputs:[],missing:[],directories:[]},settings:{dir,env:{[name]:{value:'http://a.example',source:'environment'}}}}}));
+    utimesSync(receipt,builtTime,builtTime);
     process.env[name]='http://a.example';
     try {
       expect(receiptChanges(receipt,app)).toEqual([]);
@@ -1054,10 +1289,52 @@ test('a native build is stale when a setting its module inlined has another valu
     } finally { delete process.env[name]; }
     // Unset now, and in no file: the build's value is gone too.
     expect(receiptChanges(receipt,app)).toEqual([`import.meta.env.${name}`]);
+    // LLP 1153.002 D2: a Mac or Windows drive starts the app with this environment, so a marked name it sets (empty too) is the launch's; an iOS drive's never reaches the app.
+    for (const [platform,stale] of [['macos',[]],['windows',[]],['ios',[`import.meta.env.${name}`]]]) for (const given of ['http://launch.example','']) {
+      writeFileSync(receipt,JSON.stringify({target:'aarch64-apple-darwin',started:builtTime.toISOString(),build:{compat:{inputs:{platform}},binary:{inputs:[],missing:[],directories:[]},settings:{dir,env:{[name]:{value:'http://a.example',source:'environment',launch:true}}}}})); utimesSync(receipt,builtTime,builtTime); process.env[name]=given;
+      try { expect(receiptChanges(receipt,app)).toEqual(stale); } finally { delete process.env[name]; }
+      // A drive that starts the app with its own environment (`open({ env })`) is judged by it: unset here, set there.
+      expect([receiptChanges(receipt,app,{launch:{[name]:given}}),receiptChanges(receipt,app,{launch:{}})]).toEqual([[],[`import.meta.env.${name}`]]);
+      // A Windows app reads the name without regard to case, as Windows does; elsewhere the case must match. The
+      // receipt says which: the check never asks this machine.
+      const mixed=name[0]+name.slice(1).toLowerCase();
+      expect(receiptChanges(receipt,app,{launch:{[mixed]:given}})).toEqual(platform==='windows' ? [] : [`import.meta.env.${name}`]);
+      // A simulator gives the app the driver's `SIMCTL_CHILD_` variables, without the prefix (agent.mjs `openIOS`).
+      expect(receiptChanges(receipt,app,{launch:simulatorChildEnv({[`SIMCTL_CHILD_${name}`]:given,[name]:'http://ignored.example'})})).toEqual([]);
+      // Unsaid, as the check before a drive asks (agent-build.mjs `buildFirst`): a Mac or Windows app's launch is this
+      // environment, an iOS app's this environment's `SIMCTL_CHILD_` variables. The build's value came from the
+      // environment alone, with no default and no `.env`, and is unset here.
+      process.env[platform==='ios' ? `SIMCTL_CHILD_${name}` : name]=given;
+      try { expect(receiptChanges(receipt,app)).toEqual([]); } finally { delete process.env[`SIMCTL_CHILD_${name}`]; delete process.env[name]; }
+    }
   } finally {
     if (before===undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR=before;
     rmSync(dir,{recursive:true,force:true});
   }
+});
+
+test('a path a build script watches that was absent at build is unchanged while absent; appearing or going is a change', async () => {
+  const {receiptChanges}=await import('./agent-launch.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-watched-absent-'));
+  try {
+    // A path dependency beside the app whose build script watches `../../.env`, as Cargo's dep-info then names it.
+    const env=resolve(dir,'.env'), lib=resolve(dir,'vendor/watcher/src/lib.rs'), app=resolve(dir,'app');
+    for (const path of [lib, resolve(app,'app.contract')]) { mkdirSync(dirname(path),{recursive:true}); writeFileSync(path,''); }
+    const fixture={dir:app,workspace:app,target:resolve(app,'target'),manifest:{},crate:()=>'native-apple'};
+    const info=resolve(fixture.target,'aarch64-apple-darwin/debug/libnative_apple.d');
+    mkdirSync(dirname(info),{recursive:true});
+    writeFileSync(info,`${resolve(fixture.target,'aarch64-apple-darwin/debug/libnative_apple.a')}: ${lib} ${env}\n`);
+    const receipt=resolve(app,'receipt.json');
+    const write=(missing)=>writeFileSync(receipt,JSON.stringify({target:'aarch64-apple-darwin',started:new Date(Date.now()+1000).toISOString(),
+      build:{binary:{inputs:[],missing,directories:[]}}}));
+    write([env]);
+    expect(receiptChanges(receipt,fixture)).toEqual([]);
+    writeFileSync(env,'API=1\n');
+    expect(receiptChanges(receipt,fixture)).toEqual([env]);
+    // Present when the build ran (so not in `missing`), gone now.
+    write([]); rmSync(env);
+    expect(receiptChanges(receipt,fixture)).toEqual([env]);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 
 test('a Linux or Android build is stale when a setting the executable holds has another value now, or none is bound to it', async () => {
@@ -1092,6 +1369,19 @@ test('a Linux or Android build is stale when a setting the executable holds has 
       // A build that finished records what it linked.
       recordBuiltSettings(bin,app); recordBuiltSettings(apk,app,out);
       expect(changes()).toEqual([[],[]]);
+      // A setting a launch may give (LLP 1153.002 D2): where a launch gives it (a Linux executable) the environment's
+      // value, empty or not, is the launch's and no change; where the build's value runs (Android) it is one. Unset,
+      // the build's own value counts again.
+      writeFileSync(resolve(out,'app.module.json'),JSON.stringify({env:{[name]:{value:'http://b.example',source:'environment',launch:true}}}));
+      recordBuiltSettings(bin,app); recordBuiltSettings(apk,app,out);
+      for (const given of ['http://launch.example','']) {
+        process.env[name]=given;
+        expect([bakedSettingChanges(bin,app,{launch:process.env}),bakedSettingChanges(apk,app)]).toEqual([[],[key]]);
+      }
+      delete process.env[name];
+      expect(bakedSettingChanges(bin,app,{launch:process.env})).toEqual([key]);
+      // Unset here, and given in the environment the drive starts the executable with (`open({ env })`).
+      expect(bakedSettingChanges(bin,app,{launch:{...process.env,[name]:'http://launch.example'}})).toEqual([]);
     } finally { delete process.env[name]; }
     // An app that declares no setting has none to compare.
     expect(bakedSettingChanges(bin,{dir,manifest:{}})).toEqual([]);
@@ -1122,4 +1412,83 @@ test('permission and bind values do not occupy the gallery command word', async 
     expect(parsed.activity).toEqual({entry:'departure', placement:'lockScreen'});
     expect(parsed.argv).toEqual([flag, 'fixture', 'ios', 'state']);
   }
+});
+
+test('missing Maven locks name the app command and require both lock and verification files', async () => {
+  const { androidLockCommand, mavenLocksPresent } = await import('./agent-android.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-maven-')), error = console.error, said = [];
+  try {
+    console.error = line => said.push(line);
+    const app = { dir, name: 'shop' }, maven = ['androidx.browser:browser:1.9.0'];
+    expect(mavenLocksPresent(app, maven)).toBe(false);
+    const root = resolve(import.meta.dir, '..');
+    expect(said.at(-1)).toContain(`by running in '${root}': bun scripts/agent-android.mjs build 'shop' --apk --write-locks, with EXACT_APP_DIR set to '${dir}',`);
+    expect(androidLockCommand({ dir: resolve(root, 'packages/camera/test/fixture'), name: 'fixture' })).toBe(`in '${root}': bun scripts/agent-android.mjs build 'fixture' --apk --write-locks, with EXACT_APP_DIR set to '${resolve(root, 'packages/camera/test/fixture')}'`);
+    expect(androidLockCommand({ dir: resolve(root, 'apps/caltrain'), name: 'caltrain' })).toBe(`in '${root}': bun scripts/agent-android.mjs build 'caltrain' --apk --write-locks`);
+    writeFileSync(resolve(dir, 'exact.mjs'), '');
+    expect(mavenLocksPresent(app, maven)).toBe(false);
+    expect(said.at(-1)).toContain(`by running in '${dir}': bun exact.mjs android --write-locks,`);
+    for (const file of ['gradle.lockfile', 'gradle-verification.xml']) {
+      writeFileSync(resolve(dir, file), 'locked');
+      if (file === 'gradle.lockfile') expect(mavenLocksPresent(app, maven)).toBe(false);
+    }
+    expect(mavenLocksPresent(app, maven)).toBe(true);
+    rmSync(resolve(dir, 'gradle.lockfile'));
+    expect(mavenLocksPresent(app, maven)).toBe(false);
+    expect(mavenLocksPresent(app, [])).toBe(true);
+  } finally { console.error = error; rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('a widget address carries a configuration of parameter names to values', async () => {
+  const {widgetArguments} = await import('./agent-widget.mjs');
+  const parsed = widgetArguments(['ios', 'widget', 'plan', '--configuration', '{"categories":"three"}', '--family', 'systemLarge', 'state']);
+  expect(parsed.widget).toEqual({entry:'plan', configuration:'{"categories":"three"}', family:'systemLarge'});
+  expect(parsed.argv).toEqual(['ios', 'state']);
+  for (const bad of ['three', '[]', '{"categories":3}'])
+    expect(() => widgetArguments(['ios', 'widget', 'plan', '--configuration', bad, 'state'])).toThrow('widget --configuration: expected a JSON object');
+});
+
+
+test('a backend flag keeps its source through child builds and an environment override replaces it', async () => {
+  const { backendOriginSelection, selectBackendOrigin } = await import('../js/bake/src/typescript.mjs');
+  const env = {};
+  selectBackendOrigin('https://chosen.example/', env);
+  expect(backendOriginSelection('.', env)).toEqual({ origin: 'https://chosen.example', source: '--backend' });
+  env.EXACT_BACKEND_ORIGIN = 'https://other.example';
+  expect(backendOriginSelection('.', env)).toEqual({ origin: 'https://other.example', source: 'EXACT_BACKEND_ORIGIN' });
+});
+
+test('an import without an extension reaches its JavaScript file, a directory its index, and both what they import', async () => {
+  const { notBuildInput } = await import('./agent-launch.mjs');
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'exact-module-graph-')));
+  try {
+    const files = {
+      'app.ts': "import { a } from './helper';\nimport { b } from './helpers';\nimport c from './view';\n", 'helper.js': "export { d } from './deep';\n",
+      'deep.mjs': 'export const d = 1;\n', 'helpers/index.js': "import './more/x';\n", 'helpers/more/x.cjs': '', 'view.jsx': "import './y';\n", 'y.js': '', 'unused.js': '',
+    };
+    for (const [name, text] of Object.entries(files)) { mkdirSync(dirname(join(dir, name)), { recursive: true }); writeFileSync(join(dir, name), text); }
+    const input = notBuildInput(dir);
+    expect(Object.keys(files).filter(name => input(join(dir, name)))).toEqual(['unused.js']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('an Apple build is not stale for a Contract file it did not compile, edited while it ran', async () => {
+  const { receiptChanges } = await import('./agent-launch.mjs');
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'exact-contract-sources-')));
+  try {
+    const files = ['app.contract', 'parts/row.contract', 'draft.contract', 'watch.contract', 'modules/apple/view.contract'];
+    writeFileSync(join(dir, 'app.json'), '{"watch":{"source":"watch.contract"}}');
+    for (const name of files) { mkdirSync(dirname(join(dir, name)), { recursive: true }); writeFileSync(join(dir, name), ''); }
+    const receipt = join(dir, 'receipt.json'), started = new Date(Date.now() - 60_000), edited = new Date(Date.now() - 30_000);
+    const app = { dir, target: join(dir, 'missing-target'), manifest: {}, crate: () => 'fixture-apple' };
+    const changed = (graph) => {
+      writeFileSync(receipt, JSON.stringify({ target: 'aarch64-apple-darwin', started: started.toISOString(), build: { graph } }));
+      for (const name of files) utimesSync(join(dir, name), edited, edited);
+      return receiptChanges(receipt, app).map(path => path.slice(dir.length + 1)).filter(name => name.endsWith('.contract')).sort();
+    };
+    expect(changed({ contractSources: [join(dir, 'app.contract'), join(dir, 'parts/row.contract')] })).toEqual(['app.contract', 'modules/apple/view.contract', 'parts/row.contract', 'watch.contract']);
+    // A receipt that does not list them keeps every one.
+    expect(changed({})).toEqual([...files].sort());
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

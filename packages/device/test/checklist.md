@@ -1,10 +1,10 @@
-# The device module on a device
+# The device module on a device (LLP 1133.031 §12 stages 2 to 4)
 
 What the agent and the simulators cannot make the device do: run on a
 battery, plug in and unplug, turn on Low Power Mode, Low Data Mode, Battery
 Saver or Data Saver, and grow hot. Each step names what to see; a step that
 shows something else is a finding. A person runs them, never an agent on a
-phone.
+phone (LLP 1133.020).
 
 The apps are Weatherlight (`apps/weatherlight`: the sky pauses in Low Power
 Mode and when the device is seriously hot, and refreshes every thirty
@@ -38,7 +38,7 @@ in that directory builds it like any app.
    `wifi true`. Turn it off: `wifi false`. On cellular with Low Data Mode
    on for cellular data: `cellular true`.
 7. Leave the app, change something (plug in, or turn Low Power Mode on),
-   and return: the change shows on return (the foreground read).
+   and return: the change shows on return (the foreground read, D5 item 4).
 
 ## Mac laptop (macOS 14 or newer)
 
@@ -79,7 +79,7 @@ in that directory builds it like any app.
     indicator; plug in: `true`. Turn on Power Saver (GNOME's quick
     settings): `power` reads `true none`.
 
-## Windows (the test machine, in its signed-in console session)
+## Windows (the NucBox, in its signed-in console session)
 
 16. The fixture's Windows build: a desktop with no battery reads `1 true`,
     `ethernet false` on its wired network. Settings › System › Power ›

@@ -1,4 +1,4 @@
-// @exact/gamepad on iOS, iPadOS, macOS and tvOS:
+// @exact/gamepad on iOS, iPadOS, macOS and tvOS (LLP 1133.022 D1-D8, D12):
 // GameController's pads, numbered by the process's slot table
 // (`ExactPads`), which a canvas's pads share, so an index names one pad to
 // both.
@@ -13,7 +13,7 @@
 //   `valueChangedHandler` is the canvas's (one closure per profile), never
 //   this module's.
 // - Effects and lights are claims the process keeps, whichever session made
-//   them: a new effect on a pad preempts the one playing there; a
+//   them (D4): a new effect on a pad preempts the one playing there; a
 //   disconnect ends every claim on the pad; a session's `destroy`, or its
 //   `setLight()`, gives back only its own. `dual-rumble` plays the left
 //   handle's Core Haptics engine at the strong magnitude and the right's at
@@ -32,7 +32,7 @@ import Foundation
 import GameController
 
 public final class GamepadModule: ExactPackage {
-    /// The app's access hatch: each pad's `GCController` when it takes a
+    /// The app's access hatch (D8): each pad's `GCController` when it takes a
     /// slot, before its first report, and every connected pad when set.
     public static var hatch: ((GCController) -> Void)? {
         didSet { if let hatch { Registry.shared?.pads.values.filter { $0.injected == nil }.forEach { hatch($0.controller) } } }
@@ -56,8 +56,9 @@ public final class GamepadModule: ExactPackage {
         guard let registry else {
             return reply(name == "getGamepads" ? ["available": false, "gamepads": [Any](), "current": NSNull()] : ["error": "NotSupportedError"])
         }
-        // A send without `index` is for the pad in use when it arrives.
-        let index = (args["index"] as? Double).map(Int.init) ?? registry.current
+        // A send without `index` is for the pad in use when it arrives (D2).
+        // An index that is not a whole number names no pad.
+        let index = (args["index"] as? Double).map { Int(exactly: $0) } ?? registry.current
         let named = index.flatMap { registry.pads[$0] != nil ? $0 : nil }
         switch name {
         case "getGamepads":
@@ -109,7 +110,7 @@ fileprivate struct Weak {
     init(_ module: GamepadModule) { self.module = module }
 }
 
-/// The labels by family, by standard index: the interface's `tables.labels`.
+/// D2's labels by family, by standard index: the interface's `tables.labels`.
 private let familyLabels: [String: [String]] = [
     "xbox": ["A", "B", "X", "Y", "LB", "RB", "LT", "RT", "View", "Menu", "LS", "RS", "Up", "Down", "Left", "Right", "Xbox"],
     "playstation": ["Cross", "Circle", "Square", "Triangle", "L1", "R1", "L2", "R2", "Create", "Options", "L3", "R3", "Up", "Down", "Left", "Right", "PS"],
@@ -247,7 +248,7 @@ fileprivate struct Light {
     let order: Int
 }
 
-/// The process's pads and claims: one, whichever sessions read them.
+/// The process's pads and claims (D4): one, whichever sessions read them.
 fileprivate final class Registry {
     static var shared: Registry?
     let slots: ExactPads
@@ -325,12 +326,12 @@ fileprivate final class Registry {
     /// disconnecting `leaves` ms after the registry was made, when it says.
     private func inject(_ spec: [String: Any], after: (Double, @escaping () -> Void) -> () -> Void) {
         let controller = GCController.withExtendedGamepad()
-        let wanted = (spec["index"] as? Double).map { min(Int($0), ExactPads.most - 1) }
+        let wanted = (spec["index"] as? Double).flatMap { Int(exactly: $0) }.map { min($0, ExactPads.most - 1) }
         guard let index = slots.take(controller, at: wanted) else { return }
         connections += 1
         let pad = Pad(controller, connection: connections, injected: spec)
         pads[index] = pad
-        let pressed = (spec["pressed"] as? [Double] ?? []).map(Int.init).filter { (0..<17).contains($0) }
+        let pressed = (spec["pressed"] as? [Double] ?? []).compactMap { Int(exactly: $0) }.filter { (0..<17).contains($0) }
         for b in pressed { pad.elements[b]?.setValue(1) }
         if !pressed.isEmpty { current = index }
         if let ms = spec["leaves"] as? Double { _ = after(ms) { [weak self] in self?.disconnect(controller) } }
@@ -341,7 +342,7 @@ fileprivate final class Registry {
         for m in modules { m.context.changed("gamepad.getGamepads") }
     }
 
-    /// `current` changes only when another pad takes over.
+    /// `current` changes only when another pad takes over (D2).
     private func followCurrent(quietly: Bool = false) {
         guard let c = GCController.current, let now = pads.first(where: { $0.value.controller === c })?.key, now != current else { return }
         current = now

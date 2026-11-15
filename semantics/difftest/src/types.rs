@@ -102,7 +102,7 @@ fn walk_stmts(ss: &mut [Stmt], f: &mut dyn FnMut(&mut Expr, Role) -> bool) -> bo
     for s in ss {
         let stop = match s {
             Stmt::Let { expr, .. } | Stmt::Assign { expr, .. } => walk_expr(expr, Role::Plain, f),
-            // A call is expansion's, never an authored tree's.
+            // A call is expansion's, never an authored tree's (LLP 1089).
             // The parser writes a call of the component's own action as a
             // command too; only a host's is the Rust checker's alone.
             Stmt::Command { name, args, .. } => {

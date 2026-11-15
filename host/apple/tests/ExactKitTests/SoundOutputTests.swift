@@ -1,4 +1,4 @@
-// The sound output is never opened at boot; the first
+// @ref LLP 1096 D8: the sound output is never opened at boot; the first
 // voice opens it, synchronously. An open that fails is journaled, reported
 // in `state.sounds.output`, skips its voices, gives back its session claim
 // and is tried again by a voice a second later; an engine the system stopped
@@ -38,7 +38,7 @@ private enum Arm {
             Arm.running = start ? 1 : 0
             return UnsafeMutableRawPointer(bitPattern: 0x5011)
         },
-        op: { _, kind, id, _, _, _, rate, pan in
+        op: { _, kind, id, _, _, _, rate, pan, _ in
             if let room = Arm.room { guard room > 0 else { return false }; Arm.room = room - 1 }
             Arm.taken.append([UInt64(kind), id])
             if kind == 1 { Arm.plays.append(id); Arm.placed.append([rate, pan]) }
@@ -60,7 +60,7 @@ final class SoundOutputTests: XCTestCase {
     private var journal: [String] = []
     private var clock = 100.0
     #if os(iOS) || os(tvOS)
-    private let category = AudioSession.category
+    private let configuration = AudioSession.configuration
     #endif
 
     override func setUp() {
@@ -73,7 +73,7 @@ final class SoundOutputTests: XCTestCase {
         Arm.reset()
         #if os(iOS) || os(tvOS)
         AudioSession.reset()
-        AudioSession.category = category
+        AudioSession.configuration = configuration
         #endif
     }
 
@@ -103,7 +103,7 @@ final class SoundOutputTests: XCTestCase {
         XCTAssertEqual(Arm.plays, [1, 2])
     }
 
-    /// An advance across several of a sequence's fills hands
+    /// LLP 1125 D3: an advance across several of a sequence's fills hands
     /// over more ops than the ring holds; each is taken, in order, as renders
     /// make room, and none is dropped.
     func testOpsTheRingHasNoRoomForWaitAndGoInOrder() {
@@ -140,7 +140,7 @@ final class SoundOutputTests: XCTestCase {
         let output = output()
         play(output, 1)
         output.apply(["ops": [["op": "play", "id": 2, "sound": 0, "at": 0, "gain": 1, "playbackRate": 1.5, "pan": -0.25]]])
-        XCTAssertEqual(Arm.placed, [[1, 0], [1.5, -0.25]], "a play without them is at rate 1, unpanned")
+        XCTAssertEqual(Arm.placed, [[1, 0], [1.5, -0.25]], "a play without them is at rate 1, unpanned (LLP 1125 D10)")
     }
 
     func testAFailedOpenIsJournaledReportedSkippedAndTriedAgainASecondLater() {
@@ -222,7 +222,7 @@ final class SoundOutputTests: XCTestCase {
     /// A playback app's failed output gives the session back, so other
     /// apps' audio is not left paused.
     func testAFailedOpenGivesTheSessionBack() {
-        AudioSession.category = .playback
+        AudioSession.configuration = .init("playback")
         let output = output()
         Arm.refuse = "the output has no channels (no audio device)"
         play(output, 1)
@@ -283,7 +283,7 @@ final class SoundOutputTests: XCTestCase {
 
     /// A boot with other files gives the session back with the engine.
     func testNewFilesGiveTheSessionBack() {
-        AudioSession.category = .playback
+        AudioSession.configuration = .init("playback")
         let output = output()
         play(output, 1)
         XCTAssertEqual(AVAudioSession.sharedInstance().category, .playback)

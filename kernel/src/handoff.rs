@@ -1,4 +1,4 @@
-//! Shared-element handoffs: a `sharedElement` name that
+//! Shared-element handoffs (LLP 1013.000 D3): a `sharedElement` name that
 //! leaves one node and arrives at another in one commit.
 //!
 //! A name leaves with the node the commit destroys, directly or with an
@@ -23,7 +23,7 @@ pub struct Handoff {
     pub from: NodeKey,
     /// The created node, live after the commit.
     pub to: NodeKey,
-    /// The arriver's `-exact-layout-transition`, else the leaver's: the curve
+    /// The arriver's `-exact-layout-transition`, else the leaver's (D2): the curve
     /// the flight runs on. A handoff with neither is not reported.
     pub transition: Transition,
 }

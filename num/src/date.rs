@@ -1,4 +1,5 @@
 //! Gregorian dates and English names shared by Contract date presentations.
+//! @ref LLP 1126 D6
 /// English month names shared by Contract date functions.
 pub const MONTHS: [&str; 12] = [
     "January",

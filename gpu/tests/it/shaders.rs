@@ -1,4 +1,4 @@
-//! The shader registry: a shader is admitted at the interface
+//! The shader registry (LLP 1030 D8): a shader is admitted at the interface
 //! the binary binds and refused off it, by name, with the registry left as
 //! it was; the generation moves on every admission; the module names what
 //! is missing.

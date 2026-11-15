@@ -1,13 +1,13 @@
-// Documents in place on the web. What the person
+// @ref LLP 1069.010 D1, D2 — documents in place on the web. What the person
 // chooses is a FileSystemHandle the page keeps; the app holds only its
 // `doc:/<n>/<name>` path and reaches the bytes through `storage.fs` under
 // `fs.read doc:/` / `fs.write doc:/` (storage-request.js calls `run`). The
 // File System Access API's pickers are the commands of the same names; a
 // browser without the open pickers (Safari, Firefox) refuses and fires
-// `cancel` (with no fallback to a hidden input's copy), which the app can
+// `cancel` (ruled: no fallback to a hidden input's copy), which the app can
 // tell from a person's dismissal by `exactPage().canOpenFiles`. Its save
 // picker's handle downloads what is written to it instead, as `saveFile`
-// does. Under the agent the
+// does (LLP 1069.010 D2's table; studio diary R31). Under the agent the
 // driver's files arrive as bytes and become handles that behave as the
 // browser's do.
 import { coversPath } from './grant-admission.js';
@@ -33,17 +33,17 @@ async function numbered(handle) {
   }
 }
 
-// Documents kept across launches. For an app
+// Documents kept across launches (LLP 1069.010.000 D3–D7). For an app
 // granted `doc.keep`, the FileSystemHandle the person chose is kept in
-// IndexedDB, as any page may keep one: its identity is the browser's,
+// IndexedDB, as any page may keep one: its identity is the browser's (D4),
 // and so is its permission, which a reload may withhold until a press asks
-// again (`requestPermission`). The database is the app's storage key's
+// again (`requestPermission`, D7). The database is the app's storage key's
 // (none for a drive without a scratch store), so clearing the site's data
-// revokes. Each entry is `<n>`, the name at the choice, its kind, the
+// revokes (D6). Each entry is `<n>`, the name at the choice, its kind, the
 // mode the browser gave, when it was last chosen, and the handle. Every
 // `<n>` a keeping page gives comes from a counter the database keeps,
 // reserved a block at a time in a transaction and never given past its
-// block, so no reload and no other tab of the app gives one again.
+// block, so no reload and no other tab of the app gives one again (D4).
 // Choosing and forgetting hold the app's Web Lock, so tabs take turns.
 const KEPT_MOST = 20; // the web has no recents list of its own: this one is bounded too
 const BLOCK = 256;
@@ -95,7 +95,7 @@ function number() {
   if (kept.end - kept.next < BLOCK / 2) reserve().catch(() => {});
   return kept.next < kept.end ? kept.next++ : undefined;
 }
-// Who hears the kept list change (`storage.fs.watch('doc:/')`): the JS
+// Who hears the kept list change (`storage.fs.watch('doc:/')`, D5): the JS
 // target's answers, and the wasm host's runner (glue.js `keptChanged`).
 const listeners = new Set();
 const told = () => { for (const f of listeners) f(); globalThis.exact?.keptChanged?.(); };
@@ -108,7 +108,7 @@ function inTurn(work) {
   return done;
 }
 
-/** What the person chose, kept for an app that keeps documents: the
+/** What the person chose (D3), kept for an app that keeps documents: the
  * entry it already was when chosen again (the browser's `isSameEntry`),
  * now the most recent; else a new one. Its path, or a session handle's
  * when nothing is kept. */
@@ -140,7 +140,7 @@ async function choose(handle) {
 
 const notKept = (path) => failure(`document ENOENT: ${path} is not a document this app keeps`, 'ENOENT');
 const needsKeep = () => failure('storage: recentDocuments and forgetDocument need the doc.keep grant');
-/** `storage.fs.recentDocuments()`: the kept entries, most recent first, without reading them. */
+/** `storage.fs.recentDocuments()` (D5): the kept entries, most recent first, without reading them. */
 async function recent(scope) {
   if (!keepsDocuments(scope)) throw needsKeep();
   await kept?.ready;
@@ -149,7 +149,7 @@ async function recent(scope) {
   return [...kept.records.values()].sort((a, b) => b.opened - a.opened)
     .map(({ n, name, kind, mode, opened }) => ({ path: `doc:/${n}/${name}`, name, kind, mode, opened }));
 }
-/** `storage.fs.forgetDocument(path)`: off the list; the page keeps reaching it until it closes. */
+/** `storage.fs.forgetDocument(path)` (D5): off the list; the page keeps reaching it until it closes. */
 async function forget(path, scope) {
   if (!keepsDocuments(scope)) throw needsKeep();
   await kept?.ready;
@@ -171,7 +171,7 @@ async function drop(n, name) {
     return true;
   });
 }
-/** `requestPermission(id, path, mode)`: the browser asked, inside the
+/** `requestPermission(id, path, mode)` (D7): the browser asked, inside the
  * press's activation, for the handle `path` names; `answer` hears
  * `granted` or `denied`. A handle with no permission of its own (the
  * agent's, a dropped copy) answers what it has. A number this page has not
@@ -194,7 +194,8 @@ async function keptHandle(n) {
   return handles.get(n);
 }
 
-// One storage operation's failure, coded as every host codes it: the DOM's names for the filesystem's (NotFoundError is ENOENT).
+// One storage operation's failure, coded as every host codes it (kanban
+// F28): the DOM's names for the filesystem's (NotFoundError is ENOENT).
 const CODES = { NotFoundError: 'ENOENT', TypeMismatchError: 'ENOTDIR', InvalidModificationError: 'ENOTEMPTY' };
 function failure(message, code = 'failed') { return Object.assign(new Error(message), { kind: 'Unavailable', code }); }
 // A name of the wrong kind at the end of the path: what a native host's
@@ -231,10 +232,10 @@ async function locate(op, path, create = false, write = undefined) {
 const entry = (found) => found.entry ?? found.folder.getFileHandle(found.name).catch((e) => e?.name === 'TypeMismatchError' ? found.folder.getDirectoryHandle(found.name) : Promise.reject(e));
 // The browser's permission for the chosen handle: a read never prompts; a
 // write asks, which the browser grants only inside a press. A kept handle
-// after a reload may have none until `requestPermission`: `EACCES`,
+// after a reload may have none until `requestPermission` (D7): `EACCES`,
 // apart from a gone entry's `ENOENT`. The browser's permission is the
 // person's answer, so a kept entry chosen for reading that the browser
-// now lets the page write is kept as `readwrite` (the app's own grants
+// now lets the page write is kept as `readwrite` (D3: the app's own grants
 // never widen it; the person's answer to the browser does).
 async function permitted(op, path, n, top, write) {
   const mode = write ? 'readwrite' : 'read';
@@ -247,8 +248,8 @@ async function permitted(op, path, n, top, write) {
     kept.db.then((db) => { db.transaction('kept', 'readwrite').objectStore('kept').put(r); }).catch(() => {});
   }
 }
-// A failure that found the kept item itself gone: forgotten now, as a
-// read forgets a document a read finds gone (its file or folder, not a name
+// A failure that found the kept item itself gone: forgotten now, as D4
+// forgets a document a read finds gone (its file or folder, not a name
 // beneath a folder).
 async function gone(n, top, error) {
   if (error?.code !== 'ENOENT' || !kept?.records.has(n)) return error;
@@ -268,7 +269,7 @@ const STAT_DIR = { size: 0, isFile: false, isDirectory: true, modifiedMs: 0 };
 async function operate(op, path, bytes, scope, expect = null) {
   if (op === 'copyFile') throw failure('fs.copyFile copies a document only into an app:/ path');
   if (op === 'rename') throw failure('fs.rename is not available on a document; read its bytes and write them');
-  // A page has no native path to give.
+  // A page has no native path to give (LLP 1069.010 D1, amended 2026-11-04).
   if (op === 'realpath') throw failure(`NotSupportedError: realpath: this host has no native path for a document: ${path}`);
   const write = ['writeFile', 'atomicWriteFile', 'appendFile', 'mkdir', 'rm'].includes(op), grant = write ? 'fs.write' : 'fs.read';
   if (!coversPath(scope, grant, path)) throw failure(`denied: fs.${op} ${path}: needs \`${grant} doc:/\``, 'denied');
@@ -301,9 +302,9 @@ async function operate(op, path, bytes, scope, expect = null) {
       }
       case 'writeFile': case 'atomicWriteFile': case 'appendFile': {
         // A writable commits on close, which is what makes it atomic here.
-        // The chosen folder itself is a folder, as `readFile` says.
+        // The chosen folder itself is a folder, as `readFile` says (review B6).
         if (found.entry?.kind === 'directory') throw failure(`fs.${op} ${path}: it is a folder`, 'EISDIR');
-        // A write that expects what it read: the
+        // A write that expects what it read (LLP 1069.010.000 D2a): the
         // writable has no precondition, so the file is compared first.
         if (expect) {
           const now = await (found.entry ?? await found.folder.getFileHandle(found.name)).getFile();
@@ -327,8 +328,8 @@ async function operate(op, path, bytes, scope, expect = null) {
   } catch (e) { throw await gone(found.n, found.top, failed(op, path, e, true)); }
 }
 
-/** `copyFile(from, to)` from a document into an app file, as ibex2's
- * `copy_document`: `fs.read` on `from`, then
+/** `copyFile(from, to)` from a document into an app file (LLP 1069.010 D1,
+ * ruled 2026-10-26), as ibex2's `copy_document`: `fs.read` on `from`, then
  * `fs` (the app's storage-fs.js file system) admits `to` under `fs.write`
  * before the document is opened, and keeps its File as the app file, so
  * the bytes never pass through JavaScript. */
@@ -364,7 +365,7 @@ function files(scope) {
     }])));
 }
 
-// Document watches: the browser's
+// Document watches (LLP 1069.010.000 D1, D2): the browser's
 // `FileSystemObserver` on the handle a watched path names, one per path and
 // scope; each change calls `changed` and the source's answer is asked
 // again. A browser without it accepts a watch that never fires, as
@@ -383,19 +384,22 @@ async function observe(path, recursive, scope, changed) {
   } catch { observers.delete(key); }
 }
 
-// The driver's files as handles the page keeps: a file's
+// The driver's files as handles the page keeps (LLP 1069.007 D3): a file's
 // bytes, a folder's tree, or a name to save to.
 // They behave as the File System Access API's do: a name of the other kind
 // is TypeMismatchError, a missing one NotFoundError, a non-empty folder
-// can't be removed (InvalidModificationError).
+// can't be removed (InvalidModificationError). A file's `lastModified` changes
+// only when a write closes, later than the one it replaces, so a write that
+// expects what was read (`ECHANGED`) compares with something stable.
 function memoryFile(name, data = new Uint8Array()) {
-  return { kind: 'file', name, async getFile() { return new File([data], name); },
+  let modified = Date.now();
+  return { kind: 'file', name, async getFile() { return new File([data], name, { lastModified: modified }); },
     async createWritable({ keepExistingData = false } = {}) {
       let at = 0, next = keepExistingData ? data.slice() : new Uint8Array();
       return { async seek(n) { at = n; }, async write(d) {
         const b = new Uint8Array(await new Blob([d]).arrayBuffer()), out = new Uint8Array(Math.max(next.length, at + b.length));
         out.set(next); out.set(b, at); next = out; at += b.length;
-      }, async close() { data = next; } };
+      }, async close() { data = next; modified = Math.max(Date.now(), modified + 1); } };
     },
     async queryPermission() { return 'granted'; } };
 }
@@ -425,7 +429,7 @@ function memoryFolder(name, files) {
     async *entries() { for (const e of [...children]) yield e; },
     async queryPermission() { return 'granted'; } };
 }
-// A save where the browser has no picker (a download instead): a
+// A save where the browser has no picker (D2's "else D3's download"): a
 // handle whose every write, once closed, downloads under its name.
 function downloadFile(name) {
   const file = memoryFile(name), writable = file.createWritable;
@@ -490,7 +494,7 @@ function hearDrags(el, kind, allowed, fire) {
   document.addEventListener('drop', (ev) => { if (fileDrag(ev)) { last = null; over = []; } }, true);
 }
 
-// The manifest's `file_handlers`, the only types a picker offers.
+// The manifest's `file_handlers`, the only types a picker offers (D2).
 let declared;
 function types() {
   return declared ??= fetch(new URL('./manifest.json', import.meta.url)).then((r) => r.json()).then((m) =>
@@ -499,7 +503,7 @@ function types() {
 }
 
 // Whether a dropped file is of a type the manifest declares, which a drop
-// keeps as a document chosen; any other drop, a folder's included, is
+// keeps as a document chosen (D3); any other drop, a folder's included, is
 // content for the session, as on a Mac.
 async function declaredFile(handle) {
   if (handle?.kind !== 'file') return false;
@@ -509,7 +513,7 @@ async function declaredFile(handle) {
 
 globalThis.exact.documents = {
   mint, run, files, copyFile, observe, hearDrags, keeping, recent, forget, permission,
-  /** `listen` hears the kept list change (`storage.fs.watch('doc:/')`). */
+  /** `listen` hears the kept list change (`storage.fs.watch('doc:/')`, D5). */
   onList(listen) { listeners.add(listen); },
   /** A paste's files (`clipboardData.files`), each a read-only copy minted
    * at once, so the action hears them in the paste's own event and its
@@ -527,7 +531,7 @@ globalThis.exact.documents = {
     let pinned;
     const since = () => { const g = pinned ?? host.generation?.(); return (id, kind, payload) => { if (host.generation?.() === g) host.dispatch(id, kind, payload); }; };
     // The files an installed app was launched with (`file_handlers`,
-    // `launchQueue`), each opened as a document.
+    // `launchQueue`, LLP 1069.010 slice 4), each opened as a document.
     globalThis.launchQueue?.setConsumer(async (params) => {
       for (const handle of params.files ?? []) {
         if (!host.openFile(await choose(handle))) host.log('open-file: refused: this app has no `open-file` field');
@@ -541,15 +545,15 @@ globalThis.exact.documents = {
       return Promise.all(found.map(choose)).then((paths) => dispatch(view, 1, paths.join('\n')));
     };
     const api = {
-      /** Files and folders dropped on the page, of any
-       * type (the any-file waiver): each handle the
+      /** Files and folders dropped on the page (studio diary R19), of any
+       * type (the any-file waiver, rules/DEFERRED.md): each handle the
        * browser gave, else a folder's entry, else its File, read-only. */
       async dropped(handles, files, entries = []) {
         await kept?.ready;
         return Promise.all(files.map(async (file, i) => kept?.loaded && handles[i] && await declaredFile(handles[i]) ? choose(handles[i])
           : numbered(handles[i] ?? (entries[i] ? entryHandle(entries[i]) : copied(file)))));
       },
-      /** A picker command's answer `r` from the runner: call the browser's picker (the
+      /** A picker command's ruling `r`: call the browser's picker (the
        * press's activation is still live), then report what was chosen. */
       async show(r, name) {
         const dispatch = since();

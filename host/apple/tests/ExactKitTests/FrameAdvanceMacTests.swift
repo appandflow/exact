@@ -5,8 +5,8 @@ import XCTest
 
 /// A display frame that advances to a deadline whose commit shows nothing
 /// skips the presenter's pass, as a timer's does: a `sent` reader is
-/// answered at each MIDI message's time, and a sequencer app's
-/// activity log, off screen while it plays, would cost the pass at every note.
+/// answered at each MIDI message's time (LLP 1125 D6), and euxy's activity
+/// log, off screen while the sequencer plays, cost the pass at every note.
 final class FrameAdvanceMacTests: XCTestCase {
     private static let plan: Result<Data, Error> = Result {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -48,6 +48,33 @@ final class FrameAdvanceMacTests: XCTestCase {
         let state = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(session.runtime.agent("{\"op\":\"state\"}").utf8)) as? [String: Any])
         let midi = (state["resources"] as? [String: Any])?["midi"] as? [String: Any]
         return try XCTUnwrap(midi?["sent"] as? [Any]).count
+    }
+
+    func testOcclusionChangesKeepTheLinkWhileOnlyACanvas2dWantsFrames() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "canvas-occlusion")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = ExactView(session: session)
+        defer { window.close(); session.destroy() }
+        session.clock = nil
+        session.frames.canvas2d = true
+        XCTAssertFalse(session.frames.motion)
+        XCTAssertFalse(session.frames.timerSoon)
+        XCTAssertFalse(session.canvases.wantsFrames)
+        session.frames.run(session.frames.hasWork)
+        let link = try XCTUnwrap(session.frames.link)
+
+        for _ in 0..<2 {
+            session.occlusionChanged()
+            XCTAssertTrue(session.frames.hasWork)
+            XCTAssertTrue(session.frames.link === link, "occlusion must preserve the canvas's frame request")
+        }
+
+        session.frames.canvas2d = false
+        session.occlusionChanged()
+        XCTAssertFalse(session.frames.hasWork)
+        XCTAssertNil(session.frames.link)
     }
 
     func testAFrameAdvanceThatShowsNothingSkipsThePass() throws {

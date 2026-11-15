@@ -1,4 +1,4 @@
-// A route's `header` as the window's title bar and
+// @ref LLP 1115.002 D2 — a route's `header` as the window's title bar and
 // toolbar. A hand-built Mac window has no second bar under its title bar:
 // the screen's title is the window's, and its actions are toolbar items. So
 // where a route is header-shaped by the shared rule (`HeaderRule`, the
@@ -28,14 +28,14 @@
 // bar has no place for (a picture, a pressable
 // title, a field) stays painted in the page as written, and the session's
 // log says what it was: a header is never half projected. While the bar
-// shows it the header is hidden and its box is the platform's (`HostCovers`),
-// reported in the step the projection happened, so the page lays out
+// shows it the header is hidden and its box is the platform's (`HostCovers`,
+// D8.1), reported in the step the projection happened, so the page lays out
 // without it.
 //
 // **Which route.** The route the root shows; or, while that route is a
 // modal one (a sheet's content), the route it stands over, as a window
 // keeps its own title and items under a sheet. A modal route's own header
-// is its sheet's (RouteSheetMac.swift).
+// is its sheet's (D7.4, RouteSheetMac.swift).
 //
 // **Who wins.** A toolbar the author declared for the window
 // (`toolbarPlacement="window"`) is the bar, and then no header is projected.
@@ -46,7 +46,9 @@ import AppKit
 
 /// What the window's bar shows of a route's header.
 struct WindowHeader {
-    let route: NodeView, header: NodeView, heading: NodeView
+    /// Its heading: none for a header of buttons alone, whose window keeps
+    /// the title it has without one.
+    let route: NodeView, header: NodeView, heading: NodeView?
     /// The heading's text: the window's title, under an authored document
     /// title (the head's) and over the app's name.
     let title: String
@@ -113,7 +115,7 @@ struct WindowHeader {
                 if items.contains(ObjectIdentifier(child)) {
                     // The stack's Back control: the bar's own Back is its face.
                     if backs.contains(where: { $0 === child }) { continue }
-                    // One its author keeps: the window's
+                    // One its author keeps (LLP 1075.003 §9.10): the window's
                     // bar shows a header whole or not at all, so it all paints.
                     if child.wrote("appearance"), child.style["appearance"]?.string == "none" {
                         return "button #\(child.id) writes `appearance: none`, and the window's bar shows a header whole or not at all"
@@ -135,7 +137,7 @@ struct WindowHeader {
             return nil
         }
         if let why = refusal(in: rule.header) { return .kept(why) }
-        var read = WindowHeader(route: route, header: rule.header, heading: rule.heading, title: rule.heading.accessibleText,
+        var read = WindowHeader(route: route, header: rule.header, heading: rule.heading, title: rule.heading?.accessibleText ?? "",
                                 leading: rule.leading.filter(shown), trailing: rule.trailing.filter(shown), backs: backs)
         read.subtitle = subtitle
         if let list = rule.segments, shown(list), let tabs = titleTabs(of: list) { (read.segments, read.tabs) = (list, tabs) }
@@ -310,25 +312,40 @@ extension NavigationHost {
     /// batch showed (`selection`).
     var headerRoute: (root: NodeView, route: NodeView, pushed: Bool)? {
         // A stack that splits: one of its two routes owns the window.
-        if let routes = splitHeaderRoutes { return (routes.root, routes.owner, routes.owner !== split.shown?.list) }
+        if let routes = splitHeaderRoutes { return (routes.root, routes.owner, splitPushed(routes.owner)) }
+        return windowRoute
+    }
+
+    /// Whether a split's route is pushed, so the bar's Back stands for its
+    /// header's Back control: the list never is, and a detail only above
+    /// where its pane begins, the base detail having no Back (LLP 1115.002
+    /// D4). Both headers of a split read it, whichever owns the window.
+    func splitPushed(_ route: NodeView) -> Bool {
+        route !== split.shown?.list && windowRoute?.pushed == true
+    }
+
+    /// The route under any modal or fullscreen segments: the window's
+    /// toolbar still belongs to it while a cover is selected. A split's
+    /// base detail is not pushed.
+    var windowRoute: (root: NodeView, route: NodeView, pushed: Bool)? {
         guard let selection, let root = presenter.views[selection.root], selection.stack.indices.contains(selection.at) else { return nil }
         let stack = selection.stack[...selection.at].compactMap { presenter.views[$0] }
         guard stack.count == selection.at + 1,
               let base = NavigationRules.segments(presentations: stack.map { $0.props["navigationPresentation"] }).first,
               let route = stack[base].last else { return nil }
-        return (root, route, base.count > 1)
+        return (root, route, base.count - 1 > split.base)
     }
 
-    /// The two headers of a window that shows
+    /// @ref LLP 1115.002 D4, §5 Q10 — the two headers of a window that shows
     /// a list beside its detail. One route owns the window: its heading is
     /// the window's title and its whole header is the bar's. The other is
     /// beside it: its heading stays the first line of its pane, and its
     /// buttons are the bar's over its own column, after the separator that
-    /// follows the divider. Which is which is `SplitHost.listOwnsWindow`.
+    /// follows the divider. Which is which is `SplitHost.listOwns`.
     var splitHeaderRoutes: (root: NodeView, owner: NodeView, beside: NodeView?)? {
         guard split.active, let shown = split.shown else { return nil }
         guard let detail = shown.detail else { return (shown.root, shown.list, nil) }
-        return split.listOwnsWindow ? (shown.root, shown.list, detail) : (shown.root, detail, shown.list)
+        return split.listOwns ? (shown.root, shown.list, detail) : (shown.root, detail, shown.list)
     }
 }
 #endif

@@ -1,4 +1,4 @@
-// The Mac's grouped form, where a row's look is a
+// @ref LLP 1115.002 D6 — the Mac's grouped form, where a row's look is a
 // control's and not a number: a `destructive` row is AppKit's push button,
 // left-aligned and in the label's colour, as SwiftUI's grouped `Form` shows
 // a `Button`. The sheet says so in the one way a table of metrics can: the

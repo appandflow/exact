@@ -1,5 +1,7 @@
 //! Ordered maps and sets as one sorted vector, and a set of arena slots.
 //!
+//! @ref LLP 1047 §6 (the core diet: maps)
+//!
 //! `BTreeMap` and `BTreeSet` compile a node tree's worth of code for every key
 //! and value type: about 4–10 KB of wasm each, and the web wasm carried fifty.
 //! The engine's maps are small, or grow at the end (view ids are never

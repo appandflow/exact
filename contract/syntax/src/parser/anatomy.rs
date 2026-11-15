@@ -1,5 +1,5 @@
-//! The current spelling of a component's parts (the model is
-//! `crate::anatomy`'s): a `parts` section, `name: group group …` a
+//! r6's spelling of a component's parts (LLP 1139 D2; the spelling is §9
+//! Q7's, `crate::anatomy`): a `parts` section, `name: group group …` a
 //! line.
 
 use super::{Parser, R};

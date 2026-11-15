@@ -1,4 +1,4 @@
-// The WinUI reference's process: draws each specimen of
+// The WinUI reference's process (LLP 1115.004 D13): draws each specimen of
 // specimens.json alone in its window, in the theme it is given, and writes
 // `<out>/<scheme>/<id>.png` and `<out>/<scheme>/geometry.json`, then
 // `done.txt` (or `error.txt`) and exits.

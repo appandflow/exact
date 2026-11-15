@@ -1,17 +1,17 @@
-// A status item: a `-exact-menu="status"` button
+// @ref LLP 1133.025 D4 — a status item: a `-exact-menu="status"` button
 // presented as one of the app's `NSStatusItem`s in the menu bar. It takes
 // the button's place: the button is covered whole (CoversMac.swift) and
 // hidden in the window, so it takes no room there.
 //
-// The items are the status session's: the oldest live session (the one the
-// launch booted, then the oldest left). A status button in any other session
-// places nothing, and its journal says so once.
+// The items are the status session's: the live session of the window named
+// `main`, the app's (LLP 1030.004 D3), else the oldest live session. A status
+// button in any other session places nothing, and its journal says so once.
 //
-// A click opens the item's menu when the button names a menu-shaped popover,
-// filled from its rows as it opens (`MenuHost.fill`); with no
+// A click opens the item's menu when the button names a menu-shaped popover
+// (LLP 1021 D1), filled from its rows as it opens (`MenuHost.fill`); with no
 // menu it runs `press`. An accessory app's menu ends with a separator and
-// "Quit <App>" unless the root's `-exact-menu-remove` names `status-quit`:
-// with no window and no Dock tile, the menu is the only way to quit.
+// "Quit <App>" unless the root's `-exact-menu-remove` names `status-quit`
+// (D7): with no window and no Dock tile, the menu is the only way to quit.
 #if os(macOS)
 import AppKit
 
@@ -21,7 +21,7 @@ final class StatusItemHost: NSObject {
     nonisolated(unsafe) private static var hosts: [Weak] = []
     private struct Weak { weak var host: StatusItemHost? }
     /// The placed items, by the button's id.
-    private var items: [UInt32: NSStatusItem] = [:]
+    private(set) var items: [UInt32: NSStatusItem] = [:]
     /// The image each item was given from: a sync runs after every batch.
     private var images: [UInt32: NSImage?] = [:]
     private var saidUnplaced = false
@@ -29,7 +29,7 @@ final class StatusItemHost: NSObject {
     private(set) var ended = false
     /// Said when this session's placed items change from some to none, or
     /// back: the host decides again whether anything reaches a hidden
-    /// window.
+    /// window (D6).
     var onPlacedChange: ((Bool) -> Void)?
 
     init(_ presenter: Presenter) {
@@ -41,8 +41,12 @@ final class StatusItemHost: NSObject {
     /// Whether this session places status items now.
     var isStatusSession: Bool {
         Self.hosts.removeAll { $0.host == nil }
-        return Self.hosts.first { $0.host?.ended == false }?.host === self
+        let live = Self.hosts.compactMap(\.host).filter { !$0.ended }
+        return (live.first { $0.presenter.session?.label == "main" } ?? live.first) === self
     }
+    /// Whether the last sync placed this session's items: a `main` booted
+    /// again takes them from the session that held them meanwhile.
+    private var wasStatusSession = false
 
     /// Whether `node` is placed as a status item, so not in the window.
     func places(_ node: NodeView) -> Bool { items[node.id] != nil }
@@ -69,10 +73,15 @@ final class StatusItemHost: NSObject {
 
     /// After each batch: the items follow the buttons.
     func sync() {
-        let wanted = isStatusSession ? buttons() : []
-        if !isStatusSession, !saidUnplaced, !buttons().isEmpty {
+        let status = isStatusSession
+        defer {
+            if status, !wasStatusSession { for case let host? in Self.hosts.map(\.host) where host !== self { host.sync() } }
+            wasStatusSession = status
+        }
+        let wanted = status ? buttons() : []
+        if !status, !saidUnplaced, !buttons().isEmpty {
             saidUnplaced = true
-            presenter.session?.log("status item: not placed: another window's session holds the app's status items")
+            presenter.session?.log("status item: not placed: another window's session holds the app's status items (LLP 1133.025 D4)")
         }
         let had = placed
         let live = Set(wanted.map(\.id))
@@ -91,8 +100,9 @@ final class StatusItemHost: NSObject {
         node.rejectNativeActiveProperties(on: "NSStatusBarButton")
         let item = items[node.id] ?? {
             let made = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-            // Where the person dragged it is kept, as a hand-built app's is.
-            made.autosaveName = "exact-status-\(node.props["testId"] ?? node.props["id"] ?? String(items.count))"
+            // Where the person dragged it is kept, as a hand-built app's is,
+            // under a name no other live item has.
+            made.autosaveName = "exact-status-\(node.props["testId"] ?? node.props["id"] ?? String(node.id))"
             made.button?.target = self
             made.button?.action = #selector(clicked(_:))
             items[node.id] = made
@@ -106,7 +116,7 @@ final class StatusItemHost: NSObject {
         if images[node.id] != .some(image) {
             images[node.id] = .some(image)
             let template = image?.copy() as? NSImage
-            // The menu bar tints a template image (Apple's HIG).
+            // The menu bar tints a template image (D7, Apple's HIG).
             template?.isTemplate = true
             if let template, template.size.height > 18 {
                 template.size = NSSize(width: template.size.width * 18 / template.size.height, height: 18)
@@ -145,7 +155,7 @@ final class StatusItemHost: NSObject {
 
     /// A restart: the new runtime's ids are its own, and its first batch
     /// places its items again. The session's end (`destroy`, which resets
-    /// the presenter): the next oldest session places its own.
+    /// the presenter): the next status session places its own.
     func reset() {
         for item in items.values { NSStatusBar.system.removeStatusItem(item) }
         items.removeAll()
@@ -153,12 +163,12 @@ final class StatusItemHost: NSObject {
         agentMenu = nil
         guard presenter.session?.state == .destroyed, !ended else { return }
         ended = true
-        for case let host? in Self.hosts.map(\.host) where host !== self && !host.ended { host.sync(); break }
+        for case let host? in Self.hosts.map(\.host) where host !== self && !host.ended && host.isStatusSession { host.sync() }
     }
 
     // MARK: The agent
 
-    /// The agent's tap on a placed status button: the
+    /// The agent's tap on a placed status button (LLP 1133.025 §11): the
     /// item's click as AppKit makes it. With a menu, the menu as it would
     /// open, filled from its rows, and kept for a following tap on one of
     /// them; with none, the press. `nil` when `node` is no placed item.

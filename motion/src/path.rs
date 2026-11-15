@@ -1,4 +1,4 @@
-//! A path's `d` as an animatable value.
+//! A path's `d` as an animatable value (LLP 1055.000 D15).
 //!
 //! @ref CSS Shapes 1 §"Interpolating `path()`"; SVG 2 §9.3.3 (path data
 //! normalised to absolute commands)

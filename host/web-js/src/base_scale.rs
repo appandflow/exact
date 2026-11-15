@@ -1,4 +1,4 @@
-//! The base scale on the JS target, which
+//! @ref LLP 1121 stage 11 B (B2) — the base scale on the JS target, which
 //! keeps no kernel at run time. Its one look is the neutral one (the build
 //! says so, `roles::set_column`), so its column is the kernel's in this
 //! build (`metrics::column()`):
@@ -7,14 +7,14 @@
 //! - the sheet declares every base name the design does not define, once
 //!   as a custom property on `:root`, `--exact-<name>` (`--exact-space-md`),
 //!   from the kernel's table, never a copied number, when the plan may read
-//!   any base name as a length, and none when it can't ([`named`]: all nine
-//!   or none);
+//!   any base name as a length, and none when it can't ([`named`]: theme2's
+//!   all-nine-or-none, B2 round 2);
 //! - a bound row's value naming one reads that property (`measures::map`),
 //!   an SVG attribute its length;
-//! - a length token over base names is a `calc()` over their
+//! - a length token over base names (stage 12 B2) is a `calc()` over their
 //!   properties (`calc(var(--exact-space-md) * 2)`, [`expression`]), and in
 //!   an SVG attribute that column's px ([`folded`]);
-//! - a shadow token whose lengths are over base names is the
+//! - a shadow token whose lengths are over base names (stage 12 B3) is the
 //!   row's CSS with each such length its property or `calc()` ([`shadow`]).
 //!
 //! A design that defines a base name makes it its own token, which the
@@ -28,12 +28,12 @@ use std::collections::BTreeSet;
 
 /// The base names the sheet declares and the maps hold: every one the
 /// design does not define when the plan may read any base name as a length,
-/// none when it can't (declaring all nine is safe,
+/// none when it can't (theme2, B2 round 2: declaring all nine is safe,
 /// missing one is not, and a switch between two base names then never needs
 /// a property the sheet lacks). It may read one when:
 /// - a length token aliases one (`card.pad: length = space.md`), or is an
-///   expression over one (`calc(space.md * 2)`), or a shadow
-///   token's length is (`0 space.md 4px black`);
+///   expression over one (`calc(space.md * 2)`, stage 12 B2), or a shadow
+///   token's length is (`0 space.md 4px black`, B3);
 /// - a length row's value may be one, through `?:`, `match` and `let` (its
 ///   bytecode's string constants, trimmed as the page's lookup trims,
 ///   [`returns`]);
@@ -137,8 +137,8 @@ fn reads(plan: &Plan) -> Vec<&'static str> {
 /// (`color-scheme`, `font-style`, `dynamic-range-limit`), where the codec
 /// then refuses the length the name reads: so on such a row a base name is
 /// refused either way, and counting it would declare the scale in an app
-/// that never uses it (a release must be unchanged by the scale). Asked of
-/// the codec itself, with `1px`.
+/// that never uses it (B2 round 1, theme2: a release unchanged by the
+/// scale). Asked of the codec itself, with `1px`.
 pub fn reads_length(id: StyleId) -> bool {
     use exact_kernel::style::theme::{admits, Kind};
     if !admits(Kind::Length, id) {
@@ -155,7 +155,7 @@ pub fn reads_length(id: StyleId) -> bool {
 /// `String.prototype.trim`): its WhiteSpace (tab, vertical tab, form feed,
 /// U+FEFF and every space separator) and LineTerminator (LF, CR, U+2028,
 /// U+2029) code points. Rust's `trim` differs: it keeps U+FEFF and strips
-/// U+0085.
+/// U+0085 (round 2's re-review, Astra).
 fn js_trim(text: &str) -> &str {
     let js_space = |c: char| {
         matches!(
@@ -184,7 +184,7 @@ struct Value {
     unknown: bool,
     ty: Option<exact_plan::TypesId>,
     /// A constructed option's or list's element (`Some(x)`, `[12, 16]`),
-    /// which a region's frame holds.
+    /// which a region's frame holds (round 2, Astra 5).
     item: Option<Box<Value>>,
     /// No value at all: `none`'s payload, which a join takes as the other's.
     nothing: bool,
@@ -245,7 +245,7 @@ impl Value {
     /// Whether every string it may be holds a part no base name holds, so
     /// no concatenation with it is one (a digit, `px`, `%`).
     /// Trimmed, as the page's lookup trims ([`js_trim`]): a part of only
-    /// whitespace proves nothing. No string
+    /// whitespace proves nothing (round 2, Astra 2 and Grok 1). No string
     /// and not unknown, in a concatenation, is an earlier one proven
     /// base-free.
     fn no_base(&self, plan: &Plan) -> bool {
@@ -302,7 +302,7 @@ fn frame_value(
         let region = region_at(plan, arm, depth).filter(|r| r.kind == kind)?;
         let subject = walk(plan, plan.code(region.subject), region.arm, nested + 1)?;
         // A constructed list or option (`[12, 16]`, `Some(size)`): its
-        // element as built.
+        // element as built (round 2, Astra 5).
         if let Some(item) = subject.item {
             return Some(Err(*item));
         }
@@ -323,6 +323,8 @@ fn frame_value(
 /// [`returns`]' walk: the joined value `code` may return, its type where
 /// every way says one.
 fn walk(plan: &Plan, code: &[u8], arm: Option<exact_plan::ArmsId>, nested: u8) -> Option<Value> {
+    let (code, owner) = plan.read_code(code);
+    let arm = owner.unwrap_or(arm);
     let program: Vec<_> = exact_runner::vm::instructions(code)
         .collect::<Result<_, _>>()
         .ok()?;
@@ -342,7 +344,7 @@ fn walk(plan: &Plan, code: &[u8], arm: Option<exact_plan::ArmsId>, nested: u8) -
         match ins.op {
             Opcode::Number | Opcode::Bool | Opcode::Unit => stack.push(Value::default()),
             // `none`: an option with no payload, which joins with a `Some`'s
-            // to that one's element.
+            // to that one's element (round 2's re-review, Astra).
             Opcode::None => stack.push(Value {
                 item: Some(Box::new(Value::nothing())),
                 ..Value::default()
@@ -363,7 +365,7 @@ fn walk(plan: &Plan, code: &[u8], arm: Option<exact_plan::ArmsId>, nested: u8) -
                     ..Value::default()
                 });
             }
-            // A list literal: its items' join.
+            // A list literal: its items' join (round 2, Astra 5).
             Opcode::List => {
                 let mut item: Option<Value> = None;
                 for _ in 0..ins.args[0] {
@@ -400,10 +402,15 @@ fn walk(plan: &Plan, code: &[u8], arm: Option<exact_plan::ArmsId>, nested: u8) -
             Opcode::LoadSlot => {
                 stack.push(Value::typed(plan, plan.slots.get(ins.args[0] as usize)?.ty))
             }
-            Opcode::LoadDerive => stack.push(Value::typed(
-                plan,
-                plan.derives.get(ins.args[0] as usize)?.ty,
-            )),
+            Opcode::LoadDerive => {
+                let value = match plan.unsettled_body(ins.args[0] as u32) {
+                    Some(row) if nested < 64 => {
+                        walk(plan, plan.code(row.body), row.owner, nested + 1)?
+                    }
+                    _ => Value::typed(plan, plan.derives.get(ins.args[0] as usize)?.ty),
+                };
+                stack.push(value);
+            }
             Opcode::LoadResource => stack.push(Value::typed(
                 plan,
                 plan.resources.get(ins.args[0] as usize)?.ty,
@@ -533,7 +540,7 @@ fn walk(plan: &Plan, code: &[u8], arm: Option<exact_plan::ArmsId>, nested: u8) -
     out
 }
 
-/// A length token's expression over base names as the CSS
+/// A length token's expression over base names (stage 12 B2) as the CSS
 /// the page writes: each base name its property, inside the expression's
 /// own `calc()`, `min()`, `max()` or `clamp()`. `None` for any other text.
 pub fn expression(value: &str) -> Option<String> {
@@ -555,7 +562,7 @@ pub fn folded(value: &str) -> Option<String> {
     Some(format!("{px}px"))
 }
 
-/// A shadow token's text whose lengths are over base names as
+/// A shadow token's text whose lengths are over base names (stage 12 B3) as
 /// the CSS the page writes: the row's CSS for the text this build's column
 /// folds it to, as css.rs writes a literal's (its colours, every length
 /// said), each length written over a base name then its property's `var()`

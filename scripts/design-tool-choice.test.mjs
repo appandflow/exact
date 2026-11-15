@@ -1,4 +1,4 @@
-// The design tool's held choice (apps/design-tool/choice.ts, tamber/1.18 `choose`), pure: a card's base and the
+// The design tool's held choice (apps/design-tool/choice.ts, forma/1.18 `choose`), pure: a card's base and the
 // page's flips over it, a rebase by another client's choice making the page's flips obsolete before anything sends
 // them, a newer record kept while the page's own choose is on its way and settled when it lands, an undone tick still
 // sending its card's choice, a failed choose said, an override's items turned over together, and a new server run.
@@ -68,7 +68,7 @@ test('a tick undone before its answer still sends the card\'s choice; a failed c
   expect(heldChoice.at('u')).toBe(9);
 });
 
-test('obsolete flips said until dropped; a lost answer sends again; a proposal briefly missing keeps its base; a send never overwrites a newer foreign choice; gen counts rebases; the cards are rebuilt', async () => {
+test('round 2: obsolete flips said until dropped; a lost answer sends again; a proposal briefly missing keeps its base; a send never overwrites a newer foreign choice; gen counts rebases; the cards are rebuilt', async () => {
   heldChoice.saw([{ proposal: 'r', choice: [0], choiceAt: 1 }], 'e5');
   heldChoice.takeShown();
   heldChoice.saw([{ proposal: 'r', choice: [1], choiceAt: 2 }], 'e5');
@@ -105,7 +105,7 @@ test('obsolete flips said until dropped; a lost answer sends again; a proposal b
   expect(heldChoice.gen('r')).toBe(2);
 });
 
-test('a card is in step only as the page shows it built from its moved base, its obsolete flips gone; a partly chosen override is off, as shown', () => {
+test('round 3: a card is in step only as the page shows it built from its moved base, its obsolete flips gone; a partly chosen override is off, as shown', () => {
   heldChoice.saw([{ proposal: 's', choice: [0], choiceAt: 1 }], 'e6');
   heldChoice.takeShown();
   const built = heldChoice.gen('s');
@@ -124,7 +124,7 @@ test('a card is in step only as the page shows it built from its moved base, its
   expect(card('', 't')).toEqual([0]);
 });
 
-test('the page\'s own choose whose answer was lost comes back as its own, not another client\'s; a same-name tab\'s different choice still rebases', async () => {
+test('H2: the page\'s own choose whose answer was lost comes back as its own, not another client\'s; a same-name tab\'s different choice still rebases', async () => {
   heldChoice.saw([{ proposal: 'h', choiceAt: 0 }], 'e7', 'design-tool:Ada');
   heldChoice.takeShown();
   // The server records [0, 1] (at 1), and its answer never comes.
@@ -141,7 +141,7 @@ test('the page\'s own choose whose answer was lost comes back as its own, not an
   expect(heldChoice.base('h')).toEqual([1]);
 });
 
-test('a flip made after another client\'s choice rebased the card counts; only the flips picked held when the rebase was taken are dropped', () => {
+test('H3: a flip made after another client\'s choice rebased the card counts; only the flips picked held when the rebase was taken are dropped', () => {
   heldChoice.saw([{ proposal: 'k', choice: [0], choiceAt: 1 }], 'e8', 'design-tool:Ada');
   heldChoice.takeShown();
   heldChoice.saw([{ proposal: 'k', choice: [1], choiceAt: 2, choiceBy: 'design-tool:Bo' }], 'e8', 'design-tool:Ada');
@@ -155,7 +155,7 @@ test('a flip made after another client\'s choice rebased the card counts; only t
   expect(heldChoice.inStep('k', 'k:1', heldChoice.gen('k'))).toBe(true);
 });
 
-test('a rebase ends the page\'s unanswered asks, so a same-name tab choosing them after it rebases; two lost answers both come back as the page\'s own', async () => {
+test('H2, round 1 (Astra): a rebase ends the page\'s unanswered asks, so a same-name tab choosing them after it rebases; two lost answers both come back as the page\'s own', async () => {
   heldChoice.saw([{ proposal: 'm', choiceAt: 0 }], 'e9', 'design-tool:Ada');
   expect(await heldChoice.send('m', [0, 1], () => Promise.resolve(null))).toBe(false);
   heldChoice.saw([{ proposal: 'm', choice: [1], choiceBy: 'design-tool:Bo', choiceAt: 2 }], 'e9', 'design-tool:Ada');
@@ -172,7 +172,7 @@ test('a rebase ends the page\'s unanswered asks, so a same-name tab choosing the
   expect(heldChoice.at('n')).toBe(2);
 });
 
-test('an earlier lost ask\'s items chosen again by a same-name tab after the page moved on rebase, kept while the page\'s newer choose is on its way', async () => {
+test('H2, round 2 (Astra, Grok): an earlier lost ask\'s items chosen again by a same-name tab after the page moved on rebase, kept while the page\'s newer choose is on its way', async () => {
   // [0,1] lost, then [1] lost: a same-name tab's [0,1] (at 3) is another client's.
   heldChoice.saw([{ proposal: 'v', choiceAt: 0 }], 'e10', 'design-tool:Ada');
   await heldChoice.send('v', [0, 1], () => Promise.resolve(null));

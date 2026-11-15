@@ -1,4 +1,4 @@
-// Exit animation on AppKit: as on UIKit (`PresenceIOS.swift`), a
+// Exit animation on AppKit (LLP 1063): as on UIKit (`PresenceIOS.swift`), a
 // leaving view and everything under it leave the presenter's maps but stay
 // in the window where they were, in their place in paint order, inert to
 // the pointer and hidden from accessibility, until the host's `destroy` of the
@@ -39,7 +39,7 @@ extension Presenter {
         // exit must keep its ancestors' opacity, transforms and clipping. It
         // goes just after the table and keeps its rank, so it is ordered
         // against the table as a whole, not against the rows in its cells
-        // (item 4).
+        // (LLP 1083.000 §4, item 4).
         if let cell = view.superview as? TableRowCell, cell.row === view, let home = cell.feed?.home {
             let frame = home.convert(view.frame, from: cell)
             home.addSubview(view, positioned: .above, relativeTo: cell.feed?.table)

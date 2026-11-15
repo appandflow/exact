@@ -1,4 +1,4 @@
-# Health by a person
+# Health by a person (LLP 1133.026 §15, stages 2 and 3)
 
 What no tool here can do: answer HealthKit's sheet or Health Connect's
 permission screen, and read a store that holds a real week. The suites
@@ -6,7 +6,7 @@ drive the rest under the agent, over `packages/health/fixture`:
 `examples/calendar/tests/activity.mjs` on an iOS simulator, macOS and the
 web, and `contract/cli/tests/it/health.rs` for the permission cases.
 
-Use dedicated test phones and a simulator or emulator you made,
+Use LLP 1133.020's test phones and a simulator or emulator you made,
 never a personal phone and never a store that holds a person's data.
 Write sample data only into the test phone's store, and write down the
 commit, the device and its OS version beside each result.
@@ -37,29 +37,30 @@ Note each day's total as Health shows it.
 3. **Part of it.** Health › Sharing › Apps › Calendar: turn Workouts off.
    Return: the steps stay, the agenda's workouts are gone, and the
    section shows "Showing the activity Health shares with Calendar." It
-   never says access is off.
+   never says access is off (D5).
 4. **None of it.** Turn Steps off too and return: the month shows "No
    activity to show. If you turned off Calendar's access, you can allow
    it in Settings › Health › Data Access & Devices."
 5. **A change in the store.** With both on again, add a workout in Health
    and return to Calendar: it shows without a relaunch.
 6. **Nothing kept.** Close Calendar and open it again: the first frame
-   shows no steps, then the steps come.
+   shows no steps, then the steps come (D9).
 7. **A limited window (iOS 27).** If the sheet offers a start date, allow
    from the 1st of the month: earlier days show nothing, and the line
    reads "Calendar can see your activity from 1 <month>." Record whether
    iOS offered the choice.
 8. **A workout's statistics.** With Workouts on and Steps off, record
-   whether a workout's distance still shows (whether a workout's
-   statistics need their type's own read).
+   whether a workout's distance still shows (§15 stage 2: whether a
+   workout's statistics need their type's own read).
 
 ## Android phone, API 31 or later
 
 The conformance fixture (`test/fixture`) carries the module on Android.
-`bun packages/health/test/android.mjs` builds it and leaves its APK at
-`host/android/app/build/healthfixture/outputs/apk/release/app-release.apk`;
-install that with `adb install`. On an Android 13 phone, install Health Connect
-from Google Play first. Add steps and a workout in a fitness app that
+`bun packages/health/test/android.mjs` builds its APK and deletes the fixture;
+keep the fixture's directory and install
+`target/android/app/outputs/apk/release/app-release.apk` from it with
+`adb install`. On an Android 13 phone, install Health Connect from Google Play
+first. Add steps and a workout in a fitness app that
 writes to Health Connect, or in Health Connect's own data screens, and
 note them.
 

@@ -1,4 +1,4 @@
-// Through the Hermes executor: a presence name's occupancy,
+// LLP 1133.010 D5 through the Hermes executor: a presence name's occupancy,
 // `get`'s refusal of a locked one, a locked write refused where no locked
 // secret can be kept, and `unlock`'s request of its own.
 type Store = any;

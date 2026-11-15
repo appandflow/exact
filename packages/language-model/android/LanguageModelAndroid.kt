@@ -1,10 +1,10 @@
-// ML Kit's GenAI Prompt API for @exact/language-model: `checkStatus()` and
+// ML Kit's GenAI Prompt API for @exact/language-model (LLP 1133.016 D5–D8, D10, D11): `checkStatus()` and
 // `download()`, a request per generation built from the module's transcript, `generateContentStream` appended into the
-// response, the answer to a constraint validated, and GenAiException's codes as the errors.
+// response, the answer to a constraint validated (D8), and GenAiException's codes as D2's errors.
 //
 // ML Kit has no session and no roles on a request's contents, so the turns before the input go into its text as a
 // transcript, the system message as its `SystemInstruction` where the model takes one. Its suspend functions run on
-// ML Kit's own executors; this class resumes on the main thread, where every entry into the module is.
+// ML Kit's own executors; this class resumes on the main thread, where every entry into the module is (D6).
 package exact.languagemodel
 
 import android.os.Handler
@@ -37,13 +37,13 @@ class MlKit(private val m: LanguageModelModule) {
     /** A client per model configuration a create names. */
     private val clients = HashMap<String, GenerativeModel>()
     private var systemPrompts: Boolean? = null
-    // The status last read, and a download this module started.
+    // The status last read, and a download this module started (D5).
     private var last: String? = null
     private var download: Job? = null
     private var bytesTotal: Long? = null
     private var bytesDownloaded: Long? = null
     private val waiting = mutableListOf<(Boolean) -> Unit>()
-    /** One generation a process: ML Kit answers `BUSY` to an app that asks for more. */
+    /** One generation a process (D6): ML Kit answers `BUSY` to an app that asks for more. */
     private var generating: ModelResponse? = null
     private val pending = ArrayDeque<ModelResponse>()
 
@@ -61,7 +61,7 @@ class MlKit(private val m: LanguageModelModule) {
         }
     }
 
-    // ---------------------------------------------------------------- availability
+    // ---------------------------------------------------------------- availability (D5)
 
     fun availability(args: JSONObject, reply: (JSONObject) -> Unit) {
         if (m.wantsTools(args)) return reply(base().put("availability", "unavailable").put("reason", "unsupported-options").put("android", JSONObject.NULL))
@@ -99,7 +99,7 @@ class MlKit(private val m: LanguageModelModule) {
         return out.put("android", android)
     }
 
-    /** A create: at once while available, after a download this call may start while downloadable. */
+    /** A create: at once while available, after a download this call may start while downloadable (D5, D10). */
     fun create(args: JSONObject, origin: String, made: (Int) -> Unit, reply: (JSONObject) -> Unit) {
         val model = client(args.optJSONObject("android") ?: JSONObject())
         scope.launch {
@@ -180,7 +180,7 @@ class MlKit(private val m: LanguageModelModule) {
                     c.finishReason?.let { r.finishReason = it }
                 }
                 val schema = r.schema ?: break
-                // The answer is checked, and asked for once more with the complaint on a mismatch.
+                // D8: the answer is checked, and asked for once more with the complaint on a mismatch.
                 val json = unfenced(r.text)
                 val why = LanguageModelSchema.parse(json).let { if (it == null) "the answer is not JSON" else LanguageModelSchema.violation(schema, it) }
                 if (why == null) { r.text = json; break }
@@ -199,7 +199,7 @@ class MlKit(private val m: LanguageModelModule) {
         }
     }
 
-    /** The prompt's text: the input, and the schema it must answer unless the app omits it. */
+    /** The prompt's text: the input, and the schema it must answer unless the app omits it (D8). */
     private fun asked(r: ModelResponse): String {
         val schema = r.schema?.takeIf { !r.omit } ?: return r.turn.input ?: ""
         return "${r.turn.input ?: ""}\n\nAnswer with JSON alone that satisfies this JSON Schema:\n${LanguageModelSchema.json(schema)}"
@@ -224,7 +224,7 @@ class MlKit(private val m: LanguageModelModule) {
         complaint?.let { text.append("\n\nThe last answer was not valid: ").append(it).append(". Answer again with JSON alone.") }
         val builder = if (instructs) GenerateContentRequest.Builder(SystemInstruction(system), TextPart(text.toString()))
             else GenerateContentRequest.Builder(TextPart(text.toString()))
-        // The words, then the app's hatch, which sets what the words do not.
+        // D11's words, then the app's hatch (D12), which sets what the words do not.
         LanguageModelSchema.number(r.options.opt("temperature"))?.let { builder.temperature = it.toFloat() }
         LanguageModelSchema.number(r.options.opt("topK"))?.let { builder.topK = it.toInt() }
         LanguageModelSchema.number(r.options.opt("seed"))?.let { builder.seed = it.toInt() }
@@ -237,7 +237,7 @@ class MlKit(private val m: LanguageModelModule) {
     private fun unfenced(text: String): String =
         Regex("^\\s*```(?:json)?\\s*([\\s\\S]*?)\\s*```\\s*$").find(text)?.groupValues?.get(1) ?: text.trim()
 
-    /** The name and reason for a GenAiException's code. */
+    /** D2's name and reason for a GenAiException's code. */
     private fun errorOf(code: Int): Pair<String, String?> = when (code) {
         GenAiException.ErrorCode.BACKGROUND_USE_BLOCKED -> "NotAllowedError" to "background"
         GenAiException.ErrorCode.BUSY -> "OperationError" to "rate-limited"

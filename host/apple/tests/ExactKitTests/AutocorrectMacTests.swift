@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// HTML's `autocorrect="off"` on AppKit: the text is kept as typed.
+/// HTML's `autocorrect="off"` on AppKit (#111): the text is kept as typed.
 /// A textarea's text view and an input's field editor then make no spelling
 /// correction, smart quote or dash, or text replacement; without it each
 /// keeps what it had, AppKit's or the person's from the Substitutions menu.
@@ -83,7 +83,7 @@ final class AutocorrectMacTests: XCTestCase {
         let editor = try XCTUnwrap(plain.currentEditor() as? NSTextView)
         let fieldEditor = flags(editor)
         // The person's own correction (System Settings ▸ Keyboard), which a
-        // plain field no longer forces on.
+        // plain field no longer forces on (LLP 1115.000 D7.7).
         XCTAssertEqual(Array(fieldEditor[..<3]), [NSSpellChecker.isAutomaticSpellingCorrectionEnabled, false, false], "the person's correction; no smart quotes or dashes in a field, as AppKit makes it")
         editor.isAutomaticQuoteSubstitutionEnabled = true // the person's, from the field's context menu
         XCTAssertTrue(window.makeFirstResponder(off))
@@ -95,7 +95,7 @@ final class AutocorrectMacTests: XCTestCase {
         XCTAssertEqual(flags(editor), [fieldEditor[0], true, false, fieldEditor[3]], "the person's, given back")
     }
 
-    /// Unsaid `autocorrect` and `spellcheck` are the
+    /// LLP 1115.000 D7.7: unsaid `autocorrect` and `spellcheck` are the
     /// person's settings. The host writes only what the author wrote: a
     /// plain textarea starts as AppKit makes a text view (it was forced to
     /// correct and to check spelling), what the person then chooses in

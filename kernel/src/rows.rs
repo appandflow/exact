@@ -1,4 +1,4 @@
-//! A list's rows, for a host that draws them itself.
+//! @ref LLP 1115.000 D16 — a list's rows, for a host that draws them itself.
 //!
 //! Contract decides which lists' rows are cells and marks each (`listRows`,
 //! `contract/lower/src/cells.rs`); a row is a child of such a list. What a
@@ -24,7 +24,7 @@ fn authored<'a>(kernel: &'a Kernel, row: &NodeRef<'a>) -> Option<NodeRef<'a>> {
     row.children().first().and_then(|c| kernel.node(*c))
 }
 
-/// The platform's cell margin on a cells list's row: the
+/// @ref LLP 1138 — the platform's cell margin on a cells list's row: the
 /// row's padding at each end its author wrote none of, and the row's box the
 /// cell's (`border-box`, unless its author wrote `box-sizing`), so a row
 /// written `width: 100%` still spans its list. The margin is the one the host
@@ -53,7 +53,7 @@ pub(crate) fn apply_margins(
     }
 }
 
-/// Restyle what a prop decides a row's place by: a list's
+/// Restyle what a prop decides a row's place by (LLP 1138): a list's
 /// `listRows` its rows, a wrapper's `listItemKey` and a swipe's
 /// `swipeContent` and `swipeLeading` the box and what it holds. Whether it
 /// restyled.
@@ -67,14 +67,17 @@ pub(crate) fn prop_changed(
     let rows: Vec<u32> = match prop {
         // A cell's spans move its table's grid (`layout/table.rs`), and a
         // table's or a description list's tag brings its UA sheet's layout
-        // (`style/table.rs`).
+        // (`style/table.rs`), as leaving a table part's tag takes it away.
         PropId::ColSpan | PropId::RowSpan => {
             if let Some(node) = arena.taffy(slot) {
                 layout.restyle(arena, slot, node);
             }
             return true;
         }
-        PropId::SemanticTag if crate::style::table::styled(arena, slot) => {
+        PropId::SemanticTag
+            if crate::style::table::styled(arena, slot)
+                || layout.tree_ref().is_some_and(|t| t.in_table(slot)) =>
+        {
             if let Some(node) = arena.taffy(slot) {
                 layout.restyle(arena, slot, node);
             }
@@ -163,7 +166,7 @@ fn inset_row(arena: &crate::arena::NodeArena, slot: u32) -> Option<u32> {
 
 impl Kernel {
     /// Whether `view` takes its cells list's row inset at an end its author
-    /// wrote no padding at: a host that draws a native button's
+    /// wrote no padding at (LLP 1138): a host that draws a native button's
     /// title by its own insets places it by these sides instead.
     pub fn takes_row_inset(&self, view: crate::NodeKey) -> bool {
         self.arena()

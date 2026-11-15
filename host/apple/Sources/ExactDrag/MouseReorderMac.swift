@@ -11,7 +11,7 @@ final class MouseReorder {
     private var downEvent: NSEvent?
     private var origin = CGPoint.zero
     private(set) var hold: ReorderHold?
-    /// This contact lifted a grouped grip's ghost.
+    /// This contact lifted a grouped grip's ghost (LLP 1094 D6).
     private(set) var grouped = false
     private var escape: Any?
     private var inactive: NSObjectProtocol?
@@ -22,7 +22,7 @@ final class MouseReorder {
         self.presenter = presenter
         escape = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53, self?.hold != nil { self?.cancel(); return nil }
-            // A grouped drag cancels before its drop; a hold ignores it.
+            // A grouped drag cancels before its drop; a hold ignores it (LLP 1094 D8).
             if event.keyCode == 53, self?.grouped == true, self?.presenter?.reorderGroup?.active == true { self?.cancel(); return nil }
             return event
         }
@@ -58,7 +58,7 @@ final class MouseReorder {
         let point = event.locationInWindow
         if grouped { presenter.reorderGroup?.move(point); return true }
         if hold == nil, candidate.reorderGroupList != nil {
-            // A grouped grip lifts past the slop in any direction.
+            // A grouped grip lifts past the slop in any direction (LLP 1094 D6).
             guard hypot(point.x - origin.x, point.y - origin.y) > Gesture.slop else { return false }
             guard ReorderGroupHold(candidate, point: origin, ghost: true) != nil else { self.candidate = nil; return false }
             grouped = true
@@ -94,6 +94,8 @@ final class MouseReorder {
         defer { candidate = nil; downEvent = nil }
         if grouped {
             grouped = false; contact = nil
+            // The monitor consumes this up before NodeView can release the pointer.
+            presenter?.pointerSource?.pointerReleased(event)
             presenter?.reorderGroup?.move(event.locationInWindow)
             presenter?.reorderGroup?.finish(cancel: false)
             return true
@@ -108,7 +110,7 @@ final class MouseReorder {
         let prior = hold
         hold = nil; candidate = nil; downEvent = nil
         prior?.cancel()
-        // A grouped session, a key's too, cancels before its drop.
+        // A grouped session, a key's too, cancels before its drop (D8).
         grouped = false; contact = nil
         presenter?.reorderGroup?.cancel()
     }

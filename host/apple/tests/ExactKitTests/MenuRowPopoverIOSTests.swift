@@ -3,11 +3,12 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// Exact's menu rule on UIKit: a popover a row of a menu opens, no menu itself,
-/// is no submenu: the row is an action that presses it and then opens the
-/// popover as if by the menu's own invoker (the node the context menu opened
-/// on), so the menu closing as its row is chosen doesn't take it along. A row
-/// opening a menu is still its submenu. UIKit, so a simulator runs it.
+/// exact2's menu rule on UIKit (LLP 1021; theme2 2026-10-21 19:47, 22:05):
+/// a popover a row of a menu opens, no menu itself, is no submenu: the row is
+/// an action that presses it and then opens the popover as if by the menu's
+/// own invoker (the node the context menu opened on), so the menu closing
+/// as its row is chosen doesn't take it along. A row opening a menu is still
+/// its submenu. UIKit, so a simulator runs it.
 final class MenuRowPopoverIOSTests: XCTestCase {
     private var window: UIWindow!
 

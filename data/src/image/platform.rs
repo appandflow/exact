@@ -1,5 +1,5 @@
-//! A codec a host installs where the tree has none: Android's,
-//! whose decoder, bitmap transforms, encoders and EXIF writer are the
+//! A codec a host installs where the tree has none: Android's (LLP 1133.019
+//! D16), whose decoder, bitmap transforms, encoders and EXIF writer are the
 //! platform's Java ones, reached through the host's JNI. The host gives the
 //! primitives ([`Platform`]); this drives them in the order and the search
 //! every codec shares ([`super::edit`], [`super::search`]), so Android's
@@ -25,7 +25,7 @@ pub struct Decoded {
     pub hdr: bool,
 }
 
-/// One edit of a decoded picture, in this order: turned `rotate` degrees
+/// One edit of a decoded picture, in D14's order: turned `rotate` degrees
 /// clockwise about its centre into a frame of `turned` pixels, flipped in
 /// that frame, cut to `crop` (`x`, `y`, `width`, `height` in it), then
 /// scaled to `size` (`smooth` but for `pixelated`).
@@ -158,8 +158,8 @@ fn bounded(call: &str, (w, h): (u32, u32), max_pixels: u64) -> Result<(), String
 }
 
 /// `compressImage` through `codec`: one sRGB decode, the edit, then the
-/// search at the crop's size, metadata dropped and any gain map
-/// tone-mapped away, as an upload is.
+/// search at the crop's size (A1.2), metadata dropped and any gain map
+/// tone-mapped away, as an upload is (D15).
 pub fn compress(
     codec: &dyn Platform,
     source: &[u8],
@@ -226,7 +226,7 @@ fn media_type(t: &str) -> &'static str {
 
 /// `transformImage` through `codec`: one decode keeping the source's colour
 /// and gain map, the edit at the size asked, one encode, then the metadata
-/// asked where the platform writes it for the type; the result says
+/// asked where the platform writes it for the type (D15); the result says
 /// what was kept.
 pub fn transform(
     codec: &dyn Platform,

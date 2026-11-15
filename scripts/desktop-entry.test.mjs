@@ -1,4 +1,4 @@
-// The Linux desktop entry: the manifest's shortcuts as Actions, Exec quoted as the
+// The Linux desktop entry (LLP 1133.023 D17): the manifest's shortcuts as Actions, Exec quoted as the
 // Desktop Entry Specification says, and checked by desktop-file-validate where it is installed.
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';

@@ -1,4 +1,4 @@
-# @exact/language-model on real devices (drive 9)
+# @exact/language-model on real devices (LLP 1133.016 §10, drive 9)
 
 What the suites cannot check: a real model's replies, its download, and
 the platform's settings. Each step names what to do and what must show.

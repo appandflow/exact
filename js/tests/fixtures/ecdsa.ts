@@ -1,4 +1,4 @@
-// ECDSA P-256 for DPoP, the same on every executor —
+// LLP 1069.005 D1b: ECDSA P-256 for DPoP, the same on every executor —
 // generate, sign (ES256, raw r‖s), and JWK import and export, with the web's
 // errors; generating and signing are counted reads; `store.keepKey` and
 // `store.key` keep a pair under a `secret.keep` grant. `js/tests/it/ecdsa.rs`
@@ -10,7 +10,7 @@ const hex = (buffer: ArrayBuffer) =>
   Array.from(new Uint8Array(buffer), b => b.toString(16).padStart(2, "0")).join("");
 const bytes = (text: string) => new TextEncoder().encode(text);
 
-// At module scope a key draws entropy outside an answer: refused.
+// At module scope a key draws entropy outside an answer: refused (D3).
 const initKey = crypto.subtle.generateKey(P256, false, ["sign"]).then(() => "RESOLVED", e => e.message);
 
 async function rejection(call: () => Promise<unknown>): Promise<string> {

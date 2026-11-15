@@ -1,15 +1,17 @@
-// The snapshot driver over real entry plans, rendered in-process with
-// `ImageRenderer` as a hand-built SwiftUI baseline renders itself: the same
-// family frames, content margins, container stand-in and mode emulation, so
-// the two sets of PNGs compare. The 3x PNGs go to `EXACT_WP4_OUT` for the
-// eye; the comparison is at 1x, cropped to the content region
+// The snapshot driver (LLP 1126.000 WP4) over real entry plans, rendered
+// in-process with `ImageRenderer` as the hand-built baseline
+// (`spike/1126-baseline`, `Host/Renderer.swift`) rendered itself: the same
+// family frames, content margins, container stand-in and mode emulation,
+// so the two sets of PNGs compare. The 3x PNGs go to `EXACT_WP4_OUT` for
+// the eye; the comparison is at 1x, cropped to the content region
 // (docs/testing.md), against `EXACT_WP4_BASELINE`'s `out/`, and bounded.
 import XCTest
 import SwiftUI
 import ImageIO
 import UniformTypeIdentifiers
+import CoreText
 import ExactCore
-import ExactSnapshot
+@testable import ExactSnapshot
 #if canImport(WidgetKit)
 import WidgetKit
 #endif
@@ -18,6 +20,68 @@ import WidgetKit
 @MainActor
 @available(iOS 17.0, macOS 14.0, visionOS 26.0, *)
 final class SnapshotDriverTests: XCTestCase {
+    func testAWrappedSnapshotRunCompositesItsOverlappingLinesTogether() throws {
+        let size = CGSize(width: 300, height: 900)
+        let session = try HeadlessSession(plan: fixturePlan("HEADLESS"), size: size, facts: SessionFacts(displayScale: 1, preferences: [], clock: 0))
+        defer { session.close() }
+        let tree = try session.snapshot()
+        let node = try XCTUnwrap(tree.nodes.values.first { $0.props["testId"] == "opacity-wrap" })
+        XCTAssertGreaterThan(node.lines.count, 1)
+        let environment = SnapshotEnvironment(family: .systemSmall, entryDate: Date(timeIntervalSince1970: 0))
+        let image = try XCTUnwrap(render(SnapshotTextView(node: node, environment: environment), size: node.frame.size, scale: 1))
+        let px = try pixels(image)
+        let alpha = stride(from: 3, to: px.data.count, by: 4).map { px.data[$0] }.max() ?? 0
+        XCTAssertEqual(Double(alpha), 127.5, accuracy: 2, "overlapping wrapped lines belong to one opacity group")
+    }
+
+    /// Each opacity group lays out the whole line, its other runs unpainted:
+    /// a faded run's tracking still moves the runs after it.
+    func testAFadedTrackedRunKeepsTheNextRunInPlace() throws {
+        let font = CTFontCreateWithName("Helvetica" as CFString, 32, nil)
+        func rightmostOpaqueInk(_ alpha: Double) throws -> Int {
+            let faded = HeadlessSession.Run(text: "AAAA", size: 32, weight: 400, family: 0, italic: false, letterSpacing: 4,
+                                            opacityGroups: alpha < 1 ? [InlineOpacity(box: 2, alpha: alpha)] : [], font: font)
+            let next = HeadlessSession.Run(text: "BBBB", size: 32, weight: 400, family: 0, italic: false, font: font)
+            let line = HeadlessSession.Line(text: "AAAABBBB", range: NSRange(location: 0, length: 8), origin: CGPoint(x: 0, y: 32),
+                                            width: 260, ascent: 32, descent: 8,
+                                            segments: [HeadlessSession.Segment(run: 0, text: "AAAA"), HeadlessSession.Segment(run: 1, text: "BBBB")])
+            let node = HeadlessSession.Node(id: 1, kind: "text", frame: CGRect(x: 0, y: 0, width: 300, height: 60), lines: [line], runs: [faded, next])
+            let environment = SnapshotEnvironment(family: .systemSmall, entryDate: Date(timeIntervalSince1970: 0))
+            let image = try XCTUnwrap(render(SnapshotTextView(node: node, environment: environment).environment(\.colorScheme, .light),
+                                             size: node.frame.size, scale: 1))
+            let px = try pixels(image)
+            // The faded run is at most half alpha; only the next run is opaque.
+            var right = -1
+            for y in 0..<px.height { for x in 0..<px.width where px.data[(y * px.width + x) * 4 + 3] > 200 { right = max(right, x) } }
+            return right
+        }
+        let solid = try rightmostOpaqueInk(1)
+        XCTAssertGreaterThan(solid, 100)
+        XCTAssertEqual(try rightmostOpaqueInk(0.5), solid, accuracy: 1)
+    }
+
+    func testNestedRunOpacityFadesSnapshotGlyphsAndLinesOnce() throws {
+        let size = CGSize(width: 300, height: 900)
+        let session = try HeadlessSession(plan: fixturePlan("HEADLESS"), size: size,
+                                          facts: SessionFacts(displayScale: 1, preferences: []))
+        defer { session.close() }
+        let tree = try session.snapshot()
+        let environment = SnapshotEnvironment(family: .systemSmall, entryDate: Date(timeIntervalSince1970: 0))
+        let image = try XCTUnwrap(render(SnapshotDriver.view(tree, environment: environment).background(Color.white)
+            .environment(\.colorScheme, .light), size: size, scale: 1))
+        let px = try pixels(image)
+        let root = try XCTUnwrap(tree.roots.first.flatMap { tree.nodes[$0] })
+        for (name, opacity) in [("zero", 0.0), ("partial", 0.25), ("full", 1.0)] {
+            let node = try XCTUnwrap(tree.nodes.values.first { $0.props["testId"] == "opacity-\(name)" })
+            let rect = node.frame.offsetBy(dx: root.frame.minX, dy: root.frame.minY)
+            var darkness = 0
+            for y in Int(rect.minY)..<Int(rect.maxY) { for x in Int(rect.minX)..<Int(rect.maxX) {
+                darkness = max(darkness, 255 - Int(px.data[(y * px.width + x) * 4]))
+            } }
+            XCTAssertEqual(Double(darkness), 255 * 0.5 * 0.5 * opacity, accuracy: 3, name)
+        }
+    }
+
     #if os(macOS)
     func testMacExtensionFindsTheContainingAppsCatalogAndImage() throws {
         let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_SNAPSHOT_ASSETS_EXTENSION"])
@@ -27,6 +91,7 @@ final class SnapshotDriverTests: XCTestCase {
         let color = try XCTUnwrap(SnapshotBundles.all(for: bundle).compactMap { NSColor(named: "WidgetInk", bundle: $0)?.usingColorSpace(.sRGB) }.first)
         XCTAssertEqual(color.redComponent, 1, accuracy: 0.001)
         XCTAssertEqual(color.greenComponent, 0, accuracy: 0.001)
+        XCTAssertNotNil(IconAsset.image(named: IconAsset.name("two.svg"), bundles: SnapshotBundles.all(for: bundle)), "icon catalogs resolve from the containing app")
         let roots = SnapshotBundles.imageRoots(for: bundle)
         XCTAssertTrue(roots.map(\.path).contains(app.bundleURL.appendingPathComponent("Contents/Resources").path))
         let image = try XCTUnwrap(SnapshotRasters().decode("assets/widget.png", roots: roots, appGroup: nil, appID: nil, box: CGSize(width: 1, height: 1), fit: "contain", scale: 1))
@@ -290,7 +355,7 @@ final class SnapshotDriverTests: XCTestCase {
         }
     }
 
-    /// The family's content size is the entry's viewport fact, given at
+    /// D3: the family's content size is the entry's viewport fact, given at
     /// boot and again at a resize, so one entry lays out per family by width
     /// and height as a page does.
     func testTheViewportFactChoosesTheLayoutByFamily() throws {
@@ -342,7 +407,7 @@ final class SnapshotDriverTests: XCTestCase {
         session.close()
     }
 
-    /// Each kernel line, drawn by the driver as one single-line `Text`
+    /// D4: each kernel line, drawn by the driver as one single-line `Text`
     /// in the font the kernel measured it in, is as wide in SwiftUI as the
     /// kernel said, at both text sizes, so the archive never re-breaks or
     /// truncates it: the ink of a line's view stays inside the kernel's
@@ -516,8 +581,8 @@ final class SnapshotDriverTests: XCTestCase {
         XCTAssertLessThan(abs(p1[0] - p2[0]) + abs(p1[2] - p2[2]), 24, "\(p1) \(p2)")
         let lowLeft = try sample(strips[3], x: 0.05, y: 0.9), highRight = try sample(strips[3], x: 0.95, y: 0.1)
         XCTAssertGreaterThan(lowLeft[0], highRight[0]); XCTAssertGreaterThan(highRight[2], lowLeft[2])
-        // A ramp interpolated in srgb-linear crosses as linear floats,
-        // read as such: the midpoint is brighter than an sRGB-space
+        // A ramp interpolated in srgb-linear crosses as linear floats (LLP
+        // 1100 D2), read as such: the midpoint is brighter than an sRGB-space
         // mix (128, 0, 128), and not the black a /255 reading would give.
         let mid = try sample(strips[4], x: 0.5, y: 0.5)
         XCTAssertGreaterThan(mid[0], 140, "\(mid)"); XCTAssertGreaterThan(mid[2], 140, "\(mid)")
@@ -568,16 +633,17 @@ final class SnapshotDriverTests: XCTestCase {
         try Data([0]).write(to: roots["tmp"]!.appending(path: "picked.png"))
         try Data([0]).write(to: group.appending(path: "secret.png"))
         try Data([0]).write(to: group.appending(path: "data.png"))
-        XCTAssertEqual(SnapshotRasters.resolve("app:/data/photo.jpg", roots: [], appGroup: group, appID: id)?.path, roots["data"]!.appending(path: "photo.jpg").standardizedFileURL.resolvingSymlinksInPath().path, "the file the app wrote")
-        XCTAssertEqual(SnapshotRasters.resolve("app:/cache/avatar.png", roots: [], appGroup: group, appID: id)?.lastPathComponent, "avatar.png")
-        XCTAssertEqual(SnapshotRasters.resolve("app:/tmp/picked.png", roots: [], appGroup: group, appID: id)?.path, roots["tmp"]!.appending(path: "picked.png").standardizedFileURL.resolvingSymlinksInPath().path, "app:/tmp is the host's temporary directory")
-        XCTAssertNil(SnapshotRasters.resolve("app:/cache/../secret.png", roots: [], appGroup: group, appID: id))
-        XCTAssertNil(SnapshotRasters.resolve("app:/data/../../../../../data.png", roots: [], appGroup: group, appID: id))
-        XCTAssertNil(SnapshotRasters.resolve("app:/cache/avatar.png", roots: [], appGroup: nil, appID: id), "no group, no app:/")
-        XCTAssertNil(SnapshotRasters.resolve("app:/cache/avatar.png", roots: [], appGroup: group, appID: nil), "no app id, no app:/")
-        XCTAssertNil(SnapshotRasters.resolve("app:/other/avatar.png", roots: [], appGroup: group, appID: id))
-        XCTAssertNil(SnapshotRasters.resolve("app:/cache", roots: [], appGroup: group, appID: id), "a root alone")
-        XCTAssertNil(SnapshotRasters.resolve("../group/secret.png", roots: [Self.out.appending(path: "assets")], appGroup: nil, appID: nil))
+        for path in ["app:/data/photo.jpg", "app:/cache/avatar.png", "app:/tmp/picked.png"] {
+            let file = try XCTUnwrap(SnapshotRasters.open(path, roots: [], appGroup: group, appID: id))
+            XCTAssertEqual(try file.readToEnd(), Data([0]), "the file the app wrote at \(path)")
+        }
+        XCTAssertNil(SnapshotRasters.open("app:/cache/../secret.png", roots: [], appGroup: group, appID: id))
+        XCTAssertNil(SnapshotRasters.open("app:/data/../../../../../data.png", roots: [], appGroup: group, appID: id))
+        XCTAssertNil(SnapshotRasters.open("app:/cache/avatar.png", roots: [], appGroup: nil, appID: id), "no group, no app:/")
+        XCTAssertNil(SnapshotRasters.open("app:/cache/avatar.png", roots: [], appGroup: group, appID: nil), "no app id, no app:/")
+        XCTAssertNil(SnapshotRasters.open("app:/other/avatar.png", roots: [], appGroup: group, appID: id))
+        XCTAssertNil(SnapshotRasters.open("app:/cache", roots: [], appGroup: group, appID: id), "a root alone")
+        XCTAssertNil(SnapshotRasters.open("../group/secret.png", roots: [Self.out.appending(path: "assets")], appGroup: nil, appID: nil))
     }
 
     /// The invocation's raster cache keeps decoded bytes under its budget,
@@ -668,7 +734,31 @@ final class SnapshotDriverTests: XCTestCase {
         XCTAssertEqual(SnapshotSemantics.traits(HeadlessSession.Node(id: 3, kind: "view", frame: .zero, props: ["accessibilityRole": "button"])), .isButton)
     }
 
-    /// A widget's even-odd icon (`symbolFillRule`) leaves its
+    func testRasterIconCatalogsRenderInWidgetAndActivitySnapshots() throws {
+        let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_RASTER_ICONS_BUNDLE"])
+        let bundle = try XCTUnwrap(Bundle(path: path))
+        let size = CGSize(width: 80, height: 40)
+        for family in [SnapshotEnvironment.Family.systemSmall, .liveActivity] {
+            for multicolor in [true, false] {
+                let node = HeadlessSession.Node(id: 1, kind: "image", frame: CGRect(origin: .zero, size: size),
+                    props: ["imageSource": "symbol:icon||0 0 24 24||two.svg", "symbolName": "", "symbolAsset": "two.svg"],
+                    style: ["symbol_rendering": .string(multicolor ? "multicolor" : "monochrome"), "text_color": [0, 255, 0, 255]])
+                let environment = SnapshotEnvironment(family: family, imageRoots: [bundle.bundleURL], contentMargins: EdgeInsets())
+                let view = SnapshotImageView(node: node, environment: environment).environment(\.colorScheme, .light).background(.white)
+                let image = try XCTUnwrap(render(view, size: size, scale: 1))
+                let left = try color(image, x: 30, y: 20), right = try color(image, x: 50, y: 20)
+                if multicolor {
+                    XCTAssertGreaterThan(left[0], 240); XCTAssertLessThan(left[1], 10); XCTAssertLessThan(left[2], 10)
+                    XCTAssertGreaterThan(right[2], 240); XCTAssertLessThan(right[0], 10)
+                } else {
+                    XCTAssertGreaterThan(left[1], 240); XCTAssertLessThan(left[0], 10); XCTAssertLessThan(left[2], 10)
+                    XCTAssertEqual(left, right)
+                }
+            }
+        }
+    }
+
+    /// Stage 14 C2: a widget's even-odd icon (`symbolFillRule`) leaves its
     /// same-wound hole clear; the same path nonzero fills it.
     func testAnEvenOddIconLeavesItsHoleClearInAWidget() throws {
         func centre(_ rule: String?, at o: CGPoint = .zero) throws -> Int {
@@ -690,7 +780,7 @@ final class SnapshotDriverTests: XCTestCase {
         }
     }
 
-    /// Raster decoding is bounded: a large image decodes to a
+    /// Raster decoding is bounded (D8): a large image decodes to a
     /// thumbnail no larger than the frame's pixels, its natural size kept.
     func testRastersDecodeAsBoundedThumbnails() throws {
         let dir = Self.out.appending(path: "assets")
@@ -706,7 +796,7 @@ final class SnapshotDriverTests: XCTestCase {
         XCTAssertNil(rasters.decode("big.png", roots: [dir.appending(path: "missing")], appGroup: nil, appID: nil, box: CGSize(width: 10, height: 10), fit: "fill", scale: 1))
     }
 
-    // MARK: The accented groups
+    // MARK: D5: the accented groups
 
     /// Text and symbols are the accented group, a raster the default one,
     /// desaturated unless the author asked for full colour: the decision,
@@ -746,10 +836,10 @@ final class SnapshotDriverTests: XCTestCase {
         }
     }
 
-    // MARK: Live time and progress views
+    // MARK: D6, against the shape WP3 is adding
 
     /// `time` and `progress` as the platform's live views, from synthetic
-    /// nodes (`datetime`, `format`; `start`, `end`): the
+    /// nodes in WP3's shape (`datetime`, `format`; `start`, `end`): the
     /// mapping (a countdown from the entry's date, fractional ISO 8601
     /// accepted, calendar formats as the kernel's text), and each leaf
     /// drawing inside its frame.
@@ -786,6 +876,266 @@ final class SnapshotDriverTests: XCTestCase {
             XCTAssertGreaterThan(try ink(image, in: leaf.frame), 4, "\(leaf.kind) \(leaf.props) drew nothing")
         }
     }
+
+    /// A snapshot draws an accent as the iOS host draws it
+    /// (`NodeView.applyAccentTint`, `accentShare`): a bar, over a value or an
+    /// interval, draws in its `accent-color`, its own or one around it;
+    /// `auto` leaves the accent around it; a share of the tint (`Highlight`)
+    /// is that share on the bar alone, and leaves the tint beneath it whole;
+    /// the tint's role (`AccentColor`) beneath an accent is the accent. An
+    /// indicator takes its own `color` (a tint role in it the accent around),
+    /// else the accent (on iOS; AppKit's spinner takes none). Drawn through
+    /// a hosting view: `ImageRenderer` draws a progress bar as a placeholder.
+    func testAnAccentColourTintsABarAndTheTintBeneathIt() throws {
+        #if os(macOS)
+        let scene: Void = ()
+        #else
+        guard let scene = hostedWindowScene() else { throw missing("scene", "UIKit draws a hosted control only in a scene's window") }
+        #endif
+        let red: BatchValue = [255, 0, 0, 255], highlight: BatchValue = ["sys": "@tint/0.2", "c": [0, 136, 255, 51]]
+        let now = Date().timeIntervalSince1970 * 1000
+        func row(_ y: CGFloat) -> CGRect { CGRect(x: 0, y: y, width: 200, height: 20) }
+        func spot(_ x: CGFloat) -> CGRect { CGRect(x: x, y: 86, width: 22, height: 22) }
+        let value = node(2, "control", ["type": "progress", "value": "1"], row(0), style: ["accent_color": red])
+        let interval = node(3, "control", ["type": "progress", "start": String(Int(now - 600_000)), "end": String(Int(now + 600_000))], row(20), style: ["accent_color": red])
+        let unsaid = node(4, "control", ["type": "progress", "value": "1"], row(40), style: ["accent_color": "auto"])
+        let share = node(5, "control", ["type": "progress", "value": "1"], row(60), style: ["accent_color": highlight])
+        let tint = text(6, CGRect(x: 0, y: 86, width: 80, height: 20), style: ["accent_color": red, "text_color": Self.tintRole])
+        let ownColour = node(7, "control", ["type": "progress"], spot(100), style: ["accent_color": [0, 0, 255, 255], "text_color": red, "written": ["text_color"]])
+        let unwritten = node(8, "control", ["type": "progress"], spot(130), style: ["accent_color": red, "text_color": [0, 0, 0, 255]])
+        let ownTint = node(9, "control", ["type": "progress"], spot(160), style: ["accent_color": red, "text_color": Self.tintRole, "written": ["text_color"]])
+        let underShare = text(10, CGRect(x: 0, y: 112, width: 80, height: 20), style: ["accent_color": highlight, "text_color": Self.tintRole])
+        let leaves = [value, interval, unsaid, share, tint, ownColour, unwritten, ownTint, underShare]
+        let image = try drawn(leaves, root: ["accent_color": red], size: CGSize(width: 200, height: 136), name: "accent-tinted-progress", scene: scene)
+        XCTAssertGreaterThan(try count(image, in: value.frame), 100, "the value bar draws in its accent")
+        XCTAssertGreaterThan(try count(image, in: interval.frame), 30, "the interval bar draws in its accent")
+        XCTAssertGreaterThan(try count(image, in: unsaid.frame), 100, "auto leaves the accent around it")
+        XCTAssertEqual(try count(image, in: share.frame), 0, "a share of the tint is not all of it")
+        XCTAssertGreaterThan(try count(image, in: share.frame, Self.pink), 100, "a fifth of the accent around it, over white")
+        XCTAssertGreaterThan(try count(image, in: tint.frame), 20, "the tint's role beneath an accent is the accent")
+        XCTAssertGreaterThan(try count(image, in: underShare.frame), 20, "beneath a share of the tint, the tint's role is all of it")
+        #if !os(macOS)
+        // AppKit gives its spinner no tint: the Mac draws the system's colour.
+        XCTAssertGreaterThan(try count(image, in: ownColour.frame), 4, "the indicator draws in its own colour")
+        XCTAssertGreaterThan(try count(image, in: unwritten.frame), 4, "with no colour of its own, the indicator draws in the accent")
+        XCTAssertGreaterThan(try count(image, in: ownTint.frame), 4, "its own `AccentColor` is the accent around it")
+        #endif
+    }
+
+    /// A ring and a bar whose `accent-color` is a tint role follow the tint
+    /// in effect: the system's (a non-default one here) or an ancestor's
+    /// accent, never the wire's fallback colour; an indicator's own
+    /// `AccentColor` is all of it; `Highlight` is a fifth of an authored
+    /// accent around it, else of the platform's.
+    func testARingAndABarFollowTheSameTint() throws {
+        #if os(macOS)
+        let scene: Void = ()
+        #else
+        guard let scene = hostedWindowScene() else { throw missing("scene", "UIKit draws a hosted control only in a scene's window") }
+        #endif
+        let ring = node(2, "control", ["type": "progress", "value": "1"], CGRect(x: 0, y: 0, width: 40, height: 40),
+                        style: ["accent_color": Self.tintRole, "border_radius": ["pct": 50]])
+        let bar = node(3, "control", ["type": "progress", "value": "1"], CGRect(x: 50, y: 0, width: 150, height: 20), style: ["accent_color": Self.tintRole])
+        let share = node(4, "control", ["type": "progress", "value": "1"], CGRect(x: 50, y: 20, width: 150, height: 20),
+                         style: ["accent_color": ["sys": "@tint/0.2", "c": [0, 136, 255, 51]]])
+        let indicator = node(5, "control", ["type": "progress"], CGRect(x: 208, y: 9, width: 22, height: 22),
+                             style: ["accent_color": Self.tintRole, "text_color": Self.tintRole, "written": ["text_color"]])
+        let size = CGSize(width: 240, height: 40), leaves = [ring, bar, share, indicator]
+        let green = Color(.sRGB, red: 0, green: 0.8, blue: 0, opacity: 1)
+        let system = try drawn(leaves, root: [:], size: size, name: "ring-bar-system-tint", scene: scene, tint: green)
+        let ancestor = try drawn(leaves, root: ["accent_color": [255, 0, 0, 255]], size: size, name: "ring-bar-ancestor-accent", scene: scene)
+        func greens(_ frame: CGRect) throws -> Int { try count(system, in: frame, points: size.width) { r, g, b in g > 150 && r < 80 && b < 80 } }
+        func reds(_ frame: CGRect) throws -> Int { try count(ancestor, in: frame, points: size.width) }
+        XCTAssertGreaterThan(try greens(bar.frame), 100, "the bar follows the system's tint")
+        XCTAssertGreaterThan(try reds(bar.frame), 100, "the bar follows the ancestor's accent")
+        // SwiftUI reads its tint out for no one, so a share is taken of the tint the snapshot sets, else of the platform's accent
+        XCTAssertGreaterThan(try count(system, in: share.frame, points: size.width) { r, g, b in b > 220 && b - r > 30 && (150...235).contains(r) }, 100,
+                             "with no accent authored around it, Highlight is a fifth of the platform's accent")
+        XCTAssertGreaterThan(try count(ancestor, in: share.frame, points: size.width, Self.pink), 100, "Highlight is a fifth of the ancestor's accent")
+        #if !os(macOS)
+        // The ring is SwiftUI's capacity gauge on iOS and watchOS, and the indicator UIKit's; the Mac draws AppKit's.
+        XCTAssertGreaterThan(try greens(ring.frame), 40, "the ring follows the system's tint")
+        XCTAssertGreaterThan(try reds(ring.frame), 40, "the ring follows the ancestor's accent")
+        XCTAssertGreaterThan(try greens(indicator.frame), 4, "the indicator's own AccentColor is the system's tint")
+        XCTAssertGreaterThan(try reds(indicator.frame), 4, "the indicator's own AccentColor is the ancestor's accent")
+        #endif
+    }
+
+    /// A timer ring takes its accent's share of the tint (`Highlight`) as a
+    /// widget or Live Activity runs it, live, as when the agent holds the
+    /// clock and the ring is drawn at that instant.
+    func testARunningTimerRingTakesItsShareAsAFrozenOneDoes() throws {
+        #if os(macOS)
+        throw XCTSkip("the Mac's ring is AppKit's, which takes no tint")
+        #else
+        guard let scene = hostedWindowScene() else { throw missing("scene", "UIKit draws a hosted control only in a scene's window") }
+        let now = Date()
+        let ring = node(2, "control", ["type": "progress", "start": String(Int(now.timeIntervalSince1970 * 1000 - 600_000)), "end": String(Int(now.timeIntervalSince1970 * 1000 + 1_000))],
+                        CGRect(x: 0, y: 0, width: 40, height: 40), style: ["accent_color": ["sys": "@tint/0.2", "c": [0, 136, 255, 51]], "border_radius": ["pct": 50]])
+        let size = CGSize(width: 40, height: 40)
+        for (frozen, name) in [(Date?.none, "running"), (now, "frozen")] {
+            let image = try drawn([ring], root: ["accent_color": [255, 0, 0, 255]], size: size, name: "timer-ring-\(name)", scene: scene, frozen: frozen)
+            XCTAssertEqual(try count(image, in: ring.frame, points: size.width), 0, "\(name): the ring is not the whole accent")
+            XCTAssertGreaterThan(try count(image, in: ring.frame, points: size.width, Self.pink), 40, "\(name): a fifth of the accent around it")
+        }
+        #endif
+    }
+
+    /// With no accent authored around it, a share of the tint, and the
+    /// tint's role behind a Live Activity, are the platform's accent in the
+    /// appearance drawn: the dark one on a dark Lock Screen.
+    func testThePlatformsAccentIsTheDrawnAppearances() throws {
+        func resolved(_ dark: Bool) -> [Int] {
+            var environment = EnvironmentValues()
+            environment.colorScheme = dark ? .dark : .light
+            let c = Color.accentColor.resolve(in: environment)
+            return [c.red, c.green, c.blue].map { Int(($0 * 255).rounded()) }
+        }
+        let root = node(1, "view", [:], CGRect(x: 0, y: 0, width: 60, height: 60), style: ["accent_color": "auto", "background_color": Self.tintRole])
+        for dark in [false, true] {
+            let tint = try XCTUnwrap(SnapshotActivity.background(of: root, dark: dark).tint).resolve(in: EnvironmentValues())
+            XCTAssertEqual([tint.red, tint.green, tint.blue].map { Int(($0 * 255).rounded()) }, resolved(dark), "dark: \(dark)")
+        }
+        // The default accent's two appearances differ on iOS (systemBlue); on the Mac they may not
+        if resolved(false) == resolved(true) { throw XCTSkip("this platform's accent is one colour in both appearances") }
+    }
+
+    /// A widget's container background is the root's, drawn outside the
+    /// root's view, and a Live Activity's is the system's tint: the tint's
+    /// role in either is the root's accent, and all of the tint in effect
+    /// under a share of it (`Highlight`), which tints no subtree.
+    func testTheRootsBackgroundTakesItsAccent() throws {
+        #if !os(macOS)
+        guard let scene = hostedWindowScene() else { throw missing("scene", "UIKit draws a hosted control only in a scene's window") }
+        #endif
+        let size = CGSize(width: 60, height: 60)
+        func root(_ accent: BatchValue) -> HeadlessSession.Node {
+            node(1, "view", [:], CGRect(origin: .zero, size: size), style: ["accent_color": accent, "background_color": Self.tintRole])
+        }
+        let red: BatchValue = [255, 0, 0, 255], highlight: BatchValue = ["sys": "@tint/0.2", "c": [0, 136, 255, 51]]
+        for (accent, tint, name) in [(red, Color?.none, "accent"), (highlight, Color.red, "highlight")] {
+            let view = ContainerBackground(root: root(accent)).frame(width: size.width, height: size.height).environment(\.colorScheme, .light).tint(tint)
+            #if os(macOS)
+            let image = try hosted(view, size: size)
+            #else
+            let image = try hosted(view, size: size, in: scene)
+            #endif
+            try write(image, "container-background-\(name)")
+            XCTAssertGreaterThan(try count(image, in: CGRect(origin: .zero, size: size), points: size.width), 3000, "\(name): the container's AccentColor is the tint in effect, whole")
+        }
+        let concrete = try XCTUnwrap(SnapshotActivity.background(of: root(red), dark: false).tint).resolve(in: EnvironmentValues())
+        XCTAssertEqual([concrete.red, concrete.green, concrete.blue].map { Int(($0 * 255).rounded()) }, [255, 0, 0], "the Lock Screen's tint is the root's accent")
+        let whole = try XCTUnwrap(SnapshotActivity.background(of: root(highlight), dark: false).tint).resolve(in: EnvironmentValues())
+        XCTAssertEqual(whole.opacity, 1, accuracy: 0.01, "under Highlight the Lock Screen's AccentColor is the whole tint")
+    }
+
+    /// The live tree (a watch app, LLP 1126.002) draws a bar and a ring
+    /// with the snapshot driver's leaves, in an ancestor's accent.
+    func testTheLiveTreeDrawsABarAndARingInTheAccent() throws {
+        #if os(macOS)
+        let scene: Void = ()
+        #else
+        guard let scene = hostedWindowScene() else { throw missing("scene", "UIKit draws a hosted control only in a scene's window") }
+        #endif
+        let size = CGSize(width: 200, height: 60)
+        let session = try HeadlessSession(plan: try Self.plan("LIVE_ACCENT"), size: size,
+                                          facts: SessionFacts(displayScale: 2, preferences: [], clock: HeadlessSession.liveNow()), live: true)
+        defer { session.close() }
+        let model = try LiveModel(session: session, phase: .active)
+        let bars = model.snapshot.nodes.values.filter { $0.props["type"] == "progress" }.sorted { $0.frame.minY < $1.frame.minY }
+        XCTAssertEqual(bars.count, 2)
+        let view = LiveView(model: model, rootFontSize: 17).environment(\.colorScheme, .light).background(.white)
+        #if os(macOS)
+        let image = try hosted(view, size: size)
+        #else
+        let image = try hosted(view, size: size, in: scene)
+        #endif
+        try write(image, "live-accent")
+        XCTAssertGreaterThan(try count(image, in: bars[0].frame), 100, "the live bar draws in the ancestor's accent")
+        #if !os(macOS)
+        XCTAssertGreaterThan(try count(image, in: bars[1].frame), 40, "the live ring draws in the ancestor's accent")
+        #endif
+    }
+
+    private static let tintRole: BatchValue = ["sys": "@tint", "c": [0, 136, 255, 255]]
+    /// Red at a fifth over white
+    private static let pink: (Int, Int, Int) -> Bool = { r, g, b in r > 220 && (150...235).contains(g) && (150...235).contains(b) }
+    private func node(_ id: UInt32, _ kind: String, _ props: [String: String], _ frame: CGRect, style: NodeStyle) -> HeadlessSession.Node {
+        HeadlessSession.Node(id: id, kind: kind, frame: frame, props: props, style: style)
+    }
+    /// A line of solid blocks in the node's colour
+    private func text(_ id: UInt32, _ frame: CGRect, style: NodeStyle) -> HeadlessSession.Node {
+        let run = HeadlessSession.Run(text: "", size: 12, weight: 700, family: 0, italic: false, font: CTFontCreateWithName("Helvetica" as CFString, 12, nil))
+        return HeadlessSession.Node(id: id, kind: "text", frame: frame, style: style,
+                                    lines: [HeadlessSession.Line(text: "████", range: NSRange(location: 0, length: 4), origin: CGPoint(x: 0, y: 12), width: 60, ascent: 12, descent: 3)], runs: [run])
+    }
+
+    #if os(macOS)
+    private typealias Scene = Void
+    #else
+    private typealias Scene = UIWindowScene
+    #endif
+    /// `leaves` under one root, drawn through a hosting view over white,
+    /// inside `tint` where one is given (the system's, as an app's accent sets it)
+    private func drawn(_ leaves: [HeadlessSession.Node], root style: NodeStyle, size: CGSize, name: String, scene: Scene, tint: Color? = nil, frozen: Date? = nil) throws -> CGImage {
+        let root = HeadlessSession.Node(id: 1, kind: "view", frame: CGRect(origin: .zero, size: size), style: style, children: leaves.map(\.id))
+        let snapshot = HeadlessSession.Snapshot(size: size, roots: [1], nodes: Dictionary(uniqueKeysWithValues: ([root] + leaves).map { ($0.id, $0) }))
+        let environment = SnapshotEnvironment(family: .systemMedium, contentMargins: EdgeInsets(), entryDate: Date(), frozenDate: frozen)
+        let view = SnapshotDriver.view(snapshot, environment: environment).environment(\.colorScheme, .light).background(.white).tint(tint)
+        #if os(macOS)
+        let image = try hosted(view, size: size)
+        #else
+        let image = try hosted(view, size: size, in: scene)
+        #endif
+        try write(image, name)
+        return image
+    }
+
+    /// The area, in square points, inside `frame` (points, in an image `points` wide) that is red, or that `matches`
+    private func count(_ image: CGImage, in frame: CGRect, points: CGFloat = 200,
+                       _ matches: (Int, Int, Int) -> Bool = { r, g, b in r > 180 && g < 90 && b < 90 }) throws -> Int {
+        let p = try pixels(image), scale = CGFloat(image.width) / points
+        var found = 0
+        for y in Int(frame.minY * scale)..<Int(frame.maxY * scale) {
+            for x in Int(frame.minX * scale)..<Int(frame.maxX * scale) {
+                let at = (y * p.width + x) * 4
+                if matches(Int(p.data[at]), Int(p.data[at + 1]), Int(p.data[at + 2])) { found += 1 }
+            }
+        }
+        return Int(CGFloat(found) / (scale * scale))
+    }
+
+    #if os(macOS)
+    /// A view as a hosting view draws it, platform-backed controls included.
+    private func hosted<V: View>(_ view: V, size: CGSize) throws -> CGImage {
+        let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height))
+        host.frame = CGRect(origin: .zero, size: size)
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        return try XCTUnwrap(bitmap.cgImage)
+    }
+    #else
+    /// A view as a hosting controller in `scene`'s window draws it.
+    private func hosted<V: View>(_ view: V, size: CGSize, in scene: UIWindowScene) throws -> CGImage {
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(origin: .zero, size: size)
+        let host = UIHostingController(rootView: view.frame(width: size.width, height: size.height))
+        // At the window's origin, under no status bar's inset
+        host.safeAreaRegions = []
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        var drawn = false
+        let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
+            drawn = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        XCTAssertTrue(drawn, "the window's pixels")
+        return try XCTUnwrap(image.cgImage)
+    }
+    #endif
 
     /// A real `time` node from the kernel carries its runs, so the live
     /// text takes the font the kernel measured it in.

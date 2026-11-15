@@ -118,7 +118,7 @@ final class TextUpdateIOSTests: XCTestCase {
             XCTAssertEqual(firstNode.textRasterKey?.spec.runs.map(\.text).joined(), "Replacement \(batch + 1)")
             XCTAssertTrue(firstNode.textRasterReady, "replacement ink is published in this batch")
         }
-        print("perf real words updates=1600 box_displays=\(invalidations) ms=\((CACurrentMediaTime() - start) * 1000)")
+        print("D3 real words updates=1600 box_displays=\(invalidations) ms=\((CACurrentMediaTime() - start) * 1000)")
         XCTAssertEqual(invalidations, 0, "words have their own raster; the box has not changed")
         let after = try pixels(firstNode)
         XCTAssertNotEqual(before, after, "the replacement words reach the window's layers")

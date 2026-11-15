@@ -1,6 +1,6 @@
-// A record's field may be named `length`: `x.length`
-// reads it when the receiver is such a record, and counts
-// a list or text otherwise.
+// A record's field may be named `length` (LLP 1116.015 D2, amended
+// 2026-10-17): `x.length` reads it when the receiver is such a record, and
+// counts a list or text otherwise.
 shape Lane
   name: string
   length: number

@@ -1,7 +1,7 @@
 // Copied from exact2's apps/map-demo/modules/web (the web half of the module the xheavy app's Apple copy
 // came from), plus `interactive="false"` (SPEC 7: all interaction disabled): no listeners, no pointer events.
 //
-// `<native-map>` on the web: OpenStreetMap raster tiles (no API
+// `<native-map>` on the web (LLP 1024 D7): OpenStreetMap raster tiles (no API
 // key; attribution shown, as the tile policy asks) under the pins, in the
 // element's shadow root. A drag pans, the wheel zooms at the pointer, a pin
 // press selects it. Props: latitude, longitude, span (degrees of latitude in

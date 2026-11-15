@@ -8,6 +8,8 @@ pub struct Options {
     pub paused: bool,
     #[restart]
     pub restart: bool,
+    #[live]
+    pub bindings: String,
 }
 #[derive(Default, Component)]
 pub struct Beacon {
@@ -40,6 +42,9 @@ impl Game for Beacons {
             .hold("sprint", &["ShiftLeft", "GamepadL1"], 0.2)
             // E lights a beacon only within reach of one.
             .context("beacon", |a| a.button("light", &["KeyE", "GamepadWest"]))
+    }
+    fn bindings(args: &Options) -> String {
+        args.bindings.clone()
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
@@ -177,7 +182,7 @@ impl Game for Beacons {
         }
         let count = w.count::<Beacon>(|b| b.lit);
         // The page answers a beacon lit in the hand, and the last one with
-        // the light bar: the presentation path, outside the hash.
+        // the light bar (LLP 1133.022 §10): the presentation path, outside the hash.
         if lit {
             w.emit(if count == 3 { "all lit" } else { "lit" });
         }

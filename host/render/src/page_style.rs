@@ -1,4 +1,4 @@
-//! A rendered page's own stylesheet, as
+//! A rendered page's own stylesheet (LLP 1048.007 D4), as
 //! `host/web-js/page-style.mjs` selects it: of the rules the build analyzed
 //! (`.gen/page-style.json`, each with what its selector needs of a
 //! document), those the page's tokens can meet, in the sheet's order.

@@ -1,4 +1,4 @@
-//! The desktop modules in the runner, through this checkout's
+//! LLP 1133.025 stage 0 in the runner, through this checkout's
 //! `@exact/login-item`, `@exact/global-shortcuts` and `@exact/dock`
 //! installed beside the app and answered by their substitutes, as under the
 //! agent on macOS: the login item's registration and a launch the login item
@@ -15,7 +15,7 @@ use std::os::windows::fs::symlink_dir;
 use std::path::{Path, PathBuf};
 
 const APP: &str = r#"use loginItemStatus, registerLoginItem, unregisterLoginItem, LoginItemStatus from "@exact/login-item"
-use globalShortcut, checkGlobalShortcut, GlobalShortcut, GlobalShortcutCheck from "@exact/global-shortcuts"
+use globalShortcut, checkGlobalShortcut, globalshortcut, GlobalShortcut, GlobalShortcutCheck from "@exact/global-shortcuts"
 use requestAttention from "@exact/dock"
 
 component App
@@ -172,9 +172,9 @@ fn shortcuts(r: &Runner<Grants>) -> Vec<Json> {
     all.as_array().cloned().unwrap_or_default()
 }
 
-/// A registration is the app's, kept across its sessions, `hidden` as asked;
-/// a status the platform reports as needing approval stays so; a launch the
-/// login item made says so, with its `hidden`.
+/// D2: a registration is the app's, kept across its sessions, `hidden` as
+/// asked; a status the platform reports as needing approval stays so; a
+/// launch the login item made says so, with its `hidden`.
 #[test]
 fn a_login_item_registers_and_a_login_launch_says_so() {
     let app = App::new("login");
@@ -221,7 +221,7 @@ fn a_login_item_registers_and_a_login_launch_says_so() {
     );
 }
 
-/// The changes a registration makes need a person's act.
+/// D2, D3: the changes a registration makes need a person's act.
 #[test]
 fn a_tool_cannot_register_a_login_item_or_check_a_chord() {
     let app = App::new("origin");
@@ -236,9 +236,9 @@ fn a_tool_cannot_register_a_login_item_or_check_a_chord() {
     assert!(show(&r, "login").contains("\"disabled\""));
 }
 
-/// A read registers its chord and lists it; `tap @ref` presses it, raising
-/// `globalshortcut` with its id; new keys list the new entry and unregister
-/// the old.
+/// D3: a read registers its chord and lists it; `tap @ref` presses it,
+/// raising `globalshortcut` with its id; new keys list the new entry and
+/// unregister the old.
 #[test]
 fn a_shortcut_is_listed_while_read_and_pressed_by_its_ref() {
     let app = App::new("shortcut");
@@ -263,9 +263,9 @@ fn a_shortcut_is_listed_while_read_and_pressed_by_its_ref() {
     assert!(logs(&r).contains("unregistered"), "{}", logs(&r));
 }
 
-/// A chord another app holds is preferred as the platform's answer: the
-/// registration is listed unregistered, no press reaches it, and a check
-/// answers the same reason.
+/// D3: a chord another app holds is preferred as the platform's answer:
+/// the registration is listed unregistered, no press reaches it, and a
+/// check answers the same reason.
 #[test]
 fn a_chord_in_use_is_not_registered_and_a_check_says_why() {
     let app = App::new("in-use");
@@ -288,8 +288,8 @@ fn a_chord_in_use_is_not_registered_and_a_check_says_why() {
     assert!(checked.contains("\"in-use\""), "{checked}");
 }
 
-/// Outside macOS and Windows each module answers that it is absent, and the
-/// status and Dock buttons stay ordinary buttons the agent lists.
+/// D14: outside macOS and Windows each module answers that it is absent,
+/// and the status and Dock buttons stay ordinary buttons the agent lists.
 #[test]
 fn the_desktop_modules_are_absent_on_the_other_targets() {
     let app = App::new("absent");
@@ -307,8 +307,8 @@ fn the_desktop_modules_are_absent_on_the_other_targets() {
     }
 }
 
-/// `state.statusItems` and `state.dockMenu` from the tree, the status button
-/// marked as presented elsewhere and reached by `tap`.
+/// D4, D5, §11: `state.statusItems` and `state.dockMenu` from the tree, the
+/// status button marked as presented elsewhere and reached by `tap`.
 #[test]
 fn the_agent_lists_the_status_item_and_the_dock_menu() {
     let app = App::new("presented");
@@ -331,14 +331,18 @@ fn the_agent_lists_the_status_item_and_the_dock_menu() {
     assert_eq!(dock.len(), 1);
     assert_eq!(dock[0]["label"], "New Conversation");
     assert!(tree.contains("\"presented\":\"status\""), "{tree}");
-    // Where no status area is, the button is ordinary; the lists stay.
-    let r = boot(&app, "web");
-    let tree = agent::handle(&r, r#"{"op":"tree"}"#);
-    assert!(!tree.contains("\"presented\""), "{tree}");
-    assert_eq!(state(&r)["statusItems"].as_array().map(Vec::len), Some(1));
+    // Where no host places it, the button is ordinary; the lists stay.
+    // Windows' notification-area icon is not built, so Windows is such a host.
+    for target in ["web", "windows"] {
+        let r = boot(&app, target);
+        let tree = agent::handle(&r, r#"{"op":"tree"}"#);
+        assert!(!tree.contains("\"presented\""), "{target}: {tree}");
+        let items = state(&r)["statusItems"].as_array().map(Vec::len);
+        assert_eq!(items, Some(1), "{target}");
+    }
 }
 
-/// A request for attention is the agent's to read, critical or not.
+/// D5: a request for attention is the agent's to read, critical or not.
 #[test]
 fn a_request_for_attention_is_kept_for_the_agent() {
     let app = App::new("attention");

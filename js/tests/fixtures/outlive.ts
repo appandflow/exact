@@ -1,4 +1,4 @@
-// Work that outlives its answer: a renewal that one answer
+// Work that outlives its answer (LLP 1146 D2): a renewal that one answer
 // starts and others await, the way @exact/oauth refreshes, with no lock. The
 // renewal is a POST, which runs to its end when the answer that started it
 // is let go; what its continuation writes to the store stands.
@@ -55,7 +55,7 @@ async function tagged(): Promise<{ text: string }> {
   return { text: `call ${call} ${await reply.text()}` };
 }
 
-// A write the app can abort: the first call to ask starts it,
+// A write the app can abort (LLP 1146 D2): the first call to ask starts it,
 // beside the ordered lane, and its answer, let go while the POST is held, has
 // it kept. Its continuation's catch writes the store. `cancel` aborts it in a
 // reply's turn and answers outside its shape, refusing that turn's commit;
@@ -104,8 +104,41 @@ async function twice(): Promise<{ text: string }> {
   return { text: `${await (await first).text()} ${await (await second).text()}` };
 }
 
-function answer(source: string, args: unknown[], store: Store): unknown {
+let busy = false;
+let shared: Promise<string> | null = null;
+let aborted = '';
+async function guardedFetch(): Promise<string> {
+  try {
+    return await (await fetch('https://outlive.test/guarded')).text();
+  } catch (error) {
+    aborted = (error as { kind: string }).kind;
+    throw error;
+  } finally {
+    busy = false;
+    shared = null;
+  }
+}
+function guarded(go: unknown, mode: unknown): string | Promise<string> {
+  if (!go) return 'idle';
+  if (mode === 'memo') return shared ??= guardedFetch();
+  if (busy) return 'busy';
+  busy = true;
+  return guardedFetch();
+}
+
+function interruptedFetch(native: { call(request: unknown): unknown }): never {
+  guarded(true, 'flag');
+  native.call({ spinning: true });
+  for (;;) {}
+}
+
+function answer(source: string, args: unknown[], store: Store, _storage: unknown, native: any): unknown {
   switch (source) {
+    case 'interrupted': return args[0] === 'drain'
+      ? Promise.resolve().then(() => interruptedFetch(native))
+      : interruptedFetch(native);
+    case 'guarded': return guarded(args[0], args[1]);
+    case 'cleanup': return `${busy}/${shared === null}/${aborted}`;
     case 'token': return { text: store.get(KEY) ?? 'none' };
     case 'read': return read(store);
     case 'late': return late(store);

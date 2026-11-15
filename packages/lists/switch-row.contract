@@ -1,6 +1,6 @@
 // A grouped list's row with a setting that is on or off (the clone's
 // SwitchRow): a symbol and a title beside the platform's switch. The switch
-// is the row's one part, labelled by the title.
+// is the row's one part (LLP 1139 D6), labelled by the title.
 component SwitchRow
   params
     tint: color = "lists.symbol-tint" control = "token" group = "Color" priority = 1 label = "Symbol tint"

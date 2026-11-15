@@ -3,7 +3,7 @@ import XCTest
 @testable import ExactKit
 import UIKit
 
-/// In the page, a custom (non-native)
+/// LLP 1021 D3 in the page (theme2 2026-10-22 06:53): a custom (non-native)
 /// button opening a popover that is no menu opens it as itself, anchored on
 /// the button, as a native button's does, and a second press closes it; one
 /// opening a menu keeps UIKit's pull-down over the button.
@@ -55,7 +55,7 @@ final class InPagePopoverIOSTests: XCTestCase {
     }
 
     /// A popover with no authored placement whose invoker is at the bottom
-    /// (a chat app's emoji button under the composer) opens above it, as the
+    /// (Harmony's emoji button under the composer) opens above it, as the
     /// web's default flips, rather than held over its own invoker.
     func testAPopoverFromTheBottomOpensAboveItsInvoker() throws {
         let p = Presenter()

@@ -1,12 +1,13 @@
 //! Browser-owned data module, without a JavaScript engine in wasm.
-//! Browser microtask checkpoints and
+//! @ref LLP 1027 D6 / LLP 1027.000 D3. Browser microtask checkpoints and
 //! HTTP requests both travel through the runner's stale-safe ticket path.
 use exact_js_value::json::{self, object, Json};
 use exact_js_value::Shape;
 use exact_plan::{Plan, Value};
 pub use exact_runner::Placement;
 use exact_runner::{
-    Answer, DataError, DataSource, Dispatch, InFlight, Outcome, Request, Store, Target,
+    Answer, CacheMode, DataError, DataSource, Dispatch, InFlight, LongPoll, Outcome, Redirect,
+    Request, Store, Target,
 };
 use sha2::{Digest, Sha256};
 
@@ -154,15 +155,15 @@ pub struct Module {
     ready: bool,
     signatures: Table<(Vec<Shape>, Shape)>,
     waiting: Table<bool>, // true: a browser checkpoint; false: HTTP
-    /// Stream answers: each message is mapped by the realm's
+    /// Stream answers (LLP 1016.000): each message is mapped by the realm's
     /// `exactStream`, synchronously, never resumed as a turn.
     streams: Table<()>,
-    /// Where the loader runs this module's turns: the
+    /// Where the loader runs this module's turns (LLP 1027.002 D1): the
     /// page's private iframe realm, or a dedicated Worker.
     placement: Placement,
-    /// The Canvas 2D roster the bake read.
+    /// The Canvas 2D roster the bake read (LLP 1056 D1).
     canvas_surfaces: Vec<(String, usize)>,
-    /// A background round is out: the host holds its ticket.
+    /// A background round is out: the host holds its ticket (LLP 1097 D5).
     background_out: bool,
     /// The sources whose worker realm can't overlay synchronously, each
     /// said once in the journal, and what is still to say.
@@ -257,7 +258,7 @@ impl Module {
         let resume = input.clone();
         let response = match outcome {
             None => call(input)?,
-            // A stream's message, or its end: mapped now.
+            // A stream's message, or its end: mapped now (LLP 1016.000 D1).
             Some(outcome) if self.streams.get(&key).is_some() => {
                 if !matches!(outcome, Outcome::Message(_)) {
                     self.streams.remove(&key);
@@ -284,7 +285,7 @@ impl Module {
                             ))
                         }
                         Outcome::Response(response) => response.body,
-                        Outcome::Message(_) | Outcome::Closed { .. } => {
+                        Outcome::Message(_) | Outcome::Messages(_) | Outcome::Closed { .. } => {
                             return Err(unavailable(
                                 "a stream message supplied to JavaScript checkpoint",
                             ))
@@ -299,7 +300,7 @@ impl Module {
             }
         };
         let answer = self.step(store, source, key.clone(), &response)?;
-        // A wait for the answer's own timer: its next turn,
+        // A wait for the answer's own timer (LLP 1027.000 D1): its next turn,
         // registered now, which the runner keeps back until it is due.
         if let Answer::Later(Request {
             continuation: None,
@@ -345,7 +346,7 @@ impl Module {
         if response["externalRead"] == true {
             store.observe_external_read();
         }
-        // The realm's `crypto` drew entropy, as Hermes marks it.
+        // LLP 1069.005 D2: the realm's `crypto` drew entropy, as Hermes marks it.
         if response["entropy"] == true {
             store.observe_entropy();
         }
@@ -388,7 +389,7 @@ impl Module {
             return Err(match response["kind"].as_str() {
                 Some("UnknownSource") => DataError::UnknownSource(message),
                 Some("BadArguments") => DataError::BadArguments(message),
-                // Its class, as js/src/lib.rs reads it.
+                // Its class, as js/src/lib.rs reads it (LLP 1109 D3).
                 _ => exact_runner::failure::FailureCode::seam_error(
                     response["failure"].as_str(),
                     message,
@@ -406,6 +407,20 @@ impl Module {
                     .as_str()
                     .ok_or_else(|| unavailable("fetch has no URL"))?,
             );
+            if let Some(names) = r.get("protocols") {
+                let names = names
+                    .as_array()
+                    .and_then(|names| {
+                        names
+                            .iter()
+                            .map(|name| name.as_str().map(str::to_owned))
+                            .collect::<Option<Vec<_>>>()
+                    })
+                    .ok_or_else(|| {
+                        unavailable("exactProtocols must be an array of protocol names")
+                    })?;
+                request = request.protocols(names).map_err(unavailable)?;
+            }
             request.method = r["method"]
                 .as_str()
                 .ok_or_else(|| unavailable("fetch has no method"))?
@@ -426,7 +441,32 @@ impl Module {
                         .map_err(|_| unavailable("a request timeout must be 1 to 3600000 ms"))?,
                 );
             }
-            // `exactHeld`: no clock waits on it.
+            // `exactIdleTimeout` (LLP 1016.000 D11): this host's sockets
+            // do not carry it, so it is refused rather than dropped.
+            if !r["idle_timeout_ms"].is_null() {
+                return Err(unavailable(
+                    "exactIdleTimeout is unavailable on the web's wasm host",
+                ));
+            }
+            // `redirect`, `cache` and `exactLongPoll`, which the page runs
+            // (`host/web/src/batch.rs`): a value no host runs is refused.
+            request.redirect = Redirect::parse(r["redirect"].as_str()).map_err(unavailable)?;
+            request.cache = CacheMode::parse(r["cache"].as_str()).map_err(unavailable)?;
+            let poll = &r["long_poll"];
+            if !poll.is_null() {
+                let name = |k: &str| {
+                    poll[k]
+                        .as_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| unavailable(format!("exactLongPoll.{k} must be a name")))
+                };
+                request.long_poll = Some(Box::new(LongPoll {
+                    cursor: name("cursor")?,
+                    from: name("from")?,
+                    same_cursor_event: poll["same_cursor_event"] == true,
+                }));
+            }
+            // `exactHeld` (LLP 1016.000 D9): no clock waits on it.
             request.held = r["held"] == true;
             // `exactUploadProgress`: the page sends it with XMLHttpRequest.
             request.upload_progress = r["upload_progress"] == true;
@@ -458,6 +498,9 @@ impl Module {
                 // What an app's abort names it by (`take_aborted`).
                 request.fetch = response["ticket"].as_u64();
                 self.waiting.insert(key, false);
+            }
+            if let Some(why) = request.long_poll_refusal() {
+                return Err(unavailable(why));
             }
             Answer::Later(request)
         } else if response["tag"] == 0 {
@@ -507,11 +550,14 @@ fn outcome_json(outcome: Outcome) -> Result<Json, DataError> {
                 ("id", m.id.into()),
                 ("data", m.data.into()),
                 ("coalesced", m.coalesced.into()),
+                ("protocol", m.protocol.to_string().into()),
             ]),
         )]),
-        // The web's wasm host keeps every socket listening:
+        // The web's wasm host keeps every socket listening (LLP 1016.000 D7):
         // no two-way socket ends here.
         Outcome::Closed { .. } => return Err(unavailable("a socket close supplied to fetch")),
+        // The runner hands a mapper a batch's messages one at a time.
+        Outcome::Messages(_) => return Err(unavailable("a batch of messages supplied to fetch")),
     })
 }
 
@@ -530,7 +576,7 @@ impl DataSource for Module {
     fn canvas_surfaces(&self) -> Vec<(String, usize)> {
         self.canvas_surfaces.clone()
     }
-    /// Canvas 2D: the module's `draw` in its realm, in this
+    /// Canvas 2D (LLP 1056 D1): the module's `draw` in its realm, in this
     /// turn — a draw awaits nothing, so it need not wait for a module turn.
     fn draw(
         &mut self,
@@ -549,7 +595,7 @@ impl DataSource for Module {
                 | DataError::BadArguments(e)
                 | DataError::UnknownSource(e)
                 | DataError::Interface(e)
-                | DataError::DeferredAtBake(e)
+                | DataError::DeferredAtBake { message: e, .. }
                 | DataError::Overrun(e)
                 | DataError::Failed(_, e, _),
             ) => exact_runner::DrawReply {
@@ -722,6 +768,9 @@ impl DataSource for Module {
         let mut next = Self::new(&self.app, &self.grants, revision);
         next.id = id;
         next.placement = self.placement;
+        // The roster comes from the binary's bake, which a swap does not
+        // change; `Placed` snapshots it from this module.
+        next.canvas_surfaces.clone_from(&self.canvas_surfaces);
         Ok(next)
     }
 
@@ -729,11 +778,11 @@ impl DataSource for Module {
         self.placement
     }
 
-    /// The turn takes its snapshot now, from the store as committed, scoped
-    /// to this module's own names; the
+    /// The turn takes its snapshot now, from the store as committed (LLP
+    /// 1027.002 D3, change 1), scoped to this module's own names; the
     /// loader's registry runs the token its way.
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
-        // A background round is a turn of the realm's own,
+        // A background round is a turn of the realm's own (LLP 1097 D7),
         // under a registry token the realm hands out.
         if token == exact_runner::BACKGROUND {
             return match self.realm("background-round").map(|r| r["token"].as_u64()) {
@@ -760,7 +809,7 @@ impl DataSource for Module {
     }
 
     /// The page's realm finishes storage an answer did not await as the
-    /// background's: a round goes out when its operation
+    /// background's (LLP 1097 D5, D7): a round goes out when its operation
     /// is the one in flight and none is out.
     fn background(&mut self, _: &Store) -> Option<Request> {
         if self.background_out || !self.ready || self.placement != Placement::Main {
@@ -841,7 +890,7 @@ impl DataSource for Module {
         ]));
     }
     /// Calls whose requests the runner let go are dropped here, and the
-    /// realm hears what is still in flight, to drop its own.
+    /// realm hears what is still in flight, to drop its own (LLP 1016 D5).
     fn forgotten(&mut self, _store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
         let mut keep = Vec::new();
         let mut requests = Vec::new();
@@ -970,6 +1019,20 @@ mod tests {
         );
     }
 
+    /// A live swap keeps the Canvas 2D roster: a canvas named in it is still
+    /// drawn in 2D, not sent to the GPU path.
+    #[test]
+    fn a_replacement_keeps_the_canvas_2d_roster() {
+        let module = Module::new("test", "", "revision").with_canvas_surfaces(&[("chart", 1)]);
+        let plan = b"plan";
+        let receipt = format!(
+            r#"{{"version":1,"abi":1,"appId":"test","grants":"","plan":{{"bytes":4,"sha256":"{:x}"}},"module":{{"sha256":"next"}}}}"#,
+            Sha256::digest(plan)
+        );
+        let next = module.replacement(plan, &receipt, b"7".to_vec()).unwrap();
+        assert_eq!(next.canvas_surfaces(), vec![("chart".to_string(), 1)]);
+    }
+
     #[test]
     fn two_targets_asking_one_source_with_equal_arguments_keep_their_own_turns() {
         let mut module = Module::new("test", "", "revision");
@@ -1040,6 +1103,7 @@ mod tests {
                 target: Target::Mutation(0),
                 source: "source",
                 args: &[Value::str("ab")],
+                fetch: None,
                 continuation: Some(1),
             }],
         );
@@ -1151,7 +1215,54 @@ mod tests {
         }
     }
 
-    /// A turn that ends at a stream's `fetch` answers a stream
+    /// LLP 1016.000: a turn that ends at a stream's `fetch` answers a stream
+    /// A fetch's `redirect`, `cache` and `exactLongPoll` reach the request
+    /// the page runs (`host/web/src/batch.rs`); a value no host runs is
+    /// refused, not dropped.
+    #[test]
+    fn a_fetch_keeps_its_redirect_cache_and_long_poll() {
+        let mut module = Module::new("test", "", "revision");
+        module.ready = true;
+        module
+            .signatures
+            .insert("feed".into(), (vec![], Shape::String));
+        let mut store = Store::new("", []);
+        let key = || call_key(&target_json(Some(Target::Resource(0))), "feed", &[]);
+        let turn =
+            |request: &str| format!(r#"{{"tag":1,"call":3,"ticket":1,"request":{request}}}"#);
+        let plain = turn(
+            r#"{"method":"GET","url":"https://example.test/r","headers":[],"body":"","redirect":"manual","cache":"no-store"}"#,
+        );
+        let Ok(Answer::Later(request)) = module.step(&mut store, "feed", key(), plain.as_bytes())
+        else {
+            panic!("a request")
+        };
+        assert_eq!(request.redirect, exact_runner::Redirect::Manual);
+        assert_eq!(request.cache, exact_runner::CacheMode::NoStore);
+        let poll = turn(
+            r#"{"method":"GET","url":"https://example.test/p","headers":[],"body":"","stream":true,"long_poll":{"cursor":"since","from":"seq","same_cursor_event":true}}"#,
+        );
+        let Ok(Answer::Later(request)) = module.step(&mut store, "feed", key(), poll.as_bytes())
+        else {
+            panic!("a long poll")
+        };
+        let terms = request.long_poll.as_deref().expect("its terms");
+        assert_eq!(
+            (
+                terms.cursor.as_str(),
+                terms.from.as_str(),
+                terms.same_cursor_event
+            ),
+            ("since", "seq", true)
+        );
+        let wrong = turn(
+            r#"{"method":"GET","url":"https://example.test/r","headers":[],"body":"","redirect":"sideways"}"#,
+        );
+        assert!(module
+            .step(&mut store, "feed", key(), wrong.as_bytes())
+            .is_err());
+    }
+
     /// request; its messages go to the realm's mapper, never back as turns.
     #[test]
     fn a_stream_answer_maps_its_messages_in_the_realm_until_it_ends() {
@@ -1187,6 +1298,52 @@ mod tests {
             .parse_for(target, &mut store, "feed", &[], end)
             .is_err());
         assert_eq!(module.streams.len(), 0, "its end closes it");
+    }
+
+    #[test]
+    fn stream_protocol_names_cross_the_browser_module_seam() {
+        let mut module = Module::new("test", "", "revision");
+        module
+            .signatures
+            .insert("feed".into(), (vec![], Shape::String));
+        let mut store = Store::new("", []);
+        for (names, expected) in [
+            (serde_json::json!([]), Ok(vec![])),
+            (
+                serde_json::json!(["chat.v2", "chat.v1"]),
+                Ok(vec!["chat.v2", "chat.v1"]),
+            ),
+            (
+                serde_json::json!(["bad/name"]),
+                Err("invalid WebSocket protocol"),
+            ),
+            (
+                serde_json::json!(["chat", "chat"]),
+                Err("duplicate WebSocket protocol"),
+            ),
+            (
+                serde_json::json!("chat"),
+                Err("exactProtocols must be an array"),
+            ),
+        ] {
+            let turn = serde_json::json!({"tag":1,"request":{"method":"GET",
+                "url":"ws://example.test", "headers":[], "stream":true,"protocols":names}});
+            let answer = module.step(
+                &mut store,
+                "feed",
+                "feed".into(),
+                &serde_json::to_vec(&turn).unwrap(),
+            );
+            match expected {
+                Ok(names) => {
+                    let Answer::Later(request) = answer.unwrap() else {
+                        panic!("a stream request")
+                    };
+                    assert_eq!(request.protocols, names);
+                }
+                Err(message) => assert!(format!("{:?}", answer.unwrap_err()).contains(message)),
+            }
+        }
     }
 
     #[test]
@@ -1248,10 +1405,8 @@ mod tests {
 mod overlay_probe_tests {
     use super::overlay_present;
 
-    /// Only an explicit answer decides: `{has: false}` is no overlay, `{has:
-    /// true}` (a page realm with one, or a worker realm, which can't say) is
-    /// one, and a probe that threw or answered nothing usable fails, as the
-    /// overlay call's own failure did.
+    /// Only an explicit boolean decides whether a realm has an overlay;
+    /// a probe that threw or answered nothing usable fails.
     #[test]
     fn only_an_explicit_answer_decides_whether_a_realm_has_an_overlay() {
         assert!(!overlay_present(br#"{"has":false}"#).unwrap());

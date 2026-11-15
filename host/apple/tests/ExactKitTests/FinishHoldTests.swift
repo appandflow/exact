@@ -1,12 +1,12 @@
 import XCTest
 @testable import ExactKit
 
-/// A session holds a background task from the batch that says it must
-/// finish work an answer started to the one that says it is done: one
-/// task however often the word repeats, ended once, by the system's
-/// expiration too, after which the app's return to the foreground begins
-/// another while the work is still wanted, as it does after the system
-/// refused one.
+/// LLP 1097 D10, LLP 1146 D2: a session holds a background task from the
+/// batch that says it must finish work an answer started to the one that
+/// says it is done: one task however often the word repeats, ended once,
+/// by the system's expiration too, after which the app's return to the
+/// foreground begins another while the work is still wanted, as it does
+/// after the system refused one.
 final class FinishHoldTests: XCTestCase {
     func testOneTaskFromTheWordToItsEnd() {
         var begun = 0, ended = 0

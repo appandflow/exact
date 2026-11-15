@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// A filter tablist right after a header whose search field the
+/// LLP 1134: a filter tablist right after a header whose search field the
 /// bar projects is that search bar's scope bar (`scripts/fixtures/search-scope.contract`).
 final class SearchScopeIOSTests: XCTestCase {
     private var window: UIWindow?
@@ -53,7 +53,7 @@ final class SearchScopeIOSTests: XCTestCase {
 
     func testAFilterAfterTheSearchIsItsScopeBar() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bar is a scene window's") }
-        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("the scope bar is the iPhone's") }
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("the scope bar is the iPhone's (D5)") }
         let (session, route) = try fixture()
         let p = session.presenter, filter = try node(session, "filter"), list = try node(session, "list")
         let search = try XCTUnwrap(route.search), bar = search.controller.searchBar
@@ -66,7 +66,7 @@ final class SearchScopeIOSTests: XCTestCase {
         XCTAssertFalse(p.segments.projects(filter.id), "no segmented control of its own")
         XCTAssertTrue(route.collapseScroll === list, "the list after it is the bar's collapse scroller")
         until("it takes no room: the list starts where the tablist did") { abs(list.frame.minY - filter.frame.minY) < 0.5 }
-        // Each segment carries its tab's test id; the agent aims at it.
+        // D4: each segment carries its tab's test id; the agent aims at it.
         until("the segments carry the tabs' test ids") { search.scopeControl?.segmentViews.map(\.accessibilityIdentifier) == ["filter-all", "filter-mine", "filter-done"] }
         XCTAssertNotNil(p.segments.drawn(try node(session, "filter-done")), "a tap aims at the scope segment")
         let tab = try node(session, "filter-done"), agent = Agent(session: session)
@@ -76,7 +76,7 @@ final class SearchScopeIOSTests: XCTestCase {
         XCTAssertNil(target["radii"], "list and targeted layout omit the same native corners")
 
 
-        // A person's choice presses the tab, once.
+        // D3: a person's choice presses the tab, once.
         bar.selectedScopeButtonIndex = 2
         bar.delegate?.searchBar?(bar, selectedScopeButtonIndexDidChange: 2)
         until("the press chose Done") { state(session, "filter") as? String == "done" }
@@ -113,11 +113,36 @@ final class SearchScopeIOSTests: XCTestCase {
         XCTAssertEqual(state(session, "filter") as? String, "all")
     }
 
-    /// With no search, the filter under a large title is the
+    func testScopeAccessibilityElementsJoinTheirAuthoredTabs() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bar is a scene window's") }
+        guard Presenter.axRuntimeLoaded else { throw missing("accessibility", "UIKit's scope segments need its accessibility runtime") }
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("the scope bar is the iPhone's (D5)") }
+        let (session, route) = try fixture()
+        let search = try XCTUnwrap(route.search)
+        until("the scope segments carry their tabs' identifiers") { search.scopeControl?.segmentViews.map(\.accessibilityIdentifier) == ["filter-all", "filter-mine", "filter-done"] }
+        let control = try XCTUnwrap(search.scopeControl)
+        for (segment, name) in zip(control.segmentViews, ["All", "Mine", "Done"]) {
+            XCTAssertTrue(segment.isAccessibilityElement)
+            XCTAssertEqual(segment.accessibilityLabel, name)
+            let testId = try XCTUnwrap(segment.accessibilityIdentifier)
+            let tab = try node(session, testId)
+            let reply = Agent(session: session).accessibilityElementsTree(["target": testId])
+            let ax = try XCTUnwrap(reply["ax"] as? [String: Any])
+            let elements = try XCTUnwrap(ax["elements"] as? [[String: Any]])
+            XCTAssertEqual(elements.count, 1, testId)
+            let element = try XCTUnwrap(elements.first)
+            XCTAssertEqual(element["id"] as? UInt32, tab.id)
+            XCTAssertEqual(element["testId"] as? String, testId)
+            XCTAssertEqual(element["name"] as? String, name)
+            XCTAssertEqual(element["via"] as? String, "owner")
+        }
+    }
+
+    /// LLP 1135: with no search, the filter under a large title is the
     /// item's subtitle views, under the large title and under the inline one.
     func testAFilterUnderALargeTitleIsItsSubtitleViews() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bar is a scene window's") }
-        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("the iPhone's") }
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("the iPhone's (LLP 1135 D4)") }
         guard #available(iOS 26.0, *) else { throw XCTSkip("the subtitle views are iOS 26's") }
         let (session, route) = try fixture()
         let p = session.presenter, filter = try node(session, "filter"), list = try node(session, "list")
@@ -174,7 +199,7 @@ final class SearchScopeIOSTests: XCTestCase {
 
     func testAFilterThatIsNotAScopeKeepsItsSegmentedControl() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bar is a scene window's") }
-        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("the scope bar is the iPhone's") }
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("the scope bar is the iPhone's (D5)") }
         let (session, route) = try fixture()
         let p = session.presenter, filter = try node(session, "filter"), bar = try XCTUnwrap(route.search).controller.searchBar
         until("the scope bar first") { bar.scopeButtonTitles?.count == 3 }

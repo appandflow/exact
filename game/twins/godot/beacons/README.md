@@ -36,6 +36,8 @@ transforms. Held keys are external inputs, released at the checkpoint boundary a
 reapplied in the same way to both continuations. The script removes stale endpoint
 files before comparisons. Process runs are sequential and timeout after 60 seconds.
 
+Historical proof results and startup limitations are in [the diary](001-beacons-godot.md).
+
 ## Live feel probe
 
 From the repo root,

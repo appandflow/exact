@@ -1,5 +1,6 @@
 package dev.exact.canvas
 
+import android.app.Activity
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Canvas
@@ -34,7 +35,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * The framework's own [EditText], as a hosted field uses it: nothing of it is replaced, and it
+ * The framework's own [EditText], as a hosted field uses it (LLP 1115.001 D8): nothing of it is replaced, and it
  * says when its selection moves, which no listener of the class tells.
  */
 internal class FieldText(context: Context) : EditText(unadjusted(context)) {
@@ -46,7 +47,7 @@ internal class FieldText(context: Context) : EditText(unadjusted(context)) {
      * change of text or selection (the keyboard marking a word the caret entered, or finishing what is marked as it
      * stands), which no listener of the class tells. */
     var asked: (() -> Unit)? = null
-    /** Where the field stands in the accessibility tree the reader answers with ([Access]), and
+    /** Where the field stands in the accessibility tree the reader answers with ([Access], LLP 1115.001 D13), and
      * what its author named it; null while that tree does not have it. The field reports itself, as any `EditText`
      * does: this only says where, and by what name. */
     var stand: Access.Stand? = null
@@ -83,10 +84,10 @@ internal class FieldText(context: Context) : EditText(unadjusted(context)) {
 }
 
 /**
- * The app's text fields. Each `input` of a text type and each `textarea` is the framework's own
+ * The app's text fields (LLP 1115.001 D8). Each `input` of a text type and each `textarea` is the framework's own
  * [EditText], with no background of its own, over the container exact2 paints for it. The IME and its composition,
  * autofill, the selection handles, the magnifier, the floating toolbar and the spell checker are the platform's,
- * because the field is. `host/linux/src/presenter/hosted.rs` is exact2's side and has the words that cross.
+ * because the field is. `host/painted/src/presenter/hosted.rs` is exact2's side and has the words that cross.
  *
  * **Where a field is.** exact2 lays it out and says, with each stream, where its content box was painted, under
  * which clip, and among which scroller's rows ([told], [Native.fields]). The view is put there for real (its
@@ -109,12 +110,12 @@ internal class FieldText(context: Context) : EditText(unadjusted(context)) {
  * taken only when it answers the newest edit and differs from what the field holds: then the text is replaced, in
  * place, and the keyboard starts over. A value that is the field's own changes nothing, so a composition stands.
  *
- * **The app's value never ends a composition.** The field
+ * **The app's value never ends a composition** (LLP 1115.000 §5, ruling 6; LLP 1115.001 D8 as corrected). The field
  * says when its text begins to compose and when that ends ([flush], [Native.fieldComposing]), before the edit that
  * began or ended it. While it composes exact2 holds a value the app writes and tells the field its own text, so
  * nothing here is replaced; when the composition ends, committed or cancelled, exact2 tells the value it held, the
  * last one, after the app has heard the text. The action key commits what is composing first, as a person means by
- * it. Not yet seen on a phone: the rule is held at exact2's side (`presenter/hosted_tests.rs`).
+ * it. Not seen on a phone (`QUEUE.md`): the rule is held at exact2's side (`presenter/hosted_tests.rs`).
  */
 internal class Fields(context: Context) : FrameLayout(context) {
     /** What a field shows through: its clip, in the reader's view. A drawing-less layout the size of the clip, so
@@ -216,7 +217,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
     /** The node op 28 draws for field [id] (main thread). */
     fun node(id: Int): RenderNode? = fields[id]?.node
 
-    /** Field [id]'s own view, where the accessibility tree has the field ([Access]). */
+    /** Field [id]'s own view, where the accessibility tree has the field ([Access], LLP 1115.001 D13). */
     fun text(id: Int): FieldText? = fields[id]?.text
 
     /** A stream draws field [id] (op 28, seen while the stream is ingested, before anything of it is drawn). Android
@@ -249,7 +250,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
     /**
      * exact2's statement of its fields ([Native.fields]), taken before the stream it came with is drawn: a count, then
      * for each field its id, generation, flags and scroller; its box and its clip as float bits; the edit it answers
-     * and the value as of it; its look (eighteen words) and three strings. A field it leaves out is gone.
+     * and the value as of it; its look (eighteen words) and five strings. A field it leaves out is gone.
      */
     fun told(w: IntArray) {
         if (w.isEmpty()) return
@@ -263,13 +264,14 @@ internal class Fields(context: Context) : FrameLayout(context) {
             val (placeholder, afterHint) = string(w, look + LOOK)
             val (autocomplete, afterFill) = string(w, afterHint)
             val (family, afterFamily) = string(w, afterFill)
-            val (axes, end) = string(w, afterFamily)
+            val (axes, afterAxes) = string(w, afterFamily)
+            val (features, end) = string(w, afterAxes)
             seen.add(id)
             var f = fields[id]
             // A view made for a field exact2 already knows (the activity was made again) starts at exact2's count
             // of its edits, and so takes the value told with it.
             if (f == null) f = make(id, generation).also { it.edits = w[i + 12] }
-            // Its node is another row's item now: the view starts over, with nothing of the last one's.
+            // Its node is another row's item now (LLP 1078): the view starts over, with nothing of the last one's.
             else if (f.generation != generation) renew(f, generation)
             val placed = w[i + 2] and PLACED != 0
             val shown = placed && f.flags and PLACED == 0
@@ -286,7 +288,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
                 f.look = words
                 // Setting an input type sets the text again: no edit of the person's.
                 quiet = true
-                try { style(f, w, look, placeholder, autocomplete, family, axes) } finally { quiet = false }
+                try { style(f, w, look, placeholder, autocomplete, family, axes, features) } finally { quiet = false }
             }
             if (sized) size(f) else if (shown) f.dirty = true
             position(f)
@@ -306,8 +308,8 @@ internal class Fields(context: Context) : FrameLayout(context) {
         val text = bare(FieldText(context))
         if (log) text.heard = { Log.i(TAG, "field $id keyboard: $it") }
         val port = Port(context)
-        port.addView(text, LayoutParams(1, 1))
-        addView(port, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        port.addView(text, LayoutParams(1, 1, Gravity.TOP or Gravity.LEFT))
+        addView(port, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.TOP or Gravity.LEFT))
         val f = Field(id, port, text, RenderNode("exact field"))
         f.generation = generation
         fields[id] = f
@@ -334,8 +336,8 @@ internal class Fields(context: Context) : FrameLayout(context) {
         })
         text.selected = { _, _ -> if (!quiet) { f.moved = true; later() } }
         // Any IME call is real input (a backspace in an empty field included, which changes nothing it reports):
-        // a held state lets go.
-        text.asked = { Exact.fieldInput(f.id, f.generation); later() }
+        // a held state lets go (LLP 1122 D8).
+        text.asked = { Exact.fieldInput(f.id, f.generation, 0); later() }
         text.setOnFocusChangeListener { _, has ->
             if (has) {
                 focused = f
@@ -372,8 +374,12 @@ internal class Fields(context: Context) : FrameLayout(context) {
             true
         }
         text.setOnKeyListener { _, code, event ->
-            // Any key down is real input, which lets a held state go.
-            if (event.action == KeyEvent.ACTION_DOWN) Exact.fieldInput(f.id, f.generation)
+            // Any key down is real input, which lets a held state go (LLP 1122 D8).
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                val ime = event.flags and (KeyEvent.FLAG_SOFT_KEYBOARD or KeyEvent.FLAG_KEEP_TOUCH_MODE) != 0
+                val kind = if (ime || event.isCtrlPressed || event.isAltPressed || event.isMetaPressed) 0 else 2
+                Exact.fieldInput(f.id, f.generation, kind)
+            }
             if (code != KeyEvent.KEYCODE_TAB || event.isCtrlPressed || event.isAltPressed || event.isMetaPressed) return@setOnKeyListener false
             // Tab is the page's: exact2 moves the focus through its own order, which knows the painted controls.
             if (event.action == KeyEvent.ACTION_DOWN) {
@@ -479,15 +485,15 @@ internal class Fields(context: Context) : FrameLayout(context) {
         Extensions.webauthnField(f.text, false)
     }
 
-    /** The field's look and its keyboard, from the look's words ([Native.fields]) and its four strings. */
-    private fun style(f: Field, w: IntArray, at: Int, placeholder: String, autocomplete: String, family: String, axes: String) {
+    /** The field's look and its keyboard, from the look's words ([Native.fields]) and its five strings. */
+    private fun style(f: Field, w: IntArray, at: Int, placeholder: String, autocomplete: String, family: String, axes: String, features: String) {
         val what = w[at]; val keyboard = w[at + 1]; val enter = w[at + 3]
         val text = f.text
         f.multiline = what and MULTILINE != 0
         val type = inputType(what, keyboard, w[at + 2])
         if (text.inputType != type) text.inputType = type
         // Its type after its input type, which sets a password in a monospace face.
-        face(text, fl(w[at + 11]), w[at + 12], what and ITALIC != 0, fl(w[at + 13]), fl(w[at + 14]), family, axes)
+        face(text, fl(w[at + 11]), w[at + 12], what and ITALIC != 0, fl(w[at + 13]), fl(w[at + 14]), family, axes, features)
         f.action = when {
             f.multiline -> 0
             enter in DONE..SEND -> enter
@@ -508,8 +514,11 @@ internal class Fields(context: Context) : FrameLayout(context) {
         if (text.imeOptions != options) { text.imeOptions = options; if (text.isFocused) imm.restartInput(text) }
         val limit = w[at + 4]
         text.filters = if (limit >= 0) arrayOf<InputFilter>(InputFilter.LengthFilter(limit)) else arrayOf()
+        val rtl = what and RTL != 0
+        text.layoutDirection = if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+        text.textDirection = if (rtl) View.TEXT_DIRECTION_RTL else View.TEXT_DIRECTION_LTR
         text.gravity = (if (f.multiline) Gravity.TOP else Gravity.CENTER_VERTICAL) or
-            when (w[at + 5]) { 1 -> Gravity.CENTER_HORIZONTAL; 2 -> Gravity.END; else -> Gravity.START }
+            when (w[at + 5]) { 1 -> Gravity.CENTER_HORIZONTAL; 2 -> Gravity.RIGHT; else -> Gravity.LEFT }
         text.setTextColor(w[at + 6])
         text.setHintTextColor(w[at + 7])
         text.highlightColor = w[at + 10]
@@ -545,7 +554,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
 
     private fun size(f: Field) {
         val w = max(1, f.w); val h = max(1, f.h)
-        f.text.layoutParams = LayoutParams(w, h)
+        f.text.layoutParams = LayoutParams(w, h, Gravity.TOP or Gravity.LEFT)
         f.text.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY))
         f.text.layout(0, 0, w, h)
         f.dirty = true
@@ -587,7 +596,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
         val pw = if (clipped) max(1, f.clipW.roundToInt()) else LayoutParams.MATCH_PARENT
         val ph = if (clipped) max(1, f.clipH.roundToInt()) else LayoutParams.MATCH_PARENT
         val lp = f.port.layoutParams
-        if (lp.width != pw || lp.height != ph) f.port.layoutParams = LayoutParams(pw, ph)
+        if (lp.width != pw || lp.height != ph) f.port.layoutParams = LayoutParams(pw, ph, Gravity.TOP or Gravity.LEFT)
         f.port.translationX = px.toFloat(); f.port.translationY = py.toFloat()
         f.text.translationX = f.atX - px; f.text.translationY = f.atY - py
     }
@@ -626,7 +635,15 @@ internal class Fields(context: Context) : FrameLayout(context) {
 
     private fun hide() { imm.hideSoftInputFromWindow(windowToken, 0) }
 
-    /** A surface of the top layer is over the page ([on]), or no longer ([Surfaces]). Under one
+    /** A drag put the keyboard away ([Dismissal]): the field that holds the focus lets go of it, which exact2 hears
+     * as the person's, and the keyboard goes. */
+    fun dismiss() {
+        val f = focused
+        if (f != null && view?.requestFocus() != true) f.text.clearFocus()
+        hide()
+    }
+
+    /** A surface of the top layer is over the page ([on]), or no longer ([Surfaces], LLP 1115.001 D10). Under one
      * the page is inert, so no field can take the focus, whatever would hand it one: a hardware key ends touch mode,
      * and the platform then focuses the window's first focusable view, which is a field (seen on a Pixel: Tab in an
      * alert put a caret in the field under its scrim, and the keyboard rose when the alert closed). exact2 refuses
@@ -686,31 +703,34 @@ internal class Fields(context: Context) : FrameLayout(context) {
         return true
     }
 
-    /** exact2's answer for touch [serial]: the hosted field under it, or 0. The field's, the touch goes to the field
-     * from its down; anything else's (the field is under a bar, a sheet), it goes to exact2 as any touch does. */
-    fun under(serial: Int, field: Int) {
-        if (serial != this.serial || state != HOLDING) return
+    /**
+     * exact2's answer for touch [serial]: the hosted field under it, or 0. The field's, the touch goes to the field
+     * from its down; anything else's (the field is under a bar, a sheet), it goes to exact2 as any touch does.
+     * [scrolls] takes each held event after the down before the field or exact2 has it, as a live event is taken
+     * ([Scrolling.next]): once it says the scroll has the touch, what is left is not theirs, and the scroll has
+     * cancelled the touch where it was ([cancel]).
+     */
+    fun under(serial: Int, field: Int, scrolls: () -> Boolean = { false }): Boolean {
+        if (serial != this.serial || state != HOLDING) return false
         val f = target
         val events = ArrayList(held)
         held.clear()
-        if (f != null && f.id == field && fields[field] === f) {
+        val own = f != null && f.id == field && fields[field] === f
+        if (own) {
             state = OWNED
-            Exact.fieldInput(f.id, f.generation) // a finger down in it: real input, which lets a held state go
-            for (e in events) {
+            Exact.fieldInput(f.id, f.generation, 1)
+        } else { state = NONE; target = null }
+        var scrolled = false
+        for ((k, e) in events.withIndex()) {
+            scrolled = scrolled || (k > 0 && scrolls())
+            if (scrolled) { e.recycle(); continue }
+            if (own) {
                 send(e)
                 if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) { state = NONE; target = null }
-            }
-        } else {
-            state = NONE; target = null
-            val v = view
-            if (v != null) for (e in events) {
-                val action = when (e.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> 0; MotionEvent.ACTION_UP -> 1; MotionEvent.ACTION_MOVE -> 2; else -> 3
-                }
-                v.forward(action, e.x, e.y, e.getToolType(0), -1L)
-            }
+            } else view?.fingers?.relay(e)
+            e.recycle()
         }
-        for (e in events) e.recycle()
+        return own
     }
 
     /** A scroll took the touch ([Scrolling]): the field's touch is cancelled, or what was held is let go. Whether
@@ -770,6 +790,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
         private const val ITALIC = 64
         private const val SUBMITS = 128
         private const val FOLLOWED = 256
+        private const val RTL = 512
         /** Its keyboard: a search's, and none at all. */
         private const val SEARCHES = 6
         private const val NO_KEYBOARD = 7
@@ -788,9 +809,18 @@ internal class Fields(context: Context) : FrameLayout(context) {
         /** How far out of sight a field with no place is kept, px. */
         private const val AWAY = 100000f
 
-        /** The context a measuring field is made in: the activity that reads the host, for its theme. */
+        /** The activity that reads the host, whose theme a measuring field is made in ([detached]). */
         @Volatile internal var context: Context? = null
         private val measurer = ThreadLocal<EditText>()
+
+        /** [context]'s theme over the application context. The measuring field is kept as long as exact2's thread,
+         * which outlives every activity (LLP 1115.001 D15.1), so it must not hold the activity it was made for. */
+        private fun detached(context: Context): Context {
+            val theme = (context as? Activity)?.let {
+                runCatching { it.packageManager.getActivityInfo(it.componentName, 0).themeResource }.getOrNull()
+            } ?: context.applicationInfo.theme
+            return ContextThemeWrapper(context.applicationContext, theme)
+        }
         private val faces = ConcurrentHashMap<String, Typeface>()
 
         /** An [EditText] with nothing of its style's that would move its text: no background and so no padding, no
@@ -808,8 +838,9 @@ internal class Fields(context: Context) : FrameLayout(context) {
          * height in px (0: the font's own), the face's file with its index in a collection (`path#index`; empty:
          * the device's default family) and its axes as CSS writes `font-variation-settings` (empty: the weight's
          * alone). The default family's typeface takes no axes, so a field that moves one names the file text is drawn
-         * from instead. */
-        private fun face(v: EditText, size: Float, weight: Int, italic: Boolean, spacing: Float, line: Float, family: String, axes: String) {
+         * from instead. Features combine the numeric and ligature variants with explicit settings, which win for
+         * the same tag; empty restores the font's defaults. */
+        private fun face(v: EditText, size: Float, weight: Int, italic: Boolean, spacing: Float, line: Float, family: String, axes: String, features: String) {
             v.setTextSize(TypedValue.COMPLEX_UNIT_PX, size)
             v.typeface = faces.getOrPut("$family|$weight|$italic|$axes") {
                 val w = weight.coerceIn(1, 1000)
@@ -820,6 +851,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
                 } catch (e: RuntimeException) { null }
                 made ?: Typeface.create(Typeface.DEFAULT, w, italic)
             }
+            v.fontFeatureSettings = features.ifEmpty { null }
             v.letterSpacing = spacing
             if (line > 0f) v.setLineHeight(max(1, line.roundToInt())) else v.setLineSpacing(0f, 1f)
         }
@@ -871,17 +903,17 @@ internal class Fields(context: Context) : FrameLayout(context) {
         }
 
         /**
-         * A field's text, measured by the class that draws it: exact2 calls this while it lays the
+         * A field's text, measured by the class that draws it (LLP 1115.001 D8): exact2 calls this while it lays the
          * page out, on the thread layout runs on, and has the answer when it returns. An [EditText] of this thread's
          * own, never attached, is set as the field is ([bare], [face]) and measured: its width, its height and its
          * first baseline in px, 21 bits each, or -1 when there is no reader to measure in. [flags]: bit 0 italic, bit
          * 1 a textarea, whose lines wrap at [width] px (negative: as long as they are).
          */
-        @JvmStatic fun measure(size: Float, weight: Int, flags: Int, spacing: Float, line: Float, family: String, axes: String, text: String, width: Float): Long {
+        @JvmStatic fun measure(size: Float, weight: Int, flags: Int, spacing: Float, line: Float, family: String, axes: String, features: String, text: String, width: Float): Long {
             val context = context ?: return -1L
             // A host booting on a thread of exact2's own: a view wants a looper to be made on.
             if (Looper.myLooper() == null) Looper.prepare()
-            val v = measurer.get() ?: bare(EditText(unadjusted(context))).also {
+            val v = measurer.get() ?: bare(EditText(unadjusted(detached(context)))).also {
                 it.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
                 // Never attached, so no parent gives it these; once it has a layout, setText reads them
                 // (TextView.checkForResize) and would throw without them.
@@ -892,7 +924,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
             val type = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
                 (if (multiline) InputType.TYPE_TEXT_FLAG_MULTI_LINE else 0)
             if (v.inputType != type) v.inputType = type
-            face(v, size, weight, flags and 1 != 0, spacing, line, family, axes)
+            face(v, size, weight, flags and 1 != 0, spacing, line, family, axes, features)
             v.setText(text)
             val free = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
             val wide = if (multiline && width >= 0f) MeasureSpec.makeMeasureSpec(ceil(width).toInt(), MeasureSpec.EXACTLY) else free
@@ -905,7 +937,7 @@ internal class Fields(context: Context) : FrameLayout(context) {
 }
 
 /** [context] with no font weight adjustment, for a field's [EditText]: Bold Text's step is in the weight the kernel
- * gives it (UIKit's step, which light weights take too), and a `TextView` would otherwise add the
+ * gives it (LLP 1115.000 D12.3, UIKit's step, which light weights take too), and a `TextView` would otherwise add the
  * device's adjustment to every typeface it is set in, the one it measures in included. */
 internal fun unadjusted(context: Context): Context = ContextThemeWrapper(context, context.theme).apply {
     if (android.os.Build.VERSION.SDK_INT >= 31) applyOverrideConfiguration(Configuration().apply { fontWeightAdjustment = 0 })

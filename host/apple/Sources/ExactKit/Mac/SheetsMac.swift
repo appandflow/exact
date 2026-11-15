@@ -1,11 +1,11 @@
-// A `dialog` that is not alert-shaped is a sheet.
+// @ref LLP 1115.002 D7.2 — a `dialog` that is not alert-shaped is a sheet.
 // HTML's `dialog`, shown by `showModal()`, is a box its author laid out over
 // an inert page. On the Mac that is a sheet: a window of its own, attached
 // to the window it was opened in (`beginSheet`), which AppKit centres on it,
 // dims it under and keeps it from taking a click. The dialog's own subtree
 // moves into that window, as a painted one moved into the top layer, so its
 // fields, their text and the app's state are the same ones; the kernel lays
-// it out in a containing block that is a maximum on each axis (as
+// it out in a containing block that is a maximum on each axis (D8.2: as
 // large as its content, at most the window's content area) and the sheet's
 // window is given the size that comes back, which nothing reports by hand.
 //
@@ -33,7 +33,7 @@
 //   quarter of a second each. Nothing makes the parent key again when its
 //   sheet ends, so this does.
 //
-// `closedby` (HTML's): unwritten, or
+// `closedby` (HTML's, as D13.4 of LLP 1115.000 left it): unwritten, or
 // `closerequest`, Escape and Command-period close it; `none`, nothing but
 // its own buttons does; `any`, a click on the window behind it closes it
 // too, which an AppKit sheet of its own never does. The focus on arrival is
@@ -52,7 +52,7 @@ final class SheetWindow: NSWindow {}
 
 /// A dialog's sheet: its window, the view that holds the dialog's subtree,
 /// and the window it is a sheet on. A modal route's sheet is the same, with
-/// its own title row and buttons round that view (`RouteChrome`).
+/// its own title row and buttons round that view (`RouteChrome`, D7.4).
 final class DialogSheet {
     let window: SheetWindow
     let rootEdits = RootEdits()
@@ -96,7 +96,7 @@ extension NodeView {
         return role["sys"]?.string == "windowBackgroundColor"
     }
 
-    /// The background role names the box's surface.
+    /// @ref LLP 1095 D3 — the background role names the box's surface.
     /// A sheet supplies its root's ground. Nested authored grounds need
     /// their own material to cover content behind them; neither paints
     /// NSColor.windowBackgroundColor over AppKit's sheet material. An
@@ -183,8 +183,8 @@ extension Presenter {
     /// then the popovers, which every dialog closes as it opens. And the
     /// index of the front modal dialog's, alert's or route's, a
     /// presentation the runner keeps live with what is above it, and the
-    /// rest inert.
-    package var openTopLayer: (frames: [TopLayerFrame], modal: Int?) {
+    /// rest inert (LLP 1123 D2).
+    package var openTopLayer: TopLayerGeometry {
         navigation.split.samplePlacement()
         let sheets = dialogs.presented, popovers = menus.presented
         func depth(_ view: NodeView) -> Int {
@@ -199,8 +199,8 @@ extension Presenter {
         let clip = viewport.contentView
         // A dialog or popover in a window of its own is its block's root
         // (BlockHostMac.swift): reported by its block, which the root sits
-        // in by its own frame; one in the page by its block
-        // too, the viewport's, or else its border box
+        // in by its own frame (LLP 1123 D2); one in the page by its block
+        // too, the viewport's (stage 14 B), or else its border box
         func shown(_ view: NodeView) -> CGRect {
             guard blocks.owns(view), let container = view.superview else { return clip.convertAcross(blocks.rects[view.id] ?? view.bounds, from: view) }
             let size = blocks.used[view.id] ?? container.bounds.size
@@ -215,9 +215,9 @@ extension Presenter {
         }
         let modal = ordered.lastIndex { $0 === dialogs.active || dialogs.presentsRoute($0) }
         if let alert = alerts.presented, let node = alert.node {
-            return (painted + [(node.id, CGRect.zero, nil)], alert.popover ? modal : painted.count)
+            return (painted + [(node.id, CGRect.zero, nil)], alert.popover ? modal : painted.count, alert.popover ? dialogs.backdrop : nil)
         }
-        return (painted, modal)
+        return (painted, modal, dialogs.backdrop)
     }
     package var openTopLayerFrames: [(UInt32, CGRect)] { openTopLayer.frames.map { ($0.0, $0.1) } }
 }

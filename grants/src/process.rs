@@ -1,18 +1,18 @@
-//! The desktop-process lines: `process.spawn <target>`,
+//! The desktop-process lines (LLP 1133.007 §6): `process.spawn <target>`,
 //! `env.read login:<NAME>` and `secret.hold <name>`. They are exact2's own
 //! lines: the runner reads `secret.hold` and the data executor admits a
 //! program and a login variable from them, and the I/O grammar of
 //! [`crate::GrantSet`] never sees them.
 use crate::{valid_name, PathPrefix, PRESENCE_PREFIX};
 
-/// The capability that names one program.
+/// The capability that names one program (D7).
 pub const SPAWN: &str = "process.spawn";
-/// The prefix of a login shell variable's `env.read` target.
+/// The prefix of a login shell variable's `env.read` target (D5).
 pub const LOGIN: &str = "login:";
-/// The capability that names a field's held secret.
+/// The capability that names a field's held secret (D8).
 pub const HOLD: &str = "secret.hold";
 
-/// What a `process.spawn` line names.
+/// What a `process.spawn` line names (D7).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpawnTarget {
     /// `path:<name>`: the first executable of that name on a `PATH`.
@@ -137,7 +137,7 @@ pub fn spawns(spec: &str) -> bool {
     targets(spec, SPAWN).next().is_some()
 }
 
-/// The login shell's variables `spec` names, in declaration order.
+/// The login shell's variables `spec` names, in declaration order (D5).
 pub fn login_variables(spec: &str) -> Vec<&str> {
     let mut names: Vec<&str> = targets(spec, "env.read")
         .filter_map(|t| t.strip_prefix(LOGIN))
@@ -146,7 +146,7 @@ pub fn login_variables(spec: &str) -> Vec<&str> {
     names
 }
 
-/// The names `spec` holds with `secret.hold`, in declaration order.
+/// The names `spec` holds with `secret.hold`, in declaration order (D8).
 pub fn held_secrets(spec: &str) -> Vec<&str> {
     targets(spec, HOLD).collect()
 }

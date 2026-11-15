@@ -1,12 +1,12 @@
-//! An app's `theme`: its own colour names, and the roles it
+//! An app's `theme` (LLP 1095 D4): its own colour names, and the roles it
 //! overrides, resolved where a colour is parsed. A plan's entries are bound
 //! while its styles are parsed, as its colour profiles are
 //! (`profiled::declarations`): the compiler binds them to check a row, the
 //! runner to set one, so `color="brand"` and a string from data naming
 //! `brand` read the same colour. A name is read as a whole component (a row,
 //! a shadow's colour, a gradient stop, a palette entry), never inside a
-//! `light-dark()` half or another function; names inside expressions are
-//! synthetic tokens, built by the crate.
+//! `light-dark()` half or another function, as LLP 1095 D1 says; names
+//! inside expressions are RFC 1121's synthetic tokens, built by the crate.
 
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -30,14 +30,14 @@ pub struct Entry {
     pub value: Box<str>,
     /// A role's spelling, matched without case.
     pub role: bool,
-    /// Which rows read it.
+    /// Which rows read it (LLP 1121 D3).
     pub kind: Kind,
-    /// It varies by an app axis: no inherited row reads it, since only a
-    /// colour is chosen again at a mode boundary.
+    /// It varies by an app axis (D5): no inherited row reads it, since only
+    /// a colour is chosen again at a mode boundary (D7).
     pub varies: bool,
 }
 
-/// A token's kind, as the plan's `theme.kind` numbers it.
+/// A token's kind (LLP 1121 D3), as the plan's `theme.kind` numbers it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     /// A colour: read wherever a colour is parsed.
@@ -86,7 +86,7 @@ thread_local! {
 }
 
 /// The entries parses read since the last call, as [`name_bit`]s; 0 for
-/// none: the runner keeps such a row beside its tokens, to set
+/// none (LLP 1121 D7): the runner keeps such a row beside its tokens, to set
 /// it again when one's slice or value changes.
 pub fn take_named() -> u64 {
     NAMED.with(|n| n.replace(0))
@@ -210,7 +210,7 @@ pub fn declared(text: &str) -> Option<Box<str>> {
 }
 
 /// The text a length or number entry `text` names in the bound theme, and
-/// its kind: a row's whole value naming one of a kind
+/// its kind (LLP 1121 D3, D7): a row's whole value naming one of a kind
 /// `takes` admits, exactly; the read recorded as a colour's is. A base name
 /// no entry defines reads the base scale's length in this process's column
 /// ([`super::scale`]), bound theme or none. `None` when it names none.
@@ -247,7 +247,7 @@ fn measure_at(
     if let Some((kind, name, value)) = found {
         note(&name);
         // A length whose value is a bare base name (an alias, `card.pad =
-        // space.md`): kept unfolded, so it reads
+        // space.md`; stage 11 B, theme2's (a)): kept unfolded, so it reads
         // the base here, per host, the design's own definition of it first
         // (and its edits: the read is recorded). A base name set to itself
         // reads the scale.
@@ -258,10 +258,10 @@ fn measure_at(
             }
             return measure_at(alias, takes, depth + 1);
         }
-        // An expression over base names the design left unset: each base read
-        // as a bare alias reads it, the design's own definition first and the
-        // read recorded, and the whole folded to px by the kernel's `calc()`,
-        // in this process's column.
+        // An expression over base names the design left unset (stage 12
+        // B2): each base read as a bare alias reads it, the design's own
+        // definition first and the read recorded, and the whole folded to
+        // px by the kernel's `calc()`, in this process's column.
         if kind == Kind::Length && alias.contains('(') && depth < 8 {
             let bases = super::scale::named_in(alias);
             if !bases.is_empty() {
@@ -275,9 +275,9 @@ fn measure_at(
                 ));
             }
         }
-        // A shadow whose lengths are over base names the design left unset:
-        // each such length folded as an expression's is, in this process's
-        // column, each base read as a bare alias reads it
+        // A shadow whose lengths are over base names the design left unset
+        // (stage 12 B3): each such length folded as an expression's is, in
+        // this process's column, each base read as a bare alias reads it
         // (the design's own first, the read recorded, as the row's own rule
         // on a token that varies says); the rest kept, so the row's codec
         // reads px.
@@ -293,7 +293,7 @@ fn measure_at(
         }
         return Some((kind, value));
     }
-    // A base name no entry defines: the scale's length
+    // A base name no entry defines (LLP 1121 stage 11 B): the scale's length
     // in this process's column. One the design defines is the design's, even
     // where this row may not name it.
     if defined || !super::scale::is_base(text) || !takes(Kind::Length, false) {
@@ -358,7 +358,7 @@ pub fn math_with(text: &str, mut token: impl FnMut(&str) -> Option<String>) -> O
     named.then_some(out)
 }
 
-/// The rows a number token may name.
+/// The rows a number token may name (LLP 1121 D3).
 const NUMBER_ROWS: [crate::StyleId; 7] = [
     crate::StyleId::Opacity,
     crate::StyleId::LineHeight,
@@ -366,12 +366,12 @@ const NUMBER_ROWS: [crate::StyleId; 7] = [
     crate::StyleId::FontWeight,
     crate::StyleId::PressScale,
     crate::StyleId::PressOpacity,
-    // `:active`'s `opacity`, lowered.
+    // `:active`'s `opacity`, lowered (LLP 1121 D8).
     crate::StyleId::PressOpacityTo,
 ];
 
-/// Whether row `id` may name a token of `kind`: a colour a
-/// row that holds a colour; a number the rows `NUMBER_ROWS` lists; a length any other
+/// Whether row `id` may name a token of `kind` (LLP 1121 D3): a colour a
+/// row that holds a colour; a number the rows D3 lists; a length any other
 /// row but those that take only a number (`line-height` takes both); a
 /// shadow its own row. The row's codec still reads the value: a text style
 /// only as a font size.
@@ -381,8 +381,6 @@ pub fn admits(kind: Kind, id: crate::StyleId) -> bool {
         id.codec(),
         C::ColorValue
             | C::KeywordColor
-            | C::Rgba8
-            | C::Color2
             | C::SymbolPalette
             | C::Paint
             | C::BackgroundImage
@@ -404,7 +402,7 @@ pub fn admits(kind: Kind, id: crate::StyleId) -> bool {
 }
 
 /// Row `id`'s value with a length or number token it names replaced by the
-/// token's: a length's text, which the row's codec and the
+/// token's (LLP 1121 D7): a length's text, which the row's codec and the
 /// relative side table read as the literal's; a number's number. `None`
 /// when it names no such token, or one the row does not take
 /// ([`admits`]), and the value stands for the codec to read or refuse.
@@ -415,10 +413,10 @@ pub fn measured(
     let super::StyleValue::Text(text) = value else {
         return None;
     };
-    // An inherited row reads no token that varies, as the compiler
+    // An inherited row reads no token that varies (D7), as the compiler
     // refuses one a literal names; but type and family, which the compiler
-    // lets vary on a text with no element children to inherit them, each read
-    // again per tuple as a colour is.
+    // lets vary on a text with no element children to inherit them (stage
+    // 6 C, theme2's ruling), each read again per tuple as a colour is.
     let (kind, value) = measure(text, |kind, varies| {
         admits(kind, id)
             && (!(varies && id.inherited()) || matches!(kind, Kind::Type | Kind::Family))
@@ -440,7 +438,7 @@ pub(crate) fn resolved<T>(text: &str, parse: impl FnOnce(&str) -> T) -> Option<T
     if INSIDE.with(|i| i.get()) || text.is_empty() {
         return None;
     }
-    // A synthetic token is named by its whole expression,
+    // A synthetic token (LLP 1121 D3) is named by its whole expression,
     // which the build folded; no other text with these is a name.
     let synthetic = text.contains('(');
     if !synthetic && text.contains([' ', '#']) {

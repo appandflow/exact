@@ -3,7 +3,7 @@
 export function backdropValue(value, note = () => {}) {
   if (value == null) return null;
   const refuse = why => { note(why); return null; };
-  const expected = "`backdrop-filter` is `none` or one `blur(<length>)` and/or `saturate(<number-or-percentage>)`";
+  const expected = "`backdrop-filter` is `none` or one `blur(<length>)` and/or `saturate(<number-or-percentage>)` (LLP 1053.000 D1)";
   if (typeof value !== "string") return refuse(expected);
   const text = value.trim();
   if (/^unset$/i.test(text)) return null;
@@ -20,9 +20,9 @@ export function backdropValue(value, note = () => {}) {
     if (name !== "blur" && name !== "saturate") {
       if (!/^(brightness|contrast|grayscale|hue-rotate|invert|opacity|sepia|drop-shadow|url)$/.test(name)) return refuse(expected);
       const suffix = name === "url" ? "; an SVG filter on a backdrop is not built" : "";
-      return refuse(`\`${name}()\` is CSS, but exact2's \`backdrop-filter\` builds only \`blur()\` and \`saturate()\`${suffix}`);
+      return refuse(`\`${name}()\` is CSS, but exact2's \`backdrop-filter\` builds only \`blur()\` and \`saturate()\`${suffix} (LLP 1053.000 D1)`);
     }
-    if (seen.has(name)) return refuse(`\`backdrop-filter\` takes one \`${name}()\` in exact2`);
+    if (seen.has(name)) return refuse(`\`backdrop-filter\` takes one \`${name}()\` in exact2 (LLP 1053.000 D1)`);
     seen.add(name);
     const match = arg ? argument.exec(arg) : null;
     const invalid = name === "blur" ? "`blur()` takes a length in px (unitless zero)" : "`saturate()` takes a nonnegative number or percentage";

@@ -1,4 +1,4 @@
-//! `trim(text)`: a send button disabled on an empty
+//! `trim(text)` (LLP 1054.000.005): a send button disabled on an empty
 //! draft stays disabled on a draft of spaces.
 
 use exact_kernel::{Kernel, PropId};

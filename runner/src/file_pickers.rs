@@ -1,8 +1,8 @@
-//! The File System Access API's three pickers, issued as commands:
-//! `showOpenFilePicker(id)` (or `(id, multiple)`),
+//! The File System Access API's three pickers, issued as commands (LLP
+//! 1069.010 D2): `showOpenFilePicker(id)` (or `(id, multiple)`),
 //! `showDirectoryPicker(id)`, `showSaveFilePicker(id, suggestedName)`.
 //! Each opens a document in place: the host mints a `doc:` handle for
-//! what the person chose and reports it as `change` on the element
+//! what the person chose (D1) and reports it as `change` on the element
 //! `id` names (several, one per line, under `multiple`), or HTML's `cancel`
 //! there. The types are the manifest's `file_handlers`, never the
 //! command's, so an app cannot widen them per call.
@@ -11,7 +11,7 @@
 //! refuses an unknown element or bad arguments into the journal (`<name>:
 //! refused: <reason>`), holds the request for the agent (capabilities
 //! `open-file`, `open-directory`, `save-file`; answered by `type @t
-//! <path>…` or `tap @t cancel`), or tells the host to
+//! <path>…` or `tap @t cancel`, LLP 1069.007 D3), or tells the host to
 //! present it. A host without the picker (Linux; a browser without
 //! `showOpenFilePicker`) refuses and fires `cancel`.
 
@@ -41,7 +41,7 @@ impl Kind {
         }
     }
 
-    /// The hold's capability in `pending`.
+    /// The hold's capability in `pending` (LLP 1069.010 §Substitute).
     pub fn capability(self) -> &'static str {
         match self {
             Kind::Open => "open-file",
@@ -240,7 +240,7 @@ pub fn request<D: DataSource>(runner: &mut Runner<D>, json: &str) -> String {
     }
 }
 
-/// `requestPermission(id, path, mode)`: `{"command":
+/// `requestPermission(id, path, mode)` (LLP 1069.010.000 D7): `{"command":
 /// "requestPermission","id":…,"path":…,"mode":…}`. A path that is not a
 /// `doc:` path, a mode that is neither `read` nor `readwrite`, or an
 /// unknown element is refused into the journal (`{"refused":"…"}`); else

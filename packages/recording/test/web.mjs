@@ -1,5 +1,5 @@
-// @exact/recording's and @exact/media-capture's conformance suite on the web:
-// the fixture app
+// @exact/recording's and @exact/media-capture's conformance suite on the web
+// (LLP 1133.001 D7, LLP 1133.009 §11, stage 1): the fixture app
 // (`test/fixture`) made with `exact new` outside the repo, depending on both
 // packages by `file:`, built for the web, and driven in each engine with the
 // web implementations bound. No agent: an implementation's agent path would
@@ -39,7 +39,7 @@ const launches = {
 };
 const grantedState = { chromium: 'granted', firefox: 'prompt', webkit: 'granted' };
 
-// Counts the page's device opens and the browser tracks stopped, for the lease checks.
+// Counts the page's device opens and the browser tracks stopped, for the lease checks (D6).
 const count = () => {
   const gum = MediaDevices.prototype.getUserMedia, stop = MediaStreamTrack.prototype.stop;
   globalThis.__media = { opens: 0, stops: 0 };
@@ -133,7 +133,7 @@ for (const engine of engines) {
     const opened = await until(page, 'opened', t => /^stream-\d+ 1$/.test(t));
     check(engine, 'getUserMedia answers a stream with one track', /^stream-\d+ 1$/.test(opened), opened);
     const idle = await until(page, 'track', t => t === 'live true idle true');
-    check(engine, 'a track no consumer joined is idle', idle === 'live true idle true', idle);
+    check(engine, 'a track no consumer joined is idle (D6)', idle === 'live true idle true', idle);
     const devices = await until(page, 'devices', t => Number(t) >= 1);
     check(engine, 'enumerateDevices lists an input once granted', Number(devices) >= 1, devices);
 
@@ -168,7 +168,7 @@ for (const engine of engines) {
     const invalid = await until(page, 'info-error', t => t !== '');
     check(engine, 'pause after stop is InvalidStateError', invalid === 'InvalidStateError', invalid);
 
-    // Idle after use: the browser's track stops, a reader joining opens nothing, and a start opens it again.
+    // Idle after use: the browser's track stops, a reader joining opens nothing, and a start opens it again (D6).
     const idleAgain = await until(page, 'track', t => t === 'live true idle true');
     let media = await page.evaluate(() => globalThis.__media);
     check(engine, 'its last consumer gone, the track is idle and the browser\'s track stopped', idleAgain === 'live true idle true' && media.stops >= 1, `${idleAgain} ${JSON.stringify(media)}`);
@@ -212,7 +212,7 @@ for (const engine of engines) {
     check(engine, `audio/mp4 ${claims ? 'records, as isTypeSupported claims' : 'is NotSupportedError, as isTypeSupported says'}`, claims ? /audio\/mp4 \S+\.m4a$/.test(mp4) : mp4 === 'NotSupportedError', mp4);
 
     // Last, since Firefox's fake device answers no later page once the one that opened it goes: the page goes
-    // mid-take (a take is recording since the reopening above), and what the store received is kept.
+    // mid-take (a take is recording since the reopening above), and what the store received is kept (D6).
     const midway = `app:/data/takes/take-2${extname(path)}`;
     await page.reload();
     await page.waitForTimeout(500);

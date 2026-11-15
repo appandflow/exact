@@ -1,10 +1,10 @@
-// Native modules on the JS runtime:
-// the wasm host's own `native-glue.js` over the app's module
+// Native modules on the JS runtime (LLP 1024 D3–D5, D7; LLP 1067 D5; LLP
+// 1071 §7): the wasm host's own `native-glue.js` over the app's module
 // artifact (`modules/index.js`, its `modules/web/`), and over the views its
-// packages serve (views.js). A loaded chunk,
-// fetched after first paint by the first module element (rt.js `nm`) or a
+// packages serve (views.js, LLP 1133.001 D1). A loaded chunk,
+// activated after first paint by the first module element (rt.js `nm`) or a
 // TypeScript source's `native` (ts-data.js); an app without modules never
-// has it.
+// has it. The build may preload the chunk without evaluating it.
 import './native-glue.js';
 
 // The runner's dispatch codes (native-glue.js `DISPATCH`) as the runtime's
@@ -33,12 +33,20 @@ export function viewHost(say, appId = () => undefined) {
 /** The app's page module itself: its `element` hatches (hatches.js). */
 export const pageTable = () => globalThis.exact.nativeModule();
 
-/** `native.later` and device topics (1016.002): the artifact's
+/** `native.later` and device topics (LLP 1067 D5, 1016.002): the artifact's
  * `later(request)`, and its `connect` announcements, each re-asking the
  * resources whose answers watched the topic (`changed`). */
 export function pageModule({ changed, agent, now }) {
   page ??= globalThis.exact.pageNative(true, { changed, ready: () => true, generation: () => 0, agent, now });
   return page.then(p => ({
-    later: request => p.later(btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(request))))).then(JSON.parse),
+    later: request => p.later(base64(new TextEncoder().encode(JSON.stringify(request)))).then(JSON.parse),
   }));
+}
+
+/** Bytes as base64, a slice at a time: spreading a whole request into one
+ * `String.fromCharCode` call overflows the stack past a few hundred KB. */
+function base64(bytes) {
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 16384) text += String.fromCharCode(...bytes.subarray(i, i + 16384));
+  return btoa(text);
 }

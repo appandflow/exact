@@ -3,8 +3,8 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// On AppKit, a pan that began ends once with `panrelease`,
-/// after its last delta, at the engine's tracker's velocity
+/// LLP 1057 §10.6 on AppKit: a pan that began ends once with `panrelease`,
+/// after its last delta, at the engine's tracker's velocity (LLP 1057.001 §3)
 /// over the mouse's own timestamps; a cancelled one at rest; a press, none.
 final class PanReleaseMacTests: XCTestCase {
     private var window: NSWindow?

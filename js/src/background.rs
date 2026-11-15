@@ -1,10 +1,10 @@
-//! The executor's half of background work: storage an
+//! The executor's half of background work (LLP 1097 D5, D6): storage an
 //! answer started and did not await finishes after the answer, under one
 //! continuation of the module's own ([`BACKGROUND`]) that the runner holds
 //! as a request in flight. The prelude keeps the owner and the one queue;
 //! this hands out a round only when the operation in flight is the
 //! background's, so the round is the only waiter on the store's shared
-//! completions, and delivers it with the background current.
+//! completions (D3), and delivers it with the background current.
 use super::Module;
 use exact_runner::{BackgroundState, DataError, Dispatch, Outcome, Request, Work, BACKGROUND};
 use serde_json::Value as Json;
@@ -74,9 +74,11 @@ impl Module {
     /// A round's work: wait on the host's I/O worker for the completion of
     /// the operation in flight, as an answer's storage continuation does.
     pub(crate) fn background_dispatch(&mut self) -> Dispatch {
-        match self.storage.as_ref() {
-            Some(session) => Dispatch::Run(Work::Now(session.continuation())),
-            None => Dispatch::Missing,
+        match (self.storage.as_ref(), self.engine.as_mut()) {
+            (Some(session), Some(engine)) => {
+                Dispatch::Run(Work::Now(session.background_continuation(engine)))
+            }
+            _ => Dispatch::Missing,
         }
     }
 
@@ -90,7 +92,7 @@ impl Module {
         if let Outcome::Failed { message, kind } = outcome {
             // The wait gave up on the background's compression and took its
             // right to write away: fail it as an answer's is failed, so its
-            // rejection runs and the queue moves on. Any
+            // rejection runs and the queue moves on (LLP 1069.002 A1.5). Any
             // other operation may still write: stall, as before.
             let text = crate::wire::outcome_to_json(&Outcome::Failed {
                 kind,
@@ -112,7 +114,6 @@ impl Module {
                 }
                 self.host.between_answers = false;
                 if failed {
-                    self.progress += 1;
                     self.read_background();
                     return Ok(self.background_request());
                 }
@@ -138,8 +139,6 @@ impl Module {
             self.finish_let_go();
         }
         self.host.between_answers = false;
-        // What landed may settle an answer waiting on the background's work.
-        self.progress += 1;
         self.read_background();
         match delivered {
             Ok(true) => Ok(self.background_request()),
@@ -150,11 +149,14 @@ impl Module {
         }
     }
 
-    /// Teardown: the module's storage still queued or in
+    /// Teardown (LLP 1097 D10): the module's storage still queued or in
     /// flight is finished here, on this thread, as a let-go answer's steps
     /// are, within `bound`; what is left then is dropped and said. An
     /// operation the store already has completes on disk regardless.
     pub(crate) fn finish_background(&mut self, bound: std::time::Duration) {
+        if self.retire_oom().is_some() {
+            return;
+        }
         let deadline = std::time::Instant::now() + bound;
         self.read_background();
         self.host.between_answers = true;
@@ -165,6 +167,9 @@ impl Module {
         }
         self.read_background();
         loop {
+            if self.retire_oom().is_some() {
+                break;
+            }
             let left = self.background.state.queued + self.background.state.in_flight;
             if left == 0 {
                 break;
@@ -193,14 +198,19 @@ impl Module {
         self.host.between_answers = false;
     }
 
-    /// The module's journal: the runtime's own lines as they
-    /// are, its `console` marked as the app's.
+    /// The module's journal (LLP 1097 D8): the runtime's own lines, those
+    /// through its door as they are and the rest as `console: …`, and each
+    /// line the app's `console` wrote marked with its method (LLP 1027.009
+    /// D1: [`exact_runner::Console::mark`]).
     pub(crate) fn journal_lines(&mut self) -> Vec<String> {
         let mut lines = std::mem::take(&mut self.host.journal);
         lines.extend(
-            self.take_logs()
+            self.take_lines()
                 .into_iter()
-                .map(|line| format!("console: {line}")),
+                .map(|(method, line)| match method {
+                    Some(method) => method.mark(&line),
+                    None => format!("console: {line}"),
+                }),
         );
         lines
     }

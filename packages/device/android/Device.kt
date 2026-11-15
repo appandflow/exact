@@ -1,13 +1,13 @@
-// @exact/device on Android: BatteryManager's sticky broadcast, ConnectivityManager's
+// @exact/device on Android (LLP 1133.031 D1–D5, D8, D9): BatteryManager's sticky broadcast, ConnectivityManager's
 // default network and PowerManager, answered in the interface's shapes. The build makes one per host when the app
 // binds the extension, outside the agent; under the agent the runner's substitute answers and none is made.
 //
-// - Android runs one session a process, so this instance's observers are the process's. Each starts at its
+// - Android runs one session a process, so this instance's observers are the process's (D5 item 1). Each starts at its
 //   source's first read and stops at its `release`, when the runner's last reader goes.
-// - A source announces only when an answered field changes: `ACTION_BATTERY_CHANGED` also arrives for
+// - A source announces only when an answered field changes (D5 item 3): `ACTION_BATTERY_CHANGED` also arrives for
 //   voltage and temperature, and `level` is compared in hundredths, BATTERY_PROPERTY_CAPACITY's percent.
-// - The host's resume reads every observed source again.
-// - `ACCESS_NETWORK_STATE`, a normal permission, comes from the implementation's manifest fragment.
+// - The host's resume reads every observed source again (D5 item 4).
+// - `ACCESS_NETWORK_STATE`, a normal permission, comes from the implementation's manifest fragment (D8).
 package exact.device
 
 import android.content.BroadcastReceiver
@@ -95,7 +95,7 @@ class DeviceModule(context: ExtensionContext) : ExactExtension(context) {
         }
     }
 
-    // The battery: the sticky ACTION_BATTERY_CHANGED, registered on the application context.
+    // The battery (D1): the sticky ACTION_BATTERY_CHANGED, registered on the application context.
 
     private fun startBattery() {
         if (batteryReceiver != null) return
@@ -127,7 +127,7 @@ class DeviceModule(context: ExtensionContext) : ExactExtension(context) {
                 else -> "none"
             })
             .put("batteryLow", Build.VERSION.SDK_INT >= 28 && intent?.getBooleanExtra(BatteryManager.EXTRA_BATTERY_LOW, false) == true)
-        // No battery: the specification's full battery, charging.
+        // No battery: the specification's full battery, charging (D1).
         if (!present) return JSONObject().put("level", 1.0).put("charging", true).put("android", android)
         var percent = batteries.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
         if (percent !in 0..100) {
@@ -141,7 +141,7 @@ class DeviceModule(context: ExtensionContext) : ExactExtension(context) {
             .put("android", android)
     }
 
-    // The network: the default network's capabilities, and Data Saver.
+    // The network (D2): the default network's capabilities, and Data Saver.
 
     private fun startNetwork() {
         if (networkCallback != null) return
@@ -196,7 +196,7 @@ class DeviceModule(context: ExtensionContext) : ExactExtension(context) {
             .put("android", android)
     }
 
-    // The power state: Battery Saver and the thermal status.
+    // The power state (D3): Battery Saver and the thermal status.
 
     private fun startPower() {
         if (powerReceiver != null) return

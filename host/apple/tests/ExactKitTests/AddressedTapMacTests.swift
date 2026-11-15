@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// A click addressed by id presses what it names (the agent's `tap`), as on
+/// A click addressed by id presses what it names (LLP 1012 §1 `tap`), as on
 /// iOS (`AddressedTapIOSTests`): the real click lands beside the card a
 /// row's middle holds; a box without a press never presses the control inside
 /// it; `at` keeps a point's semantics.
@@ -49,7 +49,7 @@ final class AddressedTapMacTests: XCTestCase {
 
     private func rows() -> (Agent, () -> [UInt32]) {
         _ = NSApplication.shared
-        clicksArriveAsInTheKeyWindow() // the agent's own rule, which a test's process does not have
+        clicksArriveAsInTheKeyWindow() // the agent's own rule, which a test's process does not have (LLP 1115.000 D7.9)
         let session = ExactApp.shared.makeSession(label: "addressed-tap-mac")
         self.session = session
         let p = session.presenter
@@ -82,7 +82,7 @@ final class AddressedTapMacTests: XCTestCase {
         XCTAssertEqual(presses(), [], "nothing is pressed by a refusal")
         XCTAssertNil(agent.tap(["id": 8])["error"])
         XCTAssertEqual(presses(), [], "a disabled row's click presses nothing, not the button at its middle")
-        // A 2-point strip around a child that covers the rest is found.
+        // A 2-point strip around a child that covers the rest is found (Astra, round 1).
         session?.presenter.apply(wireBatch([
             ["op": "create", "id": 22, "kind": "view", "handlers": ["press"], "props": ["testId": "ring"]],
             ["op": "create", "id": 23, "kind": "view", "handlers": ["press"], "props": ["testId": "ring-core"]],
@@ -95,7 +95,7 @@ final class AddressedTapMacTests: XCTestCase {
         XCTAssertNil(ring["error"], "\(ring)")
         XCTAssertEqual(presses(), [22])
         // An inline run's `at` is from its own fragment, not its paragraph's
-        // top left, where another run is.
+        // top left, where another run is (round 2).
         session?.presenter.apply(wireBatch([
             ["op": "create", "id": 30, "kind": "text", "style": ["font_size": 16, "line_height": "20px"]],
             ["op": "paragraph", "id": 30, "runs": [
@@ -161,6 +161,49 @@ final class AddressedTapMacTests: XCTestCase {
         XCTAssertNil(reply["error"], "\(reply)")
         XCTAssertEqual(p.selection.selectedText(), "/tmp/work", "the click landed in the run: \(reply)")
         XCTAssertEqual(presses(), [])
+    }
+
+    /// A grouped form's `destructive` row is AppKit's push button, whose
+    /// bezel hugs its title and bounds its hit (FormRowsMac.swift): a tap
+    /// that names the row clicks the bezel, not the row's middle beside it,
+    /// where the click reached nothing and was still reported delivered (#388).
+    func testATapOnARowDrawnAsAPushButtonClicksItsBezel() throws {
+        let (agent, presses) = rows(), p = try XCTUnwrap(session?.presenter)
+        p.apply(wireBatch([
+            ["op": "create", "id": 60, "kind": "button", "handlers": ["press"], "props": ["testId": "stop"],
+             "style": ["appearance": "auto", "padding_left": 12.0, "padding_top": 10.0, "padding_bottom": 10.0]],
+            ["op": "create", "id": 61, "kind": "text", "props": ["text": "Stop Plan"]],
+            ["op": "children", "id": 60, "ids": [61]], ["op": "children", "id": 1, "ids": [2, 4, 6, 8, 60]],
+            ["op": "frame", "id": 60, "x": 0.0, "y": 600.0, "w": 400.0, "h": 44.0], contentOp(60, 400, 44, padding: [10, 0, 10, 12]),
+            ["op": "frame", "id": 61, "x": 12.0, "y": 14.0, "w": 70.0, "h": 16.0],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        let row = try XCTUnwrap(p.views[60])
+        row.layoutSubtreeIfNeeded()
+        let bezel = try XCTUnwrap(row.rowBezelRect)
+        XCTAssertLessThan(bezel.maxX, row.bounds.midX, "the bezel is left of the row's middle")
+        let reply = agent.tap(["id": 60])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertEqual(presses(), [60], "the row is pressed: \(reply)")
+        let at = try XCTUnwrap(reply["at"] as? [Double])
+        XCTAssertTrue(agent.box(row, region: bezel).contains(CGPoint(x: at[0], y: at[1])), "on its bezel: \(reply)")
+    }
+
+    /// Where a press's middle lands on nothing of it, the nearest point of
+    /// it that it takes is clicked, and with none the tap is refused, naming
+    /// where it landed, never reported pressed.
+    func testAPressWhoseMiddleLandsOffItIsAimedOrRefused() throws {
+        let (_, _) = rows(), p = try XCTUnwrap(session?.presenter)
+        let row = try XCTUnwrap(p.views[2]), area = CGRect(x: 0, y: 0, width: 400, height: 160), mid = CGPoint(x: 200, y: 80)
+        let off = { (_: CGPoint) in "#1" }
+        switch Agent.addressedAim(row, middle: mid, area: area, landsOutside: off, reach: { $0.x < 100 ? .node(row) : nil }) {
+        case .at(let q, let middle): XCTAssertLessThan(q.x, 100); XCTAssertNotNil(middle)
+        case .refused(let r): XCTFail("\(r.reply)")
+        }
+        switch Agent.addressedAim(row, middle: mid, area: area, landsOutside: off, reach: { _ in nil }) {
+        case .at(let q, _): XCTFail("reported at \(q)")
+        case .refused(let r): XCTAssertEqual((r.reply["error"] as? String)?.contains("lands on #1, not on it"), true, "\(r.reply)")
+        }
     }
 }
 #endif

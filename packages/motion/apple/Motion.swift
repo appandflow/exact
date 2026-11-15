@@ -1,10 +1,10 @@
-// @exact/motion on Apple: Core Motion
+// @exact/motion on Apple (LLP 1133.013 D2, D3, D4, D5, D8): Core Motion
 // through one `CMMotionManager`, answered in the interface's shapes. The
 // app's composed module calls it outside the agent, through `ExactPackage`'s
 // shape; under the agent the runner's substitute answers and no manager is
 // made, unless the drive binds it (`--bind motion`).
 //
-// - One manager serves every reader, with four streams: the raw
+// - One manager serves every reader (D4), with four streams: the raw
 //   accelerometer, gyroscope and magnetometer, and device motion for the
 //   rest. Each runs at the fastest frequency its readers ask (60 Hz when one
 //   names none; `deviceMotion` always 60 Hz, as WebKit) and device motion in
@@ -12,8 +12,8 @@
 //   orientation, else `xArbitraryZVertical`). Each reader group (a name with
 //   one `frequency`, `referenceFrame` and `history`) keeps a ring of its own
 //   thinned samples, numbered, answered from the cursor the runner passes as
-//   `after`.
-// - Units and sign are the W3C's: Core Motion's accelerations are in g
+//   `after` (D5).
+// - Units and sign are the W3C's (D2): Core Motion's accelerations are in g
 //   with gravity pointing down (face up reads z = −1), so each is multiplied
 //   by −9.80665; rotation rates are rad/s and fields µT as Core Motion gives
 //   them. An absolute orientation is turned from Core Motion's x-north frame
@@ -22,8 +22,8 @@
 //   (the context's `orientation`, the web's `screen.orientation.angle`;
 //   Accelerometer §7.1).
 // - The streams stop while the app is in the background and start again in
-//   the foreground; each reader's next answer reads `interrupted`.
-// - A canvas input is a consumer of its stream like a reader, thinned to
+//   the foreground; each reader's next answer reads `interrupted` (D8).
+// - A canvas input (D6) is a consumer of its stream like a reader, thinned to
 //   its own frequency (60 Hz by default), each sample written into the
 //   surface's input (the context's `surfaces`), which the host drains into
 //   the canvas once a frame. It holds the lease while displayed: hidden, it
@@ -31,7 +31,7 @@
 //   wake's, it stays paused. The background pauses it too, and the return
 //   resumes one whose canvas stayed displayed. The first sample after a
 //   pause counts the samples the pause lost in its `dropped`.
-// - Tier 3: `MotionModule.hatch` is given the manager once, when made.
+// - Tier 3 (D10): `MotionModule.hatch` is given the manager once, when made.
 // - The Mac has none of this (`CMMotionManager` is iOS's); its module answers
 //   the status unavailable.
 import CoreMotion
@@ -40,7 +40,7 @@ import Foundation
 
 #if os(iOS)
 public final class MotionModule: ExactPackage {
-    /// The app's access hatch: given the manager once, when it is made.
+    /// The app's access hatch (D10): given the manager once, when it is made.
     public static var hatch: ((CMMotionManager) -> Void)?
 
     private static let g = 9.80665
@@ -75,7 +75,7 @@ public final class MotionModule: ExactPackage {
         var history: Int { min(MotionModule.most, Int(args["history"] as? Double ?? 0)) }
     }
 
-    /// A canvas input: `sensor`'s samples, read as source `name` reads
+    /// A canvas input (D6): `sensor`'s samples, read as source `name` reads
     /// them, written into `surface`'s input.
     private final class Feed {
         let surface: String, sensor: String, name: String, stream: Stream, input: ExactSurfaceInput
@@ -122,7 +122,7 @@ public final class MotionModule: ExactPackage {
     public func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void) {
         DispatchQueue.main.async { [self] in
             switch name {
-            // Core Motion asks no permission for these sensors.
+            // Core Motion asks no permission for these sensors (D11).
             case "motionStatus", "requestMotionPermission": reply(status())
             case "startSensorInput": reply(startInput(args))
             case "stopSensorInput": reply(stopInput(args))
@@ -188,7 +188,7 @@ public final class MotionModule: ExactPackage {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: once)
     }
 
-    /// A reader's answer from its group's ring after `after`.
+    /// A reader's answer from its group's ring after `after` (D5).
     private func answer(_ group: Group, _ args: [String: Any]) -> [String: Any] {
         guard let newest = group.ring.last else { return ["error": "NotReadableError"] }
         var out = newest.fields
@@ -224,7 +224,7 @@ public final class MotionModule: ExactPackage {
         restart()
     }
 
-    // MARK: canvas inputs
+    // MARK: canvas inputs (D6)
 
     private func startInput(_ args: [String: Any]) -> [String: Any] {
         let surface = args["surface"] as? String ?? "", sensor = args["sensor"] as? String ?? ""
@@ -308,29 +308,29 @@ public final class MotionModule: ExactPackage {
             manager.startAccelerometerUpdates(to: .main) { [weak self] d, _ in
                 guard let d else { return }
                 let a = d.acceleration
-                self?.take(.accelerometer, d.timestamp) { _ in [a.x, a.y, a.z].map { $0 * -Self.g } }
+                self?.take(.accelerometer, d.timestamp) { _, _ in [a.x, a.y, a.z].map { $0 * -Self.g } }
             }
         case .gyroscope:
             manager.gyroUpdateInterval = interval
             manager.startGyroUpdates(to: .main) { [weak self] d, _ in
                 guard let d else { return }
                 let r = d.rotationRate
-                self?.take(.gyroscope, d.timestamp) { _ in [r.x, r.y, r.z] }
+                self?.take(.gyroscope, d.timestamp) { _, _ in [r.x, r.y, r.z] }
             }
         case .magnetometer:
             manager.magnetometerUpdateInterval = interval
             manager.startMagnetometerUpdates(to: .main) { [weak self] d, _ in
                 guard let d else { return }
                 let f = d.magneticField
-                self?.take(.magnetometer, d.timestamp) { _ in [f.x, f.y, f.z] }
+                self?.take(.magnetometer, d.timestamp) { _, _ in [f.x, f.y, f.z] }
             }
         case .deviceMotion:
             manager.deviceMotionUpdateInterval = interval
-            // Core Motion's own calibration display, as a hand-built compass sets it.
+            // Core Motion's own calibration display, as a hand-built compass sets it (D3).
             manager.showsDeviceMovementDisplay = frame == .xMagneticNorthZVertical
             manager.startDeviceMotionUpdates(using: frame ?? .xArbitraryZVertical, to: .main) { [weak self] m, _ in
                 guard let m else { return }
-                self?.take(.deviceMotion, m.timestamp) { name in Self.values(name, m) }
+                self?.take(.deviceMotion, m.timestamp) { name, absolute in Self.values(name, absolute, m) }
             }
         }
     }
@@ -340,18 +340,19 @@ public final class MotionModule: ExactPackage {
         now() - (ProcessInfo.processInfo.systemUptime - t) * 1000
     }
 
-    /// A sample of `stream` for each of its groups that takes it (the
-    /// thinning), `values(name)` giving a name's values in the device frame.
+    /// A sample of `stream` for each of its groups that takes it (D4's
+    /// thinning), `values(name, absolute)` giving a name's values in the
+    /// device frame, `absolute` for a `deviceOrientation` reader that asked it.
     /// No reader is asked again for it: the runner polls each at its
     /// `interval`, and the samples between are the next answer's batch.
-    private func take(_ stream: Stream, _ timestamp: TimeInterval, _ values: (String) -> Any) {
+    private func take(_ stream: Stream, _ timestamp: TimeInterval, _ values: (String, Bool) -> Any) {
         let at = stamp(timestamp), deg = angle()
         for group in groups.values where group.stream == stream {
             if group.period > 0, at < group.next - group.period / 2 { continue }
             group.next = max(group.next + group.period, at + group.period / 2)
             group.sequence += 1
             let turn = group.args["referenceFrame"] as? String == "screen" ? deg : 0
-            group.ring.append((group.sequence, Self.fields(group.name, values(group.name), at: at, screen: turn)))
+            group.ring.append((group.sequence, Self.fields(group.name, values(group.name, group.args["absolute"] as? Bool == true), at: at, screen: turn)))
             let bound = max(1, group.history)
             if group.ring.count > bound { group.ring.removeFirst(group.ring.count - bound) }
             let waiting = group.waiting
@@ -361,7 +362,7 @@ public final class MotionModule: ExactPackage {
         for feed in feeds.values where feed.stream == stream && active(feed.surface) {
             if at < feed.next - feed.period / 2 { continue }
             feed.next = max(feed.next + feed.period, at + feed.period / 2)
-            guard var v = values(feed.name) as? [Double] else { continue }
+            guard var v = values(feed.name, false) as? [Double] else { continue }
             if feed.screen && deg != 0 { v = v.count == 4 ? Self.turned(v, deg) : Self.screen(v, deg) }
             let dropped = feed.pausedAt.map { max(0, Int(((at - $0) / feed.period).rounded(.down))) } ?? 0
             feed.pausedAt = nil
@@ -373,7 +374,8 @@ public final class MotionModule: ExactPackage {
     private func angle() -> Double { context.orientation }
 
     /// A device-motion name's values in the device frame: x, y, z; a quaternion; or the event's fields.
-    private static func values(_ name: String, _ m: CMDeviceMotion) -> Any {
+    /// An `absolute` reader's stream runs in the x-north frame (`restart`).
+    private static func values(_ name: String, _ absolute: Bool, _ m: CMDeviceMotion) -> Any {
         let gravity = [m.gravity.x, m.gravity.y, m.gravity.z].map { $0 * -g }
         let user = [m.userAcceleration.x, m.userAcceleration.y, m.userAcceleration.z].map { $0 * -g }
         let rate = [m.rotationRate.x, m.rotationRate.y, m.rotationRate.z]
@@ -390,10 +392,7 @@ public final class MotionModule: ExactPackage {
             return ["acceleration": v3(user), "accelerationIncludingGravity": v3(zip(gravity, user).map(+)),
                     "rotationRate": ["alpha": rate[2] * deg, "beta": rate[0] * deg, "gamma": rate[1] * deg],
                     "interval": 1000 / 60.0] as [String: Any]
-        default:
-            // Device Orientation's Z-X'-Y'' angles from Core Motion's attitude.
-            let a = m.attitude
-            return ["alpha": a.yaw * deg, "beta": a.pitch * deg, "gamma": a.roll * deg, "absolute": false, "apple": NSNull()] as [String: Any]
+        default: return orientationEvent(quaternion, absolute: absolute)
         }
     }
 
@@ -422,16 +421,10 @@ public final class MotionModule: ExactPackage {
         let h = deg * .pi / 360, bz = -sin(h), bw = cos(h)
         return [q[0] * bw + q[1] * bz, q[1] * bw - q[0] * bz, q[2] * bw + q[3] * bz, q[3] * bw - q[2] * bz]
     }
-
-    /// `(0, 0, sin 45°, cos 45°) ⊗ q`: from Core Motion's x-north frame to the W3C's x-east, y-north one.
-    private static func northUp(_ q: [Double]) -> [Double] {
-        let s = 0.5.squareRoot()
-        return [s * (q[0] - q[1]), s * (q[1] + q[0]), s * (q[2] + q[3]), s * (q[3] - q[2])]
-    }
 }
 #else
 /// The Mac has no device motion (`CMMotionManager` is iOS's): the status
-/// reads unavailable and every sensor `NotSupportedError`.
+/// reads unavailable and every sensor `NotSupportedError` (D14).
 public final class MotionModule: ExactPackage {
     private static let status: [String: Any] = [
         "available": false, "state": "unknown", "apple": NSNull(), "android": NSNull(),
@@ -450,3 +443,46 @@ public final class MotionModule: ExactPackage {
     }
 }
 #endif
+
+extension MotionModule {
+    /// `deviceOrientation`'s answer from Core Motion's attitude quaternion `q`, which is in the x-north frame when
+    /// `absolute`: the event's angles are then of the W3C's y-north frame, as `deviceorientationabsolute`'s.
+    static func orientationEvent(_ q: [Double], absolute: Bool) -> [String: Any] {
+        let angles = orientation(absolute ? northUp(q) : q)
+        return ["alpha": angles[0], "beta": angles[1], "gamma": angles[2], "absolute": absolute, "apple": NSNull()]
+    }
+
+    /// `(0, 0, sin 45°, cos 45°) ⊗ q`: from Core Motion's x-north frame to the W3C's x-east, y-north one.
+    static func northUp(_ q: [Double]) -> [Double] {
+        let s = 0.5.squareRoot()
+        return [s * (q[0] - q[1]), s * (q[1] + q[0]), s * (q[2] + q[3]), s * (q[3] - q[2])]
+    }
+
+    /// Device Orientation's alpha, beta and gamma in degrees, in the W3C's ranges ([0, 360), [−180, 180),
+    /// [−90, 90)), from the quaternion [x, y, z, w] that turns the device frame into the Earth frame: Chromium's
+    /// computation from the rotation matrix, as `Motion.kt` makes it on Android. `CMAttitude`'s `yaw`, `pitch` and
+    /// `roll` are the same rotations in Core Motion's ranges (pitch in [−90°, 90°]), and its `rotationMatrix` is
+    /// this matrix transposed, in single precision.
+    static func orientation(_ q: [Double]) -> [Double] {
+        let (x, y, z, w) = (q[0], q[1], q[2], q[3])
+        let m = [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w),
+                 2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w),
+                 2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]
+        let sinBeta = min(1, max(-1, m[7]))
+        var alpha: Double, beta: Double, gamma: Double
+        if m[8] > 0 {
+            alpha = atan2(-m[1], m[4]); beta = asin(sinBeta); gamma = atan2(-m[6], m[8])
+        } else if m[8] < 0 {
+            alpha = atan2(m[1], -m[4]); beta = -asin(sinBeta); beta += beta >= 0 ? -.pi : .pi; gamma = atan2(m[6], -m[8])
+        } else if m[6] > 0 {
+            alpha = atan2(-m[1], m[4]); beta = asin(sinBeta); gamma = -.pi / 2
+        } else if m[6] < 0 {
+            alpha = atan2(m[1], -m[4]); beta = -asin(sinBeta); beta += beta >= 0 ? -.pi : .pi; gamma = -.pi / 2
+        } else {
+            alpha = atan2(m[3], m[0]); beta = m[7] > 0 ? .pi / 2 : -.pi / 2; gamma = 0
+        }
+        if alpha < 0 { alpha += 2 * .pi }
+        let deg = 180 / Double.pi
+        return [alpha * deg, beta * deg, gamma * deg]
+    }
+}

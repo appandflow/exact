@@ -1,4 +1,4 @@
-// The seam is public: two tests
+// The seam is public (LLP 1133.001 D8, LLP 1133.034 §12 stage 5): two tests
 // that need nothing an outside author lacks, in Chromium.
 //
 // - Out of the tree: this package, packed as a registry would carry it
@@ -7,7 +7,7 @@
 // - Replaced: a fixture implementation outside the tree, a direct dependency
 //   of the app, replaces the endorsed web implementation, its button view
 //   included: it answers `paymentRequestStatus`, and its `showPaymentRequest`
-//   calls the app's `placeOrder` through `invoke`, which pays the print
+//   calls the app's `placeOrder` through `invoke` (D5), which pays the print
 //   lab with the fixture's token.
 //
 // usage: bun packages/payments/test/seams.mjs

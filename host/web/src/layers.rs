@@ -1,4 +1,4 @@
-//! Live paint isolation uses the kernel's sibling decisions.
+//! Live paint isolation uses the kernel's sibling decisions (LLP 1083.000).
 //! Dirty lists run deepest first; changed potentials propagate to the parent.
 
 use exact_kernel::id::IdMap;

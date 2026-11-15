@@ -3,7 +3,7 @@ import ImageIO
 import CoreGraphics
 @testable import ExactKit
 
-/// Each color fixture decodes to the class, storage and
+/// LLP 1100 §9 V3: each color fixture decodes to the class, storage and
 /// colors its `.json` says. The expected values come from the standards'
 /// numbers (`host/apple/tests/ExactKitTests/ColorFixtures/make.swift`), so these hold the
 /// platform's decode and conversion to the standard, not to itself.
@@ -24,11 +24,9 @@ final class RasterColorTests: XCTestCase {
     private func decode(_ file: String, variant: UInt32? = nil, maxPixel: Int? = nil) throws -> (RasterMetadata, RasterDecodePlan, RasterImage) {
         let bytes = try Data(contentsOf: Self.dir.appendingPathComponent(file))
         let metadata = try RasterMetadata.read(prefix: bytes.prefix(RasterMetadata.headerLimit), encodedBytes: bytes.count)
-        // Full size, or as the loader does past the 32 MiB ceiling, half until it fits.
-        var pixel = maxPixel ?? Int(max(metadata.naturalSize.width, metadata.naturalSize.height))
-        var fitted = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: variant)
-        while fitted == nil, pixel > 1 { pixel /= 2; fitted = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: variant) }
-        let plan = try XCTUnwrap(fitted)
+        // Colour comparisons need only a thumbnail of the large fixture.
+        let pixel = maxPixel ?? min(1024, Int(max(metadata.naturalSize.width, metadata.naturalSize.height)))
+        let plan = try RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: variant)
         return (metadata, plan, try RasterImage.decode(bytes, metadata: metadata, plan: plan, charge: ColorTestCharge()))
     }
     /// The image's pixels as Core Graphics converts them to extended linear
@@ -177,7 +175,7 @@ final class RasterColorTests: XCTestCase {
         XCTAssertNil(jpegHeader(Data([0xff, 0xd8, 0xff])))
     }
 
-    /// The agent's names for spaces are the standards'.
+    /// The agent's names for spaces are the standards' (LLP 1100 D1).
     func testColorSpacesAreNamedByTheirStandards() {
         XCTAssertEqual(colorSpaceName(CGColorSpace(name: CGColorSpace.extendedDisplayP3)!), "display-p3")
         XCTAssertEqual(colorSpaceName(CGColorSpace(name: CGColorSpace.dcip3)!), "--dci-p3")

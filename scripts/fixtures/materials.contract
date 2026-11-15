@@ -1,4 +1,4 @@
-// The parity page for named `backgroundMaterial`s over a grey
+// LLP 1053.000 D4's parity page: named `backgroundMaterial`s over a grey
 // backdrop (black and white bars, so the web's `saturate()` is a no-op and
 // the web's and Linux's stated approximation is one picture). Chrome's
 // picture (the web host at 1×) is materials.web.png; Linux's raster test

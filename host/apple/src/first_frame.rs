@@ -1,4 +1,4 @@
-//! Motion starts at the first frame that shows it: the
+//! Motion starts at the first frame that shows it (LLP 1003.001): the
 //! display's frames start what the engine holds pending, and a frame task's
 //! target time never becomes the engine's input clock. Split from host.rs.
 
@@ -11,10 +11,10 @@ impl<D: DataSource> Host<D> {
         self.advanced(a)
     }
 
-    /// A presented frame: the timers due by `now_ms`, then
+    /// A presented frame (LLP 1073 D2): the timers due by `now_ms`, then
     /// every frame task once at it, in one batch as [`Host::advance`]'s.
     pub fn frame(&mut self, now_ms: f64) -> String {
-        // The frame source started: frame tasks are its, not the timers'.
+        // The frame source started: frame tasks are its, not the timers' (LLP 1073 D4).
         self.runner.present_frames(true);
         let a = if self.admitting_frame {
             self.runner.complete_frame_tasks(now_ms)
@@ -41,8 +41,8 @@ impl<D: DataSource> Host<D> {
         }
         let error = self.height_layout_if_needed(&mut batch).err();
         self.runner.canvas_frame();
-        // A tick is never waited for where draws are deferred:
-        // it draws in its own turn.
+        // A tick is never waited for where draws are deferred (LLP 1072
+        // §9): it draws in its own turn.
         self.canvas_draw_turn(&mut batch);
         // Only suspended ancestor mappings need a settle recheck. Normal
         // photo Translate/Scale frames keep the existing cheap tick path.
@@ -54,7 +54,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// [`Host::tick`] for the display frame presented at `frame_ms`
-    /// (`targetTimestamp`): every present until it returns starts what
+    /// (`targetTimestamp`, D5): every present until it returns starts what
     /// waits for that frame, whatever in the tick began it.
     pub fn tick_at(&mut self, now_ms: f64, frame_ms: f64) -> String {
         if !self.engine.starts_on_frame() {
@@ -67,16 +67,16 @@ impl<D: DataSource> Host<D> {
     }
 
     /// [`Host::frame`] at the display's target `frame_ms`, the wall at
-    /// `wall_ms`: the runner and its frame tasks take the target;
+    /// `wall_ms`: the runner and its frame tasks take the target (LLP 1073);
     /// the host's clock, which inputs and the engine's input clock follow,
-    /// takes the wall.
+    /// takes the wall (D5).
     pub fn frame_at(&mut self, frame_ms: f64, wall_ms: f64) -> String {
         if !self.engine.starts_on_frame() {
             return self.frame(frame_ms);
         }
         self.now_ms = wall_ms.max(self.now_ms);
         // What the frame's commits begin starts at this frame, as the same
-        // callback's tick would start it, so a curve a frame task
+        // callback's tick would start it (D5), so a curve a frame task
         // begins, and Core Animation's play of it, cost one batch, not two.
         self.presence.frame = Some(frame_ms / 1000.0);
         let out = self.frame(frame_ms);
@@ -92,7 +92,7 @@ impl<D: DataSource> Host<D> {
         out
     }
 
-    /// Turn the first-frame rule on or off. Off, at the agent's
+    /// Turn the first-frame rule on or off (D7). Off, at the agent's
     /// takeover, what waits starts at `at_ms`, sampled there, in the batch
     /// returned; no timer fires.
     pub fn start_on_frame(&mut self, on: bool, at_ms: f64) -> String {
@@ -122,7 +122,7 @@ impl<D: DataSource> Host<D> {
 
     /// The engine time a commit at `ms` is heard at: never behind the engine,
     /// and never past the host's clock, which the runner may lead: with the
-    /// rule on, a frame task puts it at its target, and on a live clock
+    /// rule on, a frame task puts it at its target (D5), and on a live clock
     /// an input's commit observes a sample taken after the input's time,
     /// whose gesture (a release ending its hold) runs on at that time.
     pub(super) fn engine_time(&self, ms: f64) -> f64 {
@@ -130,7 +130,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// While a motion tick's frame is set, start what waits for it, and send
-    /// the started plays' lowered specs again.
+    /// the started plays' lowered specs again (D4).
     pub(super) fn start_frame(&mut self) {
         let Some(frame) = self.presence.frame else {
             return;

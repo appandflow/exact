@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// Resources follow the containing view, including a display
+/// LLP 1031 D3: resources follow the containing view, including a display
 /// scale change that leaves every logical point and the live runner intact.
 final class DisplayIOSTests: XCTestCase {
     func testDisplayScaleChangesUpdateTheSameSessionsBudgetWithoutResizingIt() {

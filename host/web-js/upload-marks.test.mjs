@@ -4,9 +4,9 @@ import { resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { webCompiler } from './module.mjs';
 
-// On the JS target, as the runner keeps it, an upload is asked once for its arguments while the page
+// LLP 1016.000 D10 on the JS target, as the runner keeps it: an upload is asked once for its arguments while the page
 // runs. The stand-in counts each upload it is sent, by `n`, and holds `n=2`'s until the test lets it answer.
-//  - New arguments with the same request keep the upload going (`12` asks what `2` asked), and a
+//  - New arguments with the same request keep the upload going (`12` asks what `2` asked, LLP 1054.000.000 D3), and a
 //    change of its `with` context, after an upload or during one, sends nothing: the context identifies no upload.
 //  - Arguments come back to answer as their upload ended, after another upload's answer or a failed ask between.
 //  - A store write the upload read, a refresh, and a refused commit (in which the arguments answered at once) send none

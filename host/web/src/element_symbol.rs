@@ -1,4 +1,5 @@
-//! How a symbol image's path is filled, as its element's attributes say.
+//! How a symbol image's path is filled, as its element's attributes say
+//! (LLP 1121 D10, stage 14 C2): moved out of element.rs under its line cap.
 
 use exact_kernel::SortedMap;
 

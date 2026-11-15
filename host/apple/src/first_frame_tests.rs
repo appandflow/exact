@@ -1,4 +1,4 @@
-//! The first-frame rule on Apple: with the rule on, motion a commit begins waits for
+//! LLP 1003.001 on Apple: with the rule on, motion a commit begins waits for
 //! the display's next frame; a lowered play is held at its start in Core
 //! Animation until then, and a frame task never moves the engine's input
 //! clock past the wall.
@@ -104,7 +104,7 @@ fn a_transition_shows_its_start_at_the_first_frame_then_one_interval() {
     assert!((opacity(&host) - 0.984).abs() < 1e-9, "then one interval");
 }
 
-/// iOS hands a box's opacity transition to Core Animation
+/// LLP 1055.001 §3: iOS hands a box's opacity transition to Core Animation
 /// at the frame that starts it, and takes it back when it is retargeted.
 #[test]
 fn core_animation_plays_a_started_transition_until_it_is_retargeted() {
@@ -174,10 +174,10 @@ const PLAYED: &str = r##"component A
       box testId="plain" width=24 height=24 background-color=(on ? "#ff0000" : "#0000ff") transition="background-color 1s linear"
 "##;
 
-/// A background colour goes to Core Animation only where the layer paints
-/// it as UIKit shows it, and a played fade an ancestor's new filter would
-/// capture at its end comes back to the engine where its curve is, its
-/// spec withdrawn in the same batch.
+/// Review round 1 (Astra 2, 3): a background colour goes to Core Animation
+/// only where the layer paints it as UIKit shows it, and a played fade an
+/// ancestor's new filter would capture at its end comes back to the engine
+/// where its curve is, its spec withdrawn in the same batch.
 #[test]
 fn what_core_animation_cannot_play_as_uikit_draws_it_stays_sampled() {
     let plan = contract::compile(PLAYED).unwrap().encode();
@@ -243,9 +243,9 @@ fn what_core_animation_cannot_play_as_uikit_draws_it_stays_sampled() {
     assert!(motion(&fogged), "the display drives it again");
 }
 
-/// When the agent takes the clock, what Core Animation played comes back
-/// to the engine where its curve is, and its spec goes in the takeover's
-/// batch; nothing new is handed over after.
+/// Review round 2 (Astra 3): when the agent takes the clock, what Core
+/// Animation played comes back to the engine where its curve is, and its
+/// spec goes in the takeover's batch; nothing new is handed over after.
 #[test]
 fn the_agents_takeover_reclaims_what_core_animation_plays() {
     let mut host = boot();
@@ -278,7 +278,7 @@ fn the_agents_takeover_reclaims_what_core_animation_plays() {
     );
 }
 
-/// A played spring's track is made once and kept
+/// Review round 2 (Astra 2): a played spring's track is made once and kept
 /// while the transition stands, and dropped with it.
 #[test]
 fn a_played_springs_spec_is_made_once() {
@@ -327,7 +327,7 @@ fn a_played_springs_spec_is_made_once() {
     );
 }
 
-/// A display frame's batch starts what waits, as its tick would, so
+/// D5: a display frame's batch starts what waits, as its tick would, so
 /// a transition reaches Core Animation in the frame's own batch.
 #[test]
 fn a_display_frame_starts_what_waits_in_its_own_batch() {
@@ -817,7 +817,7 @@ fn a_jump_stepping_for_a_layout_transition_still_stops_at_each_send() {
     let go = id_of(&host, "go");
     host.dispatch_at(go, Event::Press, 0.0);
     // `clock +1800` as the agent runs it: each stop's request is answered
-    // before the jump goes on.
+    // before the jump goes on (LLP 1016 D5).
     let mut stops = Vec::new();
     while host.runner.timer_due_ms().is_some_and(|d| d <= 1800.0) {
         host.advance_until_request(1800.0);
@@ -1077,4 +1077,77 @@ fn canvas_only_live_ticks_keep_drawing_without_firing_timers() {
             "duplicate clock values do not draw again"
         );
     }
+}
+
+/// A row with a native range inserted over a sibling under a layout
+/// transition (#134): the range is laid out at the look's default height,
+/// then the host measures its control and lays out again.
+const MEASURED: &str = r##"component A
+  state on = false
+  action go
+    on = not on
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      column testId="box" overflow="hidden" -exact-layout-transition="220ms linear"
+        if on
+          column testId="row"
+            input type="range" testId="slider" value=0.3 min=0 max=1 step=0.01 width="100%"
+        column testId="below" height=40 -exact-layout-transition="220ms linear"
+"##;
+
+/// `view`'s last `frame` y and `layout` offset y in a batch.
+fn placed(batch: &str, view: u32) -> (Option<f64>, Option<f64>) {
+    let v: serde_json::Value = serde_json::from_str(batch).unwrap();
+    let ops = v["ops"].as_array().unwrap();
+    let last = |pick: &dyn Fn(&serde_json::Value) -> bool| {
+        ops.iter()
+            .rev()
+            .find(|op| op["id"] == view && pick(op))
+            .map(|op| op["y"].as_f64().unwrap())
+    };
+    (
+        last(&|op| op["op"] == "frame"),
+        last(&|op| op["op"] == "present" && op["property"] == "layout"),
+    )
+}
+
+#[test]
+fn a_box_moving_when_a_control_is_measured_stays_where_it_shows() {
+    let plan = contract::compile(MEASURED).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.start_on_frame(true, 0.0);
+    let (go, below) = (id(&host, "go"), id(&host, "below"));
+    let on = host.dispatch_at(go, Event::Press, 100.0);
+    let (Some(laid), Some(offset)) = placed(&on, below) else {
+        panic!("the commit moves the sibling and holds it at its old place: {on}")
+    };
+    assert!(laid > 0.0, "{on}");
+    assert_eq!(laid + offset, 0.0, "shown where it was: {on}");
+    // The host measures its slider taller than the default it was laid out at.
+    let slider = id(&host, "slider");
+    let measured = host.set_intrinsics(&[(slider, Some((390.0, laid as f32 + 18.0)))]);
+    let (Some(moved), Some(offset)) = placed(&measured, below) else {
+        panic!("the new frame and the offset come in one batch: {measured}")
+    };
+    assert_eq!(moved, laid + 18.0, "{measured}");
+    assert_eq!(moved + offset, 0.0, "still shown where it was: {measured}");
+    // The display's next frame starts it from there and it ends at the measured box.
+    host.tick_at(116.0, 124.0);
+    host.tick_at(400.0, 408.0);
+    let k = host.runner.kernel();
+    let key = k.find_by_test_id("below")[0];
+    let shown = host
+        .engine
+        .value(exact_kernel::motion::motion_node(key), Property::Layout)
+        .unwrap();
+    assert_eq!(shown.y, moved, "it ends at the measured box");
 }

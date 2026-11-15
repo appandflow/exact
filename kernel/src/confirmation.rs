@@ -1,4 +1,4 @@
-//! The shape of a confirmation (by Apple's HIG), in one place.
+//! The shape of a confirmation (LLP 1115 D6, by Apple's HIG), in one place.
 //!
 //! An `alertdialog`'s rows are its text, its actions (buttons with a `press`
 //! that also close it) and its cancel (a button that only closes it). With
@@ -11,9 +11,9 @@
 //! view); the Apple hosts present it, the Linux host paints it as authored.
 //!
 //! Three readers hold one rule here: lowering, which implies an alert-shaped
-//! dialog's `closedby` (an alert has no outside); the
+//! dialog's `closedby` (LLP 1115.000 D13.4: an alert has no outside); the
 //! Linux host's top layer, which draws Android's and reads the kernel's tree
-//! (`host/linux/src/presenter/top/shape.rs`); and the Apple hosts' Swift,
+//! (`host/painted/src/presenter/top/shape.rs`); and the Apple hosts' Swift,
 //! which reads its own view mirror and asks through
 //! `exact_confirmation_is_alert` (`ConfirmationShape.swift`).
 

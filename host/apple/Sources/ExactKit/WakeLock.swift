@@ -1,4 +1,4 @@
-// `wakelock="screen"`: the display does not dim or lock
+// @ref LLP 1125 D11. `wakelock="screen"`: the display does not dim or lock
 // for idleness while any session's displayed element says so. The runner
 // decides which elements hold it (`exact_runner::wakelock`, the agent's
 // `state.wakelock`); a batch says when that changes, and each presenter

@@ -1,4 +1,4 @@
-//! A long poll on work that is no HTTP request, through the renderer: refused before its
+//! A long poll on work that is no HTTP request, through the renderer (LLP 1016.000 D8): refused before its
 //! work runs, a refusal of what was asked (its placeholder kept), not a busy render.
 use super::SITE;
 use exact_plan::Value;

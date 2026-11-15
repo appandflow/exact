@@ -1,4 +1,4 @@
-//! `storage.fs.compressImage` from TypeScript,
+//! `storage.fs.compressImage` from TypeScript (LLP 1069.002 Amendment A1),
 //! over the storage fixture module (`tests/fixtures/storage.ts`).
 #![cfg(exact_js_engine)]
 use super::storage::{call, Root, GRANTS};
@@ -10,7 +10,7 @@ use {
     exact_runner::{Answer, Dispatch, Work},
 };
 
-/// `storage.fs.compressImage` from TypeScript: Hermes,
+/// `storage.fs.compressImage` from TypeScript (LLP 1069.002 A1): Hermes,
 /// the prelude, ibex2's opcode 121 and the platform codec. On Apple the
 /// fixture comes back upright as a JPEG; elsewhere the call is refused as
 /// `unsupported`. Either way each refusal carries its code.
@@ -26,7 +26,10 @@ fn compress_image_writes_an_upright_jpeg_or_refuses_by_name() {
         include_bytes!("../../../scripts/fixtures/picker/oriented-gps.jpg"),
     )
     .unwrap();
+    assert!(m.take_storage_changed());
     let text = call(&mut m, &mut s, "compress", "4000");
+    assert_eq!(m.take_storage_changed(), cfg!(target_vendor = "apple"));
+    assert!(!m.take_storage_changed());
     let lines: Vec<&str> = text.lines().collect();
     let code = |l: &str| l.split(' ').take(2).collect::<Vec<_>>().join(" ");
     let refusals: Vec<String> = lines[1..].iter().map(|l| code(l)).collect();
@@ -94,8 +97,8 @@ fn compress_image_writes_an_upright_jpeg_or_refuses_by_name() {
     );
 }
 
-/// `storage.fs.transformImage` and `compressImage`'s edit
-/// from TypeScript, over the JSON wire: on Apple the record says
+/// `storage.fs.transformImage` and `compressImage`'s edit (LLP 1133.019 D14,
+/// D15) from TypeScript, over the JSON wire (D17): on Apple the record says
 /// what was written, a `to` without an extension gains the type's, and the
 /// search runs on the edited picture; elsewhere `unsupported`. Each refusal
 /// carries its code, and a bad option is a `TypeError` before anything runs.
@@ -110,7 +113,10 @@ fn transform_image_writes_the_edit_or_refuses_by_name() {
         include_bytes!("../../../scripts/fixtures/picker/oriented-gps.jpg"),
     )
     .unwrap();
+    assert!(!m.take_storage_changed());
     let text = call(&mut m, &mut s, "transform", "");
+    assert_eq!(m.take_storage_changed(), cfg!(target_vendor = "apple"));
+    assert!(!m.take_storage_changed());
     let lines: Vec<&str> = text.lines().collect();
     let size = |name: &str| {
         std::fs::metadata(root.0.join("data").join(name))
@@ -163,7 +169,7 @@ fn transform_image_writes_the_edit_or_refuses_by_name() {
     );
 }
 
-/// `type: "image/png"` through the binding's fifth
+/// `type: "image/png"` (LLP 1069.002 A1.11) through the binding's fifth
 /// argument: on Apple a PNG with an alpha channel (IHDR colour type 6) at the
 /// fitted size; elsewhere `unsupported`. Any other type is a `TypeError`.
 #[test]
@@ -259,7 +265,7 @@ fn half_clear_png(w: u32, h: u32) -> Vec<u8> {
 }
 
 /// A wait that gives up on an `fs.compressImage` takes its right to write
-/// away: the answer fails `timeout`, the queue moves on
+/// away (LLP 1069.002 A1.5): the answer fails `timeout`, the queue moves on
 /// to a write of the same path, and the compression, still running, never
 /// writes over it. Each of these tests holds its compressions, so the wait
 /// on one runs out while it runs.

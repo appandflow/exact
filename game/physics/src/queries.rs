@@ -71,6 +71,7 @@ impl Queries<'_> {
         // Hold every row of the relevant columns before consulting the derived cache;
         // a query leases nothing until iterated. CapsuleController is read only for
         // membership, which no row lease can change, so it takes none.
+        // @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
         let _leases = (
             self.world.pages::<Body>(),
             self.world.pages::<Collider>(),
@@ -360,7 +361,7 @@ pub(crate) fn bvh(leaves: &[(u32, Aabb)]) -> Bvh {
     bvh
 }
 // Parry 0.30 casts capsule rays by support-map GJK, which misses some rays that
-// pass straight through (64 of 16,000 aimed inside); capsules use the
+// pass straight through (RIVALS: 64 of 16,000 aimed inside); capsules use the
 // closed form, including a compound's capsule child (an offset collider).
 fn cast_ray(shape: &dyn ParryShape, pos: &Pose, ray: &Ray, max: f32) -> Option<RayIntersection> {
     if let Some(c) = shape.as_capsule() {

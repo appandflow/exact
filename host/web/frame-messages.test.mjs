@@ -1,3 +1,4 @@
+import { hostFixtureFile } from './tests/glue-fixture.mjs';
 import { test, expect } from 'bun:test';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
@@ -7,17 +8,17 @@ test('iframe replies keep order and ownership, with no queue across replacement 
     const path = new URL(request.url).pathname;
     if (path === '/frame-messages.js') return new Response(Bun.file(new URL('./frame-messages.js', import.meta.url)));
     if (path === '/commands.js') return new Response(Bun.file(new URL('../web-js/commands.js', import.meta.url)));
-    if (path === '/navigation.js') return new Response(Bun.file(new URL('./navigation.js', import.meta.url)));
+    if (path === '/navigation.js') return new Response(hostFixtureFile(new URL('./navigation.js', import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('./prompt-glue.js', import.meta.url)));
     if (path === '/alert-message.js') return new Response(Bun.file(new URL('./alert-message.js', import.meta.url)));
     if (path === '/menu-rows.js') return new Response(Bun.file(new URL('./menu-rows.js', import.meta.url)));
     if (path.startsWith('/guest')) return new Response(`<body>Guest<script>window.received=[];addEventListener('message',e=>{received.push(e.data);document.body.textContent=JSON.stringify(received);parent.postMessage({seen:e.data},'*')})</script>`, { headers: { 'content-type': 'text/html' } });
     return new Response(`<main id="exact-root"></main><script type="module">
       import * as frames from '/frame-messages.js';
-      import {commands} from '/commands.js';
+      import {postMessage} from '/commands.js';
       window.framesApi=frames; window.messages=[];window.logs=[];
       addEventListener('message',e=>messages.push(e.data));
-      window.post=(text,id,kind='iframe')=>commands(t=>logs.push(t)).postMessage(text,id,kind);
+      window.post=(text,id,kind='iframe')=>postMessage(t=>logs.push(t))(text,id,kind);
       window.mount=(id,sandbox=null)=>{const frame=document.createElement('iframe');frame.id=id;if(sandbox!==null)frame.setAttribute('sandbox',sandbox);frame.src='/guest-'+id;frames.commitFrameOrigin(frame);document.querySelector('main').append(frame);return frame};
       mount('known');mount('opaque','allow-scripts');mount('sibling');
     </script>`, { headers: { 'content-type': 'text/html' } });

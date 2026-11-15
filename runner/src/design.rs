@@ -1,9 +1,9 @@
-//! The live table's wire: a plan's design values,
+//! The live table's wire (LLP 1121 D13, stage 4): a plan's design values,
 //! their digests, and the batch a development build applies without a new
 //! plan.
 //!
 //! A **batch** carries the tokens a value-only edit changed, each as wire
-//! text (colours as CSS text, as the colour wire carries them) with its
+//! text (colours as CSS text, as LLP 1095's wire carries them) with its
 //! slice per app tuple where it varies, the design's shape digest
 //! ([`shape`]), the design digest it applies to (`base`) and the new one. A
 //! build applies it only when the shape is its plan's and `base` is the
@@ -46,7 +46,7 @@ pub struct Edit {
     pub scrub: Option<Scrub>,
 }
 
-/// A scrub's frame: the scrub's id, the frame's revision,
+/// A scrub's frame (LLP 1121 D13): the scrub's id, the frame's revision,
 /// rising over every frame of every scrub the design server sends (an end's
 /// included), and that server's run. A build drops a frame or snapshot of
 /// the run it last applied one of (or, with no run, of the scrub) whose
@@ -96,9 +96,10 @@ pub fn structure(plan: &Plan) -> String {
 
 /// The digest of `plan`'s design shape: its axes, its `@keyframes`, and each theme row's name,
 /// role and slice count: which tokens override which role, not with what
-/// (an override's value is a live edit). A batch is for one
+/// (an override's value is a live edit, LLP 1121 stage 5). A batch is for one
 /// shape: the JS target's build and a wasm or native build of the same
-/// sources share it, though their plans differ (one stream for every copy).
+/// sources share it, though their plans differ (LLP 1122 D4's one stream
+/// for every copy).
 pub fn shape(plan: &Plan) -> String {
     let mut bytes = Vec::new();
     let mut text = |t: &str| {
@@ -117,7 +118,7 @@ pub fn shape(plan: &Plan) -> String {
         // A kind is which rows may name the token: a change is structure.
         text(&row.kind.to_string());
         // A type token's longhands and family, a family token's stack, each
-        // tuple's: which rows it writes and
+        // tuple's (stage 6 C, the lead's ruling): which rows it writes and
         // which stack it names are lowered, so a change is structure.
         if let Some(k @ (Kind::Type | Kind::Family)) = Kind::of(row.kind) {
             let values = std::iter::once(row.value).chain(
@@ -231,8 +232,8 @@ pub fn snapshot(structure: &str, tokens: &[Token]) -> Edit {
 }
 
 impl Edit {
-    /// As the dev stream carries it: `kind` `tamber-batch` or
-    /// `tamber-snapshot`.
+    /// As the dev stream carries it: `kind` `forma-batch` or
+    /// `forma-snapshot`.
     pub fn json(&self) -> String {
         let tokens: Vec<serde_json::Value> = self
             .tokens
@@ -240,7 +241,7 @@ impl Edit {
             .map(|t| serde_json::json!({"name": t.name, "value": t.value, "slices": t.slices}))
             .collect();
         let mut v = serde_json::json!({
-            "kind": if self.base.is_some() { "tamber-batch" } else { "tamber-snapshot" },
+            "kind": if self.base.is_some() { "forma-batch" } else { "forma-snapshot" },
             "structure": self.structure,
             "base": self.base,
             "design": self.design,
@@ -259,7 +260,7 @@ impl Edit {
     pub fn parse(text: &str) -> Option<Edit> {
         let v: serde_json::Value = serde_json::from_str(text).ok()?;
         let kind = v.get("kind")?.as_str()?;
-        if kind != "tamber-batch" && kind != "tamber-snapshot" {
+        if kind != "forma-batch" && kind != "forma-snapshot" {
             return None;
         }
         let s = |key: &str| v.get(key)?.as_str().map(str::to_string);
@@ -281,7 +282,7 @@ impl Edit {
             })
             .collect::<Option<Vec<_>>>()?;
         let base = match kind {
-            "tamber-batch" => Some(s("base")?),
+            "forma-batch" => Some(s("base")?),
             _ => None,
         };
         // A scrub frame's mark is optional; one malformed is no mark.

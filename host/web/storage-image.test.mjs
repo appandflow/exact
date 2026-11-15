@@ -1,7 +1,7 @@
-// `storage.fs.compressImage`'s search on the web:
+// `storage.fs.compressImage`'s search on the web (LLP 1069.002 A1.2/A1.7):
 // the trials Bluesky's compress.ts makes, recorded in the same table
-// `exact_data::image::search` is checked against; and the edit's geometry,
-// case for case as `exact_data::image::edit`'s tests.
+// `exact_data::image::search` is checked against; and the edit's geometry
+// (LLP 1133.019 D14), case for case as `exact_data::image::edit`'s tests.
 // `bun test ./host/web/storage-image.test.mjs`.
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -110,7 +110,7 @@ test('a deadline already past decodes nothing', async () => {
 const apply = ([a, b, c, d, e, f], x, y) => [a * x + c * y + e, b * x + d * y + f];
 const near = (p, q) => expect(Math.hypot(p[0] - q[0], p[1] - q[1])).toBeLessThan(1e-9);
 
-test('an edit turns, flips and crops in order, as the Rust codec does', () => {
+test('an edit turns, flips and crops in D14\'s order, as the Rust codec does', () => {
   const quarter = geometry(48, 64, { rotate: 90 });
   expect([quarter.turned, quarter.crop]).toEqual([[64, 48], [0, 0, 64, 48]]);
   near(apply(quarter.toOutput(64, 48), 0, 0), [64, 0]);

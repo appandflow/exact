@@ -1,8 +1,8 @@
-// Canvas 2D surfaces on the JS runtime: the
+// Canvas 2D surfaces on the JS runtime (LLP 1056; LLP 1071 §7): the
 // runner's half of the protocol (runner/src/runner/canvas2d.rs) over the
 // web host's own replayer. Fetched two frames after the first 2D canvas
 // mounts (rt.js `c2`), as the wasm host fetches its glue; an app without one
-// never loads it.
+// never loads it (LLP 1047).
 //
 // `canvas2d-glue.js` is the wasm host's file, unchanged: it watches each
 // canvas's content box with a ResizeObserver and replays stamped lists into
@@ -18,15 +18,17 @@ import './canvas2d-glue.js';
 import { drawer } from './draw.js';
 
 // The module's draws, over what rust-data.js keeps of it (`data.logic`): a
-// request (draw.rs `draw_request`) and its reply, both in the module's ABI.
-function client({ exports: e, session, writer, reader, encode, ABI }) {
-  if (!e.exact_logic_draw) return null;
+// request (draw.rs `draw_request`) and its reply, both in the module's ABI. A failed call replaces the instance and
+// its session (rust-data.js `call`), so each draw reads them anew.
+function client(logic) {
+  const { writer, reader, encode, ABI } = logic;
+  if (!logic.exports.exact_logic_draw) return null;
   // A computed argument has no declared type: encoded by its shape.
   const value = (w, v, t) => t ? encode(w, v, t) : Array.isArray(v) ? (w.u8(6), w.u32(v.length), v.forEach(x => value(w, x))) : v == null ? w.u8(4) : encode(w, v, typeof v === 'number' ? 'n' : typeof v === 'boolean' ? 'b' : 's');
   const u64 = (w, v) => { w.u32(v >>> 0); w.u32(Math.floor(v / 4294967296)); };
   const call = fill => {
     const w = writer(); w.u32(ABI); w.u8(5); fill(w);
-    const bytes = w.done(), p = e.exact_logic_alloc(bytes.length);
+    const { exports: e, session } = logic, bytes = w.done(), p = e.exact_logic_alloc(bytes.length);
     new Uint8Array(e.memory.buffer, p, bytes.length).set(bytes);
     const rc = e.exact_logic_draw(session, p, bytes.length);
     e.exact_logic_dealloc(p, bytes.length);
@@ -52,12 +54,26 @@ function client({ exports: e, session, writer, reader, encode, ABI }) {
 
 const MOUNT = 1, ARGS = 2, SIZE = 4, FRAME = 8, IMAGE = 16, FONT = 32, STYLE = 64;
 let lifetimes = 1;
+// The engine serving exact.wasm owns the page's style subscriptions.
+let stopRestyling;
 
 export function engine(rt) {
+  stopRestyling?.();
   const { data, clock, inflight, journal, After } = rt;
   const x = globalThis.exact;
   const records = new Map(); // view id -> record
   let module = null; // the module's draws, once it is ready
+  let drewReady;
+  const drawingReady = new Promise(resolve => { drewReady = resolve; });
+  let undrawn = null; // why nothing will draw, once the module is known to draw nothing
+  // Said once a surface, as the module turns out to draw nothing or, usually later, as its canvas mounts.
+  const undrawnSaid = new Set();
+  const sayUndrawn = () => {
+    const names = [...new Set([...records.values()].map(r => r.c.name))].filter(n => !undrawnSaid.has(n));
+    if (!undrawn || !names.length) return;
+    for (const n of names) undrawnSaid.add(n);
+    say(`canvas2d: nothing draws ${names.join(', ')}: ${undrawn}`);
+  };
   const say = line => journal.push(`t=${clock.now} ${line}`);
   const memory = { buffer: new ArrayBuffer(8) };
   let colorCanvas;
@@ -78,12 +94,12 @@ export function engine(rt) {
   function drawAll() {
     if (!module) return;
     for (const [id, r] of records) {
-      if (!r.backing || !r.backing.w || !r.backing.h || !r.causes) continue;
+      if (!r.backing || !r.backing.w || !r.backing.h || (!r.causes && !r.captureRequested)) continue;
       const b = r.backing, el = r.c.e, color = colour(el), rtl = rtlOf(el), seq = r.seq++, was = r.drawnIn;
       r.drawnIn = drawnIn(color, rtl);
       // A draw for another cause that finds its colour or direction changed carries "style" too: one draw, as the runner's.
       const causes = r.causes | (was && was !== r.drawnIn ? STYLE : 0);
-      r.causes = 0;
+      r.causes = 0; r.captureRequested = false;
       if (causes & FRAME) r.framedAt = clock.now;
       let reply;
       try {
@@ -116,16 +132,16 @@ export function engine(rt) {
   wasm.exact_canvas_geometry = (id, width, height, scale) => {
     const r = records.get(id);
     if (!r) return 0;
-    // An explicit bitmap size (`bitmap-width`/`bitmap-height`; an unset
-    // one is the web's 300 or 150) is its own coordinate
+    // An explicit bitmap size (`bitmap-width`/`bitmap-height`, LLP 1056 D6
+    // r3; an unset one is the web's 300 or 150) is its own coordinate
     // space, stretched to the box: the runner's `Backing::of`.
     const { bitmapWidth: bw, bitmapHeight: bh, colorSpace, colorType } = r.c.e.dataset;
     const b = bw != null || bh != null ? { w: +(bw ?? 300), h: +(bh ?? 150), width: +(bw ?? 300), height: +(bh ?? 150), scale: 1, stretch: true }
       : { w: Math.max(0, Math.round(width * scale)), h: Math.max(0, Math.round(height * scale)), width, height, scale, stretch: false };
-    // Its getContext settings: the runner's `canvas_settings`.
+    // Its getContext settings (LLP 1100 D12a): the runner's `canvas_settings`.
     b.p3 = colorSpace === 'display-p3'; b.float16 = colorType === 'float16';
     if (r.backing && r.backing.w === b.w && r.backing.h === b.h && r.backing.stretch === b.stretch && (b.stretch || r.backing.scale === b.scale)) { r.backing = b; return 0; }
-    // A new size generation: a fresh bitmap and recorder.
+    // A new size generation: a fresh bitmap and recorder (D4).
     if (r.backing) { r.generation++; r.causes |= SIZE; }
     r.backing = b;
     glue.op({ id, lifetime: r.lifetime, generation: r.generation, seq: 0, fresh: true, w: b.w, h: b.h, scale: b.scale, stretch: b.stretch, p3: b.p3, float16: b.float16, lists: [] });
@@ -134,9 +150,9 @@ export function engine(rt) {
     return 0;
   };
   // A presented frame: the clock moves to the page's time (its timers fire),
-  // and canvases that asked draw once at it.
+  // and canvases that asked draw once at it (D5).
   wasm.exact_advance = () => { rt.advance(rt.wall(), true); frame(); return 0; };
-  // An image handle loaded or failed: the payload the glue
+  // An image handle loaded or failed (LLP 1056 D9): the payload the glue
   // wrote in (src, size, ok, the lifetimes that asked); those canvases draw
   // again, cause "image". Each pending image is counted in flight.
   let written = '';
@@ -164,40 +180,87 @@ export function engine(rt) {
     } };
   };
   wasm.exact_canvas_fonts = () => { for (const r of records.values()) if (r.text) r.causes |= FONT; drawAll(); return 0; };
-  // A canvas whose colour or direction changes draws again, cause "style": after a commit, in a microtask,
-  // once its host commands (`setScheme`) and the modes it resolves have applied; and on the window's scheme, the root's
-  // own style (a development page's held scheme), an app's mode tuple (`data-x-modes`) and a colour transition's end.
+  // A canvas whose colour or direction changes draws again, cause "style" (LLP 1056 D4): after a commit, in a microtask,
+  // once its host commands (`setScheme`) and the modes it resolves have applied; and on the window's scheme or
+  // contrast, the root's own style (a development page's held scheme), an app's mode tuple (`data-x-modes`) and a colour transition's end.
+  let restyling = true;
   const restyle = () => {
+    if (!restyling) return;
     for (const r of records.values()) if (r.drawnIn && r.drawnIn !== drawnIn(colour(r.c.e), rtlOf(r.c.e))) r.causes |= STYLE;
     drawAll();
   };
-  After.push(() => queueMicrotask(restyle));
-  globalThis.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', restyle);
-  document.addEventListener?.('transitionend', (e) => { if (e.propertyName === 'color') restyle(); }, true);
+  const after = () => queueMicrotask(restyle), transitioned = e => { if (e.propertyName === 'color') restyle(); };
+  After.push(after);
+  const media = ['(prefers-color-scheme: dark)', ...['more', 'less', 'custom'].map(value => `(prefers-contrast: ${value})`)].map(q => globalThis.matchMedia?.(q));
+  for (const q of media) q?.addEventListener?.('change', restyle);
+  document.addEventListener?.('transitionend', transitioned, true);
+  const observers = [];
   if (typeof MutationObserver === 'function') {
-    new MutationObserver(restyle).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
-    new MutationObserver(restyle).observe(document.documentElement, { attributes: true, subtree: true, attributeFilter: ['data-x-modes'] });
+    for (const options of [{ attributes: true, attributeFilter: ['style'] }, { attributes: true, subtree: true, attributeFilter: ['data-x-modes'] }]) {
+      const observer = new MutationObserver(restyle);
+      observer.observe(document.documentElement, options);
+      observers.push(observer);
+    }
   }
+  stopRestyling = () => {
+    restyling = false;
+    for (const q of media) q?.removeEventListener?.('change', restyle);
+    document.removeEventListener?.('transitionend', transitioned, true);
+    for (const observer of observers) observer.disconnect();
+    const index = After.indexOf(after);
+    if (index !== -1) After.splice(index, 1);
+  };
   x.send ??= () => {};
   function frame() {
     for (const r of records.values()) if (r.frames && r.framedAt !== clock.now) r.causes |= FRAME;
     drawAll();
   }
+  x.canvas2dFrame = frame;
   // Under the agent the clock is the driver's: its moves are the frames.
   // The agent's `state.canvas` (runner/src/runner/canvas2d.rs `state`): each
   // 2D canvas's generation, draws, backing and last error.
   x.canvas2dState = () => [...records].map(([view, r]) => ({ view, surface: r.c.name, context: '2d', artifact: 'data', lifetime: r.lifetime, generation: r.generation,
     pending: !r.draws || !!r.causes, animating: !!r.frames, draws: r.draws ?? 0,
     width: r.backing?.w ?? null, height: r.backing?.h ?? null, scale: r.backing?.scale ?? null, stretch: !!r.backing?.stretch,
-    colorSpace: r.backing ? (r.backing.p3 ? 'display-p3' : 'srgb') : null, colorType: r.backing ? (r.backing.float16 ? 'float16' : 'unorm8') : null, error: r.error ?? null, refused: null }));
+    colorSpace: r.backing ? (r.backing.p3 ? 'display-p3' : 'srgb') : null, colorType: r.backing ? (r.backing.float16 ? 'float16' : 'unorm8') : null, error: r.error ?? undrawn, refused: null }));
   if (clock.agent && x.advance) { const advance = x.advance; x.advance = (to, wall, stop) => { const r = advance(to, wall, stop); frame(); return r; }; }
   const glue = x.canvas2dGlue({ views: rt.views, now: () => clock.now });
+  // A capture's canvas (ts-data.js `captureCanvas`): the runner's checks
+  // (runner/src/runner/canvas2d.rs `capture`), then the glue's encoding.
+  x.canvas2dCapture = (surface, targets) => {
+    const mounted = [...records].filter(([, r]) => r.c.name === surface && r.c.e.isConnected);
+    targets ??= mounted.map(([, r]) => r.c);
+    if (!targets.length) return { name: 'NotFoundError', message: `no canvas of surface ${JSON.stringify(surface)} is mounted` };
+    if (targets.length > 1) return { name: 'InvalidStateError', message: `${targets.length} canvases of surface ${JSON.stringify(surface)} are mounted; a capture names one` };
+    const target = mounted.find(([, r]) => r.c === targets[0]);
+    if (!target) return { name: 'EncodingError', message: "the capture's canvas was unmounted or replaced" };
+    const [id, r] = target;
+    // A capture itself needs a completed drawing after its commit, including
+    // a frame task whose animation callback has not run yet.
+    r.captureRequested = true;
+    glue.geometry(id);
+    frame();
+    const b = r.backing;
+    if (!module) return { name: 'NotSupportedError', message: undrawn ?? 'the canvas drawer is not ready' };
+    if (!b || !b.w || !b.h) return { name: 'IndexSizeError', message: `the canvas of surface ${JSON.stringify(surface)} has no bitmap: its box has no area` };
+    if (b.p3 || b.float16) return { name: 'NotSupportedError', message: 'a capture is an sRGB image of 8-bit pixels: this canvas is display-p3 or float16' };
+    if (b.w * b.h > 1 << 26) return { name: 'QuotaExceededError', message: `${b.w} × ${b.h} px is over the ${1 << 26} px a capture writes` };
+    return { width: b.w, height: b.h, scale: b.scale, encode: (type, quality) => glue.capture(id, r.lifetime, r.generation, b.w, b.h, r.seq - 1, undefined, type, quality) };
+  };
   host();
   // The module arrives after first pixel (rust-data.js); until then causes wait.
   const ready = () => {
-    module = client(data.logic);
-    if (!module) say('canvas2d: the Rust module draws no Canvas 2D surface (exact_logic_abi::export_draw!)');
+    // No `data.logic`: the Rust module did not load (the entry says why in the journal).
+    module = data.logic && client(data.logic);
+    if (!module) {
+      // Each canvas here names a surface no GPU module registers (the build's routing), so nothing draws it: said, and
+      // its state's error, rather than a canvas pending blank.
+      undrawn = data.logic ? 'no GPU module registers this surface, and the Rust module draws no Canvas 2D surface (exact_logic_abi::export_draw!)'
+        : 'the Rust module that draws this surface did not load';
+      sayUndrawn();
+    }
     drawAll();
+    drewReady();
   };
   // A TypeScript draw is in the page already; it starts once the page's
   // declared faces have loaded (or failed), as a module arriving after
@@ -206,10 +269,11 @@ export function engine(rt) {
   if (drawer) {
     inflight.n++;
     const faces = document.fonts ? [...document.fonts].map(f => (f.status === 'unloaded' ? f.load() : f.loaded).catch(() => {})) : [];
-    Promise.all(faces).then(() => { module = drawer; drawAll(); }).finally(() => inflight.n--);
+    Promise.all(faces).then(() => { module = drawer; drawAll(); drewReady(); }).finally(() => inflight.n--);
   }
   else if (data.logic) ready(); else data.ready(ready);
   return {
+    ready: drawingReady,
     args(c) {
       if (!c.e.isConnected) return;
       const id = rt.viewId(c.e);
@@ -223,12 +287,14 @@ export function engine(rt) {
         // The glue's ResizeObserver names a canvas by its `data-view`, as the wasm host's elements carry it.
         c.e.dataset.view = id;
         glue.op({ id, watch: true });
+        sayUndrawn();
       }
       drawAll();
     },
     gone(c) {
       for (const [id, r] of records) if (r.c === c) {
         records.delete(id);
+        glue.op({ id, forget: true });
         module?.retire(r.lifetime);
         if (r.waiting) inflight.n--;
       }
@@ -236,7 +302,7 @@ export function engine(rt) {
   };
 }
 
-// Whether a list draws text: a font that loads redraws it.
+// Whether a list draws text: a font that loads redraws it (D8).
 function hasText(l) {
   const v = new DataView(l.buffer, l.byteOffset, l.byteLength);
   for (let at = 8; at + 8 <= l.byteLength;) {

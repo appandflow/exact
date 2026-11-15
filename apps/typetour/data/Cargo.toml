@@ -1,5 +1,5 @@
 # Type Tour's data source: empty. Every screen is authored in the Contract,
-# so the seam answers nothing and the first frame queries nothing.
+# so the seam (LLP 1004 D4) answers nothing and the first frame queries nothing.
 [package]
 name = "typetour-data"
 version.workspace = true

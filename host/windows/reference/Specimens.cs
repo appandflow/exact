@@ -65,7 +65,7 @@ static class Specimens
         return list;
     }
 
-    // The left pane an unsaid root tab bar becomes, held expanded.
+    // The left pane an unsaid root tab bar becomes (D14), held expanded.
     static NavigationView NavigationPane()
     {
         var nav = new NavigationView

@@ -1,12 +1,12 @@
-//! `orientationlock`: while an element that is mounted and
+//! `orientationlock` (LLP 1133.029): while an element that is mounted and
 //! displayed says so, the session's window keeps to the orientations it
 //! names, the Screen Orientation API's lock types and the shared word
 //! `current`. Displayed is `wakelock`'s rule ([`crate::wakelock::displayed`]),
 //! and a holder inside a `dialog` or popover never counts: whether a
 //! top-layer box is open is the host's state, so a lock there is refused at
-//! bake and, where the bake could not see it, journaled here.
+//! bake and, where the bake could not see it, journaled here (D3).
 //!
-//! Of the holders, three rules in order decide which count: the
+//! Of the holders, three rules in order decide which count (D3): the
 //! topmost sheet that holds wins over the routes beneath it; a holder with
 //! a holder among its descendants is overridden by it; and the holders left
 //! intersect. The runner intersects the types that need no device and finds
@@ -19,7 +19,7 @@ use crate::{DataSource, Runner};
 use exact_kernel::{Kernel, PropId, ViewId};
 use std::fmt::Write as _;
 
-/// Every word the attribute takes, as lowering checks a literal.
+/// Every word the attribute takes (D2), as lowering checks a literal.
 pub const WORDS: [&str; 10] = [
     "portrait",
     "landscape",
@@ -56,7 +56,7 @@ pub fn types(word: &str) -> Option<u8> {
     })
 }
 
-/// The session's lock as the host is told it: the intersection of the
+/// The session's lock as the host is told it (D3): the intersection of the
 /// counted holders' types, and whether one says `natural` or `current`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Lock {
@@ -146,7 +146,7 @@ fn declared(kernel: &Kernel) -> Vec<(ViewId, String)> {
         .collect()
 }
 
-/// The session's lock under the three rules below.
+/// The session's lock under D3's three rules.
 pub fn session<D: DataSource>(runner: &Runner<D>) -> Session {
     let (kernel, open) = (runner.kernel(), runner.top_layer_open());
     let holders: Vec<(ViewId, String)> = declared(kernel)
@@ -173,7 +173,7 @@ pub fn session<D: DataSource>(runner: &Runner<D>) -> Session {
     })
 }
 
-/// The holders that count, of those displayed (rules 1 and 2).
+/// The holders that count, of those displayed (D3 rules 1 and 2).
 fn counted(kernel: &Kernel, holders: Vec<(ViewId, String)>) -> Vec<(ViewId, String)> {
     // Rule 1: in each stack, a holder counts only in the topmost route that
     // has one, the page and the split's list beside it being one tier.
@@ -287,7 +287,7 @@ fn holders_json(by: &[(ViewId, String)], s: &mut String) {
 /// and what it has journaled.
 #[derive(Debug, Default)]
 pub struct Said {
-    /// The host's readback, JSON; `None` until a host reports.
+    /// The host's readback, JSON (D5–D8); `None` until a host reports.
     applied: Option<String>,
     /// The host found a conflict only its resolution reveals.
     conflict: bool,
@@ -298,7 +298,7 @@ pub struct Said {
 }
 
 impl<D: DataSource> Runner<D> {
-    /// The session's lock, for a host to apply when it changes, with
+    /// The session's lock, for a host to apply when it changes (D3), with
     /// the journal lines its changes earn: a conflict among the types, once
     /// per conflict, and a lock inside a `dialog` or popover, once per view.
     pub fn orientation_session(&mut self) -> Session {
@@ -334,7 +334,7 @@ impl<D: DataSource> Runner<D> {
         session
     }
 
-    /// What the host applied, JSON, for `state.orientationlock.applied`;
+    /// What the host applied (D5–D8), JSON, for `state.orientationlock.applied`;
     /// `conflict` when its resolution of `natural` or `current` left the
     /// counted holders sharing no orientation, which it journals itself.
     pub fn set_orientation_applied(&mut self, applied: String, conflict: bool) {
@@ -354,7 +354,7 @@ pub fn conflict_line(by: &[(ViewId, String)]) -> String {
 }
 
 /// `,"orientationlock":{"held":…,"by":[…],"words":[…],"lock":…,"conflict":…,"applied":…}`,
-/// the agent's `state.orientationlock`.
+/// the agent's `state.orientationlock` (§8).
 pub(crate) fn state<D: DataSource>(runner: &Runner<D>, s: &mut String) {
     let session = session(runner);
     let said = &runner.orientation;

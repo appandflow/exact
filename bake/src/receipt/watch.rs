@@ -1,5 +1,5 @@
 //! Cargo invalidation for optional asset roots; the owned filesystem gate
-//! remains the authority for which bytes a bake may read.
+//! remains the authority for which bytes a bake may read (LLP 1030.002 D1).
 
 use std::path::{Path, PathBuf};
 

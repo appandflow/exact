@@ -1,4 +1,4 @@
-// An image in a paragraph's text: its run is U+FFFC with a
+// An image in a paragraph's text (LLP 1011.002): its run is U+FFFC with a
 // CTRunDelegate the box's size, so CoreText breaks lines around it and leaves
 // it no ink; the line box grows to hold it (CSS 2 §10.8), and the kernel
 // places the image's own view where the measurer says the box went.
@@ -63,7 +63,7 @@ private final class InlineBoxMetrics {
 }
 
 package extension NSAttributedString.Key {
-    /// An inline box's run, its index in the spec's runs.
+    /// An inline box's run, its index in the spec's runs (LLP 1011.002).
     static let exactInlineBox = NSAttributedString.Key("ExactInlineBox")
 }
 
@@ -85,7 +85,7 @@ extension TextEngine {
         a[.exactInlineBox] = index
     }
 
-    /// Each box's top left in content coordinates, in
+    /// @ref LLP 1011.002 D2 — each box's top left in content coordinates, in
     /// run order, in the paragraph `request` answers: the one painted.
     package func inlineBoxOrigins(_ request: ExactMeasureRequest) -> [CGFloat] {
         guard request.width >= 0, request.exclusion_count == 0, request.markup == 0 else { return [] }
@@ -120,5 +120,21 @@ extension TextEngine {
         let origins = Unmanaged<TextEngine>.fromOpaque(ctx).takeUnretainedValue().inlineBoxOrigins(request)
         if let out { for (i, v) in origins.prefix(cap).enumerated() { out[i] = Float(v) } }
         return origins.count
+    }
+}
+
+/// An atom icon before resolution, then its resolved picture geometry (LLP 1045.000 D4).
+package struct AtomIconRun: Hashable, Sendable {
+    package var source: String
+    package var size: CGFloat?
+    package var sizeEm: Bool
+    package var gap: CGFloat?
+    package var gapEm: Bool
+    package var rtl: Bool
+    package var capHeight: CGFloat = 0
+    package var loaded = false
+    package init(source: String, size: CGFloat?, sizeEm: Bool, gap: CGFloat?, gapEm: Bool, rtl: Bool) {
+        self.source = source; self.size = size; self.sizeEm = sizeEm
+        self.gap = gap; self.gapEm = gapEm; self.rtl = rtl
     }
 }

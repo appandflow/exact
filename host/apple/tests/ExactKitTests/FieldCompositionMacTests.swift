@@ -3,13 +3,14 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// On the Mac, a field and a text area composing through an input method
-/// (`FieldComposition.swift`). The app hears `input` at each change of the
-/// marked text, with it in the value, where AppKit tells a delegate nothing
-/// until the commit; the commit of what is marked as it stands is not heard
-/// again. The app's value never ends a composition: the value the editor shows
-/// changes nothing, and a different one written while text is marked is held
-/// and applied when the composition ends, committed or cancelled.
+/// LLP 1115.000 §5 (ruling 6) and LLP 1045 D5 on the Mac: a field and a text
+/// area composing through an input method (`FieldComposition.swift`). The
+/// app hears `input` at each change of the marked text, with it in the
+/// value, where AppKit tells a delegate nothing until the commit; the commit
+/// of what is marked as it stands is not heard again. The app's value never
+/// ends a composition: the value the editor shows changes nothing, and a
+/// different one written while text is marked is held and applied when the
+/// composition ends, committed or cancelled.
 ///
 /// The editor is driven as an input method drives it, through
 /// `NSTextInputClient` (`setMarkedText`, `insertText`, `unmarkText`): kana,
@@ -121,7 +122,7 @@ final class FieldCompositionMacTests: XCTestCase {
         XCTAssertNil(node.pendingValue)
     }
 
-    /// An action that rewrites what it hears never ends a
+    /// LLP 1045 D5: an action that rewrites what it hears never ends a
     /// composition. Here it upper-cases: each change of にほん is heard, each
     /// rewrite is held while the text stays marked, and the rewrite lands
     /// when the composition ends, by the candidate chosen or as it stands.

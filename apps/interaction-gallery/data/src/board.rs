@@ -1,5 +1,5 @@
-//! A three-column board for the cross-list reorder fixture
-//! (`host/web-js/conformance/reorder-group.contract`): cards keyed by string
+//! A three-column board for the cross-list reorder fixture (LLP 1094 D12,
+//! `host/web-js/conformance/reorder-group.contract`): cards keyed by string
 //! ids, the third column empty, and one move that puts a card before
 //! another or at a column's end.
 

@@ -10,7 +10,7 @@ use super::*;
 /// tree; these bounds keep a compile inside a 2 MB thread's stack even
 /// unoptimized (a release build has room for ten times as much), and past
 /// them is a refusal, never a stack overflow. No app's deepest expression
-/// is a third of either (21 levels).
+/// is a third of either (21 levels, 2026-09-22).
 const MAX_NESTING: u32 = 64;
 const MAX_TREE_DEPTH: usize = 100;
 
@@ -141,6 +141,7 @@ impl Parser {
     }
 
     pub(super) fn unary(&mut self) -> R<Expr> {
+        self.refuse_update_operator()?;
         let op = if self.at_punct("-") {
             UnOp::Neg
         } else if self.at_punct("!") || self.at_ident("not") {
@@ -160,8 +161,11 @@ impl Parser {
     pub(super) fn postfix(&mut self) -> R<Expr> {
         let mut e = self.primary()?;
         loop {
-            // `xs[i]`, `s[0]`: the web's bracket indexing, directly after its value.
             let (last, next) = (self.tokens[self.pos - 1].span, self.peek().span);
+            if next.line == last.line {
+                self.refuse_update_operator()?;
+            }
+            // `xs[i]`, `s[0]`: the web's bracket indexing, directly after its value.
             if self.at_punct("[") && next.line == last.line && next.col == last.end_col {
                 return self.err(
                     "syntax-refused-idiom",
@@ -179,7 +183,7 @@ impl Parser {
                 && next.line == span.line
                 && next.col == span.col + field.chars().count() as u32
             {
-                // A roster function whose first argument is
+                // @ref LLP 1116.015 D2 — a roster function whose first argument is
                 // its subject is called on it: `s.trim()` is `trim(s)`.
                 if crate::idioms::is_method(&field) {
                     let below = self.last;
@@ -202,7 +206,8 @@ impl Parser {
             }
             self.built(self.last, span)?;
             // `xs.length` is `length(xs)`, which the checker resolves by the
-            // receiver's type: a record's `length` field is read as one.
+            // receiver's type: a record's `length` field is read as one
+            // (@ref LLP 1116.015 D2, amended 2026-10-17).
             e = if field == "length" {
                 self.methods.push((field.clone(), span, self.in_block));
                 Expr::Call(field, vec![e], span)
@@ -211,6 +216,29 @@ impl Parser {
             };
         }
         Ok(e)
+    }
+
+    // Only expression positions distinguish updates from CSS's dashed names.
+    // Keep the signs separate in the lexer for `color-profile --brand`.
+    fn refuse_update_operator(&self) -> R<()> {
+        let first = self.peek();
+        let Some(second) = self.tokens.get(self.pos + 1) else {
+            return Ok(());
+        };
+        if let (TokenKind::Punct(sign @ ("-" | "+")), TokenKind::Punct(other)) =
+            (&first.kind, &second.kind)
+        {
+            if sign == other
+                && first.span.line == second.span.line
+                && first.span.end_col == second.span.col
+            {
+                return self.err(
+                    "syntax-refused-idiom",
+                    format!("Contract has no `{sign}{sign}`: write `n {sign} 1`, or `n = n {sign} 1` in an action; for double negation write `-(-n)` or `- -n`"),
+                );
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn primary(&mut self) -> R<Expr> {
@@ -227,7 +255,7 @@ impl Parser {
                 self.expect_punct(")")?;
                 Ok(e)
             }
-            // `[a, b]`, `[]`. Items may span lines (the
+            // `[a, b]`, `[]` (LLP 1088 §9.1). Items may span lines (the
             // lexer counts bracket depth), and a trailing comma is kept, as
             // in JavaScript.
             TokenKind::Punct("[") => {
@@ -258,7 +286,7 @@ impl Parser {
                 self.built(deepest, span)?;
                 Ok(Expr::List(items, span))
             }
-            // `none(value=1)`: a reserved word names no shape.
+            // `none(value=1)`: a reserved word names no shape (LLP 1088 D5).
             TokenKind::Ident(w)
                 if matches!(w.as_str(), "true" | "false" | "none") && self.at_punct("(") =>
             {
@@ -321,7 +349,7 @@ impl Parser {
                     })
                 }
                 // A contextual keyword (`state`, `key`, `refresh`) reads as the
-                // name it is here; a reserved one is never a value.
+                // name it is here; a reserved one is never a value (LLP 1088 D5).
                 _ if super::names::is_reserved(&w) => Err(SyntaxError {
                     id: "syntax-keyword-as-value",
                     message: format!(
@@ -362,7 +390,7 @@ impl Parser {
     }
 
     /// Whether an arrow function starts here: `x =>`, `() =>`, `(x) =>` or
-    /// `(x, i) =>`.
+    /// `(x, i) =>` (LLP 1017.003 D1).
     pub(super) fn arrow_ahead(&self) -> bool {
         let at = |k: usize| &self.tokens[(self.pos + k).min(self.tokens.len() - 1)].kind;
         let name = |k: usize| matches!(at(k), TokenKind::Ident(_));
@@ -450,9 +478,12 @@ impl Parser {
                 parts.push(TemplatePart::Text(std::mem::take(&mut text)));
             }
             let inner = &after[..end];
+            // Leading spaces in an expression fragment are not file indentation.
+            let leading = inner.len() - inner.trim_start_matches(' ').len();
+            let inner = &inner[leading..];
             // `raw` starts after the backtick. Keep byte offsets through Unicode
             // prefixes, repeated interpolations, and recursively nested templates.
-            let col = span.col + 1 + (raw.len() - after.len()) as u32;
+            let col = span.col + 1 + (raw.len() - after.len() + leading) as u32;
             let mut tokens = Lexer::tokenize_at(
                 inner,
                 Span {

@@ -3,12 +3,13 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// The end of a pop UIKit runs (`NavigationHost.completeTransition`): the app
-/// follows a pop UIKit finished, whatever became of the source's key or of a
-/// route the app selected again meanwhile, and a cancelled pop dispatches no
-/// Back. The tree is the test's own, written to the presenter as the runner
-/// writes it; a Back is the press of the route's `navigationBack` control,
-/// which the test answers as the app would, in the same turn.
+/// A pop UIKit runs reaches the app (`NavigationHost.followPops`, and a
+/// swipe's end in `completeTransition`): the app follows a pop UIKit
+/// committed, whatever became of the source's key or of a route the app
+/// selected again meanwhile, and a cancelled swipe dispatches no Back. The
+/// tree is the test's own, written to the presenter as the runner writes
+/// it; a Back is the press of the route's `navigationBack` control, which
+/// the test answers as the app would, in the same turn.
 final class NavigationPopIOSTests: XCTestCase {
     private var window: UIWindow?
     private var sessions: [ExactSession] = []
@@ -89,132 +90,6 @@ final class NavigationPopIOSTests: XCTestCase {
         until("UIKit's pop animates the route beneath") { destination.viewIfLoaded?.window != nil }
         pop.interaction.update(0.4)
         return pop
-    }
-
-    /// Zoomed (7, its Back 8) pushed over the stack from a source, as a card opens a product: UIKit
-    /// gives it the zoom's transition, whose tail takes touches.
-    private func zoomed(_ s: Stack) {
-        s.apply([["op": "create", "id": 7, "kind": "view", "props": ["navigationKey": "zoomed", "navigationSource": "photo"]], frame(7)] + back(8, in: 7) + [
-            ["op": "children", "id": 1, "ids": [2, 3, 5, 7]],
-            ["op": "props", "id": 1, "set": ["navigationKey": "zoomed"]],
-        ])
-        until("UIKit pushes Zoomed") { s.nav.viewControllers.count == 4 && s.nav.transitionCoordinator == nil }
-    }
-
-    /// What Zoomed's Back does in the app: the stack without it, Log selected.
-    private func backFromZoomed(_ s: Stack) {
-        s.apply([["op": "children", "id": 1, "ids": [2, 3, 5]], ["op": "destroy", "id": 8], ["op": "destroy", "id": 7],
-                 ["op": "props", "id": 1, "set": ["navigationKey": "log"]]])
-    }
-
-    /// The tap on Log's next card: Next (9, its Back 10) on what the app holds.
-    private func pushNext(_ s: Stack) {
-        s.apply([["op": "create", "id": 9, "kind": "view", "props": ["navigationKey": "next"]], frame(9)] + back(10, in: 9) + [
-            ["op": "children", "id": 1, "ids": [2, 3, 5, 9]],
-            ["op": "props", "id": 1, "set": ["navigationKey": "next"]],
-        ])
-    }
-
-    /// A touch in the tail of a zoom's pop: the app goes back before the touch reaches it, so what
-    /// the touch pushes lands on Log, with Zoomed gone from beneath it. Before, the app heard of the
-    /// pop only at its end, and Back from Next showed Zoomed again.
-    func testATouchInAZoomPopsTailGoesBackFirst() throws {
-        guard hasScene else { throw missing("scene", "UIKit animates a pop only in a window a scene holds") }
-        let s = try stack("zoom-tail-touch")
-        zoomed(s)
-        var pressed: [UInt32] = []
-        s.session.presenter.onPress = { id in pressed.append(id); self.backFromZoomed(s) }
-        s.nav.popViewController(animated: true)
-        until("UIKit starts the pop") { s.session.presenter.navigation.decidedPop != nil }
-        XCTAssertNotNil(s.nav.transitionCoordinator, "the touch lands before UIKit's pop is over")
-        XCTAssertEqual(pressed, [], "the zoom draws the route's nodes: no touch, no Back yet")
-        s.session.presenter.navigation.followDecidedPop()
-        XCTAssertEqual(pressed, [8], "Zoomed's Back, before the touch")
-        pushNext(s)
-        until("Next lands on Log") { s.nav.transitionCoordinator == nil && s.key == "next" }
-        XCTAssertEqual(s.nav.viewControllers.compactMap { ($0 as? RouteController)?.key }, ["settings", "updates", "log", "next"])
-        XCTAssertEqual(pressed, [8], "the pop's end adds no Back")
-    }
-
-    /// An interactive pop of Log, noted as a zoom's. UIKit runs a route with a `preferredTransition`
-    /// by its own zoom, past the test's interaction, and only a finger drives that: so Log takes
-    /// one once its pop is under way, and the coordinator is the live one, cancelled or finished.
-    @available(iOS 18.0, *)
-    private func zoomSwipe(_ s: Stack) throws -> InteractivePop {
-        let log = try XCTUnwrap(s.nav.topViewController)
-        let pop = swipe(s)
-        let transition = try XCTUnwrap(s.nav.transitionCoordinator)
-        XCTAssertTrue(transition.initiallyInteractive, "a swipe, as the finger's is")
-        log.preferredTransition = .zoom { _ in nil }
-        s.session.presenter.navigation.noteZoomPop(transition, on: s.nav)
-        return pop
-    }
-
-    /// The same after a swipe, whose end took a source gone from a stack as deep as the swipe
-    /// found it for a source replaced in place, and went back from what the touch pushed.
-    func testATouchInASwipedZoomsTailKeepsWhatItPushed() throws {
-        guard hasScene else { throw missing("scene", "UIKit animates a pop only in a window a scene holds") }
-        guard #available(iOS 18.0, *) else { throw missing("iOS 18", "the zoom transition") }
-        let s = try stack("zoom-tail-swipe")
-        var pressed: [UInt32] = []
-        s.session.presenter.onPress = { id in
-            pressed.append(id)
-            s.apply([["op": "children", "id": 1, "ids": [2, 3]], ["op": "destroy", "id": 6], ["op": "destroy", "id": 5],
-                     ["op": "props", "id": 1, "set": ["navigationKey": "updates"]]])
-        }
-        let pop = try zoomSwipe(s)
-        XCTAssertNil(s.session.presenter.navigation.decidedPop, "undecided while the finger is down")
-        pop.interaction.finish()
-        pop.interactive = false
-        until("the lift decides the pop") { s.session.presenter.navigation.decidedPop != nil }
-        s.session.presenter.navigation.followDecidedPop()
-        XCTAssertEqual(pressed, [6], "Log's Back, before the touch")
-        s.apply([["op": "create", "id": 9, "kind": "view", "props": ["navigationKey": "next"]], frame(9)] + back(10, in: 9) + [
-            ["op": "children", "id": 1, "ids": [2, 3, 9]],
-            ["op": "props", "id": 1, "set": ["navigationKey": "next"]],
-        ])
-        until("Next lands on Updates") { s.nav.transitionCoordinator == nil && s.key == "next" }
-        XCTAssertEqual(pressed, [6], "Log's Back, once: the pop's end takes nothing from Next")
-        XCTAssertEqual(s.session.presenter.navigation.selectedKey, "next")
-        s.session.presenter.navigation.setAppDelegate(s.nav, nil)
-    }
-
-    /// No touch: the app goes back at the pop's end, as for any pop, once.
-    func testAZoomsPopWithNoTouchGoesBackAtItsEnd() throws {
-        guard hasScene else { throw missing("scene", "UIKit animates a pop only in a window a scene holds") }
-        let s = try stack("zoom-no-touch")
-        zoomed(s)
-        var pressed: [UInt32] = []
-        s.session.presenter.onPress = { id in pressed.append(id); self.backFromZoomed(s) }
-        s.nav.popViewController(animated: true)
-        until("the pop lands on Log") { s.nav.transitionCoordinator == nil && s.key == "log" && !pressed.isEmpty }
-        XCTAssertEqual(pressed, [8], "Zoomed's Back, once")
-        XCTAssertNil(s.session.presenter.navigation.decidedPop)
-    }
-
-    /// A swipe the finger takes back decides nothing: a touch as it rolls back stays on Log.
-    func testACancelledZoomSwipeDecidesNoPop() throws {
-        guard hasScene else { throw missing("scene", "UIKit animates a pop only in a window a scene holds") }
-        guard #available(iOS 18.0, *) else { throw missing("iOS 18", "the zoom transition") }
-        let s = try stack("zoom-cancelled")
-        var pressed: [UInt32] = []
-        s.session.presenter.onPress = { pressed.append($0) }
-        let pop = try zoomSwipe(s)
-        pop.interaction.cancel()
-        pop.interactive = false
-        var touched = false
-        until("the swipe returns to Log") {
-            if s.nav.transitionCoordinator != nil, !touched {
-                touched = true
-                s.session.presenter.navigation.followDecidedPop()
-            }
-            return s.nav.transitionCoordinator == nil && s.key == "log"
-        }
-        XCTAssertTrue(touched, "the touch came during the rollback")
-        XCTAssertEqual(pressed, [], "no Back from a cancelled swipe")
-        XCTAssertEqual(s.session.presenter.navigation.selectedKey, "log")
-        XCTAssertNil(s.session.presenter.navigation.decidedPop)
-        s.session.presenter.navigation.setAppDelegate(s.nav, nil)
     }
 
     /// Log's key moves while the finger is down (a route that redirects as
@@ -321,6 +196,73 @@ final class NavigationPopIOSTests: XCTestCase {
         until("the pop lands on Settings") { s.nav.transitionCoordinator == nil && s.nav.viewControllers.count == 1 && s.key == "settings" }
         XCTAssertEqual(pressed, [4], "Updates' Back, once")
         XCTAssertEqual(s.session.presenter.navigation.selectedKey, "settings")
+    }
+
+    /// The app goes back from Log, a route it retains, and then selects it
+    /// again: Exact took Log out for the app, so Log selected again is a
+    /// request Exact writes, and no pop of UIKit's to follow.
+    func testARouteTheAppWentBackFromIsWrittenWhenSelectedAgain() throws {
+        guard hasScene else { throw missing("scene", "UIKit animates the pop and the push Exact writes only in a window a scene holds") }
+        let s = try stack("app-back-retained")
+        var pressed: [UInt32] = []
+        s.session.presenter.onPress = { pressed.append($0) }
+        s.apply([["op": "props", "id": 1, "set": ["navigationKey": "updates"]]])
+        until("Exact takes Log out") { s.nav.transitionCoordinator == nil && s.nav.viewControllers.count == 2 && s.key == "updates" }
+        s.apply([["op": "props", "id": 1, "set": ["navigationKey": "log"]]])
+        until("Exact pushes Log again") { s.nav.transitionCoordinator == nil && s.nav.viewControllers.count == 3 && s.key == "log" }
+        waitForMainQueue()
+        XCTAssertEqual(pressed, [], "no Back")
+    }
+
+    /// An app that sets a stack's delegate itself takes the stack's calls
+    /// from Exact. A swipe there is no Back while the finger is down, and
+    /// reaches the app once it completes, as the route beneath has appeared:
+    /// nothing but the app's answer to that Back brings a batch, and no tab
+    /// call comes.
+    func testASwipeUnderAnAppsOwnDelegateReachesTheAppOnceItCompletes() throws {
+        guard hasScene else { throw missing("scene", "UIKit animates a pop only in a window a scene holds") }
+        let s = try stack("pop-app-delegate-swipe")
+        let navigation = s.session.presenter.navigation
+        var pressed: [UInt32] = []
+        s.session.presenter.onPress = { id in
+            pressed.append(id)
+            s.apply([["op": "children", "id": 1, "ids": [2, 3]], ["op": "destroy", "id": 6], ["op": "destroy", "id": 5],
+                     ["op": "props", "id": 1, "set": ["navigationKey": "updates"]]])
+        }
+        let pop = InteractivePop()
+        s.nav.delegate = pop
+        pop.interactive = true
+        let destination = s.nav.viewControllers[1]
+        s.nav.popViewController(animated: true)
+        until("UIKit's pop animates the route beneath") { destination.viewIfLoaded?.window != nil }
+        pop.interaction.update(0.4)
+        waitForMainQueue()
+        XCTAssertEqual(pressed, [], "a swipe under way is no Back")
+        pop.interaction.finish()
+        pop.interactive = false
+        until("the finished swipe reaches the app") { pressed == [6] && !navigation.inTransition }
+        XCTAssertEqual(s.key, "updates")
+    }
+
+    /// The router moves while a swipe runs under an app's own delegate on the
+    /// stack: the sync that waits for the swipe runs once it has ended, as the
+    /// route beneath appears, and UIKit shows the router's route.
+    func testASyncHeldByASwipeUnderAnAppsOwnDelegateRunsWhenItEnds() throws {
+        guard hasScene else { throw missing("scene", "UIKit animates a pop only in a window a scene holds") }
+        let s = try stack("pop-app-delegate-held")
+        let navigation = s.session.presenter.navigation
+        let pop = InteractivePop()
+        s.nav.delegate = pop
+        pop.interactive = true
+        let destination = s.nav.viewControllers[1]
+        s.nav.popViewController(animated: true)
+        until("UIKit's pop animates the route beneath") { destination.viewIfLoaded?.window != nil }
+        pop.interaction.update(0.4)
+        s.apply([["op": "props", "id": 1, "set": ["navigationKey": "settings"]]])
+        XCTAssertTrue(navigation.pendingSync, "the router's move waits for the swipe")
+        pop.interaction.finish()
+        pop.interactive = false
+        until("the held sync runs and UIKit shows Settings") { s.key == "settings" && !navigation.inTransition }
     }
 }
 #endif

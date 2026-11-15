@@ -1,8 +1,8 @@
 // Why a live proposal would not apply in place on the JS dev loop's pages
-// (tamber-server.mjs `proposeHere` makes such a one
+// (LLP 1121 stage 6; forma-server.mjs `proposeHere` makes such a one
 // `rebuild`): a token the pages write inline (a font-weight number, an SVG
 // attribute's) whose value moves. What can't be known yet is a rebuild too,
-// never live: with no design reader
+// never live (theme2's ruling of 2026-10-23 10:01): with no design reader
 // built, a proposal does not wait on a compile, so it says so and takes the
 // safe class, as a motion value no row reads does.
 

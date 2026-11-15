@@ -28,7 +28,7 @@ extension ExactSession {
     }
 
     /// `clockTimer`'s advance. One the owner cannot take now (it waits on
-    /// a callback on this thread) is asked again a frame
+    /// a callback on this thread, LLP 1072 T5) is asked again a frame
     /// later, as a frame's would be on the next: nothing else arms the
     /// clock while timers show nothing.
     private func fireClock() {
@@ -51,13 +51,13 @@ extension ExactSession {
     /// A deadline already due when a batch lands advances now, in the same
     /// main-thread work, before control goes back to UIKit or AppKit, which
     /// commit what the batch did: a `then` is armed at its answer's time and
-    /// runs as its own commit at the next clock advance, so
+    /// runs as its own commit at the next clock advance (LLP 1016.001 D3), so
     /// the frame waited for showed the answer without what its `then` did
     /// (Lexy's sign-in button read "Sign In" between two requests). Not while
     /// the driver owns the clock, a frame task's display link drives the
     /// session, a slice is in flight, or earlier slices are landing ahead of
     /// a batch (the batch, then the advance); those advance as before.
-    /// Where timer advances are posted, main waits only
+    /// Where timer advances are posted (LLP 1072.000 §4 B), main waits only
     /// for a `then`, a queue's `next` or an answer that is the earliest work
     /// due; what is due after it is posted.
     func advanceIfDue() {
@@ -73,11 +73,11 @@ extension ExactSession {
         if state != .destroyed, !ownerInFlight, let due = timerDue, due <= now() { sendAdvance(now: now()) }
     }
 
-    /// A timer advance on the owner, not waited for:
+    /// A timer advance on the owner, not waited for (LLP 1072.000 §4 B):
     /// its batch lands in the owner's order, a main-queue turn after the
     /// owner made it, and until then a frame shows the last batch applied.
     /// One is in flight at a time. `frame`: a display frame's, with its
-    /// frame tasks. The commit samples the live clock when the
+    /// frame tasks (LLP 1073 D5). The commit samples the live clock when the
     /// owner runs it, as one main waited for does.
     func sendAdvance(now: Double, frame: Double? = nil) {
         advanceInFlight = true
@@ -86,7 +86,7 @@ extension ExactSession {
     }
 
     /// A frame's tick on the owner, not waited for: motion sampled at this
-    /// frame lands with the next main-queue turn.
+    /// frame lands with the next main-queue turn (LLP 1072 §7.1).
     func sendTick(now: Double, frame: Double? = nil) {
         tickInFlight = true
         let captured = generation

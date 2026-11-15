@@ -3,7 +3,9 @@
 //! Rust consumers use `host::Bindings` directly. A JS embedder compiles
 //! `JSI_SOURCE` against its own JSI headers, bakes [`scripts`] with its
 //! engine's compiler, and creates an `Adapter` from `JSI_HEADER`. This module
-//! links no engine and owns no application loop: the consumer owns execution.
+//! links no engine and owns no application loop.
+//!
+//! @ref LLP 0068#2-synchronous-and-why — the consumer owns execution
 use crate::{grant::GrantSet, host, task::RuntimeState};
 use std::{
     collections::HashSet,
@@ -76,8 +78,9 @@ pub use crate::stdlib::intl_os::{os_icu, OsIcu};
 /// Cargo features decide what code is linked; this set independently decides
 /// what one caller-owned runtime receives. Dependencies are checked rather
 /// than silently added, so the installed surface is exactly the surface the
-/// caller requested. Which code is linked (Cargo features) and which globals
-/// are installed (groups) are chosen separately.
+/// caller requested.
+///
+/// @ref LLP 0057.000#51-included-gated-or-a-crate — D6 chooses linked code and installed globals separately
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Groups(u16);
 
@@ -116,21 +119,32 @@ impl Groups {
             | Self::WEBSOCKET.0,
     );
 
-    /// Every group linked into this build. Linux and Windows Intl exist only
-    /// when their over-budget Cargo feature is selected.
-    #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
+    /// Every group linked into this build. The `intl` feature enables the
+    /// ICU-backed group where its backend is available.
+    #[cfg(all(
+        any(target_os = "linux", ibex2_android_intl, windows),
+        feature = "intl"
+    ))]
     pub const ALL: Self = Self(Self::PORTABLE_ALL.0 | Self::INTL.0);
     /// Every group linked into this build.
-    #[cfg(not(all(any(target_os = "linux", windows), feature = "intl")))]
+    #[cfg(not(all(
+        any(target_os = "linux", ibex2_android_intl, windows),
+        feature = "intl"
+    )))]
     pub const ALL: Self = Self::PORTABLE_ALL;
 
-    /// The ordinary runtime profile. BLOB and WEBSOCKET stay within the
-    /// default-on 150 KB / 150 µs budget and are installed by default.
-    #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
+    /// The ordinary runtime profile. BLOB and WEBSOCKET stay within LLP
+    /// 0057.000 D5's 150 KB / 150 µs budget and are installed by default.
+    #[cfg(all(
+        any(target_os = "linux", ibex2_android_intl, windows),
+        feature = "intl"
+    ))]
     pub const DEFAULT: Self = Self(Self::PORTABLE_ALL.0 | Self::INTL.0);
-    /// The ordinary runtime profile. Intl exceeds the default-on budget
-    /// and is opt-in.
-    #[cfg(not(all(any(target_os = "linux", windows), feature = "intl")))]
+    /// The ordinary runtime profile. Intl is opt-in under LLP 0057.000 D5/D6.
+    #[cfg(not(all(
+        any(target_os = "linux", ibex2_android_intl, windows),
+        feature = "intl"
+    )))]
     pub const DEFAULT: Self = Self::PORTABLE_ALL;
 
     pub const fn empty() -> Self {
@@ -179,14 +193,18 @@ impl Groups {
                 });
             }
         }
-        #[cfg(not(all(any(target_os = "linux", windows), feature = "intl")))]
+        #[cfg(not(all(
+            any(target_os = "linux", ibex2_android_intl, windows),
+            feature = "intl"
+        )))]
         if self.contains(Self::INTL) {
             return Err(GroupError {
                 group: Self::INTL,
                 missing: Self::INTL,
             });
         }
-        // Linked is not enough on Windows: the OS must provide the ICU the shims call.
+        // @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — linked is not
+        // enough on Windows: the OS must provide the ICU the shims call.
         #[cfg(all(windows, feature = "intl"))]
         if self.contains(Self::INTL) && crate::stdlib::intl_os::available().is_err() {
             return Err(GroupError {
@@ -275,7 +293,7 @@ impl fmt::Display for GroupError {
             #[cfg(not(all(windows, feature = "intl")))]
             return write!(
                 f,
-                "binding group INTL is unavailable; enable ibex2's `intl` Cargo feature on Linux or Windows"
+                "binding group INTL is unavailable; enable ibex2's `intl` Cargo feature on Linux, Windows or an Intl-enabled Android bundle"
             );
         }
         write!(
@@ -328,18 +346,27 @@ pub fn scripts(groups: Groups) -> Result<Vec<Script>, GroupError> {
         "fetch" => concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/fetch.js"),
         "blob" => concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/blob.js"),
         "sqlite" => SQLITE_SOURCE,
-        #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
+        #[cfg(all(
+            any(target_os = "linux", ibex2_android_intl, windows),
+            feature = "intl"
+        ))]
         "intl_number_format" => {
             concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/src/bindings/intl_number_format.js"
             )
         }
-        #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
+        #[cfg(all(
+            any(target_os = "linux", ibex2_android_intl, windows),
+            feature = "intl"
+        ))]
         "intl_case" => {
             concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/intl_case.js")
         }
-        #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
+        #[cfg(all(
+            any(target_os = "linux", ibex2_android_intl, windows),
+            feature = "intl"
+        ))]
         "intl_datetime" => {
             concat!(env!("CARGO_MANIFEST_DIR"), "/src/bindings/intl_datetime.js")
         }
@@ -373,7 +400,10 @@ pub fn scripts(groups: Groups) -> Result<Vec<Script>, GroupError> {
     if groups.contains(Groups::WEBSOCKET) {
         push("websocket");
     }
-    #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
+    #[cfg(all(
+        any(target_os = "linux", ibex2_android_intl, windows),
+        feature = "intl"
+    ))]
     if groups.contains(Groups::INTL) {
         push("intl_number_format");
         push("intl_case");
@@ -423,13 +453,22 @@ fn compiled_script(name: &str) -> &'static [u8] {
         }
         "fetch" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/fetch.hbc")),
         "sqlite" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/sqlite.hbc")),
-        #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
+        #[cfg(all(
+            any(target_os = "linux", ibex2_android_intl, windows),
+            feature = "intl"
+        ))]
         "intl_number_format" => {
             aligned_bytecode!(concat!(env!("OUT_DIR"), "/intl_number_format.hbc"))
         }
-        #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
+        #[cfg(all(
+            any(target_os = "linux", ibex2_android_intl, windows),
+            feature = "intl"
+        ))]
         "intl_case" => aligned_bytecode!(concat!(env!("OUT_DIR"), "/intl_case.hbc")),
-        #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
+        #[cfg(all(
+            any(target_os = "linux", ibex2_android_intl, windows),
+            feature = "intl"
+        ))]
         "intl_datetime" => {
             aligned_bytecode!(concat!(env!("OUT_DIR"), "/intl_datetime.hbc"))
         }
@@ -513,7 +552,7 @@ impl Context {
         // An owning runtime adopts this endowment after constructing its own
         // state. Preserve the default selection without eagerly constructing
         // a platform transport that adoption would immediately supersede.
-        // Context endowments are adopted without sharing runtime state.
+        // @ref LLP 0068#3-no-engine-in-the-process — Context endowments are adopted without sharing runtime state
         let bindings =
             host::Host::with_transport(Box::new(crate::transport::LazyDefaultTransport::new()))
                 .endow(grants);
@@ -523,7 +562,7 @@ impl Context {
     /// Build the runtime endowment from the exact bindings a host returned.
     /// The transport, stores, mounts, provider, and grants are retained
     /// together for the lifetime of the runtime state.
-    // The install door consumes Host::endow's Bindings.
+    // @ref LLP 0057.000#50-three-doors-one-implementation — the install door consumes Host::endow's Bindings
     pub fn from_bindings(bindings: &host::Bindings) -> Self {
         let state = Arc::new(RuntimeState::from_bindings(bindings));
         let endowment = Arc::new(InstallEndowment {
@@ -609,7 +648,7 @@ impl Context {
     }
 
     /// Make `clock` this runtime's time source, in milliseconds: the timer
-    /// wheel and `performance.now` read it. Ibex calls it with
+    /// wheel and `performance.now` read it (LLP 0071 D3). Ibex calls it with
     /// no Ibex lock held, on the thread reading time; it must return promptly
     /// and must not call into this `Context` or its adapter. A reading that is
     /// not finite, is negative or exceeds 2^53 ms, or a panic, repeats the last
@@ -623,14 +662,14 @@ impl Context {
     }
 
     /// Move every timer due on this runtime's clock into the task FIFO, and
-    /// report how many. Admission wakes, as every admission
+    /// report how many (LLP 0071 D2). Admission wakes, as every admission
     /// does: do not hold across it a lock the wake callback takes.
     pub fn admit_due_timers(&self) -> usize {
         self.endowment.state.admit_due_timers()
     }
 
     /// Milliseconds on this runtime's clock until the next timer is due;
-    /// `Some(0.0)` exactly when one is.
+    /// `Some(0.0)` exactly when one is (LLP 0071 D2, D3).
     pub fn millis_until_next_timer(&self) -> Option<f64> {
         self.endowment.state.millis_until_next_timer()
     }
@@ -763,7 +802,10 @@ mod tests {
             "blob",
             "websocket",
         ];
-        #[cfg(all(any(target_os = "linux", windows), feature = "intl"))]
+        #[cfg(all(
+            any(target_os = "linux", ibex2_android_intl, windows),
+            feature = "intl"
+        ))]
         expected.extend(["intl_number_format", "intl_case", "intl_datetime"]);
         expected.extend(["fetch", "sqlite", "structured_clone"]);
         assert_eq!(names, expected);
@@ -771,7 +813,10 @@ mod tests {
 
     #[test]
     fn intl_group_tracks_the_cargo_feature() {
-        let available = cfg!(all(any(target_os = "linux", windows), feature = "intl"));
+        let available = cfg!(all(
+            any(target_os = "linux", ibex2_android_intl, windows),
+            feature = "intl"
+        ));
         assert_eq!(Groups::DEFAULT.contains(Groups::INTL), available);
         assert_eq!(Groups::ALL.contains(Groups::INTL), available);
         let result = Groups::INTL.validate();
@@ -779,7 +824,7 @@ mod tests {
         if !available {
             assert_eq!(
                 result.unwrap_err().to_string(),
-                "binding group INTL is unavailable; enable ibex2's `intl` Cargo feature on Linux or Windows"
+                "binding group INTL is unavailable; enable ibex2's `intl` Cargo feature on Linux, Windows or an Intl-enabled Android bundle"
             );
         }
     }

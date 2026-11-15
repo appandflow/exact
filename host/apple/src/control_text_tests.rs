@@ -201,7 +201,7 @@ fn running_session_chrome_failure_keeps_updates_but_withholds_staged_geometry() 
     let mut batch = crate::batch::Batch::new();
     // Native-region promotion can have written geometry before layout fails.
     batch.frame(native, 10., 20., 30., 40.);
-    batch.content(native, 300., 400.);
+    batch.content(native, 300., 400., None);
     batch.field_content(
         native,
         Some(crate::batch::ContentBox {
@@ -511,7 +511,7 @@ fn trait_notification_remeasures_buttons_when_control_fonts_are_unchanged() {
     assert_eq!(CALLS.get(), 0, "ordinary layouts reuse the new revision");
 }
 
-/// A native field in a grouped list's row asks UIKit for
+/// LLP 1116.005 D2: a native field in a grouped list's row asks UIKit for
 /// the field in a list's cell (the kind's cell bit, 4) and is published as
 /// one (`"cell":true` beside its editor box), so iOS draws it borderless,
 /// the cell being the field. A field outside the list is neither.

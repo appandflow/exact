@@ -1,4 +1,4 @@
-//! CSS `backdrop-filter`: an ordered blur/saturation pair.
+//! CSS `backdrop-filter`: an ordered blur/saturation pair (LLP 1053.000 D1).
 //!
 //! One of each function, alone or together in authored order. The same
 //! linked grammar checks literals, computed values, and wire decoding.
@@ -33,7 +33,7 @@ impl BackdropFilter {
     /// The linked grammar, retaining the named refusal.
     pub fn check(text: &str) -> Result<Self, &'static str> {
         LINKED.get().map_or(
-            Err("`backdrop-filter` is not linked into this artifact"),
+            Err("`backdrop-filter` is not linked into this artifact (LLP 1053.000 §2)"),
             |parse| parse(text),
         )
     }
@@ -69,8 +69,8 @@ impl BackdropFilter {
 /// Link `backdrop-filter`'s grammar and its named refusals: until a host
 /// calls this, a text value for the row is refused as unlinked. The
 /// compiler and the native hosts link it at start; a web artifact links it
-/// when its plan uses the row (linked by use; the web core's
-/// budget).
+/// when its plan uses the row (LLP 1047 D2, linked by use; the web core's
+/// budget, LLP 1053.000 §2).
 pub fn link() {
     let _ = LINKED.set(parse);
 }
@@ -91,7 +91,9 @@ fn parse(text: &str) -> Result<BackdropFilter, &'static str> {
         let argument = rest[open + 1..close].trim();
         rest = rest[close + 1..].trim_start();
         match name.as_str() {
-            "blur" if blur => return Err("`backdrop-filter` takes one `blur()` in exact2"),
+            "blur" if blur => {
+                return Err("`backdrop-filter` takes one `blur()` in exact2 (LLP 1053.000 D1)")
+            }
             "blur" => {
                 let sigma = if argument.is_empty() {
                     0.0
@@ -106,7 +108,7 @@ fn parse(text: &str) -> Result<BackdropFilter, &'static str> {
                 operations.push(BackdropOp::Blur(sigma));
             }
             "saturate" if saturation => {
-                return Err("`backdrop-filter` takes one `saturate()` in exact2")
+                return Err("`backdrop-filter` takes one `saturate()` in exact2 (LLP 1053.000 D1)")
             }
             "saturate" => {
                 let amount = if argument.is_empty() {
@@ -135,21 +137,20 @@ fn parse(text: &str) -> Result<BackdropFilter, &'static str> {
     }
 }
 
-const EXPECTED: &str =
-    "`backdrop-filter` is `none` or one `blur(<length>)` and/or `saturate(<number-or-percentage>)`";
+const EXPECTED: &str = "`backdrop-filter` is `none` or one `blur(<length>)` and/or `saturate(<number-or-percentage>)` (LLP 1053.000 D1)";
 
 /// The CSS filter functions exact2 has not built for a backdrop, each named.
 fn refused(name: &str) -> &'static str {
     match name {
-        "brightness" => "`brightness()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()`",
-        "contrast" => "`contrast()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()`",
-        "grayscale" => "`grayscale()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()`",
-        "hue-rotate" => "`hue-rotate()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()`",
-        "invert" => "`invert()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()`",
-        "opacity" => "`opacity()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()`",
-        "sepia" => "`sepia()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()`",
-        "drop-shadow" => "`drop-shadow()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()`",
-        "url" => "`url()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()`; an SVG filter on a backdrop is not built",
+        "brightness" => "`brightness()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()` (LLP 1053.000 D1)",
+        "contrast" => "`contrast()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()` (LLP 1053.000 D1)",
+        "grayscale" => "`grayscale()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()` (LLP 1053.000 D1)",
+        "hue-rotate" => "`hue-rotate()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()` (LLP 1053.000 D1)",
+        "invert" => "`invert()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()` (LLP 1053.000 D1)",
+        "opacity" => "`opacity()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()` (LLP 1053.000 D1)",
+        "sepia" => "`sepia()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()` (LLP 1053.000 D1)",
+        "drop-shadow" => "`drop-shadow()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()` (LLP 1053.000 D1)",
+        "url" => "`url()` is CSS, but exact2's `backdrop-filter` builds only `blur()` and `saturate()`; an SVG filter on a backdrop is not built (LLP 1053.000 D1)",
         _ => EXPECTED,
     }
 }

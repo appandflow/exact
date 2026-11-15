@@ -1,5 +1,5 @@
 // Link destinations kept out of layout, by the web editor's rules.
-// Which runs are hidden is
+// @ref LLP 1045 D1, D5 — which runs are hidden is
 // `exact_markdown_editor::link_destinations` (the styler's `l`). Where a
 // caret sits beside one, what a deletion or replacement across one changes,
 // and what a copy takes follow that crate's `Editor::select`, `remove`,
@@ -24,7 +24,7 @@ extension MarkupEditor: NSTextContentStorageDelegate {
         guard let storage = textContentStorage.textStorage, storage.hidesSource(in: range) else { return nil }
         let shown = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: range))
         let all = NSRange(location: 0, length: shown.length)
-        // Hidden runs, and each atom's first code unit: a
+        // Hidden runs, and each atom's first code unit (LLP 1045.000 §4): a
         // U+FFFC carrying a new attachment whose picture is the pill.
         var runs: [(NSRange, MarkupAtom?)] = []
         shown.enumerateAttribute(.markupHidden, in: all) { value, run, _ in
@@ -73,7 +73,7 @@ extension MarkupEditor {
     /// grapheme, as the web editor's caret does around `display: none`.
     func place(_ new: NSRange, from old: NSRange?, in s: NSAttributedString) -> NSRange {
         if let old, old == new { return new }
-        // An atom first: a caret inside one goes to its
+        // An atom first (LLP 1045.000 D5): a caret inside one goes to its
         // end, where those offsets draw; a range's ends go to its outer edges.
         let new = Self.outward(new, in: s)
         if new.length == 0, let atom = s.atomRange(at: new.location), new.location > atom.location {
@@ -126,7 +126,7 @@ extension MarkupEditor {
     func rewrite(_ range: NSRange, with text: String, caret: Int?, in s: NSAttributedString) -> MarkupRewrite? {
         // A native edit that would take part of an atom takes all of it:
         // Backspace at its end, Delete at its start, a word or line deletion
-        // across it. Text typed inside one lands after it.
+        // across it (LLP 1045.000 D5). Text typed inside one lands after it.
         if range.length == 0, let atom = s.atomRange(at: range.location), range.location > atom.location {
             let at = NSMaxRange(atom)
             return MarkupRewrite(edits: [(NSRange(location: at, length: 0), text)], caret: at + text.utf16.count)

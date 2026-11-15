@@ -1,4 +1,4 @@
-// Lights' data module: each light listed by DNS-SD is
+// Lights' data module (LLP 1133.036 §10): each light listed by DNS-SD is
 // resolved (`resolveService`) and read over WLED's JSON API, and a typed
 // address is read the same way without the resolve. A light seen this
 // launch whose instance leaves the network stays listed as "Not on this

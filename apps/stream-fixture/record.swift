@@ -1,4 +1,4 @@
-// Records the stream fixture's H.264: ten seconds of a
+// Records the stream fixture's H.264 (LLP 1133.003 §9): ten seconds of a
 // scrolling screen at 60 fps, encoded by VideoToolbox with serve-sim's
 // settings (`packages/serve-sim/Sources/SimNative/H264Encoder.swift`:
 // real time, High profile, no frame reordering, low-latency rate control,

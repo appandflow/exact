@@ -140,6 +140,27 @@ impl MixSpace {
         )
     }
 
+    /// The colour space whose components are this space's.
+    pub fn own(self) -> Space {
+        match self {
+            MixSpace::Srgb => Space::Srgb,
+            MixSpace::SrgbLinear => Space::SrgbLinear,
+            MixSpace::DisplayP3 => Space::DisplayP3,
+            MixSpace::DisplayP3Linear => Space::DisplayP3Linear,
+            MixSpace::A98Rgb => Space::A98Rgb,
+            MixSpace::ProphotoRgb => Space::ProphotoRgb,
+            MixSpace::Rec2020 => Space::Rec2020,
+            MixSpace::Lab => Space::Lab,
+            MixSpace::Oklab => Space::Oklab,
+            MixSpace::XyzD50 => Space::XyzD50,
+            MixSpace::XyzD65 => Space::XyzD65,
+            MixSpace::Lch => Space::Lch,
+            MixSpace::Oklch => Space::Oklch,
+            MixSpace::Hsl => Space::Hsl,
+            MixSpace::Hwb => Space::Hwb,
+        }
+    }
+
     fn hue_index(self) -> usize {
         match self {
             MixSpace::Hsl | MixSpace::Hwb => 0,
@@ -192,14 +213,7 @@ impl MixSpace {
 
     /// This space's components to extended linear sRGB.
     pub fn to_linear_srgb(self, c: [f64; 3]) -> [f64; 3] {
-        let as_wide = |space| {
-            Wide {
-                space,
-                c,
-                alpha: 1.0,
-            }
-            .linear_srgb()
-        };
+        let as_wide = |space| Wide::new(space, c, 1.0).linear_srgb();
         match self {
             MixSpace::Srgb => c.map(srgb_to_linear),
             MixSpace::SrgbLinear => c,
@@ -261,10 +275,70 @@ fn rgb_to_hwb(rgb: [f64; 3]) -> [f64; 3] {
     [h, w * 100.0, bl * 100.0]
 }
 
-/// Components, alpha, and whether the hue is powerless (CSS Color 4 §12.2).
-fn endpoint(w: &Wide, space: MixSpace) -> ([f64; 3], f64, bool) {
-    let c = space.from_linear_srgb(w.linear_srgb());
-    let achromatic = space.is_polar() && {
+/// The kinds of component CSS Color 4 §12.4 calls analogous, which a missing
+/// component keeps across a conversion. Whiteness and blackness are hwb's
+/// alone.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Red,
+    Green,
+    Blue,
+    Lightness,
+    Colorfulness,
+    Hue,
+    OppositeA,
+    OppositeB,
+    Whiteness,
+    Blackness,
+}
+
+/// A colour space's components, by kind.
+fn kinds(space: Space) -> [Kind; 3] {
+    use Kind::*;
+    match space {
+        Space::Lab | Space::Oklab => [Lightness, OppositeA, OppositeB],
+        Space::Lch | Space::Oklch => [Lightness, Colorfulness, Hue],
+        Space::Hsl => [Hue, Colorfulness, Lightness],
+        Space::Hwb => [Hue, Whiteness, Blackness],
+        // The RGB spaces, and XYZ, whose x, y and z are reds, greens and blues.
+        _ => [Red, Green, Blue],
+    }
+}
+
+/// One colour of an interpolation, in the interpolation's space (CSS Color 4
+/// §12.4).
+struct End {
+    c: [f64; 3],
+    alpha: f64,
+    /// Missing components, then alpha: those written `none`, carried to the
+    /// analogous component when converted, and a converted colour's powerless
+    /// hue (an achromatic colour's).
+    missing: [bool; 4],
+    /// The components as written: §12 converts a colour only when it is not
+    /// already in the space.
+    written: bool,
+}
+
+fn endpoint(w: &Wide, space: MixSpace) -> End {
+    let written = space.own() == w.space;
+    let c = if written {
+        w.c
+    } else {
+        space.from_linear_srgb(w.linear_srgb())
+    };
+    let mut missing = [false; 4];
+    missing[3] = w.missing[3];
+    if written {
+        missing[..3].copy_from_slice(&w.missing[..3]);
+    } else {
+        let from = kinds(w.space);
+        for (m, kind) in missing.iter_mut().zip(kinds(space.own())) {
+            *m = (0..3).any(|i| w.missing[i] && from[i] == kind);
+        }
+    }
+    // A written hue acts as normal even on a gray (§4.4.1); only the hue a
+    // conversion gives an achromatic colour is powerless, so missing.
+    if space.is_polar() && !written {
         let chroma = match space {
             MixSpace::Hsl | MixSpace::Hwb => {
                 let rgb = MixSpace::Srgb.from_linear_srgb(w.linear_srgb());
@@ -272,35 +346,64 @@ fn endpoint(w: &Wide, space: MixSpace) -> ([f64; 3], f64, bool) {
             }
             _ => c[1],
         };
-        chroma.abs() < 1e-6
-    };
-    (c, w.alpha, achromatic)
+        missing[space.hue_index()] |= chroma.abs() < 1e-6;
+    }
+    End {
+        c,
+        alpha: w.alpha,
+        missing,
+        written,
+    }
+}
+
+/// How far from a half turn a converted end's hue may land by rounding alone.
+const HALF_TURN_ROUNDING: f64 = 1e-6;
+
+/// `h2` moved by whole turns so that interpolating from `h1` goes round as
+/// `method` says (CSS Color 4 §12.4). `written` says both hues are as
+/// written; otherwise a difference within rounding of ±180° is taken as
+/// exactly that, which `shorter` and `longer` leave as it is, so a
+/// conversion's last bit does not pick the arc.
+pub fn hue_arc(h1: f64, h2: f64, method: HueMethod, written: bool) -> f64 {
+    let mut d = h2 - h1;
+    if !written && (d.abs() - 180.0).abs() < HALF_TURN_ROUNDING {
+        d = 180f64.copysign(d);
+    }
+    match method {
+        HueMethod::Shorter if d > 180.0 => h2 - 360.0,
+        HueMethod::Shorter if d < -180.0 => h2 + 360.0,
+        HueMethod::Longer if d > 0.0 && d < 180.0 => h2 - 360.0,
+        HueMethod::Longer if d > -180.0 && d <= 0.0 => h2 + 360.0,
+        HueMethod::Increasing if d < 0.0 => h2 + 360.0,
+        HueMethod::Decreasing if d > 0.0 => h2 - 360.0,
+        _ => h2,
+    }
 }
 
 /// The colour `t` of the way from `a` to `b`, premultiplied, as extended
-/// linear sRGB and alpha.
+/// linear sRGB and alpha. A component missing from one colour takes the
+/// other's; missing from both, it stays 0 (CSS Color 4 §12.4).
 pub fn mix(a: &Wide, b: &Wide, t: f64, how: Interpolation) -> ([f64; 3], f64) {
     let space = how.space;
-    let (mut ca, aa, a_gray) = endpoint(a, space);
-    let (mut cb, ab, b_gray) = endpoint(b, space);
+    let (mut a, mut b) = (endpoint(a, space), endpoint(b, space));
+    for i in 0..4 {
+        let (va, vb) = if i < 3 {
+            (&mut a.c[i], &mut b.c[i])
+        } else {
+            (&mut a.alpha, &mut b.alpha)
+        };
+        match (a.missing[i], b.missing[i]) {
+            (true, false) => *va = *vb,
+            (false, true) => *vb = *va,
+            // Missing from both, it stays missing, which is 0, whatever a
+            // conversion made of it.
+            (true, true) => (*va, *vb) = (0.0, 0.0),
+            (false, false) => {}
+        }
+    }
     let hi = space.hue_index();
     if space.is_polar() {
-        match (a_gray, b_gray) {
-            (true, false) => ca[hi] = cb[hi],
-            (false, true) => cb[hi] = ca[hi],
-            _ => {}
-        }
-        let (h1, h2) = (ca[hi], cb[hi]);
-        let d = h2 - h1;
-        cb[hi] = match how.hue {
-            HueMethod::Shorter if d > 180.0 => h2 - 360.0,
-            HueMethod::Shorter if d < -180.0 => h2 + 360.0,
-            HueMethod::Longer if (0.0..180.0).contains(&d) && d != 0.0 => h2 - 360.0,
-            HueMethod::Longer if (-180.0..=0.0).contains(&d) => h2 + 360.0,
-            HueMethod::Increasing if d < 0.0 => h2 + 360.0,
-            HueMethod::Decreasing if d > 0.0 => h2 - 360.0,
-            _ => h2,
-        };
+        b.c[hi] = hue_arc(a.c[hi], b.c[hi], how.hue, a.written && b.written);
     }
     let pre = |c: [f64; 3], alpha: f64| {
         let mut out = c;
@@ -311,8 +414,8 @@ pub fn mix(a: &Wide, b: &Wide, t: f64, how: Interpolation) -> ([f64; 3], f64) {
         }
         out
     };
-    let (pa, pb) = (pre(ca, aa), pre(cb, ab));
-    let alpha = aa + (ab - aa) * t;
+    let (pa, pb) = (pre(a.c, a.alpha), pre(b.c, b.alpha));
+    let alpha = a.alpha + (b.alpha - a.alpha) * t;
     let mut c = [0.0; 3];
     for i in 0..3 {
         let v = pa[i] + (pb[i] - pa[i]) * t;

@@ -5,7 +5,7 @@
 //! takes each of its own. Against each engine it is given the Thai, Lao, Khmer
 //! and Myanmar word boundaries that engine's `Intl.Segmenter` found, as the web
 //! host would be, so each column is the web host's in that browser.
-//! Agreement with the browser is the parity obligation.
+//! @ref LLP 1043 §4 C — agreement with the browser is the parity obligation.
 use exact_textflow::{Cursor, Options, Prepared};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;

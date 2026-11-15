@@ -149,7 +149,7 @@ final class WebDocumentsTests: XCTestCase {
         // iOS runs in hostless XCTest, with no UIApplication/window scene; its PDF captures are black.
         // The iOS app drive in issues/closed/20261009-app-file-iframe-loading.md qualifies pixels there.
         #if os(macOS)
-        // An unsandboxed local PDF is PDFKit's view; the
+        // An unsandboxed local PDF is PDFKit's view (LLP 1020.002 D10); the
         // agent's picture of the frame is the arm's in-process drawing of it.
         XCTAssertTrue(node.web is PDFView, "\(String(describing: node.web))")
         let cg = try XCTUnwrap(session.webviews.snapshots()[node.id]?.cgImage(forProposedRect: nil, context: nil, hints: nil), "no PDF snapshot")

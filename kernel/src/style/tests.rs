@@ -241,9 +241,31 @@ fn a_colour_parses_as_css_writes_it() {
         "lightgoldenrodyellowish",
         "blurple",
         "oklch(0.7 0.1 200)",
+        // Forms CSS refuses (CSS Color 4 §4.1, §5.1; CSS Syntax 3 §4.3.4,
+        // §4.3.13), which the web drops: a native host does too.
+        "rgb(255 0 0 0.5)",
+        "rgb(255 0 0 50%)",
+        "rgba(255 0 0 0.5)",
+        "rgb(100%, 0, 0)",
+        "rgb(0, 100%, 0)",
+        "rgb(none, 0, 0)",
+        "hsl(none, 100%, 50%)",
+        "rgb(5. 0 0)",
+        "hsl(120. 100% 50%)",
+        "rgb (255 0 0)",
+        "hsl (120 100% 50%)",
     ] {
         assert_eq!(Color::parse(text), None, "{text}");
     }
+    assert_eq!(Color::parse("rgba(255 0 0 / 50%)"), half);
+    assert_eq!(
+        Color::parse("rgb(none 0 0)"),
+        Some(Color::rgba(0, 0, 0, 255))
+    );
+    assert_eq!(
+        Color::parse("RGB(.5e1 +0 0)"),
+        Some(Color::rgba(5, 0, 0, 255))
+    );
     // The rest of CSS Color 4's sRGB forms, as the web paints them: one
     // parser for every host (feed F13).
     assert_eq!(Color::parse("hsl(0, 100%, 50%)"), red);
@@ -254,7 +276,7 @@ fn a_colour_parses_as_css_writes_it() {
         Color::parse("hsl(326, 55%, 52%)"),
         Some(Color::rgba(0xc8, 0x41, 0x8e, 255))
     );
-    // A wide form keeps its space; it resolves to its sRGB clip.
+    // A wide form keeps its space (LLP 1100 D2); it resolves to its sRGB clip.
     assert_eq!(Color::parse("oklch(0.7 0.1 200 / 0.5)"), None);
     assert_eq!(
         ColorValue::parse_light_dark("oklch(0.7 0.1 200 / 0.5)")
@@ -308,7 +330,7 @@ fn a_modern_colour_keeps_its_space_and_its_text() {
 
 #[test]
 fn a_colour_row_holds_a_light_dark_pair_and_the_host_resolves_it() {
-    // CSS's spelling, and only it.
+    // CSS's spelling, and only it (LLP 1034 D1).
     let pair = ColorValue::parse_light_dark("light-dark(#ffffff, #000000)").unwrap();
     assert_eq!(
         pair,
@@ -448,7 +470,7 @@ fn unpadded_reads_what_the_engine_style_would() {
         Dimension::Env(Edge::Top, -62.0),
     ] {
         let mut p = StyleProps::default();
-        p.padding_bottom = d;
+        p.padding_bottom = d.clone();
         assert_eq!(p.unpadded(&env), engine(&p), "{d:?}");
     }
     for (style, width) in [
@@ -467,6 +489,7 @@ fn unpadded_reads_what_the_engine_style_would() {
 
 #[test]
 fn calc_lengths_parse_one_percent_and_one_pixel_term_and_resolve_by_basis() {
+    let _lowering = super::handles::Lowering::new();
     for (text, percent, points) in [
         ("calc(100% - 89px)", 100.0, -89.0),
         ("calc(50% + 12.5px)", 50.0, 12.5),
@@ -562,7 +585,7 @@ fn calc_lengths_parse_one_percent_and_one_pixel_term_and_resolve_by_basis() {
     ));
 }
 
-/// The viewport segment variables parse by CSS-ENV-1's
+/// LLP 1078 D3, D10: the viewport segment variables parse by CSS-ENV-1's
 /// grammar, refuse by name, resolve against the grid, and travel the wire.
 #[test]
 fn segment_lengths_parse_resolve_and_refuse_by_name() {
@@ -593,7 +616,7 @@ fn segment_lengths_parse_resolve_and_refuse_by_name() {
         assert_eq!(SegmentVar::from_name(name), Some(*var));
         assert_eq!(SegmentVar::from_index(*var as u8), Some(*var));
     }
-    // Refused by name, never silently zero.
+    // Refused by name (D10), never silently zero.
     for (bad, why) in [
         ("env(viewport-segment-width 0)", EnvRefusal::IndexCount),
         ("env(viewport-segment-width)", EnvRefusal::IndexCount),
@@ -758,7 +781,7 @@ fn segment_lengths_round_trip_the_wire() {
             Dimension::Segment(var, 15, 15, 3.0),
         ] {
             let mut w = Writer::new();
-            w.dimension(d);
+            w.dimension(d.clone());
             let bytes = w.into_vec();
             assert_eq!(bytes.len(), 7, "{d:?}");
             assert_eq!(bytes[0], 8 + var as u8);
@@ -788,14 +811,14 @@ fn overflow_auto_has_scroll_sizing_and_zero_automatic_minimum() {
 
 #[test]
 fn a_bare_node_s_colour_is_the_platform_s_text_colour_and_its_tint_the_accent() {
-    // CSS's initial `color` is `CanvasText`, a system
+    // LLP 1095 stage 2: CSS's initial `color` is `CanvasText`, a system
     // colour; a host with it shows the platform's, never a snapshot.
     let s = StyleProps::default();
     let canvas_text = roles::role("CanvasText").unwrap();
     assert_eq!(s.text_color, ColorValue::Role(canvas_text));
     assert_eq!(roles::role_of(canvas_text).unwrap().ios, "labelColor");
     // The tint is the platform's own for a symbol nobody tinted, which the
-    // host keeps dynamic: the view's tint on iOS, as
+    // host keeps dynamic (LLP 1115.000 D3.9): the view's tint on iOS, as
     // UIKit draws a template image, and the secondary label colour on the
     // Mac, as AppKit draws one. It was `AccentColor` on both.
     let symbol = roles::role("-exact-symbol").unwrap();
@@ -817,6 +840,7 @@ fn a_bare_node_s_colour_is_the_platform_s_text_colour_and_its_tint_the_accent() 
     assert!(s.text_color.is_scheme_aware());
 }
 
+/// LLP 1100 D3.
 #[test]
 fn a_profiles_colour_is_the_platforms_to_draw() {
     use super::profiled::{declarations, profiled, Source};
@@ -868,6 +892,16 @@ fn a_profiles_colour_is_the_platforms_to_draw() {
 }
 
 #[test]
+fn every_style_codec_has_a_row() {
+    use crate::generated::StyleCodec;
+
+    let codecs: std::collections::HashSet<_> =
+        StyleId::ALL.into_iter().map(StyleId::codec).collect();
+    // Enum is the last variant; StyleCodec's discriminants start at zero.
+    assert_eq!(codecs.len(), StyleCodec::Enum as usize + 1, "{codecs:?}");
+}
+
+#[test]
 fn takes_text_is_what_set_dynamic_reads_on_a_number_row() {
     use crate::generated::StyleCodec;
     // A text of each form a number row's conversion has an arm for.
@@ -909,15 +943,11 @@ fn takes_text_is_what_set_dynamic_reads_on_a_number_row() {
             assert!(takes_text(row), "{row:?}");
         }
     }
-    for row in [
-        StyleId::Opacity,
-        StyleId::FlexGrow,
-        StyleId::ZIndex,
-        StyleId::FontWeight,
-    ] {
+    for row in [StyleId::Opacity, StyleId::FlexGrow, StyleId::FontWeight] {
         assert!(!takes_text(row), "{row:?}");
     }
     for row in [
+        StyleId::ZIndex,
         StyleId::FontSize,
         StyleId::LetterSpacing,
         StyleId::StrokeWidth,
@@ -945,5 +975,71 @@ fn clip_keeps_content_minimums_without_becoming_a_scroll_container() {
             .unwrap();
         let layout = style.to_taffy(NodeType::View, &Env::default());
         assert_eq!((layout.overflow.x, layout.overflow.y), expected);
+    }
+}
+
+#[test]
+fn scroll_snap_admits_each_axis_strictness_and_alignment() {
+    let mut style = StyleProps::default();
+    for name in [
+        "none",
+        "x mandatory",
+        "y mandatory",
+        "both mandatory",
+        "x",
+        "y",
+        "both",
+    ] {
+        style
+            .set_dynamic(StyleId::ScrollSnapType, &StyleValue::Text(name.into()))
+            .unwrap();
+        assert_eq!(style.scroll_snap_type.name(), name);
+    }
+    for name in ["none", "start", "center", "end", "start center"] {
+        style
+            .set_dynamic(StyleId::ScrollSnapAlign, &StyleValue::Text(name.into()))
+            .unwrap();
+        assert_eq!(style.scroll_snap_align.name(), name);
+    }
+    // A strictness left unsaid is `proximity`, which the row spells as the axis alone.
+    style
+        .set_dynamic(
+            StyleId::ScrollSnapType,
+            &StyleValue::Text("y proximity".into()),
+        )
+        .unwrap();
+    assert_eq!(style.scroll_snap_type.name(), "y");
+    for name in ["block mandatory", "x y", "none mandatory"] {
+        assert!(style
+            .set_dynamic(StyleId::ScrollSnapType, &StyleValue::Text(name.into()))
+            .is_err());
+    }
+}
+#[test]
+fn native_visual_codecs_parse_and_round_trip_without_registration() {
+    use crate::wire::codec::{Reader, Writer};
+
+    for (id, text) in [
+        (
+            StyleId::BoxShadow,
+            "0 2px 4px #000, inset 1px 2px 3px 4px #fff",
+        ),
+        (StyleId::TextShadow, "1px 2px 3px light-dark(#000, #fff)"),
+        (StyleId::CornerShape, "bevel scoop superellipse(3) round"),
+        (StyleId::Rotate, "0 0 -1 30deg"),
+        (StyleId::RotateAxis, "1 1 0 30deg"),
+        (StyleId::TextStrokeWidth, "1px light-dark(#f00, #00f)"),
+        (StyleId::TextStrokeColor, "1px light-dark(#f00, #00f)"),
+        (StyleId::SymbolPalette, "#f00 light-dark(#000, #fff)"),
+    ] {
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(id, &StyleValue::Text(text.into()))
+            .unwrap();
+        let mut writer = Writer::new();
+        style.encode_patch(&mut writer);
+        let bytes = writer.into_vec();
+        let decoded = StyleProps::decode_patch(&mut Reader::new(&bytes)).unwrap();
+        assert_eq!(decoded, style, "{}: {text}", id.name());
     }
 }

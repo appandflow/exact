@@ -47,7 +47,7 @@ use std::collections::HashSet;
 /// Magic bytes.
 pub const MAGIC: [u8; 4] = *b"EXNO";
 /// Envelope version. 2: a node's style carries its written mask beside
-/// its set mask, so a version 1 style is 32 bytes short.
+/// its set mask (LLP 1115.000 D2), so a version 1 style is 32 bytes short.
 pub const VERSION: u16 = 2;
 /// Header size.
 pub const HEADER_LEN: usize = 40;
@@ -230,7 +230,7 @@ pub struct Snapshot {
     /// Per-row props.
     pub props: Vec<PropList>,
     /// The styles' wide colours, kept while it lives: it is no kernel's
-    ///.
+    /// (LLP 1121 stage 4).
     kept: crate::style::wide::Keep,
 }
 

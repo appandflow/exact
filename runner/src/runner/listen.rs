@@ -1,5 +1,5 @@
-//! A resource's local listener: its standing on its address,
-//! its journal lines and the host's view of its connections.
+//! A resource's local listener (LLP 1133.005): its standing on its address
+//! (D2), its journal lines (D12) and the host's view of its connections.
 //! Its events and sends are a two-way socket's (`sockets.rs`), with each
 //! send addressed to a connection.
 use super::super::*;
@@ -7,7 +7,7 @@ use crate::listen::{ListenView, Standing, LISTEN_STATUS};
 
 impl<D: DataSource> Runner<D> {
     /// Read each listener's address and open connections from the host
-    /// with `reader`, for `state.streams`.
+    /// with `reader`, for `state.streams` (D12).
     pub fn set_listen_reader(&mut self, reader: crate::listen::ListenReader) {
         self.socket_reader.listen = Some(reader);
     }
@@ -24,7 +24,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The journal's lines for one message of the listener at `pos`, and
-    /// whether it was only its standing, which no mapper sees: the
+    /// whether it was only its standing (D2), which no mapper sees: the
     /// runner records it and the message commits nothing. Its data is a
     /// [`Standing`]'s word (`holding` is listening again), or `took over`
     /// after a `listening` that replaced a live socket; its id is the
@@ -77,8 +77,8 @@ impl<D: DataSource> Runner<D> {
 }
 
 impl PendingReq {
-    /// No clock waits on it: held, or a listener waiting
-    /// for an address another listener of this process holds.
+    /// No clock waits on it: held (LLP 1016.000 D9), or a listener waiting
+    /// for an address another listener of this process holds (D2).
     pub(in crate::runner) fn quiet(&self) -> bool {
         self.held
             || (self.stream)

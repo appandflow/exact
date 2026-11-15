@@ -1,4 +1,4 @@
-//! The desktop's modules substituted: a login item and
+//! The desktop's modules substituted (LLP 1133.025 §11): a login item and
 //! global shortcuts. Under the agent no login item is written and no hot
 //! key registered; the runner keeps what the platform would say.
 //!
@@ -29,8 +29,8 @@ const MODIFIERS: &[&str] = &["Alt", "Control", "Shift", "Meta"];
 
 /// Why `keys` is not one `aria-keyshortcuts` chord, or `None` when it is:
 /// modifiers from [`MODIFIERS`], each once, then one key, joined by `+`; or
-/// a modifier pair (`Shift+Shift`), both of one modifier's keys held.
-/// ARIA's space-separated alternatives are refused: one chord
+/// a modifier pair (`Shift+Shift`), both of one modifier's keys held (LLP
+/// 1133.025 D3). ARIA's space-separated alternatives are refused: one chord
 /// per registration.
 pub fn chord_refusal(keys: &str) -> Option<&'static str> {
     if keys.is_empty() || keys.contains(char::is_whitespace) {
@@ -88,9 +88,11 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether the target places a `-exact-menu="status"` button outside
-    /// the window: macOS and Windows.
+    /// the window: macOS. Windows' notification-area icon is accepted and
+    /// not built (LLP 1133.025 §14, stage 2), so the button stays in its
+    /// window there.
     pub fn places_status_items(&self) -> bool {
-        matches!(self.host_target(), "macos" | "windows")
+        self.host_target() == "macos"
     }
 
     /// Whether `row` is answered by this file's forms, here.
@@ -142,7 +144,7 @@ impl<D: DataSource> Runner<D> {
         answer
     }
 
-    /// `--login`: this launch is the login item's, and
+    /// `--login`: this launch is the login item's (LLP 1133.025 §11), and
     /// `hidden` what its registration asked.
     pub fn launch_login(&mut self, hidden: bool) -> Result<String, String> {
         self.extensions.declared.login_launch = Some(hidden);

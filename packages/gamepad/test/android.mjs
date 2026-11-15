@@ -1,4 +1,4 @@
-// @exact/gamepad on Android: the fixture app made outside the repo and built as the
+// @exact/gamepad on Android (LLP 1133.022 §21 stage 2): the fixture app made outside the repo and built as the
 // Canvas reader's APK, which compiles the package's Kotlin; the roster binds the module and the manifest carries
 // `VIBRATE`, which `playEffect` derives.
 //
@@ -11,10 +11,11 @@
 //
 // usage: bun packages/gamepad/test/android.mjs [--emulator <serial>] [--app <dir>]
 //   (`--app`: the fixture made there, or reused and built again if it is; kept after; an NDK of clang 18 or newer in ANDROID_NDK_HOME, and a JDK 17 or newer in JAVA_HOME)
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { checker, makeFixture, root } from './fixture.mjs';
+import { apkBuildDir } from '../../../scripts/agent-android.mjs';
 
 const argv = process.argv.slice(2), flag = (f) => argv.includes(f) ? argv[argv.indexOf(f) + 1] : null;
 const emulator = flag('--emulator'), given = flag('--app') && resolve(flag('--app'));
@@ -27,25 +28,12 @@ const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 
 const reused = given && existsSync(given);
 const { app } = reused ? { app: given } : makeFixture(...(given ? [given] : [])), name = basename(app);
-if (!reused) prepare();
-function prepare() {
-  // `exact new` writes no Canvas library: Weatherlight's, by path into this checkout.
-  const template = resolve(root, 'apps/weatherlight/android'), crate = resolve(app, 'android');
-  mkdirSync(resolve(crate, 'src'), { recursive: true });
-  writeFileSync(resolve(crate, 'Cargo.toml'), readFileSync(resolve(template, 'Cargo.toml'), 'utf8')
-    .replace('name = "weatherlight-android"', `name = "${name}-android"`).replaceAll('"../../../', `"${root}/`));
-  writeFileSync(resolve(crate, 'build.rs'), readFileSync(resolve(template, 'build.rs'), 'utf8').replace('"bake Weatherlight"', '"bake the fixture"'));
-  writeFileSync(resolve(crate, 'src/lib.rs'), readFileSync(resolve(template, 'src/lib.rs'), 'utf8'));
-  const workspace = resolve(app, 'Cargo.toml');
-  writeFileSync(workspace, readFileSync(workspace, 'utf8').replace('members = ["apple", "linux", "web"]', 'members = ["android", "apple", "linux", "web"]'));
-  run('bun', ['exact.mjs', 'lock'], app);
-}
 const { check, failed } = checker();
-const env = { ...process.env, EXACT_APP_DIR: app, EXACT2: root, HERMES_LEAN_SYS_OFFLINE: '1' };
+const env = { ...process.env, EXACT_APP_DIR: app, EXACT: root, HERMES_LEAN_SYS_OFFLINE: '1' };
 try {
   const built = spawnSync('bun', [resolve(root, 'scripts/agent-android.mjs'), 'build', name, '--apk'], { cwd: root, env, encoding: 'utf8', maxBuffer: 1 << 28 });
   check('android', 'the APK builds, compiling Gamepad.kt', built.status === 0, (built.stdout + built.stderr).slice(-3000));
-  const out = resolve(root, 'host/android/app/build', name);
+  const out = apkBuildDir(app);
   const generated = resolve(out, 'extensions/exact/app/ExactExtensions.kt');
   const roster = existsSync(generated) ? readFileSync(generated, 'utf8') : '';
   check('android', 'the roster binds the gamepad module', roster.includes('exact.gamepad.GamepadModule'), roster || `no ${generated}`);

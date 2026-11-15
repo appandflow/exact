@@ -1,4 +1,4 @@
-// Synthetic conformance plan: `scroll document`. The marked
+// Synthetic conformance plan: `scroll document` (LLP 1048.003 D4). The marked
 // scroller is the page's while `<html data-scrolldocument>` says so; a false
 // binding gives the page back its bounded inner scroller.
 component Document

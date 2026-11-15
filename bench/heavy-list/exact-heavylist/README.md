@@ -49,18 +49,18 @@ builds `release` (thin LTO) and Swift builds `-c release`.
 | Relative time | `fn ago(minutes)` using `floor`. `state secs` is set to `floor(performanceNow()/1000)` by `task clock mount` / `every(1000, second)`, only in live mode, so time stays static otherwise. |
 | Quote | one `column`: `border-left-style="solid" border-left-width=3 border-left-color="#C7C7CC"`, radius 8, #F2F2F7, padding 8; excerpt `line-clamp=2 text-overflow="ellipsis"` |
 | Paragraph = one text flow | one `text` per paragraph whose inline `text` children are the runs (the Markdown app's pattern); `column gap=8` between paragraphs. `white-space` stays `normal`: no run in `messages.json` contains a newline, a tab or a double space, so CSS collapsing changes nothing that SwiftUI would show. |
-| bold / italic / link / mention / tag / code | one inline `text` per run: `font-family=(r.s == "code" ? "ui-monospace" : "system-ui")` (a choice of literal families), `font-size` 15/16, `background-color` #F2F2F7 for code (paints on iOS now), `font-weight`, `font-style`, `color`, `text-decoration-line="underline"` for links (paints on iOS) |
+| bold / italic / link / mention / tag / code | one inline `text` per run: `font-family=(r.s == "code" ? "ui-monospace" : "system-ui")` (a choice of literal families, LLP 1053 G7), `font-size` 15/16, `background-color` #F2F2F7 for code (paints on iOS now), `font-weight`, `font-style`, `color`, `text-decoration-line="underline"` for links (paints on iOS) |
 | Photos 1/2/3/4 | `image … object-fit="cover"` in a `border-radius=12 overflow="hidden"` column, sized by CSS layout: one photo is `width="100%" aspect-ratio=<w/h> max-height=320` (aspect-fill within the cap); two and four are `flex=1 min-width=0 aspect-ratio=1` squares in `gap=4` rows; three is a `flex-grow=2 flex-basis=0 aspect-ratio=1` square beside a `flex-grow=1` column that stretches to its height and splits it between two `flex-grow=1` images. Decoding is exact2's raster loader, on a worker at the size the core requests (`CGImageSourceCreateThumbnailAtIndex` with max pixel), with the `#E5E5EA` background until it is ready. |
 | Link card | a bordered (0.5 #D1D1D6), radius-12 clipped column; a `width="100%" height=140` cover thumbnail (fixed height, as SPEC says); site / title (`line-clamp=2`) / description (`line-clamp=2`) |
 | Reactions | `row flex-wrap="wrap" gap=6` of `button`s (height 28, radius 14, padding 0 10, gap 4) |
 | Tap increments | `press=react(m.id, r.emoji)` → `send changed = react(id, emoji)`. The DataSource adds one and answers the feed (like the easy app's bookmark). Verified: 25 → 27 after two taps. |
-| Live mode | `task producer mount` / `every(250, tick)`. The first tick sends `config()`, which reads `BENCH_LIVE` with `std::env::var` on the host. After that, in live mode, each tick sends `tick()`: the DataSource puts `live-k` (a copy of `(k*37)%10000`, minutesAgo 0) at the top and bumps a reaction on `(k*101)%10000`, or the next message that has reactions, then answers the whole feed. The answer is a fresh list whose items are the previous answer's `Rc` records for every unchanged message; a tick builds two records, the insert (sharing its source row's fields but id and time) and the bumped row (sharing every field but `reactions`). The unit test asserts exactly one of the old rows changes identity per tick. |
-| Stable viewport on insert | the runner keeps the first visible key and its offset. Verified: 19 inserts over 5 s leave the viewport pixel-identical. |
+| Live mode | `task producer mount` / `every(250, tick)`. The first tick sends `config()`, which reads `BENCH_LIVE` with `std::env::var` on the host. After that, in live mode, each tick sends `tick()`: the DataSource puts `live-k` (a copy of `(k*37)%10000`, minutesAgo 0) at the top and bumps a reaction on `(k*101)%10000`, or the next message that has reactions, then answers the whole feed. The answer is a fresh list whose items are the previous answer's `Rc` records for every unchanged message (LLP 1053 §0 G8); a tick builds two records, the insert (sharing its source row's fields but id and time) and the bumped row (sharing every field but `reactions`). The unit test asserts exactly one of the old rows changes identity per tick. |
+| Stable viewport on insert | the runner keeps the first visible key and its offset (LLP 1010 §6.2). Verified: 19 inserts over 5 s leave the viewport pixel-identical. |
 | Row accessibility label | `aria-label=`${m.author}, ${ago(...)}`` on the row column |
 
 ## Gaps
 
-Re-checked against origin/main 9836f237 (the first text-styling changes and the iOS text
+Re-checked against origin/main 9836f237 (LLP 1053's first tranche and the iOS text
 fixes).
 
 ### Now real (were workarounds)
@@ -82,7 +82,7 @@ fixes).
 
 ### Still workarounds or open
 
-1. **No `text-transform`** (deferred). The link card's site is upper-cased
+1. **No `text-transform`** (LLP 1053 G6, deferred). The link card's site is upper-cased
    in the DataSource.
 2. **Live label and first tick** (G9, deferred): `BENCH_LIVE` is read by a `config()`
    mutation on the first 250 ms tick, so "Live: on" appears after ~250 ms.

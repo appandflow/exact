@@ -4,7 +4,7 @@ import XCTest
 @testable import ExactKit
 @testable import ExactGroupedLists
 
-/// On UIKit, an action row's title is the cell's tint, as a
+/// LLP 1116.019 D6 on UIKit: an action row's title is the cell's tint, as a
 /// hand-built action cell's is, and a row that presses says so to VoiceOver;
 /// a labelled text keeps its words as its value, and a symbol never speaks
 /// the name UIKit gives it.

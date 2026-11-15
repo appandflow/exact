@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// Press feedback: the host eases a pressed node to its
+/// Press feedback (LLP 1061 D2): the host eases a pressed node to its
 /// `press_scale` and back, folded into the transform the motion engine
 /// writes, so neither overwrites the other. UIKit, so a simulator runs it:
 ///   bun host/apple/build.mjs --test --ios
@@ -66,7 +66,7 @@ final class PressFeedbackIOSTests: XCTestCase {
         XCTAssertEqual(v.press.to, 1)
     }
 
-    /// A node that declares no feedback gets the platform's, a dim
+    /// LLP 1115: a node that declares no feedback gets the platform's, a dim
     /// (UIKit's custom button), never a scale; the dim is an additive
     /// animation, so the model's alpha stays the engine's.
     func testANodeWithoutTheRowDimsAsUIKitDoes() throws {
@@ -166,7 +166,7 @@ final class PressFeedbackIOSTests: XCTestCase {
         XCTAssertEqual(v.transform, CGAffineTransform(scaleX: 2, y: 2))
     }
 
-    /// A quick tap in a scroll view arrives late, its down and up in one
+    /// D2: a quick tap in a scroll view arrives late, its down and up in one
     /// turn (`delaysContentTouches`). The release waits until the press has
     /// eased in, so the tap shows, as a UIButton's highlight does.
     func testAReleaseBeforeThePressWasSeenWaitsForIt() throws {
@@ -189,7 +189,7 @@ final class PressFeedbackIOSTests: XCTestCase {
         XCTAssertEqual(v.press.to, 1)
     }
 
-    /// The press is Core Animation's: the model takes the pressed scale
+    /// The press is Core Animation's (D2): the model takes the pressed scale
     /// at once and an additive animation eases the difference on the render
     /// server, so no frame of it runs on the main thread. At touch-down the
     /// screen still shows the unpressed box — about the origin, under a
@@ -325,7 +325,7 @@ final class PressFeedbackIOSTests: XCTestCase {
         XCTAssertEqual(Presenter.shownRect(v).width, 100, accuracy: 0.5, "the flight's source is the box as it shows")
     }
 
-    /// Every transform turns about `transform-origin`.
+    /// D6: every transform turns about `transform-origin`.
     func testTheTransformTurnsAboutTheTransformOrigin() throws {
         let (p, v) = try fixture(style: ["transform_origin": [["pct": 0], ["pct": 0]]])
         p.apply(wireBatch([["op": "present", "id": 1, "property": "scale", "x": 0.5]]))

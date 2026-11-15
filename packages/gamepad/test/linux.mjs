@@ -1,4 +1,5 @@
-// @exact/gamepad on the Linux host, headless: the fixture app made outside the repo, its Linux crate built with
+// @exact/gamepad on the Linux host, headless (LLP 1133.022 §10, D10 items 1
+// and 5): the fixture app made outside the repo, its Linux crate built with
 // the package's Rust implementation composed, and driven with a test
 // build's pads (`EXACT_AGENT_PADS`): the host's registry and its claims with
 // a recorder for motors, the path a real pad takes from the registry on.

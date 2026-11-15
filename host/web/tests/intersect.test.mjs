@@ -1,4 +1,4 @@
-// The adapter must preserve Chrome's IntersectionObserver entries.
+// LLP 1005: the adapter must preserve Chrome's IntersectionObserver entries.
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';

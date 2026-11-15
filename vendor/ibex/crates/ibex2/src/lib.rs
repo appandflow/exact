@@ -1,19 +1,20 @@
 //! Ibex 2 — a Rust standard library with JavaScript bindings.
 //!
-//! This crate is the staging ground for an inversion: capabilities
-//! implemented in Rust, reached through one host-call boundary, with the
-//! JavaScript engine demoted from foundation to component.
+//! This crate is the staging ground for the inversion described in LLP 0057:
+//! capabilities implemented in Rust, reached through one host-call boundary,
+//! with the JavaScript engine demoted from foundation to component.
 //!
 //! It is a strangler, not a fork. The end state is that this crate replaces
 //! the root `ibex-runtime` crate — not that the two coexist indefinitely.
 //!
 //! Two consumers, one standard library. A JavaScript module reaches it through
 //! the engine adapter and the bindings; a Rust consumer — Exact 2's plan
-//! runner — reaches it through `host`, with no engine in the
+//! runner — reaches it through `host` (LLP 0068), with no engine in the
 //! process. The optional `bindings` feature projects the library into a JSI
 //! runtime supplied by the caller and links no VM.
 //!
-//! Authority is carried, not inferred.
+//! @ref LLP 0057#2-the-inversion — the three-category split this crate implements
+//! @ref LLP 0067#1-five-properties — authority is carried, not inferred
 
 #[cfg(feature = "bindings")]
 pub mod bindings;

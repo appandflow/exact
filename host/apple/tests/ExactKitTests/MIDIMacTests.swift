@@ -1,14 +1,14 @@
-// The MIDI arm (midiarm/MIDIArm.swift, the dylib build.mjs names in
-// EXACT_MIDI_DYLIB) looped back through virtual endpoints this test makes in
-// its own CoreMIDI client: a send arrives at its destination on its time,
-// never more than the hold early; a retraction before the hold sends nothing;
-// an input is stamped with its packet's time and its bytes come through
-// MIDIOutput as the runner's JSON; a replugged endpoint keeps its unique-ID
-// id; inputs opened before the request are heard once it is granted; a new
-// runner's boot hands a held note-off at once, never ahead of its handed
-// note-on, and lets the rest go; a controller flood loses no note-off; a
-// followed input's clock is batched and its Start goes at once. macOS only: a
-// simulator has no MIDIServer.
+// @ref LLP 1125 D6–D8. The MIDI arm (midiarm/MIDIArm.swift, the dylib
+// build.mjs names in EXACT_MIDI_DYLIB) looped back through virtual
+// endpoints this test makes in its own CoreMIDI client: a send arrives at
+// its destination on its time, never more than the hold early; a retraction
+// before the hold sends nothing; an input is stamped with its packet's time
+// and its bytes come through MIDIOutput as the runner's JSON; a replugged
+// endpoint keeps its unique-ID id; inputs opened before the request are heard
+// once it is granted; a new runner's boot hands a held note-off at once, never
+// ahead of its handed note-on, and lets the rest go; a controller flood loses
+// no note-off; a followed input's clock is batched and its Start goes at
+// once (LLP 1125 D9). macOS only: a simulator has no MIDIServer.
 #if os(macOS)
 import CoreMIDI
 import QuartzCore
@@ -117,7 +117,7 @@ final class MIDIMacTests: XCTestCase {
         let library = try library()
         var delivered: [String] = []
         let output = MIDIOutput(log: { _ in }, deliver: { delivered.append($0) }, library: { library })
-        // Before a request nothing is open: no ports are reported.
+        // Before a request nothing is open (ruling 4): no ports are reported.
         output.apply(["ops": [["op": "open", "inputs": []]]])
         wait(0.1)
         XCTAssertTrue(delivered.isEmpty)
@@ -216,7 +216,7 @@ final class MIDIMacTests: XCTestCase {
         }
     }
 
-    /// Inputs a mounted listener opened before the
+    /// Review round 1, A5: inputs a mounted listener opened before the
     /// request are listened to once the session joins.
     func testInputsOpenedBeforeTheRequestAreHeard() throws {
         let library = try library()
@@ -232,7 +232,7 @@ final class MIDIMacTests: XCTestCase {
         output.shutdown()
     }
 
-    /// A new runner's boot settles what the old one left
+    /// Review round 1, A1: a new runner's boot settles what the old one left
     /// held: its note-off goes now, its note-on is let go.
     func testABootHandsAHeldNoteOffNowAndLetsTheRestGo() throws {
         let library = try library()
@@ -253,7 +253,7 @@ final class MIDIMacTests: XCTestCase {
         output.shutdown()
     }
 
-    /// A note-off a boot sends is stamped no earlier than its
+    /// Review round 2: a note-off a boot sends is stamped no earlier than its
     /// note-on, which CoreMIDI may still hold: it never reaches the synth first.
     func testABootNeverSendsANoteOffAheadOfItsNoteOn() throws {
         let library = try library()
@@ -275,7 +275,7 @@ final class MIDIMacTests: XCTestCase {
         output.shutdown()
     }
 
-    /// A boot stamps a note-off no earlier than the latest
+    /// Review round 3: a boot stamps a note-off no earlier than the latest
     /// note-on of its note, whichever was handed last.
     func testABootStampsANoteOffAfterTheLatestNoteOnOfItsNote() throws {
         let library = try library()
@@ -300,7 +300,7 @@ final class MIDIMacTests: XCTestCase {
         output.shutdown()
     }
 
-    /// A note-on the runner takes back after the arm handed
+    /// Review round 3: a note-on the runner takes back after the arm handed
     /// it (the runner's clock behind the arm's) is ended after it.
     func testANoteOnRetractedAfterItWasHandedIsEndedAfterIt() throws {
         let library = try library()
@@ -320,8 +320,8 @@ final class MIDIMacTests: XCTestCase {
         output.shutdown()
     }
 
-    /// A controller flood the arm cannot pass on at once
-    /// loses its own messages, never the note-off behind it.
+    /// Review round 2: a controller flood the arm cannot pass on at once
+    /// loses its own messages, never the note-off behind it (D8).
     func testAControllerFloodLosesNoNoteOff() throws {
         let library = try library()
         var delivered: [String] = []
@@ -373,7 +373,7 @@ final class MIDIMacTests: XCTestCase {
         }
     }
 
-    /// A followed input's ticks come stamped from their packets
+    /// LLP 1125 D9: a followed input's ticks come stamped from their packets
     /// and batched at most 50 ms from the oldest; Start goes at once with the
     /// ticks ahead of it; Active Sensing never comes, nor ticks from an input
     /// no sequence follows.
@@ -460,8 +460,9 @@ final class MIDIMacTests: XCTestCase {
         if timedBatches < 3 { throw XCTSkip("\(timedBatches) batches came on a quiet enough machine (main lagged up to \(worst) s, load \(machine.load)): too loaded to time them (their order, count and spacing were checked)") }
     }
 
-    /// A drain at once (a note) leaves the ticks after it their own 50 ms;
-    /// the delayed drain armed before it does not deliver them early.
+    /// Review round 1 (Astra): a drain at once (a note) leaves the ticks
+    /// after it their own 50 ms; the delayed drain armed before it does not
+    /// deliver them early.
     func testTicksAfterADrainAtOnceWaitTheirOwnFiftyMilliseconds() throws {
         let library = try library()
         var deliveries: [(at: Double, json: String)] = []

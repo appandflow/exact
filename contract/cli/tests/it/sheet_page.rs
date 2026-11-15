@@ -1,10 +1,10 @@
-//! A sheet is never transparent. A route that `navigationPresentation="modal"`
-//! presents is on the page's own ground, the role `-exact-background`, where
-//! its author wrote none, so the route it covers is not seen through it (a web
-//! or Mac host keeps that route in view; UIKit's sheet has the system
-//! background). An authored `background-color`, on the route or in its class,
-//! wins; a sheet that scrolls a grouped list is on that grey; a route that is
-//! no sheet is left alone.
+//! LLP 1116.009 D3: a sheet is never transparent. A route that
+//! `navigationPresentation="modal"` presents is on the page's own ground, the
+//! role `-exact-background`, where its author wrote none, so the route it
+//! covers is not seen through it (a web or Mac host keeps that route in view;
+//! UIKit's sheet has the system background). An authored `background-color`,
+//! on the route or in its class, wins; a sheet that scrolls a grouped list is
+//! on that grey (LLP 1116.007 D5); a route that is no sheet is left alone.
 
 use exact_kernel::style::roles::role;
 use exact_kernel::{ColorValue, Kernel};
@@ -18,7 +18,7 @@ impl DataSource for NoData {
     }
 }
 
-/// A navigation root with one route, the form of a habit tracker: a
+/// A navigation root with one route, the form of round 11's habit-tracker: a
 /// header and a plain `scroll`. `STYLES` precede the app; `ROUTE` is the route's
 /// own attributes; `SCROLL` the tag line of what scrolls.
 const SCREEN: &str = "STYLESroutes nav
@@ -144,9 +144,9 @@ fn a_route_that_is_no_sheet_is_left_alone() {
 
 #[test]
 fn a_presentation_off_a_route_is_refused() {
-    // No navigation root at all, and a stack that draws a form component
-    // whose root says the presentation but has no key, so no host presents it
-    // and iOS would draw its header under the status bar.
+    // No navigation root at all, and round 34's gradebook: the stack draws a
+    // form component whose root says the presentation but has no key, so no
+    // host presented it and iOS drew its header under the status bar.
     let form = "routes nav
   home \"/\"
     rename \"/rename\"

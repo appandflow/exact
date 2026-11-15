@@ -1,4 +1,4 @@
-//! The agent's answers to the module tickets it holds.
+//! The agent's answers to the module tickets it holds (LLP 1133.002 §6).
 
 use super::super::{DataSource, Runner};
 use super::{Decision, Route, Waits};
@@ -6,7 +6,7 @@ use crate::HoldAnswer;
 use serde_json::json;
 
 impl<D: DataSource> Runner<D> {
-    /// The agent answered hold `hold`, already spent: the module transitions.
+    /// The agent answered hold `hold`, already spent: §6's transitions.
     pub(in crate::runner) fn module_answered(&mut self, hold: u64, answer: &HoldAnswer) {
         if self.effect_answered(hold, answer)
             || self.each_answered(hold, answer)
@@ -25,14 +25,14 @@ impl<D: DataSource> Runner<D> {
         match (waits, answer) {
             (Waits::Permission, HoldAnswer::Choice(c)) => {
                 let chosen = self.permission_named(&row, &name)["choices"][c.as_str()].is_object();
-                // The access the request asked (`asks`).
+                // The access the request asked (`asks`, LLP 1133.018 D13 item 3).
                 let asked = self.asked_line(&row);
                 match c.as_str() {
                     "allow" => {
                         self.set_permission_asked(&name, "granted", "allow", asked.as_deref())
                     }
                     "deny" => self.set_permission(&name, "denied"),
-                    // A grant of less than all (`limited`).
+                    // A grant of less than all (`limited`, LLP 1133.019 D11 item 3).
                     choice if chosen => {
                         self.set_permission_asked(&name, "granted", choice, asked.as_deref())
                     }

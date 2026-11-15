@@ -1,4 +1,4 @@
-//! `paragraphDirs`' `auto`: each source line's first strong
+//! `paragraphDirs`' `auto` (LLP 1045 D11): each source line's first strong
 //! letter outside its Markdown syntax and atoms, decided here for the web and
 //! Apple alike. The syntax is the styler's with nothing revealed, so where the
 //! caret is changes no line's answer.

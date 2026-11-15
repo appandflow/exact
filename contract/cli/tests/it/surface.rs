@@ -99,7 +99,7 @@ fn viewport_and_delivery_readers_choose_subsets_without_source_unification() {
     ] {
         let text = format!("shape A\n  {}\nshape B\n  {}\ncomponent App\n  resource a = {source}() as shape A\n  resource b = {source}() as shape B\n  view\n    text \"facts\"\n", fields[0], fields[1]);
         let p = contract::compile(&text).unwrap();
-        // Named once in the plan's source table, never unified.
+        // Named once in the plan's source table (LLP 1030 D7), never unified.
         assert_eq!(p.sources.len(), 1);
         contract::bake(p, NoData).unwrap();
     }
@@ -222,6 +222,39 @@ fn named_surface_arguments_survive_plan_roundtrip_and_live_updates() {
 }
 
 #[test]
+fn view_binders_preserve_surface_names() {
+    let source =
+        include_str!("../../../../semantics/corpus/components/view-surface-names.contract");
+    for prefix in ["", "component App\n  view\n    Scene()\n"] {
+        let plan = contract::compile(&format!("{prefix}{source}")).unwrap();
+        for surface in &plan.surfaces {
+            assert_eq!(plan.str(surface.name), "world");
+        }
+        let mut r = Runner::boot(
+            plan,
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let updates = r.take_surface_updates();
+        let args: Vec<_> = updates.iter().map(|u| u.arguments_json()).collect();
+        assert_eq!(
+            args,
+            [
+                "{}",
+                r#"{"seed":9}"#,
+                "{}",
+                r#"{"seed":1}"#,
+                "{}",
+                r#"{"seed":2}"#
+            ]
+        );
+    }
+}
+
+#[test]
 fn d6_empty_v5_surface_call_is_named_and_v4_refuses() {
     let plan = contract::compile("component App\n  view\n    canvas surface=world()\n").unwrap();
     assert_eq!(plan.surfaces[0].mode, exact_plan::SurfaceArgsMode::Named);
@@ -250,7 +283,7 @@ fn r13_colon_call_refuses_with_equals_hint() {
     assert!(error.contains("seed="), "{error}");
 }
 
-/// A game's declaration from before an `Options` edit
+/// The platformer's diary, R4: a declaration from before an `Options` edit
 /// never hides the compile's own refusals, warns rather than refuses while the
 /// game's Rust is newer, and never stops `contract rust`.
 #[test]
@@ -304,9 +337,25 @@ fn a_stale_surface_declaration_warns_and_hides_nothing() {
         "under --json the stale declaration's findings are the array's warnings"
     );
     assert_eq!(String::from_utf8_lossy(&out.stderr), "");
+    // Printed as the editor's problem matcher reads a warning (editors/vscode,
+    // `$exact-contract`): `file:line:col warning [id] message`.
     let out = run(&["build", path.to_str().unwrap()]);
-    assert!(String::from_utf8_lossy(&out.stderr)
-        .contains("warning: .shells/surfaces.json is older than"));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stale = format!(
+        "{}:1:1 warning [surface-declaration-stale] .shells/surfaces.json is older than this file",
+        lib.canonicalize().unwrap().display()
+    );
+    assert!(stderr.lines().any(|l| l.starts_with(&stale)), "{stderr}");
+    assert!(
+        stderr
+            .lines()
+            .any(|l| l.contains(" warning [analyze-surface-arguments] ")),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.lines().any(|l| l.starts_with("warning:")),
+        "{stderr}"
+    );
     // Without the type error the build passes, and `contract rust` writes its shapes either way.
     std::fs::write(
         &path,
@@ -330,7 +379,7 @@ fn a_stale_surface_declaration_warns_and_hides_nothing() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(String::from_utf8_lossy(&out.stderr).contains("warning:"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains(" warning [analyze-surface-arguments] "));
     let out = run(&["build", path.to_str().unwrap(), "--json"]);
     assert!(
         String::from_utf8_lossy(&out.stdout).contains("analyze-surface-arguments"),
@@ -483,7 +532,7 @@ component App
         .is_err());
 }
 
-/// A button's `aria-keyshortcuts` on a key the game's
+/// LLP 1132 D11: a button's `aria-keyshortcuts` on a key the game's
 /// `Actions` bind (`.shells/keys.json`, from its GPU build) is a warning
 /// naming both, through a component prop too; it refuses nothing, and a
 /// key no action binds, or a game without the declaration, says nothing.
@@ -629,5 +678,55 @@ fn a_chord_names_its_modifiers_and_the_physical_keys_that_type_it() {
         "Hyper+K",
     ] {
         assert!(names(chord).is_empty(), "{chord}: {:?}", names(chord));
+    }
+}
+
+#[test]
+fn canvas_performance_is_optional_ephemeral_and_names_its_canvas() {
+    let source = r#"shape Metrics
+  frames: option<number>
+  gpuMs: option<number>
+component App
+  resource metrics = exactCanvasPerformance("world") as shape Metrics
+  view
+    column
+      canvas surface=world
+      text "Metrics"
+"#;
+    let p = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    assert!(!contract::typescript(&p)
+        .unwrap()
+        .contains("exactCanvasPerformance"));
+    let mut r = Runner::boot(p, NoData, Kernel::with_monospace(), Default::default(), "/").unwrap();
+    let empty = Value::record(vec![Value::NONE, Value::NONE]);
+    assert_eq!(r.resource("metrics"), Some(&empty));
+    assert!(r.wants_canvas_performance("world"));
+    assert!(!r.wants_canvas_performance("unread"));
+    assert!(r
+        .set_canvas_performance("unread", Some("invalid"))
+        .unwrap()
+        .is_none());
+    r.set_canvas_performance("world", Some(r#"{"frames":60}"#))
+        .unwrap();
+    let sampled = Value::record(vec![Value::some(Value::Number(60.)), Value::NONE]);
+    assert_eq!(r.resource("metrics"), Some(&sampled));
+    assert!(r
+        .set_canvas_performance("world", Some(r#"{"frames":"bad"}"#))
+        .is_err());
+    assert_eq!(r.resource("metrics"), Some(&sampled));
+    assert!(r
+        .set_canvas_performance("world", Some(&" ".repeat(16385)))
+        .is_err());
+    assert!(r.take_store_writes().is_empty());
+    assert!(r.carry().store.is_empty());
+    r.set_canvas_performance("world", None).unwrap();
+    assert_eq!(r.resource("metrics"), Some(&empty));
+    for bad in [
+        source.replace("frames: option<number>", "frames: number"),
+        source.replace("frames", "unknown"),
+        source.replace("Performance(\"world\")", "Performance(\"missing\")"),
+    ] {
+        let p = contract::compile(&bad).unwrap();
+        assert!(contract::bake(p, NoData).is_err());
     }
 }

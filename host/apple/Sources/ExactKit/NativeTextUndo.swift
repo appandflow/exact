@@ -1,4 +1,4 @@
-// Native undo for every text area: edits register with the
+// Native undo for every text area (LLP 1045 D6): edits register with the
 // platform's undo manager, as typing and paste do.
 #if canImport(UIKit)
 import UIKit

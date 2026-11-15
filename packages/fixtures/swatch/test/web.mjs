@@ -1,9 +1,9 @@
-// @fixture/swatch on the web: the fixture app made outside the repo, built
-// for the web, and driven in each engine. The package's view is made by the
-// session's instance of its implementation, which hears the view's
-// displayed state and its `tint` binding change, each with the origin `app`
-// (the web has no tool or wake door), and answers what it heard as
-// `swatchReports`.
+// @fixture/swatch on the web (LLP 1133.001 D1, LLP 1133.008 D8 items 1 and
+// 2): the fixture app made outside the repo, built for the web, and driven
+// in each engine. The package's view is made by the session's instance of
+// its implementation, which hears the view's displayed state and its `tint`
+// binding change, each with the origin `app` (the web has no tool or wake
+// door), and answers what it heard as `swatchReports`.
 //
 // usage: bun packages/fixtures/swatch/test/web.mjs [chromium] [firefox] [webkit]
 //   (every engine by default; `bunx playwright@1.64.1 install firefox webkit` first)

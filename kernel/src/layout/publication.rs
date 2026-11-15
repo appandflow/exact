@@ -9,6 +9,11 @@ pub(super) fn publish(
     measurer: &mut dyn TextMeasurer,
     root: u32,
 ) -> LayoutReceipt {
+    for (node, _) in tree.pending_text_changes.drain() {
+        if let Some(context) = tree.taffy.get_node_context(node) {
+            arena.layout_dirty.insert(context.slot);
+        }
+    }
     #[cfg(test)]
     {
         tree.publication_visits = 0;
@@ -27,7 +32,7 @@ pub(super) fn publish(
         let mut at = slot;
         let mut path = Vec::new();
         // A subtree a host gave a containing block is another layout's: the
-        // pass that starts at it publishes it.
+        // pass that starts at it publishes it (LLP 1115.002 D8.2).
         while at != root && !arena.blocks.holds(at) {
             let Some(parent) = arena.parent(at) else {
                 break;
@@ -64,7 +69,7 @@ pub(super) fn publish(
     let mut updated = Vec::new();
     let mut exclusions = Vec::new();
     let mut images = Vec::new();
-    // A box in a multi-column flow is published at its
+    // @ref LLP 1093 D7 — a box in a multi-column flow is published at its
     // place in the flow thread plus its placement: its column's translation,
     // relative to the container's own (`base`), or a straddling box's union.
     // `t` is the translation its subtree inherits; (ox, oy) stay flow-thread
@@ -90,6 +95,11 @@ pub(super) fn publish(
         }
         let own_hidden = arena.style(slot).display == crate::Display::None;
         let hidden = hidden || own_hidden;
+        if !hidden && tree.text_pending(arena, slot) {
+            arena.flags_mut(slot).insert(NodeFlags::TEXT_PENDING);
+        } else {
+            arena.flags_mut(slot).remove(NodeFlags::TEXT_PENDING);
+        }
         // Its paragraph placed an image in its text, published (below), or,
         // holding a string, has none to place.
         if !hidden && arena.is_inline_image(slot) {
@@ -123,9 +133,9 @@ pub(super) fn publish(
         };
         // Publish the padding and border with the frame for readers that
         // must not reach into a tree a content region's nodes are not in
-        let inset = arena
-            .taffy(slot)
-            .map(|node| crate::id::BoxInset::of(arena, slot, tree.layout(node)));
+        let inset = arena.taffy(slot).map(|node| {
+            crate::id::BoxInset::of(arena, slot, tree.layout(node), tree.text_item(node))
+        });
         let inset_changed = arena.inset(slot) != inset;
         arena.set_inset(slot, inset);
         let frame = if hidden {
@@ -148,7 +158,7 @@ pub(super) fn publish(
             } else {
                 arena.field_content.remove(&slot);
             }
-            // A multi-column container's overflow is its columns', which
+            // A multi-column container's overflow is its columns' (D7), which
             // a multi-column `text`, a leaf to the engine, never reports.
             let o = arena
                 .frag
@@ -156,9 +166,7 @@ pub(super) fn publish(
                 .get(&slot)
                 .and_then(|m| m.overflow)
                 .unwrap_or(l.scrollable_overflow_rect);
-            // A scroller the platform insets: its extent less those insets.
-            let content = crate::kernel::published_extent(arena, slot, (o.right, o.bottom));
-            arena.set_content(slot, content);
+            arena.set_content(slot, (o.right, o.bottom));
             let (width, height) = placement
                 .and_then(|p| p.size)
                 .unwrap_or((l.size.width, l.size.height));
@@ -193,8 +201,8 @@ pub(super) fn publish(
         // A changed child list visits every child; a child that arrived
         // (created, or moved from another parent: a Text subtree switching
         // into/out of inline runs) is published whole, a kept one sparsely.
-        // A multi-column cut that changed publishes this subtree whole:
-        // placements moved without each child's layout bit.
+        // A multi-column cut that changed publishes this subtree whole
+        // (LLP 1093): placements moved without each child's layout bit.
         let full = full || hidden || republish;
         // A table that is another box places its parts from its anonymous
         // table, which can move inside it alone. A row or group places what
@@ -205,7 +213,7 @@ pub(super) fn publish(
         let displacement = tree
             .tables
             .flat(slot)
-            .then(|| super::table::displacement(arena, tree, slot));
+            .then(|| super::table::displacement(arena, tree, slot, arena.taffy(slot)));
         let displaced = displacement
             .is_some_and(|d| tree.displacements.insert(slot, d) != Some(d) || parent_moved);
         let descend_all = full
@@ -244,12 +252,10 @@ pub(super) fn publish(
         // A table's row group or row holds its children only in the arena:
         // the engine laid them out in the table's grid (`table.rs`), from
         // the grid's origin, moved with the row or group as it is moved
-        // relatively. A table that is another box holds its grid.
+        // relatively. A block's direct parts also take their own anonymous
+        // grid's offset; its ordinary children stay in the block's space.
         let (fx, fy) = if let Some((dx, dy)) = displacement {
             (ox + dx, oy + dy)
-        } else if let Some(grid) = tree.tables.anon(slot) {
-            let l = tree.layout(grid);
-            (fx + l.location.x, fy + l.location.y)
         } else {
             (fx, fy)
         };
@@ -259,10 +265,16 @@ pub(super) fn publish(
                     continue; // its own layout's, in its own space
                 }
                 let full = full || arena.flags(child).has(NodeFlags::ATTACHED);
+                let (cx, cy) = if let Some(grid) = tree.tables.grid_for(slot, child) {
+                    let l = tree.layout(grid);
+                    (fx + l.location.x, fy + l.location.y)
+                } else {
+                    (fx, fy)
+                };
                 stack.push((
                     child,
-                    fx,
-                    fy,
+                    cx,
+                    cy,
                     hidden,
                     full,
                     origin_moved || displaced,
@@ -637,7 +649,7 @@ mod tests {
         assert!(calls.get() > 0);
     }
 
-    /// An image in a paragraph's text is placed with its
+    /// LLP 1011.002: an image in a paragraph's text is placed with its
     /// paragraph, left clean (a layout with nothing changed visits nothing),
     /// and placed alike by a rehydrated kernel.
     #[test]

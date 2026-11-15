@@ -1,5 +1,5 @@
 // @exact/barcode-detection's and @exact/text-detection's conformance suite on
-// the web: the shared fixture app built for
+// the web (LLP 1133.027 §12 stages 1 and 2): the shared fixture app built for
 // the web and driven in each engine with the implementations bound, as in
 // production.
 //
@@ -63,8 +63,10 @@ for (const engine of engines) {
       let picks = 0, answers = 0;
       for (const [name, image, button, want] of STILLS) {
         await page.getByTestId('image').setInputFiles(images[image]);
-        // A pick's path is `app:/tmp/picked/<pick>-<file>.<ext>`.
-        await until(page, 'path', t => t.startsWith(`app:/tmp/picked/${++picks}-`));
+        // A pick's path is `app:/tmp/picked/<launch>-<pick>.<ext>` (docs/reference.md), the pick counted from 1.
+        const picked = new RegExp(`^app:/tmp/picked/[^/]+-${++picks}\\.[a-z]+$`), path = await until(page, 'path', t => picked.test(t));
+        check(engine, `${name}: the image is picked`, picked.test(path), path);
+        if (!picked.test(path)) continue;
         await page.getByTestId(button).click();
         // `answers` counts the detections answered, so each read is this still's.
         await until(page, 'answers', t => t === String(answers + 1));

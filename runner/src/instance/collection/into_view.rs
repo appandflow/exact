@@ -1,4 +1,4 @@
-//! `scrollIntoView` on a virtualized list: a row by its key,
+//! `scrollIntoView` on a virtualized list (LLP 1070.000): a row by its key,
 //! aligned as `Element.scrollIntoView()` aligns it, its window built at the
 //! destination before any host moves, corrected until it lands.
 use super::*;
@@ -44,7 +44,7 @@ pub struct IntoView {
     /// The list by its view instead of its `id`: the agent's `tap <list>
     /// into <key>`, whose target is a mounted list.
     pub view: Option<ViewId>,
-    /// `behavior="smooth"`: the host animates to the
+    /// `behavior="smooth"` (LLP 1070.000 §6.2): the host animates to the
     /// destination; the window is built there at once, as for `auto`.
     pub smooth: bool,
     /// Explicit pixels into the row wrapper; overrides main-axis alignment.
@@ -66,7 +66,7 @@ pub(super) struct Target {
     /// Consecutive reports that found it aligned, everything to it measured.
     aligned: u8,
     /// A nested request whose outer list waits: its inner part, begun in the
-    /// outer row's list once the outer row lands.
+    /// outer row's list once the outer row lands (§3).
     inner: Option<IntoView>,
     /// It has been admitted: when it was made, or where its wait ended.
     moved: bool,
@@ -94,9 +94,7 @@ impl IntoViewStatus {
             IntoViewStatus::Unconverged => "unconverged",
             IntoViewStatus::Cancelled => "cancelled",
             IntoViewStatus::Refused(why) => {
-                out.push_str("\"refused: ");
-                out.push_str(&why.replace('"', "'"));
-                out.push('"');
+                crate::agent::quote(&format!("refused: {why}"), out);
                 return;
             }
         };
@@ -110,7 +108,7 @@ impl Collection {
     /// A nested request's inner target in this list's row `row`, looked up
     /// before either list moves: `None` when this list holds no such row (or
     /// none of its rows holds a list), otherwise whether the row's list
-    /// `request.list` holds the key, and why not.
+    /// `request.list` holds the key, and why not (§2.2).
     fn inner_target(
         &mut self,
         u: &Update<'_>,
@@ -168,7 +166,7 @@ impl Collection {
     /// A nested request whose outer list's wait ends, its inner part not yet
     /// begun: its inner target is looked up again before the outer list
     /// moves, since the items may have changed during the wait, and the
-    /// request is refused whole if it is gone.
+    /// request is refused whole if it is gone (§2.6).
     pub(super) fn refuse_if_inner_gone(
         &mut self,
         u: &mut Update<'_>,
@@ -249,7 +247,7 @@ impl Collection {
     }
     /// The offset that aligns row `position` by `align`, from the index,
     /// within the port less its `scroll-padding`, as CSS aligns in the
-    /// snapport, and less what the platform covers of it
+    /// snapport (@ref LLP 1010 §6.9), and less what the platform covers of it
     /// (`covered`), as UIKit's `scrollToItem(at:at:animated:)` aligns within
     /// the adjusted content insets. It may be negative, down to the padding
     /// before the first row: `scrollTop` 0.
@@ -267,6 +265,8 @@ impl Collection {
                 .clamp(-self.index.leading(), self.index.max_offset(port));
         }
         let (before, after) = self.root_margins(u, position);
+        // The gap after the row is in its extent, not its box.
+        let after = after + self.index.item_gap();
         let start = self.index.prefix(position).unwrap_or(0.0) + before;
         let size = (self.index.height(position).unwrap_or(0.0) - before - after).max(0.0);
         let port = self.geometry.as_ref().map_or(0.0, |g| g.port_main);
@@ -317,7 +317,7 @@ impl Collection {
         let position = self.index.position(key).expect("resolved");
         self.restored_at = None;
         self.at_end = false;
-        // A new request stops the host's animation where the port is.
+        // A new request stops the host's animation where the port is (§2.5).
         self.port_unknown |= self.host_animating();
         self.request = self.request.wrapping_add(1).max(1);
         let key = self.index.shared_key(position).expect("resolved").clone();
@@ -335,7 +335,7 @@ impl Collection {
         // One the port already satisfies, where the last report and an
         // anchor's correction since put it, is done and moves nothing, as
         // CSSOM View skips a scroll to where the port already is, judged when
-        // it is made: a reader's fling goes on. Not while the host's
+        // it is made: a reader's fling goes on (§2.6). Not while the host's
         // animation leaves the port's position unknown.
         if let Some(g) = self.geometry.as_ref().filter(|_| !self.port_unknown) {
             if self.already_satisfied(u, position, align, within, g.offset) {
@@ -407,12 +407,12 @@ impl Collection {
         )
     }
     /// Whether the request under way waits for the reader's scroll or for a
-    /// report of where the port is.
+    /// report of where the port is (§2.6).
     pub(super) fn request_waits(&self) -> bool {
         self.target.is_some() && (self.scrolling || self.port_unknown)
     }
     /// The host animates a smooth correction, or one is on its way to it:
-    /// where the port is, its reports do not say.
+    /// where the port is, its reports do not say (§11).
     fn host_animating(&self) -> bool {
         self.animating || self.correction.is_some_and(|c| c.smooth)
     }
@@ -443,8 +443,8 @@ impl Collection {
         self.into_view_status = Some((t.key, status));
         true
     }
-    /// The request's row left the items: it ends now, where the reader is,
-    /// not at the next report.
+    /// The request's row left the items: it ends now, where the reader is
+    /// (LLP 1070.000 §2.5), not at the next report.
     pub(super) fn cancel_if_row_left(&mut self) {
         if self
             .target
@@ -458,7 +458,7 @@ impl Collection {
         self.index.position(&self.target.as_ref()?.key)
     }
     /// The list `id` in this list's mounted row keyed `row`, and the frames
-    /// in force there.
+    /// in force there (§3).
     fn inner_list(
         &mut self,
         u: &Update<'_>,
@@ -490,7 +490,7 @@ impl Collection {
     }
     /// After a nested request's outer part was admitted, its row built at
     /// the destination: the inner list in that row begins the inner part, as
-    /// the command begins it in the outer row at rest. Its target was
+    /// the command begins it in the outer row at rest (§3). Its target was
     /// looked up where the wait ended (`refuse_if_inner_gone`).
     pub(super) fn begin_inner(
         &mut self,
@@ -510,8 +510,8 @@ impl Collection {
         Ok(())
     }
     /// A nested request's inner part, its outer row `row` where it should be:
-    /// the inner list in that row begins it, as the command begins it at rest.
-    /// What the command refuses at rest it refuses here, and why,
+    /// the inner list in that row begins it, as the command begins it at rest
+    /// (§3). What the command refuses at rest (§2.2) it refuses here, and why,
     /// journaled as the command's refusal is.
     pub(super) fn begin_inner_part(
         &mut self,
@@ -530,7 +530,7 @@ impl Collection {
         Ok(begun)
     }
     /// Begin `request` on this list, aligned by the option for its axis; why
-    /// not, if the list refuses its key.
+    /// not, if the list refuses its key (§2.2).
     fn begin_request(
         &mut self,
         u: &mut Update<'_>,
@@ -552,7 +552,7 @@ impl Collection {
     pub(super) fn follow_into_view(&mut self, fill: CollectionFill) {
         // Once it has moved the port, the reader's own scroll that the host
         // hears ends it where the reader is: its corrections do not fight
-        // the reader, who can always stop its motion. A host reports
+        // the reader, who can always stop its motion (§2.5). A host reports
         // the reader's move of the port then as a gesture.
         let moved = self.target.as_ref().is_some_and(|t| t.moved);
         if fill.gesture || (moved && fill.scrolling) {
@@ -583,7 +583,7 @@ impl Collection {
     /// wherever it may stand: where the last report and an anchor's shift
     /// since put it (`at`), and on a row list also where it stands without
     /// that shift, which the web does not make while the reader moves the
-    /// list. Not while a move of the list's own is owed.
+    /// list (LLP 1070 H4). Not while a move of the list's own is owed.
     fn already_satisfied(
         &self,
         u: &Update<'_>,
@@ -664,7 +664,7 @@ impl Collection {
         // asked it to be, as this report's anchor correction leaves it: the
         // index already has the report's measurements.
         let at = g.offset;
-        // Where its wait ends it is judged again as one made at rest.
+        // Where its wait ends it is judged again as one made at rest (§2.6).
         // A nested request's inner part then begins in this report
         // (`settle_into_view`).
         if landing && self.already_satisfied(u, position, target.align, target.offset, at) {
@@ -687,7 +687,7 @@ impl Collection {
             // Done when it holds for two reports: filling around it measures
             // rows that can still move it. And not while the host animates
             // there: it reports where the animation is headed, not where the
-            // port is.
+            // port is (§11).
             let aligned = if measured && !self.animating {
                 target.aligned + 1
             } else {
@@ -819,7 +819,7 @@ fn by_view<'a>(
 }
 
 impl Collection {
-    /// A key's row identity here, or why it is refused.
+    /// A key's row identity here, or why it is refused (LLP 1070.000 §2.2).
     fn resolve(&self, key: &Value) -> Result<String, String> {
         // The agent types a key as text; a list keyed by numbers reads it as one.
         if let Some(s) = key.as_str() {
@@ -898,7 +898,7 @@ impl Tree {
         Ok(true)
     }
 
-    /// Carry out one `scrollIntoView`: resolve the list,
+    /// Carry out one `scrollIntoView` (LLP 1070.000 §2): resolve the list,
     /// and for an inner one its outer row, and begin the request on each
     /// scroller between the target and the list.
     pub(crate) fn scroll_into_view(
@@ -967,7 +967,7 @@ impl Tree {
         let row_key = outer.resolve(row).expect("resolved");
         let align = outer.align_for(request);
         outer.begin_into_view(u, &frames, &row_key, align, request.smooth, None)?;
-        // The outer list waits: the inner part begins when the outer
+        // The outer list waits (§2.6): the inner part begins when the outer
         // row lands (`begin_inner`).
         if outer.request_waits() {
             if let Some(t) = outer.target.as_mut() {

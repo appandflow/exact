@@ -1,5 +1,5 @@
 // A scroll container's place across a batch on AppKit: a `scrollFollowEnd`
-// container at its end stays there; anywhere else above the start,
+// container at its end stays there (LLP 1001); anywhere else above the start,
 // CSS scroll anchoring keeps the visible content still (`ScrollAnchoring`).
 // The presenter calls `captureScrollPosition` before a batch and
 // `restoreScrollPosition` after its layout; an explicit `scrollTop` then wins.
@@ -20,17 +20,24 @@ extension NodeView {
             followedScroll = (top, top >= maximum - 1)
             if top >= maximum - 1 { return }
         }
-        // No anchor at the start (CSS Scroll Anchoring §2.2): content inserted on top shows.
+        // No anchor at the start (spec §2.2): content inserted on top shows.
         guard top > 0 else { return }
         scrollAnchor = ScrollAnchoring.anchor(in: self, space: doc, port: doc.convert(sv.contentView.bounds, from: sv.contentView), focused: focused)
     }
 
-    func restoreScrollPosition() {
+    /// `authored`: the batch asks for a scroll of it (a `scrollIntoView` of
+    /// something in it, which comes after the batch, or a `scrollTop` write).
+    func restoreScrollPosition(authored: Bool = false) {
         defer { followedScroll = nil; scrollAnchor = nil }
         guard let sv = scroll, let doc = sv.documentView else { return }
         let maximum = max(0, doc.bounds.height - sv.contentView.bounds.height)
         var y: CGFloat
         if props["scrollFollowEnd"] == "true", followedScroll?.end ?? true {
+            // The app's scroll owns the offset until it settles: one the batch
+            // asks for, a reveal or a smooth `scrollTop` write under way. The
+            // end is not followed meanwhile, `scrollFollowEnd` turning true
+            // included, and after only where it rests at the end (LLP 1070.000 §15).
+            if authored || scrollEnd?.elementAnimation != nil { return }
             // Past the end, the rubber band settles there itself (`CollectionHost.leavesRubberBand`).
             if sv.contentView.bounds.minY > maximum + 0.5 { return }
             y = maximum

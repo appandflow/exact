@@ -1,5 +1,5 @@
 # The map demo's data source: none. The pins are literal Contract; the map
-# is a native module.
+# is a native module (LLP 1024).
 [package]
 name = "map-demo-data"
 version.workspace = true

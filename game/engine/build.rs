@@ -3,6 +3,7 @@
 //! host. The game workspace and every generated game shell set
 //! EXACT_GAME_FP_CONTRACT=off in `.cargo/config.toml` `[env]` (which RUSTFLAGS
 //! does not replace); under that promise a build without the flag is refused.
+//! @ref llp/1046.003-game-engine-as-built.explainer.md#rustflags-keep-contraction-off-2026-09-23
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=EXACT_GAME_FP_CONTRACT");

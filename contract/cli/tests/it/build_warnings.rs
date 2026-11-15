@@ -3,7 +3,7 @@
 use super::diagnostics::{diagnostics, App};
 use serde_json::Value;
 
-/// A warning is a diagnostic of severity `"warning"` after
+/// LLP 1116 D6: a warning is a diagnostic of severity `"warning"` after
 /// every refusal, in the same array or on the same stream; it never fails
 /// the build, and a refusal says `"severity": "error"`.
 #[test]

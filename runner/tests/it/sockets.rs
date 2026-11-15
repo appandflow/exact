@@ -1,8 +1,9 @@
-//! A resource's two-way socket, the runner half: the
+//! A resource's two-way socket, the runner half (LLP 1016.000 D7): the
 //! operations a mutation, or the socket's own mapper answering a frame,
 //! stages reach the host only from a commit that stood, addressed to the
 //! stream ticket of the resource that owns the socket while it is open; a
-//! resource's answer's go out as each of its turns ends.
+//! resource's answer's go out as each of its turns ends (the amendment of
+//! 2026-10-18).
 use exact_kernel::Kernel;
 use exact_plan::Value;
 use exact_runner::failure::FailureCode;
@@ -323,7 +324,7 @@ fn a_send_before_open_is_refused_and_after_open_goes_out_once_the_commit_stands(
         "{state}"
     );
     // The line that admitted the socket: `ws:`, since `wss://echo.test` is
-    // another scheme (scheme-wide grants).
+    // another scheme (LLP 1016.000 D7, scheme-wide grants).
     assert!(state.contains(r#""grant":"net.websocket ws:""#), "{state}");
     assert!(journal(&r).contains("socket send: 2 bytes (feed)"));
     r.socket_published(

@@ -4,13 +4,13 @@ import XCTest
 @testable import ExactKit
 @testable import ExactSurfaces
 
-/// A box turned in space takes touches where it is drawn, as
+/// A box turned in space (LLP 1077 D8) takes touches where it is drawn, as
 /// CSS hit-tests through the 3D projection, and a hidden back face takes
 /// none. UIKit carries a point through the plane itself (measured here);
 /// the host refuses the hidden back face. UIKit, so a simulator runs it:
 ///   bun host/apple/build.mjs --test --ios
 final class SpaceHitIOSTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactSurfaces.install() }
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     private var window: UIWindow!
 
     /// A 200×200 parent with `perspective: 200px` holding a 100×100 button
@@ -122,7 +122,7 @@ final class SpaceHitIOSTests: XCTestCase {
         XCTAssertTrue(box.hitTest(sup.convert(CGPoint(x: 180, y: 80), to: box), with: nil) === button, "where it is drawn")
         XCTAssertFalse(box.hitTest(sup.convert(CGPoint(x: 80, y: 80), to: box), with: nil) === button, "placed, but not translated")
         // A point that misses every placed child is the canvas's, unless the
-        // canvas lets the touch through.
+        // canvas lets the touch through (Grok's batch 2 review).
         let canvas = try XCTUnwrap(p.views[2])
         XCTAssertTrue(box.hitTest(sup.convert(CGPoint(x: 180, y: 150), to: box), with: nil) === canvas)
         canvas.applyStyle(["pointer_events": "none"])

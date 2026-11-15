@@ -1,9 +1,9 @@
-// Accept fixture: documents in Contract. The
-// innermost active `head` wins field by field: the route's title and
+// Accept fixture: documents in Contract (`@ref LLP 1048.003` part A). The
+// innermost active `head` wins field by field (D1): the route's title and
 // description over the site's, the site's image where the route sets none,
 // and nothing from a route the navigation root has not selected. The
 // not-found view declares its HTTP status. A route's content scrolls as the
-// page (`scroll document`). Routes declare their policies.
+// page (`scroll document`, D4). Routes declare their policies (D5).
 routes nav
   tab home "/" render=build
     post "/post/:post" render=request activate=idle
@@ -18,7 +18,7 @@ component Site
   action back
     nav = back(nav)
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation"
+    main navigationKey=`${top(nav).id}` testId="navigation"
       head title="Site" description="Every post" image="/assets/site.png" robots="index"
       for e in stack(nav) key = e.id
         column navigationKey=`${e.id}` testId=`route-${e.name}`

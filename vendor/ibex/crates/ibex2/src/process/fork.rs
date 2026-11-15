@@ -1,4 +1,4 @@
-//! `fork` and `execve`, with the steps between
+//! `fork` and `execve` (exact2 LLP 1133.007 D9), with the steps between
 //! them that `posix_spawn` cannot take on every platform: a process group
 //! (or session) of its own; on Linux `PR_SET_PDEATHSIG(SIGKILL)` and a check
 //! that its parent is still the spawner; every signal's default disposition

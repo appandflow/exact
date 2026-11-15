@@ -24,7 +24,7 @@ def pathTy (p : Program) (args : List Expr) (ts? : Option (List Ty)) : Option Ty
     | .none => .none
   | _, _ => .none
 
-/-- How deep a value of `t` can nest: 0 for a scalar, one
+/-- How deep a value of `t` can nest (LLP 1090 D2): 0 for a scalar, one
 more than what it holds for an option, list or record; `?` is 0. Shapes are
 acyclic, so `fuel` (their number, plus one) is never what stops the walk. -/
 def Ty.depthIn (shapes : List Shape) : Nat → Ty → Nat
@@ -46,7 +46,7 @@ def Ty.optionInOption : Ty → Bool
   | _ => false
 
 /-- `t` bounds its values as the runner does, the Rust checker's
-`Shapes::bounded`: no option directly inside an option
+`Shapes::bounded` (LLP 1090 D2): no option directly inside an option
 (`type-option-option`) and at most 64 deep (`type-too-deep`). -/
 def Ty.bounded (p : Program) (t : Ty) : Bool :=
   !t.optionInOption && decide (t.depthIn p.shapes (p.shapes.length + 1) ≤ 64)
@@ -66,13 +66,16 @@ theorem boundedTy_some {p : Program} {o : Option Ty} {t : Ty} (h : boundedTy p o
     · simp at h
   · simp at h
 
-/-- `formatNumber`'s literal parameters (`type-format-style`). The
-embedding fills an omitted code with `""`; only non-currency styles take
-that default. `Format.currencies` has the roster's admitted code literals. -/
+/-- `formatNumber`'s literal parameters (`type-format-style`), then the
+format locale. The embedding fills an omitted code with `""`; only
+non-currency styles take that default. `Format.currencies` has the roster's admitted code literals.
+`decimal` may take a fraction digit count instead; one past 0–100 or not whole is refused when
+evaluated, as `toFixed`'s is. -/
 def numberFormatArgs : List Expr → Bool
-  | [_, .str style, .str code] =>
+  | [_, .str style, .str code, _] =>
     if style == "currency" then Format.currencies.any (fun c => c.1 == code)
     else ["compact", "decimal", "percent"].contains style && code == ""
+  | [_, .str "decimal", .num _, _] => true
   | _ => false
 
 mutual
@@ -244,6 +247,8 @@ def inferCall (p : Program) (G : Scope) : Scope → String → List Expr → Opt
         else if name = "failure" then
           (if (isResource p x || isMutation p x) && (lookupTy x Γ).isNone && (lookupTy x G).isSome
            then .some (.option (.record "Failure")) else .none)
+        else if name = "current" then
+          (if isResource p x && (lookupTy x Γ).isNone && (lookupTy x G).isSome then .some .bool else .none)
         else
           match ts? with
           | .some ts => boundedTy p (rosterTy name ts)
@@ -362,7 +367,7 @@ def checkTypes (p : Program) : Bool :=
     p.resources.all (·.ty.complete) && p.mutations.all (·.ty.complete) &&
     p.actions.all (fun a => a.params.all (·.2.complete))
 
-/-- Every declared type bounds its values; a mutation holds
+/-- Every declared type bounds its values (LLP 1090 D2); a mutation holds
 `option<T>` of its answer. -/
 def checkBounds (p : Program) : Bool :=
   p.shapes.all (fun sh => (Ty.record sh.name).bounded p && sh.fields.all (·.ty.bounded p)) &&
@@ -386,10 +391,18 @@ def checkState (p : Program) (i : Nat) : Bool :=
   | .none => true
 
 def checkDerive (p : Program) (d : DeriveDecl) : Bool := inferLe p (settleScope p) [] d.body d.ty
-/-- A resource's arguments, and over a list its list and key (a string,
-number or bool: the compiler's `type-resource-for-key`), and its source's
-one signature. -/
+/-- A resource's `when` is a bool, read where its arguments are (the
+compiler's `type-when-not-bool`); a resource over a list has none
+(`syntax-resource-for-when`; LLP 1161.002 D1). -/
+def resourceGate (p : Program) (r : ResourceDecl) : Bool :=
+  match r.gate with
+  | .none => true
+  | .some g => r.each.isNone && inferLe p (settleScope p) [] g .bool
+/-- A resource's `when`, its arguments, and over a list its list and key
+(a string, number or bool: the compiler's `type-resource-for-key`), and
+its source's one signature. -/
 def checkResource (p : Program) (r : ResourceDecl) : Bool :=
+  resourceGate p r &&
   match r.each with
   | .none =>
     match inferList p (settleScope p) [] r.args with
@@ -415,7 +428,7 @@ def taskAction (p : Program) (t : TaskDecl) : Bool :=
   | .some a => a.params.isEmpty
   | .none => false
 /-- A gated task's gate is a bool and its key a string, number or bool
-(the compiler's `type-task-gate`, `type-task-key`). -/
+(the compiler's `type-task-gate`, `type-task-key`; LLP 1092 D9). -/
 def taskGate (p : Program) (t : TaskDecl) : Bool :=
   (match t.gate with
     | .some g => inferLe p (compScope p) [] g .bool
@@ -511,8 +524,16 @@ theorem inferCall_rest {p : Program} {G Γ : Scope} {name : String} {args : List
                 simp at h; subst h; exact .failure hfd hr.1.1 hr.1.2 hr.2
               · simp at h
             · split at h
-              · next ts => exact .roster hfd (hts ts rfl) (boundedTy_some h)
-              · simp at h
+              · next hn =>
+                subst hn
+                split at h
+                · next hr =>
+                  simp only [Bool.and_eq_true, Option.isNone_iff_eq_none] at hr
+                  simp at h; subst h; exact .current hfd hr.1.1 hr.1.2 hr.2
+                · simp at h
+              · split at h
+                · next ts => exact .roster hfd (hts ts rfl) (boundedTy_some h)
+                · simp at h
       · split at h
         · next hn =>
           subst hn
@@ -948,7 +969,7 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
     shapes := ?_, names := hnames, routeShapes := hrs, routerSlot := hrslot, states := hst, derivesComplete := hdt, resourcesComplete := hrt,
     mutations := hmt, params := ?_, fns := ?_, rootInits := ?_, lateInits := ?_, derives := ?_,
     resources := ?_, actions := ?_, tasks := ?_, taskActions := ?_, taskLiterals := ?_, taskGates := ?_,
-    thenActions := ?_,
+    resourceGates := ?_, thenActions := ?_,
     view := checkNodes_sound _ hview }
   · intro sh hs f hf
     simp only [checkShapes, List.all_eq_true] at hsh
@@ -967,7 +988,8 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
   · intro d hd; exact inferLe_sound (hderives d hd)
   · intro r hr
     have := hres r hr
-    simp only [checkResource] at this
+    simp only [checkResource, Bool.and_eq_true] at this
+    obtain ⟨-, this⟩ := this
     split at this
     · next he =>
       split at this
@@ -1035,6 +1057,11 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
         · next u hu => exact ⟨_, infer_sound _ hu⟩
         · next u hu => exact ⟨_, infer_sound _ hu⟩
         · simp at hk
+  · intro r hr g hg
+    have := hres r hr
+    simp only [checkResource, resourceGate, hg, Bool.and_eq_true] at this
+    obtain ⟨u, hu, -⟩ := inferLe_sound this.1.2
+    exact ⟨u, hu⟩
   · intro m hm a ha
     have := hthen m hm
     simp only [thenAction, ha] at this
@@ -1043,10 +1070,11 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
     · simp at this
 
 -- Reduced from the seed-7 `number-styled.contract` mutant, which drops USD from `usd`.
--- The emitter fills an omitted code with the roster's empty-string default.
+-- The emitter fills an omitted code with the roster's empty-string default, then
+-- the format locale (`""` in a program without format data).
 private def numberFormatProgram (args : List Expr) : Program :=
   { fns := [{ name := "usd", params := [("x", .number), ("s", .string)], ret := .string,
-              body := .call "formatNumber" args }] }
+              body := .call "formatNumber" (args ++ [.str ""]) }] }
 
 #guard !check (numberFormatProgram [.var "x", .str "currency", .str ""])
 #guard Format.currencies.all fun c =>

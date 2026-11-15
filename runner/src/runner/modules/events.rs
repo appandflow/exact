@@ -1,4 +1,4 @@
-//! A module's events: a click on a notification, which
+//! A module's events (LLP 1133.004 D6): a click on a notification, which
 //! a value cannot carry, since two clicks are two openings. The plan names
 //! each event the root hears and the action it runs (`module_events`).
 //!
@@ -7,7 +7,7 @@
 //!   in order, once. None is coalesced.
 //! - **Held, and bounded:** up to the event's `hold`, the oldest dropped
 //!   and journaled past it.
-//! - **Origin**: an activation, a person's act on the
+//! - **Origin** (LLP 1133.002 D12): an activation, a person's act on the
 //!   platform's own UI that only the host raises, runs its action with a
 //!   person's origin; an event a package emits runs with the device's, so a
 //!   request it leads to while `prompt` fails, reason `person-required`.
@@ -147,7 +147,7 @@ impl<D: DataSource> Runner<D> {
                 Err(e) => return (receipts, Some(e)),
             }
         }
-        // Then a wake's, one invocation at a time.
+        // Then a wake's, one invocation at a time (LLP 1133.017 D5).
         let (woke, error) = self.step_wakes();
         receipts.extend(woke);
         (receipts, error)
@@ -170,7 +170,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Journal a request a commit not the app's made while `prompt`, which
-    /// [`Self::decide`] refuses; whether it was one.
+    /// [`Self::decide`] refuses (LLP 1133.002 D12); whether it was one.
     pub(super) fn say_person_required(
         &mut self,
         row: &ModulesRow,
@@ -197,7 +197,7 @@ impl<D: DataSource> Runner<D> {
         refused
     }
 
-    /// The session ends: each event still queued is journaled, unheard.
+    /// The session ends: each event still queued is journaled, unheard (D6).
     pub fn journal_unheard_events(&mut self) {
         while let Some(raised) = self.extensions.events.queued.pop_front() {
             let row = &self.plan.module_events[raised.row];

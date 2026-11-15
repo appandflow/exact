@@ -26,7 +26,7 @@ component Profile
     if nameHint == ""
       saved = true
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
+    main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%"
       for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="form" position="absolute" inset=0
           display="flex" flex-direction="column"
@@ -70,5 +70,5 @@ test "Save waits for a name, saying why; Enter saves"
   stepper, which adds `step`; the field stays editable and its `value` is text (`parseNumber` it).
 - A `text` and a control in a row are a title and its accessory; any other is a flex row.
   Save is disabled until valid, the reason in the section's `footer`; red under a field is a
-  refusal the data sent back ([after-a-write](after-a-write.md)), kept until a Save succeeds.
+  refusal the data sent back ([after a write](after-a-write.md)), kept until a Save succeeds.
   `submit=save` makes Enter save (no `form`).

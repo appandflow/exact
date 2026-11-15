@@ -1,6 +1,6 @@
 # Recipe: a serial port, a HID device or a USB device
 
-`@exact/serial`, `@exact/hid` and `@exact/usb` are Web Serial, WebHID and WebUSB. Contract lists and
+`@exact/serial`, `@exact/hid` and `@exact/usb` are Web Serial, WebHID and WebUSB (LLP 1133.037). Contract lists and
 opens devices; `app.ts` sends and reads the bytes, as base64 strings. Grant `device.serial`, `device.hid` or
 `device.usb`, with no purpose.
 

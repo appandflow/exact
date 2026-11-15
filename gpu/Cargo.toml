@@ -1,6 +1,8 @@
 # The GPU module's crate: the Surface trait an app implements, the module
 # that hosts its surfaces on a wgpu device, and the ABI a presenter loads on
 # demand — a C ABI natively, wasm-bindgen exports on the web.
+#
+# @ref LLP 1009 D1/D2
 [package]
 name = "exact-gpu"
 version.workspace = true
@@ -20,7 +22,7 @@ exact-plan = { path = "../plan" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 wgpu = { version = "30", default-features = false, features = ["wgsl", "metal", "vulkan", "dx12"] }
-# The interface digest over a shader registered at run time:
+# The interface digest over a shader registered at run time (LLP 1030 D8):
 # the same reflection the build ran, so a candidate is admitted only at the
 # interface the binary binds. naga is already here through wgpu's `wgsl`.
 # Not on the web: the browser compiles WGSL itself (no naga in the wasm —
@@ -28,11 +30,12 @@ wgpu = { version = "30", default-features = false, features = ["wgsl", "metal", 
 # dev loop rebuilds the wasm on a shader edit, so the check is the bake's.
 exact-gpu-reflect = { path = "reflect" }
 
-# A Metal texture the host rendered, imported as it is: the
+# A Metal texture the host rendered, imported as it is (LLP 1008 §9): the
 # crates wgpu-hal's Metal backend types it with, the same versions.
 [target.'cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))'.dependencies]
 objc2 = "0.6"
 objc2-metal = "0.3"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSString"] }
 # The Metal backend this module presents through is exact2's patched copy
 # (vendor/wgpu-hal/EXACT-PATCHES.md): named here so `build.rs` can refuse a
 # workspace that would link the published one.
@@ -45,4 +48,4 @@ wgpu-hal = { version = "30", default-features = false }
 wgpu = { version = "30", default-features = false, features = ["wgsl", "webgpu"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
+web-sys = { version = "0.3", features = ["HtmlCanvasElement", "Performance", "Window"] }

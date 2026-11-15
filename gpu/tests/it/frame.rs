@@ -1,4 +1,4 @@
-//! One submit per tick: canvases record into the module's
+//! One submit per tick (LLP 1009 D7): canvases record into the module's
 //! frame, `flush` submits it once and presents; a call about a canvas in the
 //! open frame submits it first. Presented targets are `CAMetalLayer`s, so
 //! these run on macOS.
@@ -280,7 +280,7 @@ fn a_frame_commits_one_command_buffer_a_canvas_and_its_presentations_ride_it() {
 }
 
 /// A surface that fails after recording has its drawable in the frame's
-/// submit and must not be shown, so that frame's presentations
+/// submit and must not be shown (LLP 1009 D7), so that frame's presentations
 /// do not ride the submit: the healthy canvas is presented once, by
 /// `present`, and the failed one's drawable is let go. More rounds than a
 /// layer has drawables: one neither presented nor let go would run it out.

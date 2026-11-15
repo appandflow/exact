@@ -1,4 +1,4 @@
-// The transfer carrier: two background
+// The transfer carrier (LLP 1133.017 D8, D10): two background
 // `URLSession`s, `<bundle id>.transfers` and
 // `<bundle id>.transfers.discretionary`, their delegate, and a durable
 // record per registration. A session the system relaunches the app for must
@@ -14,7 +14,7 @@
 // `{package, id}` as a registration's bytes move, at most once a second,
 // and when it ends.
 //
-// The record is the truth and the event a notice of it: a
+// The record is the truth and the event a notice of it (D10): a
 // registration whose requests have all ended is offered to its package as
 // a wake of kind `transfer`, its key the registration's id, at once while
 // the app runs; after a relaunch for the session's events, at
@@ -38,7 +38,8 @@ public enum TransferCarrier {
 
     struct Item: Codable {
         var index: Int, method: String
-        /// Without its query or fragment, which may carry a credential.
+        /// Without its user name, password, query or fragment, which may
+        /// carry a credential.
         var url: String
         var upload: Bool
         var ended = false
@@ -143,7 +144,7 @@ public enum TransferCarrier {
         case "abort":
             guard let r = records[id], r.package == package, !r.ended else { return false }
             session(r.discretionary).getAllTasks { tasks in
-                for t in tasks where t.taskDescription?.hasPrefix(id + " ") == true { t.cancel() }
+                for t in tasks where belongs(t.taskDescription, to: id) { t.cancel() }
             }
             return true
         case "retire":
@@ -159,46 +160,65 @@ public enum TransferCarrier {
 
     /// Each request `{url, method, headers, bodyFrom, saveTo}`; `bodyFrom` a
     /// file, copied into the record's folder first, since a background
-    /// session uploads only from a file. Nil, or the error's name.
+    /// session uploads only from a file. Nil, or the error's name. The new
+    /// record and its bodies are written to a folder of their own, which
+    /// takes the previous registration's place only once all of them are
+    /// there: a refused restart leaves that registration's record and files
+    /// as they were.
     private static func start(_ package: String, _ id: String, _ requests: [[String: Any]], discretionary: Bool, downloadTotal: Int64? = nil) -> String? {
         guard !id.isEmpty, !requests.isEmpty, records[id].map({ $0.ended }) ?? true else { return "TypeError" }
-        try? FileManager.default.removeItem(at: folder(id))
-        try? FileManager.default.createDirectory(at: folder(id), withIntermediateDirectories: true)
-        var items: [Item] = [], tasks: [URLSessionTask] = []
-        let s = session(discretionary)
+        var planned: [(request: URLRequest, item: Item)] = []
         for (index, r) in requests.enumerated() {
             guard let text = r["url"] as? String, let url = URL(string: text), ["http", "https"].contains(url.scheme ?? "") else { return "TypeError" }
             var request = URLRequest(url: url)
             request.httpMethod = r["method"] as? String ?? (r["bodyFrom"] == nil ? "GET" : "POST")
             for (k, v) in r["headers"] as? [String: String] ?? [:] { request.setValue(v, forHTTPHeaderField: k) }
-            var shownURL = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            shownURL?.query = nil
-            shownURL?.fragment = nil
-            let task: URLSessionTask
-            var size: Int64?
-            if let from = r["bodyFrom"] as? String {
-                let copy = folder(id).appendingPathComponent("upload-\(index)")
-                do { try FileManager.default.copyItem(at: URL(fileURLWithPath: from), to: copy) } catch { return "NotAllowedError" }
-                size = try? FileManager.default.attributesOfItem(atPath: copy.path)[.size] as? Int64
-                task = s.uploadTask(with: request, fromFile: copy)
-            } else {
-                task = s.downloadTask(with: request)
-            }
-            task.taskDescription = "\(id) \(index)"
-            var item = Item(index: index, method: request.httpMethod ?? "GET", url: shownURL?.string ?? text, upload: r["bodyFrom"] != nil)
+            var shown = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            shown?.user = nil
+            shown?.password = nil
+            shown?.query = nil
+            shown?.fragment = nil
+            guard let shownURL = shown?.string else { return "TypeError" }
+            var item = Item(index: index, method: request.httpMethod ?? "GET", url: shownURL, upload: r["bodyFrom"] != nil)
             item.saveTo = r["saveTo"] as? String
-            item.size = size
-            items.append(item)
-            tasks.append(task)
+            planned.append((request, item))
         }
-        var record = Record(id: id, package: package, discretionary: discretionary, requests: items)
+        // Beside the registrations' folders, under a name none has: `safe`
+        // escapes a dot.
+        let files = FileManager.default
+        let staging = directory.appendingPathComponent(".start-" + safe(id))
+        try? files.removeItem(at: staging)
+        do { try files.createDirectory(at: staging, withIntermediateDirectories: true) } catch { return "UnknownError" }
+        for (index, r) in requests.enumerated() {
+            guard let from = r["bodyFrom"] as? String else { continue }
+            let copy = staging.appendingPathComponent("upload-\(index)")
+            do { try files.copyItem(at: URL(fileURLWithPath: from), to: copy) } catch {
+                try? files.removeItem(at: staging)
+                return "NotAllowedError"
+            }
+            planned[index].item.size = try? files.attributesOfItem(atPath: copy.path)[.size] as? Int64
+        }
+        var record = Record(id: id, package: package, discretionary: discretionary, requests: planned.map(\.item))
         record.downloadTotal = downloadTotal
-        keep(record)
-        tasks.forEach { $0.resume() }
+        do {
+            try JSONEncoder().encode(record).write(to: staging.appendingPathComponent("record.json"))
+            if files.fileExists(atPath: folder(id).path) { _ = try files.replaceItemAt(folder(id), withItemAt: staging) } else { try files.moveItem(at: staging, to: folder(id)) }
+        } catch {
+            try? files.removeItem(at: staging)
+            return "UnknownError"
+        }
+        records[id] = record
+        let s = session(discretionary)
+        for (request, item) in planned {
+            let task = item.upload ? s.uploadTask(with: request, fromFile: folder(id).appendingPathComponent("upload-\(item.index)")) : s.downloadTask(with: request)
+            task.taskDescription = "\(id) \(item.index)"
+            task.resume()
+        }
         return nil
     }
 
-    /// What a package reads of a record: never a header or a query.
+    /// What a package reads of a record: never a header, a query or a
+    /// user name or password.
     private static func shown(_ r: Record) -> [String: Any] {
         var out: [String: Any] = ["id": r.id, "result": r.result, "failureReason": r.failureReason,
                                   "uploadTotal": r.requests.reduce(0) { $0 + ($1.size ?? 0) }, "uploaded": r.requests.reduce(0) { $0 + ($1.sent ?? 0) },
@@ -297,7 +317,7 @@ public enum TransferCarrier {
         offer(ended, completion: completion)
     }
 
-    /// The ended registrations not yet retired, once a module is ready at a launch.
+    /// The ended registrations not yet retired, once a module is ready at a launch (D10).
     static func ready() {
         let held = records.values.filter { $0.ended && !offering.contains($0.id) }.map(\.id)
         if !held.isEmpty { offer(held) }
@@ -313,8 +333,16 @@ public enum TransferCarrier {
         }
     }
 
-    private static func which(_ task: URLSessionTask) -> (String, Int)? {
-        guard let d = task.taskDescription, let space = d.lastIndex(of: " "), let index = Int(d[d.index(after: space)...]) else { return nil }
+    private static func which(_ task: URLSessionTask) -> (String, Int)? { which(task.taskDescription) }
+
+    /// Whether a task of this description is one of registration `id`'s:
+    /// `"album 2 0"` is `"album 2"`'s, not `"album"`'s.
+    static func belongs(_ description: String?, to id: String) -> Bool { which(description)?.0 == id }
+
+    /// The registration id and request index a task's description names
+    /// (`"<id> <index>"`); the id may hold spaces.
+    private static func which(_ description: String?) -> (String, Int)? {
+        guard let d = description, let space = d.lastIndex(of: " "), let index = Int(d[d.index(after: space)...]) else { return nil }
         return (String(d[..<space]), index)
     }
 
@@ -336,7 +364,7 @@ public enum TransferCarrier {
 
 extension ExactApp {
     /// `application(_:handleEventsForBackgroundURLSession:completionHandler:)`:
-    /// the carrier's session made again before it returns.
+    /// the carrier's session made again before it returns (LLP 1133.017 D10).
     public func handleTransferEvents(_ identifier: String, completion: @escaping () -> Void) {
         TransferCarrier.events(identifier, completion)
     }

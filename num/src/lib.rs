@@ -1,5 +1,7 @@
 //! Number text as std reads and writes it, without std's tables.
 //!
+//! @ref LLP 1047 §6 (the core diet)
+//!
 //! `str::parse::<f64>()` links `core`'s decimal-to-float machinery, whose
 //! Eisel–Lemire table alone is 10 KB of incompressible wasm data. A correctly
 //! rounded parse has exactly one answer, so this one — Clinger's exact fast
@@ -76,7 +78,7 @@ pub fn parse_f32(s: &str) -> Result<f32, ParseFloatError> {
 
 /// `"125%"` as `1.25`: a percentage above 0 in CSS's number syntax
 /// (`[+-]?(\d+|\d*\.\d+)(e[+-]?\d+)?%`), so a runner and a page read the
-/// same text the same way (`setRootFontSize("125%")`).
+/// same text the same way (LLP 1121 D6's `setRootFontSize("125%")`).
 pub fn css_percent(s: &str) -> Option<f64> {
     let n = s.strip_suffix('%')?;
     let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());

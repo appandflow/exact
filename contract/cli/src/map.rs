@@ -1,10 +1,14 @@
 //! Development-only source locations beside a plan, never inside its bytes.
+//! @ref LLP 1035.005 D3; LLP 1035.002 D6.
 
 use crate::{sources::Sources, BakeError, CompileError, RelatedLocation};
 use contract_lower::{Declared, Origin, Sites};
 use contract_syntax::Span;
 use sha2::{Digest, Sha256};
 use std::io::Write;
+
+#[path = "component_costs.rs"]
+mod component_costs;
 
 /// Compiler-owned locations for plan nodes and named declarations.
 /// Source files resolve through each span's identity, including slot fills and
@@ -52,7 +56,7 @@ impl SourceMap {
     /// written: its name at its place, then `=`. A row the compiler
     /// composed or renamed (an animation's longhands, a symbol's tint, a
     /// grouped field's `flex` made `flex-grow`) keeps another attribute's
-    /// span and says nowhere (fail closed). `lines` keeps
+    /// span and says nowhere (LLP 1122 D6, fail closed). `lines` keeps
     /// each source's line starts.
     fn written_there(
         &self,
@@ -77,7 +81,7 @@ impl SourceMap {
             .is_some_and(|rest| rest.trim_start_matches(' ').starts_with('='))
     }
 
-    /// The attribute a base row came from, `set-row`'s
+    /// The attribute a base row came from (LLP 1122 D6), `set-row`'s
     /// address, and its name as written (a shorthand's for an expansion:
     /// `padding` for `padding_top`).
     fn written(
@@ -93,7 +97,7 @@ impl SourceMap {
         self.at(out, w.span);
         out.extend_from_slice(b"},\"attr\":");
         quote(out, &w.name);
-        // A layout row, which `set-row` refuses by this same
+        // A layout row (LLP 1122 D14), which `set-row` refuses by this same
         // test: said, so a client offers it no edit. The value is empty:
         // `tags::rows` reads it only for `resize`, a handler when an ident
         // or call, never a written row.
@@ -192,7 +196,7 @@ impl SourceMap {
         Some((self.sources.path(site.span), site.span))
     }
 
-    /// Source buttons the default-button migration must make explicitly bare. These facts
+    /// Source buttons D9's migration must make explicitly bare. These facts
     /// come from lowering's admission check and merged rows, never source text.
     pub fn button_migrations(&self) -> Vec<(&std::path::Path, Span)> {
         self.sites
@@ -247,8 +251,7 @@ impl SourceMap {
         }
     }
 
-    /// Serialize beside the final plan bytes. A bake changes the plan's resource
-    /// What each component costs the plan: every use is
+    /// What each component costs the plan (LLP 1054 L10): every use is
     /// inlined, so a component's plan nodes are its instances' nodes,
     /// including those of the components it uses. `(component, instances,
     /// nodes)`, most nodes first; the root is left out.
@@ -281,7 +284,8 @@ impl SourceMap {
     }
 
     /// Values, so the caller supplies the encoded bytes *after* baking.
-    /// `nodes[site].bare_reason` is the first default-button refusal. The agent can join it by plan digest and site, as it joins row
+    /// `nodes[site].bare_reason` is the first default-button refusal (LLP 1104
+    /// D2). The agent can join it by plan digest and site, as it joins row
     /// origins, and render `bare: <reason>` in `layout`. Hosts need no new prop.
     pub fn json(&self, plan_bytes: &[u8]) -> String {
         // Serialize directly: no second tree of JSON objects proportional to
@@ -322,12 +326,12 @@ impl SourceMap {
                 &mut out,
                 &self.sites.instances[node.instance as usize].component,
             );
-            // The part its element is named as.
+            // The part its element is named as (LLP 1139 D5).
             if let Some(part) = &node.part {
                 out.extend_from_slice(b",\"part\":");
                 quote(&mut out, part);
             }
-            // The exported library component it is of.
+            // The exported library component it is of (LLP 1139 D5).
             if let Some(identity) = &node.library {
                 out.extend_from_slice(b",\"library\":");
                 quote(&mut out, identity);
@@ -349,7 +353,7 @@ impl SourceMap {
             }
             out.push(b']');
             // The chain as a page's walk up its tree meets it, where that differs: a slot's host is a step, a
-            // component that only renders another none. Written once in `walks`, each node naming
+            // component that only renders another none (stage 15 D3). Written once in `walks`, each node naming
             // its own by index (`walk`): the copies of a component share theirs.
             if let Some(steps) = self.steps(i, &copies) {
                 // (Each step once in `walk_steps`, each walk a list of their indices: hosts and calls repeat.)
@@ -386,7 +390,7 @@ impl SourceMap {
             } else {
                 out.extend_from_slice(b",\"bindings\":[");
             }
-            // Each row once: its base
+            // Each row once (theme2's 02:46 and 03:18 rulings): its base
             // value's origin and place where a base row writes it (none
             // for a row only a state part writes, a press row among them),
             // and each state part that writes it, `:active`'s press paint
@@ -418,7 +422,7 @@ impl SourceMap {
                     quote(&mut out, &origin.label());
                     self.written(&mut out, &mut lines, origin);
                 }
-                // Each state part's row: its state, origin and where it is written.
+                // Each state part's row: its state, origin and where it is written (LLP 1121 D8).
                 for (i, part) in states.iter().enumerate() {
                     let Origin::State { of, state, span } = part else {
                         continue;
@@ -444,7 +448,7 @@ impl SourceMap {
             }
             out.extend_from_slice(b"]}");
         }
-        // Each source as compiled: a reader checks a file it
+        // Each source as compiled (LLP 1122 D5): a reader checks a file it
         // joins against its digest, and fails closed on one that moved.
         out.extend_from_slice(b"],\"sources\":[");
         for (i, (path, digest)) in self.sources.digested().enumerate() {
@@ -455,9 +459,9 @@ impl SourceMap {
             quote(&mut out, &path.to_string_lossy());
             out.extend_from_slice(b",\"sha256\":");
             quote(&mut out, digest);
-            // Its components' identities' home: a param's
+            // Its components' identities' home (LLP 1121 D15): a param's
             // full name, `<home>#<component>.<param>`, from the file it
-            // is read in.
+            // is read in (LLP 1122's queue item (2)).
             if let Some(home) = self.sources.home(i) {
                 out.extend_from_slice(b",\"home\":");
                 quote(&mut out, home);

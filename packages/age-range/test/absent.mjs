@@ -1,7 +1,7 @@
-// The absent-implementation drive for @exact/age-range's fixture app
+// LLP 1133.028 §8.4 drive 11 for @exact/age-range's fixture app
 // (test/fixture), on a target with no implementation: the status reads its
 // declared default and the request refuses NotSupportedError before any
-// ticket. The consuming app's part is drives.mjs's.
+// ticket. Excord's part of drive 11 is drives.mjs's.
 //
 // usage: bun packages/age-range/test/absent.mjs <web|linux> [--keep]
 import { checker } from '../../camera/test/fixture.mjs';
@@ -10,13 +10,6 @@ import { build, launch, makeFixture } from '../../tracking-consent/test/fixture.
 
 const argv = process.argv.slice(2), host = argv.find((a) => ['web', 'linux', 'windows'].includes(a)) ?? 'web';
 const { check, failed } = checker();
-// The Linux host built on a Mac is a macOS binary, and the runner reads a
-// declaration's per-target words by the target it was built for, so there it
-// answers macOS's: this drive's Linux answer needs a Linux machine.
-if (host === 'linux' && process.platform !== 'linux') {
-  console.error('linux: the Linux host on this machine answers by its own target, not linux; run this drive on Linux');
-  process.exit(2);
-}
 const fixture = makeFixture('age-range');
 try {
   build(fixture, host);

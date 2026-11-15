@@ -1,4 +1,4 @@
-// @exact/speech-synthesis on Android: the process's `TextToSpeech`, answered in the
+// @exact/speech-synthesis on Android (LLP 1133.012 D2–D6, §9): the process's `TextToSpeech`, answered in the
 // interface's shapes.
 //
 // - The engine binds asynchronously (`OnInitListener`): it is made at the module's first name, and utterances spoken
@@ -7,8 +7,8 @@
 //   engine's. Android runs one session a process, so the queue is the process's.
 // - `TextToSpeech` has no pause: `pauseSpeech` stops the engine and keeps the last range `onRangeStart` reported,
 //   and resuming speaks the utterance again from that range's start (from its start if the engine reported none). A
-//   word may repeat; none is skipped.
-// - Spoken audio claims audio focus through the reader's owner with the queue's strongest type while
+//   word may repeat; none is skipped (D3).
+// - Spoken audio claims audio focus through the reader's owner (D4, D12 item 2) with the queue's strongest type while
 //   it speaks. A paused queue holds no claim, except one paused only by a transient loss, which keeps its request so
 //   that focus comes back to it. A transient loss pauses the queue until focus returns; a lasting loss pauses it until
 //   `resumeSpeech`. An unsaid type is `transient`: the app's `audio_session` is not carried to Android.
@@ -16,8 +16,8 @@
 //   (`background`) until the activity resumes and focus is granted again (a refused request pauses it `focus`).
 // - The `UtteranceProgressListener` is called on a binder thread; each call posts to the main looper and names its
 //   utterance by the engine id it was spoken with.
-// - Tier 3: `SpeechSynthesisModule.hatch` is given the `TextToSpeech` once, after `onInit` succeeds.
-// - Under the agent nothing is spoken, as on the web and Apple: each utterance is spoken on the session clock at
+// - Tier 3 (D5): `SpeechSynthesisModule.hatch` is given the `TextToSpeech` once, after `onInit` succeeds.
+// - Under the agent nothing is spoken (§9), as on the web and Apple: each utterance is spoken on the session clock at
 //   170 words a minute times `rate`, a `word` boundary at each word's start, and `end` after the last; a paused
 //   queue's clock stands still.
 package exact.speechsynthesis
@@ -37,7 +37,7 @@ import org.json.JSONObject
 
 class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context) {
     companion object {
-        /** The app's access hatch: the engine, once, after it is ready. */
+        /** The app's access hatch (D5): the engine, once, after it is ready. */
         @JvmStatic var hatch: ((TextToSpeech) -> Unit)? = null
         const val WPM = 170.0
         val strength = listOf("transient", "transient-solo", "playback")
@@ -104,7 +104,7 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
         }
     }
 
-    /** The engine, made at the module's first name: `android.engine` written on that call picks it. */
+    /** The engine, made at the module's first name: `android.engine` written on that call picks it (D5). */
     private fun engine(args: JSONObject) {
         if (tts != null || failedInit) return
         val engine = args.optJSONObject("android")?.optString("engine")?.ifEmpty { null }
@@ -158,12 +158,12 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
         current = u.id; u.state = "speaking"; u.began = at; u.paused = null
         boundary = noBoundary()
         if (context.agent) { fail?.let { u.failure = it; fail = null } }
-        // The claim before the engine speaks, as the guide asks.
+        // The claim before the engine speaks, as the guide asks (D4).
         reclaim()
         if (!context.agent && claim != null && reasons.isEmpty()) give(u)
     }
 
-    /** The engine speaks [u] from [Utterance.offset], with its words; a word it cannot honour ends it. */
+    /** The engine speaks [u] from [Utterance.offset], with its words (D3); a word it cannot honour ends it. */
     private fun give(u: Utterance) {
         val t = tts ?: return
         val voice = u.args.optString("voice")
@@ -209,7 +209,7 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
         reclaim()
     }
 
-    /** Under the agent, the queue moved to the session clock's now. */
+    /** Under the agent, the queue moved to the session clock's now (§9). */
     private fun advance() {
         if (!context.agent) return
         val t = context.now()
@@ -227,7 +227,7 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
         }
     }
 
-    // ------------------------------------------------------------ the claim
+    // ------------------------------------------------------------ the claim (D4)
 
     /** The strongest type among the utterances not yet ended, `auto` for none. */
     private fun strongest(): String {
@@ -251,7 +251,7 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
         }
     }
 
-    /** What the owner tells a claim: a transient loss pauses until focus returns; a lasting one until
+    /** What the owner tells a claim (D4): a transient loss pauses until focus returns; a lasting one until
      * `resumeSpeech`. */
     private fun heard(event: String) {
         when (event) {
@@ -287,7 +287,7 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
                 .put("default", false).put("apple", JSONObject.NULL).put("android", JSONObject.NULL))
     }
 
-    /** The engine's voices (the `android` words); none before it is ready. */
+    /** The engine's voices (D5's `android` words); none before it is ready. */
     private fun voices(): JSONArray {
         val t = tts ?: return JSONArray()
         if (!ready) return JSONArray()
@@ -304,7 +304,7 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
 
     // ------------------------------------------------------------ pause, resume, cancel
 
-    /** Every utterance still to end ends: the queued `canceled`, the speaking `interrupted`. */
+    /** Every utterance still to end ends: the queued `canceled`, the speaking `interrupted` (D6). */
     private fun cancelAll() {
         advance()
         for (id in queue) utterances[id]?.let { it.state = "ended"; it.outcome = "error"; it.error = "canceled"; it.spokenAs = null }
@@ -323,7 +323,7 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
         val u = current?.let { utterances[it] }
         if (u != null && u.paused == null) {
             u.paused = context.now()
-            // The engine stops; the utterance is spoken again from the start of the last range it reported.
+            // The engine stops; the utterance is spoken again from the start of the last range it reported (D3).
             if (!context.agent && u.spokenAs != null) {
                 u.offset = boundary.optInt("charIndex", u.offset)
                 u.spokenAs = null
@@ -339,7 +339,7 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
         advance()
         reasons.removeAll(lifted)
         if (reasons.isEmpty()) {
-            // The claim again before the engine goes on.
+            // The claim again before the engine goes on (D4).
             reclaim()
             val u = current?.let { utterances[it] }
             if (u != null && !context.agent && claim != null && reasons.isEmpty() && u.spokenAs == null && u.paused != null) { u.paused = null; give(u) }
@@ -388,7 +388,7 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
 
     // ------------------------------------------------------------ the session
 
-    /** Under the agent: `fail` makes the next utterance to begin end with that error, armed once per value. */
+    /** Under the agent: `fail` makes the next utterance to begin end with that error (§9), armed once per value. */
     override fun preferred(values: JSONObject) {
         val word = values.optString("fail").ifEmpty { null }
         if (word == failSeen) return
@@ -399,10 +399,11 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
         say("the next utterance fails $word")
     }
 
-    /** Utterances whose reply was dropped: never the app's. */
+    /** Utterances whose reply was dropped: never the app's (D2). */
     override fun dispose(ids: List<String>) {
         advance()
-        for (id in ids) {
+        // The speaking one last: ending it begins the next queued, which must not be one dropped with it.
+        for (id in ids.filter { it != current } + ids.filter { it == current }) {
             val u = utterances[id] ?: continue
             if (u.state == "ended") continue
             say("$id: its reply was dropped")
@@ -414,7 +415,7 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
     }
 
     /** A prompt the person can no longer see the reason for is canceled at the background; a `playback` queue pauses
-     * until the activity resumes. */
+     * until the activity resumes (D4). */
     override fun foreground(shown: Boolean) {
         if (shown) {
             if ("background" in reasons) resume(listOf("background"))
@@ -425,7 +426,7 @@ class SpeechSynthesisModule(context: ExtensionContext) : ExactExtension(context)
         pause("background")
     }
 
-    /** The session ends: the engine stops and shuts down, and the claim goes. */
+    /** The session ends: the engine stops and shuts down, and the claim goes (D6). */
     override fun destroy(done: () -> Unit) {
         cancelAll()
         tts?.shutdown()

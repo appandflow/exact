@@ -1,4 +1,4 @@
-// A plain textarea's paint-only decorations and `rangeFrame`.
+// @ref LLP 1114.007 — a plain textarea's paint-only decorations and `rangeFrame`.
 import { afterAll, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -163,7 +163,7 @@ need('chrome', missing.chromium)('chromium: rangeFrame on a Markdown field reads
 }, 30000);
 
 // A collapsed range on an empty line, or in an empty field, is where the
-// caret is painted (docs/contract-grammar.md), as
+// caret is painted (docs/contract-grammar.md, theme2's 18:42 ruling), as
 // Chrome's createValueRange gives it on a line with text: `a\n\nb`'s empty
 // middle line sits one line below `a`'s start and one above `b`'s, at the
 // same left edge and with the same text height; `ab\n`'s last empty line
@@ -236,8 +236,8 @@ need('chrome', missing.chromium)('chromium: the caret twin is Chrome\'s caret wh
   });
 }, 30000);
 
-// Measuring through the twin leaves nothing behind and touches nothing:
-// the twin is gone after each read, was
+// Measuring through the twin leaves nothing behind and touches nothing
+// (theme2's sign-off condition): the twin is gone after each read, was
 // hidden from sight and from assistive technology and took no focus while
 // it stood, and the page's scroll, the field's scroll and its selection
 // and focus are as they were.

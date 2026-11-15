@@ -4,7 +4,7 @@
 Exact has no releases, tags or npm package, and an app uses the checkout by path. Make it with
 `bun scripts/exact.mjs new <path>`. A website (pages served to a browser) reads only
 `docs/start-here-site.md`; any other app reads `docs/start-here.md`. That guide is the only
-required reading. Nothing else here is for you: `AGENTS.md`, imported below, is for work
+required reading (LLP 1115 D7). Nothing else here is for you: `AGENTS.md`, imported below, is for work
 on exact2 itself.
 
 **Working on exact2 itself:** `AGENTS.md` is the instructions (Claude Code loads it through the

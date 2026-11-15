@@ -1,4 +1,4 @@
-// The auth fixture's sign-in routes, beside its OAuth
+// The auth fixture's sign-in routes (LLP 1133.014 §10), beside its OAuth
 // server and passkey relying party in `fixture.mjs`: what an app's own
 // server does with a provider's ID token, as the recipe
 // (`docs/recipes/sign-in.md`) gives it.
@@ -11,7 +11,7 @@
 //   POST /fixture/sign-in   {callback}                    a drive's: the page callback the return route answers
 //
 // The identity route redeems a web handle once, or takes a native token,
-// then checks the ID token: its ES256 or RS256 signature against the
+// then checks the ID token by D2: its ES256 or RS256 signature against the
 // provider's keys (under `--substitute`, the fixture provider's key from
 // `--idp-keys`), `iss`, `aud` among the audiences the bake prints, `exp`,
 // and `nonce` equal to the one issued to this client. Apple's first `user`
@@ -19,7 +19,7 @@
 // exchange it for the refresh token it revokes at deletion.
 import { exchange, jwks as fixtureJwks, ISSUERS } from '../../packages/sign-in/test/idp.mjs';
 
-// The fixture's clients (stand-ins for the real ones an operator registers).
+// The fixture's clients (§13 question 6 names the real ones Charlie creates).
 export const AUDIENCES = {
   apple: ['com.exact.authfixture', 'com.exact.authfixture.web'],
   google: ['fixture-web.apps.googleusercontent.com', 'fixture-ios.apps.googleusercontent.com'],
@@ -40,7 +40,7 @@ export function signIn(log, { substitute = false, idpKeys = null } = {}) {
     return (await (await fetch(PUBLISHED[provider])).json()).keys;
   }
 
-  /** The checks of an ID token from `provider`; the claims, or why it is refused. */
+  /** D2's checks of an ID token from `provider`; the claims, or why it is refused. */
   async function verify(provider, token, nonce) {
     const [h, p, s] = String(token ?? '').split('.');
     if (!s) return { error: 'malformed' };
@@ -56,7 +56,7 @@ export function signIn(log, { substitute = false, idpKeys = null } = {}) {
     if (!issuers.includes(claims.iss)) return { error: 'iss' };
     if (!AUDIENCES[provider].includes(claims.aud)) return { error: 'aud' };
     if (!(claims.exp * 1000 > Date.now())) return { error: 'exp' };
-    // Google's claim is the raw nonce, and so is Apple's.
+    // Google's claim is the raw nonce; Apple's the raw nonce too until stage 1 records its web form (D1).
     if (claims.nonce !== nonce) return { error: 'nonce' };
     return { claims };
   }
@@ -65,7 +65,7 @@ export function signIn(log, { substitute = false, idpKeys = null } = {}) {
 
   return {
     reset() { nonces.clear(); handles.clear(); accounts.clear(); names.clear(); Object.assign(log.signIn, { nonces: 0, returned: 0, redeemed: 0, verified: 0, codes: 0, refused: [] }); },
-    /** The return route: GET for Google's redirect, POST for Apple's form_post. */
+    /** The return route (D3 step 3): GET for Google's redirect, POST for Apple's form_post. */
     async back(method, query, form) {
       const f = method === 'POST' ? form : query;
       const answer = params => `${callback}?${new URLSearchParams(params)}`;
@@ -115,8 +115,8 @@ export function signIn(log, { substitute = false, idpKeys = null } = {}) {
       const checked = await verify(provider, token, nonce);
       if (checked.error) return refuse(checked.error);
       const { sub, email } = checked.claims;
-      if (code) log.signIn.codes++; // where a real server exchanges Apple's code for the refresh token it revokes
-      // The name arrives once: kept from the first authorization.
+      if (code) log.signIn.codes++; // where a real server exchanges Apple's code for the refresh token it revokes (D2)
+      // The name arrives once (D2): kept from the first authorization.
       const key = `${provider}:${sub}`;
       if (user?.name && !names.has(key)) names.set(key, [user.name.firstName, user.name.lastName].filter(Boolean).join(' '));
       accounts.set(key, { email });

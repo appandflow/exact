@@ -1,11 +1,11 @@
-//! Presence secrets: a `secret.keep` name whose grant
+//! Presence secrets (LLP 1133.010 D4–D6): a `secret.keep` name whose grant
 //! line carries a policy is kept where only the person's check releases it.
 //!
 //! The runner's [`crate::Store`] holds such a name's occupancy, never its
 //! bytes. The host's backend keeps the value and makes every move between
 //! its plain store and its locked one. [`Backend`] is that backend's logic,
 //! the same on every host: one queue per name, so a move is never
-//! interleaved with a write or a read; each move in a fixed order, its intent
+//! interleaved with a write or a read; each move in D4's order, its intent
 //! recorded before anything moves; and a boot reconciliation that resolves
 //! a half-done move toward locked. A host supplies the [`Vault`]: its plain
 //! store, its record of each name's intended state, and its locked items
@@ -21,14 +21,14 @@ pub use crate::runner::{PresenceAnswer, PresenceAsk};
 pub use exact_grants::{Policy, Presence};
 use std::collections::{BTreeMap, VecDeque};
 
-/// What the runner knows of a presence name: never its bytes.
+/// What the runner knows of a presence name (D5): never its bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Occupancy {
     /// Nothing is kept.
     Absent,
     /// Kept in the plain store: an `optional` name the person left unlocked.
     Plain,
-    /// Awaiting reconciliation or a plain copy's move to locked: its
+    /// Awaiting reconciliation or a plain copy's move to locked (D4): its
     /// bytes are kept out of the runner as a locked value's are.
     Pending,
     /// Kept under the name's policy.
@@ -65,7 +65,7 @@ impl Occupancy {
     }
 }
 
-/// The host's record of a name's intended state (a move's first step), kept in its
+/// The host's record of a name's intended state (D4 step 1), kept in its
 /// plain store under `exact.presence.<name>`: `locked <the line's words>`,
 /// or `plain`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -95,8 +95,8 @@ impl Intent {
 }
 
 /// A host's durable stores, as the backend moves values between them. Each
-/// call returns once what it did has landed (a write is durable before the
-/// next step). None shows the person anything.
+/// call returns once what it did has landed (D4: "waits for that write to
+/// be durable"). None shows the person anything.
 pub trait Vault: Send {
     /// The plain copy of `name`.
     fn plain(&self, name: &str) -> Result<Option<Vec<u8>>, String>;
@@ -112,7 +112,7 @@ pub trait Vault: Send {
     fn generations(&self, name: &str) -> Result<Vec<u64>, String>;
     /// Add a locked item for `name` at `generation`, under `presence`. It
     /// asks no one: adding an item with access control, or encrypting to a
-    /// Keystore key's public half, needs no person.
+    /// Keystore key's public half, needs no person (D5).
     fn add_locked(
         &mut self,
         name: &str,
@@ -146,7 +146,7 @@ pub enum Op {
     Unprotect,
     /// `store.unlock`: the person's check, then the value.
     Unlock,
-    /// A pending name's move to locked, queued at boot.
+    /// A pending name's move to locked (D4), queued at boot.
     Move,
 }
 
@@ -159,7 +159,7 @@ pub enum Checked {
     /// (Apple's sheet and read are one call): the value, or `None` when the
     /// platform has dropped it.
     Read(Option<Vec<u8>>),
-    /// Failed with its code (`USER_CANCEL`, `LOCKOUT`, …) and a message.
+    /// Failed with D1's code (`USER_CANCEL`, `LOCKOUT`, …) and a message.
     Failed(String, String),
     /// The platform has dropped the item (the agent's `invalidated`).
     Invalidated,
@@ -219,9 +219,9 @@ impl Faults<'_> {
 /// What a pump needs to know of the device and the session.
 pub struct Env<'a> {
     /// A locked item can be kept now: the host keeps locked secrets, and a
-    /// device credential is set.
+    /// device credential is set (D5).
     pub can_lock: bool,
-    /// The module has loaded, so a pending move may run.
+    /// The module has loaded, so a pending move may run (D4, D8).
     pub moves: bool,
     /// The session clock, ms: a refused write is tried again a second later.
     pub now_ms: f64,
@@ -284,7 +284,7 @@ pub struct Backend {
 impl Backend {
     /// The backend for the app's `secret.keep` names (`lines`: each name
     /// with its policy, `None` for a plain line), reconciled as a boot finds
-    /// them: toward locked, never reading a locked item.
+    /// them (D4): toward locked, never reading a locked item.
     pub fn new(vault: Box<dyn Vault>, lines: Vec<(String, Option<Presence>)>) -> Backend {
         let mut backend = Backend {
             vault,
@@ -324,7 +324,7 @@ impl Backend {
         generations.sort_unstable();
         let words = presence.as_ref().map(Presence::line_words);
         // A line that lost its policy, or changed it: the old items are
-        // forgotten unread, and the record with them.
+        // forgotten unread, and the record with them (D4).
         let changed = match (&words, &record) {
             (None, _) => !generations.is_empty() || record.is_some(),
             (Some(words), Some(Intent::Locked(old))) => words != old,
@@ -344,7 +344,7 @@ impl Backend {
             return Ok(());
         };
         // The newest generation wins; a crash between a write's add and its
-        // delete leaves the older one.
+        // delete leaves the older one (D6).
         let newest = generations.last().copied();
         for &g in generations.iter().filter(|&&g| Some(g) != newest) {
             self.vault.delete_locked(name, g)?;
@@ -684,7 +684,7 @@ impl Backend {
             return Some(None);
         }
         // The new value is added under the next generation before the old
-        // one goes, so a failure or a crash leaves a readable value.
+        // one goes, so a failure or a crash leaves a readable value (D6).
         let generation = self.entry(name).generation + 1;
         let added = if (env.faults.fail)("exact-presence:set") {
             Err("refused by a driver fault".to_owned())
@@ -820,7 +820,7 @@ impl Backend {
     }
 
     /// The platform dropped the item: it is forgotten, and the name reads
-    /// absent.
+    /// absent (D6).
     fn invalidated(&mut self, name: &str) -> Result<(), String> {
         self.vault.delete_all_locked(name)?;
         self.vault.put_record(name, None)?;
@@ -932,8 +932,10 @@ impl Backend {
             Some(false) => return None,
             None => {}
         }
-        let generation = self.entry(name).generation;
-        if let Err(e) = self.vault.delete_locked(name, generation) {
+        // Every generation goes, not only the current one: an older one a
+        // write failed to delete would otherwise be the newest locked item
+        // at the next boot, which reconciliation keeps over the plain copy.
+        if let Err(e) = self.vault.delete_all_locked(name) {
             return self.wait_move(name, e, env);
         }
         let entry = self.entry(name);
@@ -954,6 +956,8 @@ impl Backend {
         if !env.moves || (env.faults.hold)("exact-presence:hold.move") {
             return None;
         }
+        // A copy the line or the person said must be locked is never kept
+        // ungated for want of a way to lock it (D4, §12 question 7).
         if !env.can_lock && self.head(name).step < 2 {
             if let Err(e) = self
                 .vault

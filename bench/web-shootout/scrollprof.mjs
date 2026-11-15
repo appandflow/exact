@@ -3,8 +3,9 @@
 // Prints Performance.getMetrics deltas (task, script, style, layout ms), the DOM node delta, the count of the DOM
 // calls the runtime made (rect reads, getComputedStyle, createElement, attribute and inline style writes, …) and
 // main-thread self time by function (minified names: url:line:col finds the site in app.js) and by script; writes
-// <out prefix>-rest.cpuprofile and <out prefix>-scroll.cpuprofile; it profiles the bounded feed
-// (bench/dioxus/web/build.sh) among others. Run from an exact2 checkout (for playwright-core); CHROME names the browser.
+// <out prefix>-rest.cpuprofile and <out prefix>-scroll.cpuprofile. LLP 1152.000 §2.1 is a run of it on the bounded
+// feed (bench/dioxus/web/build.sh); LLP 1071.001 is the RFC its numbers led to. Run from an exact2 checkout (for
+// playwright-core); CHROME names the browser.
 import { chromium } from 'playwright-core';
 import { mkdtempSync, rmSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';

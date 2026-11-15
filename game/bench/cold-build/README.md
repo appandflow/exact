@@ -1,4 +1,4 @@
-# Cold game builds
+# Cold game builds (LLP 1132 D2)
 
 Run from the SDK root with pinned Bun, Python 3.9+ and rustup on PATH after
 `bun scripts/exact.mjs setup`. The probe creates private wrapper symlinks under

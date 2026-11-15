@@ -1,4 +1,4 @@
-//! HTML's top layer on kernel hosts: a popover is laid out in
+//! HTML's top layer on kernel hosts (stage 14 B): a popover is laid out in
 //! the viewport, a block the kernel implies (`Kernel::imply_blocks`), not in
 //! its nearest positioned ancestor.
 use super::*;
@@ -93,7 +93,7 @@ fn frame(k: &Kernel, id: ViewId) -> Frame {
     k.node(id).unwrap().frame
 }
 
-/// `width: 50%` in a 100-point positioned box is half the
+/// QUEUE's repro: `width: 50%` in a 100-point positioned box is half the
 /// viewport, as on the web, not 50 points; a percentage height likewise.
 #[test]
 fn a_popovers_percentages_are_the_viewports() {
@@ -104,6 +104,7 @@ fn a_popovers_percentages_are_the_viewports() {
     let f = frame(&k, 3);
     assert_eq!((f.x, f.y, f.width, f.height), (0.0, 0.0, 400.0, 300.0));
     let viewport = Some(HostBlock {
+        tactic: Default::default(),
         width: BlockAxis::Fit(800.0),
         height: BlockAxis::Fit(600.0),
     });
@@ -208,6 +209,7 @@ fn the_prop_and_sticky_move_a_box_in_and_out_of_its_block() {
 fn a_hosts_block_wins_and_none_falls_back_to_the_viewport() {
     let mut k = page(&[(StyleId::Width, t("50%"))], None);
     let screen = Some(HostBlock {
+        tactic: Default::default(),
         width: BlockAxis::AtMost(300.0),
         height: BlockAxis::AtMost(500.0),
     });
@@ -393,7 +395,7 @@ fn a_popovers_insets_place_it_by_the_css_rules() {
     let (x, _) = place(&rtl, &both, OFFER);
     assert_eq!(x, 720.0, "right to left, the right one");
     // Its right margin as laid out, though a negative left one makes its
-    // margin box narrower than nothing.
+    // margin box narrower than nothing (Astra's re-check).
     let pulled = [both.as_slice(), &[(StyleId::MarginLeft, n(-100.0))]].concat();
     let (x, _) = place(&rtl, &pulled, OFFER);
     assert_eq!(x, 720.0, "the right inset and margin, not a clamped width");

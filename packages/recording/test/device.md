@@ -1,4 +1,4 @@
-# Recording on a phone, by a person (drive 9)
+# Recording on a phone, by a person (LLP 1133.009 §11, drive 9)
 
 The drives a phone needs, with the recorder (`apps/recorder`) built as in
 production: no agent, both packages bound.
@@ -10,8 +10,9 @@ production: no agent, both packages bound.
 Each step says what to do and what should happen.
 
 1. **First take.** Tap Record. The system asks for the microphone; allow
-   it. Speak for ten seconds: the bars move with your voice and the time
-   counts. Tap Stop: "Saved Take 1 · 10.0 s · level N%" shows, and the
+   it. Speak for ten seconds at a normal voice: the bars rise to about
+   half the height with your voice, fall back between words, and scroll
+   left smoothly, a bar every 50 ms, without jumping; the time counts. Tap Stop: "Saved Take 1 · 10.0 s · level N%" shows, and the
    take's player plays your voice back at its length.
 2. **Pause.** Record, tap Pause for a few seconds, Resume, Stop. The take
    is as long as the time recorded, without the pause.
@@ -19,7 +20,7 @@ Each step says what to do and what should happen.
    one. The take pauses (Resume shows) while the call rings. End the
    call: nothing records until you tap Resume, and then the take goes on.
 4. **Leaving the app.** The recorder writes `device.microphone-background`
-  , so a take goes on while the app is hidden. Record,
+   (LLP 1133.033 D3), so a take goes on while the app is hidden. Record,
    lock the phone for five minutes, unlock, come back and Stop: the take
    is five minutes long and plays back with what you said while locked.
    - iPhone: the orange indicator stays on while locked.
@@ -42,7 +43,7 @@ Each step says what to do and what should happen.
    Settings, which opens the app's settings; Record is disabled.
 7. **Sound during a take** (iOS). With a second take recording, play the
    first take's player: it plays from the speaker, not the earpiece, and
-   the second take goes on (the `.playAndRecord` with
+   the second take goes on (D7's `.playAndRecord` with
    `.defaultToSpeaker`).
 8. **Media services reset** (iOS, Settings › Developer › Reset Media
    Services). During a take: the take pauses with reason `media-reset`,
@@ -51,9 +52,9 @@ Each step says what to do and what should happen.
    recorder` on a Mac whose microphone answers): two sessions record from
    one microphone, each its own take, and one records on after the other
    ends.
-10. **A take the Task Manager stopped** (Android 14 or later). Record for
-    twenty seconds with the app hidden, then stop the app as the Task
-    Manager's Stop does: `adb shell cmd activity stop-app
+10. **A take the Task Manager stopped** (Android 14 or later, LLP 1133.033
+    D5). Record for twenty seconds with the app hidden, then stop the app
+    as the Task Manager's Stop does: `adb shell cmd activity stop-app
     com.exact.recorder`. The notification goes. Open the recorder again:
     `adb logcat -s exact` shows `recording: recovered …/take-N.m4a`, the
     take is in the list after its next refresh (record and stop another

@@ -1,4 +1,4 @@
-// Shared-element flights on AppKit: as on UIKit
+// Shared-element flights on AppKit (LLP 1013.000 D4, D5): as on UIKit
 // (`FlightsIOS.swift`), in the window's content view. The leaver is captured
 // before the batch's destroys; once it is applied the arriver's place is
 // scrolled into view, the live arriver is lifted into a pass-through layer
@@ -16,7 +16,7 @@ struct FlightLook {
     /// The leaver's decoded image, drawn while the arriver's own is still
     /// loading: a new node's raster lands a turn or more after the commit
     /// that hides the leaver, and a flight drawing nothing until then showed
-    /// no photo at all for a frame or two on a device.
+    /// no photo at all for a frame or two on a device (LLP 1013.000 D4).
     var stand: NativeRasterLease? = nil
     /// A view scaled whole in its clip (`FlightScale`): `applyTransform`
     /// keeps this scale while it flies, as a layout would otherwise undo it.
@@ -42,7 +42,7 @@ final class Flight {
     var slot: NSView?
     var container: NSView?
     /// A view that is not an image flies scaled inside this: the shown box,
-    /// its radius and its clip.
+    /// its radius and its clip (D4.4).
     var clip: NSView?
     var frame: NSRect?
     init(id: UInt32, source: FlightSource) { self.id = id; self.source = source }
@@ -54,7 +54,7 @@ final class FlightLayer: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-/// A flight's clip: the shown box of a view flying scaled.
+/// A flight's clip: the shown box of a view flying scaled (D4.4).
 final class FlightClip: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -200,7 +200,7 @@ extension Presenter {
               !DisplayPreferences.reducedMotion else {
             flights.removeValue(forKey: f.id)
             // Not flying (reduced motion, nothing captured): its place still
-            // comes into view.
+            // comes into view (D5).
             if let view = views[f.id], view.window != nil { afterBatch { [weak self, weak view] in if let view { self?.scrollIntoView(view) } } }
             return
         }
@@ -209,7 +209,7 @@ extension Presenter {
         slot.isHidden = true
         parent.addSubview(slot, positioned: .below, relativeTo: view)
         // Once the batch is done: a virtualized list hears a scroll made
-        // inside one as no move of its own. The flight
+        // inside one as no move of its own (LLP 1013.000 D5). The flight
         // re-reads its slot each frame, so it follows.
         afterBatch { [weak self, weak slot, weak f] in
             guard let self, let slot, let f else { return }
@@ -221,7 +221,7 @@ extension Presenter {
             l.wantsLayer = true
             l.autoresizingMask = [.width, .height]
             content.addSubview(l)
-            // Above every ranked sibling, as on iOS.
+            // Above every ranked sibling (LLP 1083.000 D4), as on iOS.
             l.setPaintForeground()
             return l
         }()
@@ -234,7 +234,7 @@ extension Presenter {
             view.layer?.masksToBounds = true
             view.flightLook = FlightLook(image: CGRect(origin: .zero, size: view.bounds.size))
         } else {
-            // Its own look, at its own size, scaled in a clip.
+            // Its own look, at its own size, scaled in a clip (D4.4).
             let clip = FlightClip(frame: .zero)
             clip.wantsLayer = true
             clip.layer?.masksToBounds = true
@@ -260,7 +260,7 @@ extension Presenter {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if let clip = f.clip {
             // Scaled whole at its own layout, the slot's size, in a clip that
-            // is the shown box. AppKit's geometry knows nothing of a
+            // is the shown box (D4.4). AppKit's geometry knows nothing of a
             // layer's scale, so the view keeps its frame at its own size at
             // the clip's top left and its layer is scaled about that origin.
             let layout = slot.bounds.size
@@ -290,7 +290,7 @@ extension Presenter {
     }
 
     /// Every scroller between the slot and the window scrolls by the least
-    /// that shows it whole, innermost first, at once.
+    /// that shows it whole, innermost first, at once (LLP 1013.000 D5).
     private func scrollIntoView(_ slot: NSView) {
         var inner: NSView = slot
         while let sv = inner.enclosingScrollView, let doc = sv.documentView {

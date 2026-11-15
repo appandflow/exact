@@ -1,5 +1,5 @@
 // `pointerdown` and `pointerup` bubble to every ancestor that hears them,
-// innermost first; the innermost that hears any of the
+// innermost first (Charlie, 2026-10-15); the innermost that hears any of the
 // three holds the moves, and a `pointermove` takes no ancestor's down or up.
 // A press in a popover reaches the popover's authored ancestors, and a pan
 // that takes its contact takes nothing from them.

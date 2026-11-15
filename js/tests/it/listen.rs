@@ -1,5 +1,5 @@
-//! A local listener in a TypeScript module, through the runner:
-//! `exactListen`'s request and options, its events with the
+//! A local listener in a TypeScript module, through the runner (LLP
+//! 1133.005): `exactListen`'s request and options, its events with the
 //! connection handle beside them, the mapper's replies on its own
 //! connection, a mutation's on a handle it kept, and what refuses.
 
@@ -180,4 +180,42 @@ fn a_mutation_cannot_listen() {
     r.act("listen", vec![]).unwrap();
     assert_eq!(slot(&r, "listened"), "InvalidStateError");
     assert!(r.take_requests().is_empty());
+}
+
+/// A worker's turn crosses back as an envelope, which carries no listener:
+/// `exactListen` there is refused by name, not sent as a plain stream.
+#[test]
+fn a_worker_placed_source_cannot_listen() {
+    use exact_js::Placement;
+    use exact_runner::{Answer, DataError, DataSource, Dispatch, Reply, Store, Work};
+    let mut m = Module::new(
+        HBC.to_vec(),
+        "test.listen",
+        "net.listen unix:/tmp/exact-listen-js\n",
+    );
+    m.load().expect("the fixture loads");
+    let mut placed = m.placed(Placement::Worker);
+    placed.bind(&contract::compile(SRC).expect("the fixture compiles"));
+    placed.activate().unwrap();
+    let mut s = Store::new("net.listen unix:/tmp/exact-listen-js", []);
+    let Answer::Later(turn) = placed.answer(&mut s, "control", &[]).unwrap() else {
+        panic!("a worker's answer is a turn for its owner");
+    };
+    let token = turn.continuation.expect("a turn for the owner");
+    let Dispatch::Run(Work::Later(work)) = placed.dispatch(token, &s) else {
+        panic!("a turn for the owner");
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    work(Reply::new(move |outcome| {
+        let _ = tx.send(outcome);
+    }));
+    let outcome = rx
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("the owner's turn replied");
+    assert_eq!(
+        placed.parse(&mut s, "control", &[], outcome).unwrap_err(),
+        DataError::Unavailable(
+            "exactListen is unavailable in a worker-placed source; place it on main".into()
+        )
+    );
 }

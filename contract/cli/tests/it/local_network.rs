@@ -1,5 +1,5 @@
-//! `@exact/local-network` under its declared substitute. The interface is
-//! the package's own `exact.json`:
+//! `@exact/local-network` under its declared substitute (LLP 1133.036 §9,
+//! D19). The interface is the package's own `exact.json`:
 //!
 //! - a browse while `prompt` waits on a `permission` ticket; `allow`
 //!   answers the preferred network's services of the type, by name; a
@@ -9,9 +9,9 @@
 //!   `NotAllowedError` with no ticket;
 //! - a type no `net.dns-sd` line lists fails `SecurityError`;
 //! - a tool's browse with none running fails `person-required`, and joins
-//!   the app's own once it runs;
+//!   the app's own once it runs (D3);
 //! - a request a tool's commit asks carries the tool's origin and the
-//!   substitute's state, which the executor's hop check reads.
+//!   substitute's state, which the executor's hop check reads (D6).
 
 use exact_runner::local_network::State;
 use exact_runner::{CallOrigin, Dispatch, Outcome, Reply, Runner, Work};
@@ -111,7 +111,7 @@ fn boot(name: &str) -> (App, Runner<Data>) {
     let plan = contract::compile_path_all(&app.0.join("app.contract"), false)
         .map(|(plan, _)| plan)
         .unwrap_or_else(|e| panic!("{e:?}"));
-    let r = Runner::boot(
+    let mut r = Runner::boot(
         plan,
         Data,
         exact_kernel::Kernel::with_monospace(),
@@ -119,6 +119,8 @@ fn boot(name: &str) -> (App, Runner<Data>) {
         "/",
     )
     .unwrap();
+    // The package is unsupported on Linux and Windows.
+    r.set_module_target("macos");
     (app, r)
 }
 

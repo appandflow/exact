@@ -1,7 +1,7 @@
-//! CSS inheritance across the Apple host's batch: a
+//! CSS inheritance across the Apple host's batch (LLP 1035.000 slice 1): a
 //! run or an editor carries the computed rows it measures with; an
 //! ancestor's change re-sends exactly the descendants that follow it; and
-//! `layout <node>`'s runner half says where each value
+//! `layout <node>`'s runner half (LLP 1035.002 D1) says where each value
 //! came from.
 
 use exact_apple::Host;
@@ -84,9 +84,10 @@ fn symbol_identity_and_inherited_font_cross_the_image_boundary() {
     assert!(changed.contains("\"font_weight\":600"), "{changed}");
 }
 
-/// A symbol whose `color` its author wrote, on it or on the nearest
-/// ancestor that sets one, says so (`symbolColorWritten`) beside the colour
-/// its style carries; one under no written colour does not.
+/// LLP 1121 stage 9 B (D10): a symbol whose `color` its author wrote, on
+/// it or on the nearest ancestor that sets one, says so
+/// (`symbolColorWritten`) beside the colour its style carries; one under no
+/// written colour does not.
 #[test]
 fn a_symbol_under_a_written_colour_says_so() {
     let plan = contract::compile(
@@ -419,14 +420,15 @@ fn an_authored_min_height_reaches_the_presenter() {
 
 /// A percentage minimum has no basis for an in-flow grouped row: its
 /// containing block is its section's card, as tall as its rows, so the
-/// kernel lays the row out as it would without one (CSS 2.2 §10.7), and the
+/// kernel treats it as zero (CSS 2.2 §10.7), replacing the sheet's row
+/// floor. The Mac's block padding can hide that difference. The
 /// host, reading the crossed percentage against 0, leaves UIKit's cell its
 /// own height.
 #[test]
 fn a_percentage_min_height_on_a_list_row_has_no_basis() {
-    let frame = |min: &str| {
+    let frame = |min: &str, padding: &str| {
         let plan = contract::compile(&format!(
-            "component App\n  view\n    column height=\"100%\"\n      list appearance=\"auto\" listStyle=\"inset-grouped\" height=400\n        section\n          button \"Row\" {min}testId=\"row\"\n"
+            "component App\n  view\n    column height=\"100%\"\n      list appearance=\"auto\" listStyle=\"inset-grouped\" height=400\n        section\n          button \"Row\" {min}{padding}testId=\"row\"\n"
         ))
         .unwrap();
         let (host, first) = Host::boot(
@@ -441,14 +443,23 @@ fn a_percentage_min_height_on_a_list_row_has_no_basis() {
         let crossed = op(&first, row).contains("\"min_height\":{\"pct\":50}");
         (host.runner().kernel().node(row).unwrap().frame, crossed)
     };
-    let (none, _) = frame("");
-    let (half, crossed) = frame("min-height=\"50%\" ");
-    assert_eq!(half, none, "laid out as it is without a minimum");
-    assert!(crossed, "the percentage crosses as written");
+    for padding in ["", "padding=0 "] {
+        let (none, _) = frame("", padding);
+        let (zero, _) = frame("min-height=0 ", padding);
+        let (half, crossed) = frame("min-height=\"50%\" ", padding);
+        assert_eq!(half, zero, "an unresolved percentage minimum is zero");
+        assert!(crossed, "the percentage crosses as written");
+        if !padding.is_empty() {
+            assert!(
+                half.height < none.height,
+                "the authored row replaces the platform floor"
+            );
+        }
+    }
 }
 
 #[test]
-#[ignore = "launches Bun and nested cargo builds; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: launches Bun and nested cargo builds; bun scripts/async.mjs runs it"]
 fn apple_artifacts_own_paths_locks_identity_and_failed_placement() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let result = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
@@ -479,8 +490,9 @@ try {
       [false,true].map(host => appleArtifacts(a,{destination,composition,trust,host})))));
   for (const key of ['products','binary']) assert.equal(new Set(forms.map(p => p[key])).size, forms.length, key);
   for (const key of ['scratch','embed']) assert.equal(new Set(forms.map(p => p[key])).size, forms.length / 2, key);
-  // One Swift compile per destination, whatever the app, composition, trust or product.
-  assert.equal(new Set(forms.map(p => p.swift)).size, 3);
+  // One Swift compile per destination and trust (production compiles whole-module or for size),
+  // whatever the app, composition or product.
+  assert.equal(new Set(forms.map(p => p.swift)).size, 6);
   assert.equal(appleArtifacts(b).swift, first.swift);
   assert.equal(new Set(forms.map(p => p.lock)).size, 1);
   assert.equal(appleArtifacts(a,{trust:'production'}).bundle, first.bundle);
@@ -550,9 +562,9 @@ try {
 }
 
 #[test]
-#[ignore = "launches Bun; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
 fn a_kept_module_is_taken_only_by_a_checkout_of_the_same_bytes() {
-    // The host's Rust modules, kept for the machine.
+    // @ref LLP 1036.000 §10 — the host's Rust modules, kept for the machine.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let result = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .current_dir(root)
@@ -641,9 +653,9 @@ try {
 }
 
 #[test]
-#[ignore = "launches Bun; `cargo test -- --ignored` runs it"]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
 fn kept_registry_crates_are_one_target_directory_at_a_time() {
-    // Compiled registry crates, kept for the machine.
+    // @ref LLP 1036.000 §11 — compiled registry crates, kept for the machine.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let result = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .current_dir(root)
@@ -666,12 +678,19 @@ put(lock, ['kernel', 'vendored'].map(n => `[[package]]\nname = "${n}"\nversion =
 assert.deepEqual([...registryPackages(lock)].sort(), ['over-plain', 'plain']);
 const TRIPLE = 'aarch64-apple-darwin/host-dev', HOST = 'host-dev', then = new Date(Date.now() - 3_600_000);
 // What Cargo leaves for one compiled unit: its fingerprint, its files, rustc's dep-info naming the target directory.
+// rustc's dep-info names itself first, then the unit's other outputs.
+const depInfo = (file, outputs, source) => [file, ...outputs].map(output => `${output}: ${source}\n`).join('\n');
 const unit = (target, dir, pkg, hash, build = false) => {
   const at = resolve(target, dir), lib = pkg.replaceAll('-', '_');
   put(resolve(at, '.fingerprint', `${pkg}-${hash}`, `lib-${lib}`), hash, then);
   put(resolve(at, 'deps', `lib${lib}-${hash}.rlib`), `${pkg} compiled in ${target}`, then);
-  put(resolve(at, 'deps', `${lib}-${hash}.d`), `${at}/deps/lib${lib}-${hash}.rlib: /registry/${pkg}/src/lib.rs\n`, then);
-  if (build) { put(resolve(at, 'build', `${pkg}-${hash}`, 'output'), 'cargo:rustc-cfg=x\n', then); put(resolve(at, 'build', `${pkg}-${hash}`, `build_script_build-${hash}.d`), `${at}/build/${pkg}-${hash}/build_script_build-${hash}: /registry/${pkg}/build.rs\n`, then); }
+  const deps = resolve(at, 'deps', `${lib}-${hash}.d`);
+  put(deps, depInfo(deps, [`${at}/deps/lib${lib}-${hash}.rlib`], `/registry/${pkg}/src/lib.rs`), then);
+  if (build) {
+    const script = resolve(at, 'build', `${pkg}-${hash}`, `build_script_build-${hash}`);
+    put(resolve(at, 'build', `${pkg}-${hash}`, 'output'), 'cargo:rustc-cfg=x\n', then);
+    put(`${script}.d`, depInfo(`${script}.d`, [script], `/registry/${pkg}/build.rs`), then);
+  }
 };
 const A = '0'.repeat(15), kept = (lockFile = lock) => keptCrates({root: run, env: {HOME: home, RUSTUP_TOOLCHAIN: '1.0.0'}, profile: 'host-dev'});
 const store = resolve(home, '.cache/exact/apple-crates/1.0.0-host-dev/app'), generations = () => existsSync(store) ? readdirSync(store).filter(n => n.startsWith('gen-')).sort() : [];
@@ -783,6 +802,66 @@ fn a_reloaded_plan_resolves_line_height_kinds_against_the_new_receiving_font() {
 }
 
 #[test]
+fn inline_image_labels_follow_their_own_computed_visibility() {
+    let plan = contract::compile(
+        r#"component App
+  state visibility = "visible"
+  action hide
+    visibility = "hidden"
+  action collapse
+    visibility = "collapse"
+  action show
+    visibility = "visible"
+  view
+    column
+      button "Hide" testId="hide" press=hide
+      button "Collapse" testId="collapse" press=collapse
+      button "Show" testId="show" press=show
+      text testId="paragraph" visibility=visibility
+        image "symbol:star" aria-label="Inherited" testId="inherited" width=16 height=16
+        image "symbol:star" aria-label="Shown" testId="shown" width=16 height=16 visibility="visible"
+      text testId="own"
+        image "symbol:star" aria-label="Own" testId="image" width=16 height=16 visibility=visibility
+"#,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        400.0,
+        800.0,
+    )
+    .unwrap();
+    let check = |batch: &str, hidden: bool| {
+        let batch: serde_json::Value = serde_json::from_str(batch).unwrap();
+        let runs: Vec<_> = batch["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|op| op["op"] == "paragraph")
+            .flat_map(|op| op["runs"].as_array().unwrap())
+            .collect();
+        for name in ["inherited", "shown", "image"] {
+            let run = runs
+                .iter()
+                .find(|run| run["props"]["testId"] == name)
+                .unwrap();
+            assert_eq!(
+                run["props"]["inlineBoxHidden"] == "true",
+                hidden && name != "shown",
+                "{name}: {batch}"
+            );
+        }
+    };
+    check(&first, false);
+    for (action, hidden) in [("hide", true), ("collapse", true), ("show", false)] {
+        let batch = host.dispatch(view(&host, action), Event::Press);
+        check(&batch, hidden);
+    }
+}
+
+#[test]
 fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table() {
     let plan = contract::compile(r##"component Inline
   state changed = false
@@ -854,7 +933,7 @@ fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table
     assert_eq!(count(&host.resize(420.0, 800.0), "paragraph"), 0);
 }
 
-/// Swift paints a run from its `text` prop, so the prop crosses as
+/// LLP 1064: Swift paints a run from its `text` prop, so the prop crosses as
 /// the string the kernel measured — `text-transform` applied, a word split
 /// across runs one word, a field's value as typed — and an ancestor's change
 /// re-sends it. `box-shadow` crosses as its four rows.
@@ -951,7 +1030,7 @@ fn pointer_events_none_reaches_a_box_that_inherits_it() {
     );
 }
 
-/// An `href` that turns out empty is no link (the kernel's
+/// An `href` that turns out empty is no link (LLP 1115 §3, the kernel's
 /// `Props::link`): Swift is told no `href`, so every place it asks whether a
 /// run has one (its role, its pointer, what a press follows) answers no, and
 /// the run inherits its paragraph's colour. A target that arrives is told,
@@ -1109,7 +1188,7 @@ fn explicit_clears_export_computed_values_and_own_declaration_intent() {
     }
 }
 
-/// A pressed paint cleared by its expression is no pressed
+/// LLP 1061 D7: a pressed paint cleared by its expression is no pressed
 /// look, so the presenter is sent no row (an initial transparent would
 /// erase the background while held and keep the platform's press away).
 #[test]
@@ -1148,4 +1227,36 @@ fn a_cleared_pressed_paint_sends_no_row() {
         "{cleared}"
     );
     assert!(!cleared.contains("\"press_opacity\":"), "{cleared}");
+}
+
+#[test]
+fn image_rendering_reaches_images_when_their_ancestor_changes() {
+    let plan = contract::compile(
+        r#"component App
+  state mode = "pixelated"
+  action change
+    mode = "crisp-edges"
+  view
+    column image-rendering=mode
+      button "Change" press=change testId="change"
+      image "sprite.png" testId="inherited"
+      image "sprite.png" image-rendering="auto" testId="own"
+"#,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        320.,
+        200.,
+    )
+    .unwrap();
+    let image = view(&host, "inherited");
+    let own = view(&host, "own");
+    assert!(op(&first, image).contains("\"image_rendering\":\"pixelated\""));
+    assert!(op(&first, own).contains("\"image_rendering\":\"auto\""));
+    let batch = host.dispatch(view(&host, "change"), Event::Press);
+    assert!(op(&batch, image).contains("\"image_rendering\":\"crisp-edges\""));
+    assert!(!batch.contains(&format!("\"op\":\"style\",\"id\":{own},")));
 }

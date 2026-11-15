@@ -1,8 +1,8 @@
-// The surface of a modal route painted in the window on the Mac: the
-// page's ground where the route paints none, so the route it covers does
-// not show through it (Shelf's library under the New Book form's header).
-// A modal route is a sheet with a window of its own
-// (`RouteSheetMacTests`); it is painted, on this ground, under the
+// @ref LLP 1115.002 D7.1 — the surface of a modal route painted in the
+// window on the Mac: the page's ground where the route paints none, so the
+// route it covers does not show through it (Shelf's library under the New
+// Book form's header). A modal route is a sheet with a window of its own
+// (D7.4, `RouteSheetMacTests`); it is painted, on this ground, under the
 // driver's own chrome and where its sheet cannot take its title out of its
 // header.
 #if os(macOS)

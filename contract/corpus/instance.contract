@@ -1,4 +1,4 @@
-// Accept fixture: per-instance state — a child component
+// Accept fixture: per-instance state (LLP 1017 P4c) — a child component
 // owns `state`, `derive`, and `action`. Used under a `for`, they are the
 // row's: kept with its key across reorders, dropped with the row, started
 // from the initializer when the row is created. Used once, they are that

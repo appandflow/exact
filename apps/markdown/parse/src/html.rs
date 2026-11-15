@@ -1,4 +1,4 @@
-//! The raw HTML the parser draws: `<img>` and `<picture>`.
+//! The raw HTML the parser draws: `<img>` and `<picture>` (LLP 1033 D9).
 //!
 //! What it reads is what T3 Code's sanitizer keeps of those elements
 //! (`hast-util-sanitize`'s default schema, GitHub's, with T3 Code's image

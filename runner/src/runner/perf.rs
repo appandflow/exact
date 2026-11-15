@@ -1,10 +1,10 @@
-//! The runner's half of `perf`: the switch a host turns once,
+//! The runner's half of `perf` (LLP 1079 D1): the switch a host turns once,
 //! the transaction sequence, and the receipt tally.
 use super::*;
 use crate::perf::{Failures, Handler, SiteWork};
 
 impl<D: DataSource> Runner<D> {
-    /// Measure each plan site's work from here on: what a host
+    /// Measure each plan site's work from here on (LLP 1079 D1): what a host
     /// built with development trust says once, after boot; a production host
     /// says `false`, and each counter is then one branch on an empty table.
     /// No plan reads it. Instances already live count as created now.
@@ -13,6 +13,9 @@ impl<D: DataSource> Runner<D> {
     pub fn measure(&mut self, on: bool, moves: bool) {
         if !on {
             self.ids.work = Default::default();
+            for row in &mut self.resources {
+                row.inspection = Default::default();
+            }
             return;
         }
         if self.ids.work.sites.is_empty() {
@@ -94,13 +97,13 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Kernel transactions this runner has applied: the `seq` a `perf` read
-    /// and a frame record carry.
+    /// and a frame record carry (LLP 1079 D2, D3).
     pub fn seq(&self) -> u64 {
         self.batch
     }
 
     /// The transactions applied since the last call, while measuring: a
-    /// batch trailer's `seq`, for a host that applies batches
+    /// batch trailer's `seq` (LLP 1079 D3), for a host that applies batches
     /// on another turn than it produced them. `None` when there were none.
     pub fn seq_range(&self) -> Option<(u64, u64)> {
         if self.ids.work.sites.is_empty() {
@@ -143,7 +146,7 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// A failure line: in the journal, as [`Runner::log`]
+    /// A failure line (LLP 1142 D4): in the journal, as [`Runner::log`]
     /// writes it, and while measuring also queued for the host, which writes
     /// it to its platform's log (the unified log, stderr, the console).
     pub fn alert(&mut self, line: impl Into<String>) {
@@ -163,16 +166,17 @@ impl<D: DataSource> Runner<D> {
 
     /// The other journal lines queued since the last call, as
     /// [`take_alerts`](Self::take_alerts) gives alerts: a batch carries them
-    /// (`journal`).
+    /// (`journal`, LLP 1143 open question 1).
     pub fn take_journal(&self) -> Vec<String> {
         crate::perf::take(&self.ids.work.journal, "journal")
     }
 
-    /// Resource `i`'s answer was refused: counted while measuring.
+    /// Resource `i`'s answer was refused (D4): counted while measuring.
     pub(super) fn count_failure(&mut self, i: usize) {
         if self.ids.work.sites.is_empty() {
             return;
         }
+        let i = self.member(i).map_or(i, |m| m.family);
         let (n, now) = (self.plan.resources.len(), self.now_ms);
         let failures = &mut self.ids.work.failures;
         if failures.len() < n {
@@ -186,14 +190,15 @@ impl<D: DataSource> Runner<D> {
         f.last = now;
     }
 
-    /// Resource `i`'s data source was asked: counted while measuring.
+    /// Resource `i`'s data source was asked (LLP 1146 D3): counted while measuring.
     pub(super) fn count_ask(&mut self, i: usize) {
         if self.ids.work.sites.is_empty() {
             return;
         }
+        let i = self.member(i).map_or(i, |m| m.family);
         let asked = &mut self.ids.work.asked;
         if asked.len() <= i {
-            asked.resize(self.plan.resources.len().max(i + 1), 0);
+            asked.resize(self.plan.resources.len(), 0);
         }
         asked[i] += 1;
     }
@@ -205,11 +210,11 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .enumerate()
             .filter(|(_, f)| f.count > 0)
-            .map(|(i, f)| (self.plan.str(self.plan.resources[i].name), *f))
+            .map(|(i, f)| (self.plan.str(self.resource_row(i).name), *f))
             .collect()
     }
 
-    /// A dispatch to `view`: counted by its plan site and `event`,
+    /// A dispatch to `view` (D6): counted by its plan site and `event`,
     /// and as committed when its receipt changed the tree.
     pub(super) fn count_dispatch(&mut self, view: ViewId, event: &'static str, committed: bool) {
         if self.ids.work.sites.is_empty() {

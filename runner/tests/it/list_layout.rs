@@ -1,7 +1,7 @@
 //! A virtualized list's window changes lay out inside the list: every report
 //! the host sends (rows built, measured, released; rows inserted and removed)
-//! leaves a layout bit-equal to a fresh one from the columns
-//! (`kernel/tests/it/layout_equality.rs`'s rule). The shape is List Bench's:
+//! leaves a layout bit-equal to a fresh one from the columns (LLP 1044 §4.5,
+//! `kernel/tests/it/layout_equality.rs`'s rule). The shape is List Bench's:
 //! a header over a `flex=1` list whose rows are nested flex boxes, a
 //! horizontal swipe scroller and text.
 use exact_kernel::{Kernel, MonospaceMeasurer, Offer};

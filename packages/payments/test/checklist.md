@@ -1,4 +1,4 @@
-# Payments by a person
+# Payments by a person (LLP 1133.034 §10 drive 12, §13 question 7)
 
 What the agent cannot drive: a wallet's own sheet authorizing a payment. Each
 step names what to run and what to see; a step that shows something else is a
@@ -28,7 +28,7 @@ None of these exist yet. Each step below names the one it waits for.
   in the Chrome profile used below. The `TEST` environment needs no merchant
   account; production needs a Google Pay merchant ID and the business console's
   approval.
-- **The fixture's public origin**, registered with Apple Pay for
+- **The public origin** of LLP 1133.020 §3.1, registered with Apple Pay for
   Safari (the domain verification file under `/.well-known/`).
 
 Start the print lab without `--agent`, so a substitute's synthetic payment is

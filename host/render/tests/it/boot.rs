@@ -1,4 +1,4 @@
-//! A route that paints its boot document first: the page
+//! A route that paints its boot document first (LLP 1048.005): the page
 //! with its answers still to come goes before the render waits, its head's
 //! fields in the head; the settled page follows, hiding it and removing it
 //! before the runtime adopts.
@@ -23,6 +23,7 @@ component Cards
   view
     column
       head title="Cards"
+      image "assets/hero.png" alt="Hero" crossorigin="anonymous"
       if cards.length == 0
         text "Loading cards" testId="loading"
       for c in cards key = c
@@ -85,7 +86,7 @@ impl DataSource for Cards {
 /// A browser's navigation of `target`: the page's bytes as they came, and
 /// how long until its boot document (the bytes up to `data-boot`'s `</div>`)
 /// had arrived, if it had one.
-fn navigate(addr: std::net::SocketAddr, target: &str) -> (String, Option<Duration>) {
+pub(super) fn navigate(addr: std::net::SocketAddr, target: &str) -> (String, Option<Duration>) {
     let started = Instant::now();
     let mut stream = TcpStream::connect_timeout(&addr, BOUND).unwrap();
     stream.set_read_timeout(Some(BOUND)).unwrap();
@@ -148,14 +149,16 @@ fn a_boot_document_goes_before_the_answers_and_the_settled_page_replaces_it() {
     // In order: the head's fields (the boot document's), the boot document,
     // the style that hides it, the settled root, the script that removes
     // the boot document, then the checkpoint.
+    let hide = "<style>#exact-root[data-boot]{display:none}</style>";
     let order = [
         "<title>Cards</title>",
         "<div id=\"exact-root\" data-boot=\"\">",
         ">Loading cards<",
-        "<style>#exact-root[data-boot]{display:none}</style>",
+        hide,
         "<div id=\"exact-root\">",
         ">first<",
-        &format!("</div><script>{}</script>", exact_render::boot_swap_js()),
+        "</div><script data-to=\"",
+        &format!("\">{}</script>", exact_render::boot_swap_js()),
         "application/vnd.exact.checkpoint",
     ];
     let mut from = 0;
@@ -171,6 +174,11 @@ fn a_boot_document_goes_before_the_answers_and_the_settled_page_replaces_it() {
     // The settled root holds no placeholder.
     let settled = &page[page.find("<div id=\"exact-root\">").unwrap()..];
     assert!(!settled.contains(">Loading cards<"), "{settled}");
+    // The boot document's hero and the settled page's are each preloaded as
+    // their `<img>` asks.
+    let at = page.find(hide).unwrap();
+    super::direct::assert_preload_makes_the_heros_request(&page[..at]);
+    super::direct::assert_preload_makes_the_heros_request(&page[at..]);
 
     // A page with nothing to wait for has no boot document.
     let (page, boot) = navigate(addr, "/fast/fast");

@@ -1,5 +1,5 @@
-// Accept fixture: `if`/`else` and `match` as statements in an action.
-// Enter submits the query and clears it; any other key is
+// Accept fixture: `if`/`else` and `match` as statements in an action
+// (LLP 1017 P2). Enter submits the query and clears it; any other key is
 // appended; `show` reads an option slot through `match`.
 component Branch
   state query = ""

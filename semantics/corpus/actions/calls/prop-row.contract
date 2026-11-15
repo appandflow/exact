@@ -1,4 +1,4 @@
-// A prop call inside a row: the owner's action runs with the
+// A prop call inside a row (LLP 1089 D7): the owner's action runs with the
 // row's curried argument, in the row's commit, before the row's own write.
 shape Item
   id: string

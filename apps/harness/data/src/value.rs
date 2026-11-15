@@ -1,5 +1,5 @@
 //! The state as `exact_plan::Value`s, through the records `contract rust`
-//! generates from `shapes.contract`. Every string passes
+//! generates from `shapes.contract` (LLP 1101.002 P9). Every string passes
 //! [`clean`] on the way out, so app text never carries a terminal control
 //! sequence.
 
@@ -131,6 +131,7 @@ pub fn session(st: &State, entries: usize) -> Value {
         retired: st.retired,
         queued: st.queue.iter().map(|q| c(q)).collect(),
         epoch: st.epoch,
+        failed: st.failed,
     }
     .to_value()
 }

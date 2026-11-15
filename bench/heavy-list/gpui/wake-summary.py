@@ -1,4 +1,4 @@
-"""Python reducer for the GPUI measurements. Run from the repository root; inputs and outputs are retained under target/s0."""
+"""Stage 0 Python reducer. Run from the repository root; inputs and outputs are retained under target/s0."""
 import json,collections,pathlib,subprocess
 results={}
 for name in ['wake-sources-2','wake-callers','rest-final']:

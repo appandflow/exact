@@ -1,4 +1,4 @@
-//! The `delivery` resource and its two commands, end to end
+//! The `delivery` resource and its two commands (LLP 1030 D7), end to end
 //! over `contract/corpus/delivery.contract`: the embedded answer a baked
 //! plan carries, a host's facts arriving in one commit, `state.delivery` as
 //! the agent's mirror, the commands reaching `take_commands` by name, and
@@ -55,6 +55,34 @@ fn mirror(r: &Runner<NoData>) -> serde_json::Value {
 }
 
 #[test]
+fn the_binary_version_reaches_the_view_and_delivery_mirror() {
+    let mut r = boot("shape Build\n  version: string\n  buildNumber: string\ncomponent App\n  resource build = exactDelivery() as shape Build\n  view\n    text `${build.version} (${build.buildNumber})` testId=\"version\"\n");
+    assert_eq!(text_of(&r, "version").as_deref(), Some(" ()"));
+    assert_eq!(mirror(&r)["version"], "");
+    assert_eq!(mirror(&r)["buildNumber"], "");
+    r.set_delivery_from_compat(r#"{"embedded":{"version":"2.3.4","buildNumber":"56"}}"#)
+        .unwrap();
+    assert_eq!(text_of(&r, "version").as_deref(), Some("2.3.4 (56)"));
+    assert_eq!(mirror(&r)["version"], "2.3.4");
+    assert_eq!(mirror(&r)["buildNumber"], "56");
+}
+
+#[test]
+fn a_production_binary_hides_what_only_a_development_build_shows() {
+    let mut r = boot("shape Build\n  production: bool\ncomponent App\n  resource build = exactDelivery() as shape Build\n  view\n    column\n      if build.production\n        text \"release\" testId=\"kind\"\n      else\n        text \"developer menu\" testId=\"kind\"\n");
+    // Until a host hands over its compat.json, and in a development build, the answer is false.
+    assert_eq!(text_of(&r, "kind").as_deref(), Some("developer menu"));
+    assert_eq!(mirror(&r)["production"], false);
+    r.set_delivery_from_compat(r#"{"embedded":{"trust":"development"}}"#)
+        .unwrap();
+    assert_eq!(text_of(&r, "kind").as_deref(), Some("developer menu"));
+    r.set_delivery_from_compat(r#"{"inputs":{"trust":null},"embedded":{"trust":"production"}}"#)
+        .unwrap();
+    assert_eq!(text_of(&r, "kind").as_deref(), Some("release"));
+    assert_eq!(mirror(&r)["production"], true);
+}
+
+#[test]
 fn a_baked_plan_shows_the_embedded_answer_with_no_host_in_sight() {
     let r = boot(&corpus());
     assert_eq!(text_of(&r, "delivery-stream").as_deref(), Some("embedded"));
@@ -65,7 +93,7 @@ fn a_baked_plan_shows_the_embedded_answer_with_no_host_in_sight() {
         mirror(&r),
         serde_json::from_str::<serde_json::Value>(
             "{\"stream\":\"embedded\",\"seq\":0,\"embeddedSeq\":0,\"staged\":false,\
-         \"sunset\":\"\",\"interpreted\":[],\"compatibilityId\":\"\",\"L\":\"A\",\
+         \"sunset\":\"\",\"interpreted\":[],\"compatibilityId\":\"\",\"version\":\"\",\"buildNumber\":\"\",\"production\":false,\"L\":\"A\",\
          \"E\":[\"native\"]}"
         )
         .unwrap()
@@ -86,6 +114,7 @@ fn a_hosts_facts_re_answer_the_resource_in_one_commit_and_the_agent_sees_them() 
             compatibility_id: "9f1c0a2b".into(),
             store: 'A',
             executors: vec!["hermes".into(), "native".into()],
+            ..Delivery::default()
         })
         .unwrap()
         .expect("the resource is declared, so its answer changed");
@@ -103,7 +132,7 @@ fn a_hosts_facts_re_answer_the_resource_in_one_commit_and_the_agent_sees_them() 
         serde_json::from_str::<serde_json::Value>(
             "{\"stream\":\"prod/abc\",\"seq\":44,\"embeddedSeq\":7,\"staged\":true,\
          \"sunset\":\"This build stops receiving updates in March\",\
-         \"interpreted\":[\"profile\"],\"compatibilityId\":\"9f1c0a2b\",\"L\":\"A\",\
+         \"interpreted\":[\"profile\"],\"compatibilityId\":\"9f1c0a2b\",\"version\":\"\",\"buildNumber\":\"\",\"production\":false,\"L\":\"A\",\
          \"E\":[\"hermes\",\"native\"]}"
         )
         .unwrap()

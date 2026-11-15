@@ -3,10 +3,10 @@
 Contract describes an application's interface, state, and interactions. Exact
 compiles it for the web and native hosts. You write the view once, in CSS's names
 and layout; what you leave unsaid (controls, colour, type, how a press or a scroll
-feels) is each platform's own. Network access, persistent
+feels) is each platform's own (LLP 1115). Network access, persistent
 storage, and substantial computation belong in a TypeScript or Rust data module.
 
-This guide describes the current implementation, including
+This guide describes the implementation on `main` on 2026-10-02, including
 immutable action locals, record construction, inferred action effects, and
 component-level providers. The compiler and its tests are the authority.
 Older Exact examples with `writes` clauses or component `contract` blocks no
@@ -40,7 +40,7 @@ collects syntax, operator precedence, built-in functions, tags, and events.
 
 ## Run an app
 
-From an exact2 checkout with its pinned Rust toolchain and Bun installed:
+From an Exact checkout with its pinned Rust toolchain and Bun installed:
 
 ```sh
 bun install --frozen-lockfile
@@ -53,15 +53,15 @@ reports unsupported features rather than silently selecting a different result.
 Native builds require their platform tools. See the root
 [quick start](../README.md#quick-start) for toolchain installation.
 
-To scaffold a separate application, run from exact2:
+To scaffold a separate application, run from the Exact checkout:
 
 ```sh
 bun scripts/exact.mjs new ../hello
 ```
 
 The new app has `app.contract` (its interface), `app.ts` (its data module),
-`app.json` (its manifest), `app.test.contract`, `web/` and `apple/` crates, and its
-own Cargo workspace; it consumes this checkout by path. Its generated `exact.mjs`
+`app.json` (its manifest) and `app.test.contract`; a native verb generates its host
+crates under `.exact/`. It consumes this checkout by path. Its generated `exact.mjs`
 runs the web and native commands (`bun exact.mjs test`, for example; `bun exact.mjs
 test web tests/*.test.contract` runs the files named, from the current directory,
 in turn); run it with no verb to list them, and see the [tooling reference](reference.md).
@@ -118,8 +118,9 @@ Top-level declarations start in column 1. Use spaces for indentation; two spaces
 per level is the formatter's style. Blank lines and `//` comments are ignored.
 There are no semicolons or braces around declaration bodies.
 
-The top-level forms are `component`, `shape`, `fn`, `style`, `keyframes`, `font`,
-`routes`, `use`, and `test`. A file can contain multiple declarations. Used files
+The top-level forms are `component`, `shape`, `fn`, `style`, `decoration`, `atom`,
+`keyframes`, `timeline`, `font`, `sound`, `theme`, `color-profile`, `routes`,
+`members`, `use`, and `test`. A file can contain multiple declarations. Used files
 may supply reusable declarations; the importing file's first component remains
 its root.
 
@@ -128,7 +129,7 @@ use Card, Badge as StatusBadge from "./parts.contract"
 use Item, pulse from "./models.contract"
 ```
 
-Each file has its own names: its own declarations, and the names its
+Each file has its own names (LLP 1091): its own declarations, and the names its
 `use` lines list. Nothing comes along unnamed: if `parts.contract` uses `Icon`,
 `Card` still works, but this file writes `Icon()` only after naming it too,
 from `./icons.contract` or from `./parts.contract`, which passes on what it
@@ -154,7 +155,10 @@ A `use` names one of three things:
   `package.json` `exports` maps `.` (and any subpaths) to `.contract` files;
   without `exports`, `index.contract`. A local library is a dependency too:
   `"@me/ui": "file:../ui"` in the app's `package.json`, or a Bun workspace.
-  A package's own relative uses stay inside the package.
+  A build installs a `file:` package again (`bun install --frozen-lockfile`)
+  when its directory no longer matches what `node_modules` holds, so an edit
+  to it reaches the next build. A package's own relative uses stay inside the
+  package.
 
 A library is Contract only: components, shapes, functions, styles, keyframes and
 timelines. It cannot own resources or carry TypeScript; its components take data
@@ -178,9 +182,9 @@ subtraction. `x-1` is still subtraction, but spaces make the intention clearer.
 | Empty list | `[]`, with its element type determined by context |
 
 Use ordinary decimal numbers, double-quoted strings, and backtick templates.
-Single-quoted strings, exponent notation, digit separators, `null`, and
-`undefined` are not the language's literal forms. Strings and template text
-accept the escapes `\n`, `\t`, `\"`, `\\`, ``\` `` and `\$`, and a Unicode code
+Exponent notation is a number (`1e3` is 1000). Single-quoted strings, digit
+separators, `null`, and `undefined` are not the language's literal forms.
+Strings and template text accept the escapes `\n`, `\t`, `\"`, `\\`, ``\` `` and `\$`, and a Unicode code
 point as JavaScript writes it, `\u{2011}` or `\u2011`. Templates can contain
 expressions, quoted strings, and nested templates. Keep an individual string or template on one
 source line.
@@ -250,9 +254,8 @@ derive caption = match selected {
 The `some` branch's binding exists only in that branch. Both arms are required.
 A state initialized to `none` needs enough information elsewhere, usually an
 action's assignment of `some(...)`, to infer the element type, or a declared
-type (`state picked: option<Item> = none`). Actions and the
-view see that type, but derives are typed first: match such a state in the view,
-not in a derive. Similarly, `[]` needs an inferable list element type. A list
+type (`state picked: option<Item> = none`). Actions, derives and the view all see
+that type. Similarly, `[]` needs an inferable list element type. A list
 literal such as `[1, 2]` holds its items, which share one type; a list the screen
 keeps for the session (a selection, open ids) is built in Contract, and a list the
 app keeps across launches comes from the data module.
@@ -315,9 +318,9 @@ blocks. They have no loops, `return`, or `await`. An action calls another action
 of its component, an `action` prop or an injected action as a statement:
 `arrive(path)` runs `arrive`'s statements right there, in the same commit, and
 they too read the state the action started with. So a helper does not see what
-its caller assigned before the call; the compiler refuses such a read and asks
-for the value to be passed (`arrive(next)`). A name that is a host command, such
-as `focus`, stays the command, and calling an action, prop or inject that
+its caller assigned before the call; the compiler warns of such a read
+(`analyze-read-after-assign`) and asks for the value to be passed
+(`arrive(next)`). A name that is a host command, such as `focus`, stays the command, and calling an action, prop or inject that
 shares a host command's name is refused: rename it. A call returns nothing: share calculations through
 `fn`. The compiler infers the state an action writes, through its calls. Do not
 write a `writes` clause.
@@ -350,8 +353,9 @@ component CountLabel
 ```
 
 Functions have no effects, cannot recursively call themselves or form cycles, and
-do not capture component state (they can read `performanceNow()`). Pass values as parameters. Standard-function names
-are reserved against redefinition. See the grammar reference for the complete
+do not capture component state (they can read `performanceNow()`). Pass values as
+parameters. A `fn` with a standard function's name shadows it in free calls
+(`round(1.5)` calls the app's `fn round`). See the grammar reference for the complete
 [standard-function list](contract-grammar.md#standard-functions-and-intrinsics).
 
 The web's string and array methods are written as methods, with their web names
@@ -452,8 +456,9 @@ none of it.
 A virtualized list has exactly one direct `for`, whose body has one flow root.
 A vertical list needs a real height bound (`height`, `max-height`, or growing
 `flex` in a bounded parent). A horizontal one needs a literal `display="flex"` and
-a literal positive `height`, takes `estimated-item-width`, and refuses a nonzero
-`gap` and `justify-content` other than `flex-start`. Padding along the list's
+a positive `height` in points, literal or computed, takes `estimated-item-width`
+(literal or computed) and CSS's `gap` between its cards, and refuses
+`justify-content` other than `flex-start`. Padding along the list's
 axis is room before the first row and after the last, as in CSS: a length or an
 `env()` inset, not a percentage. On iOS a list's pull-to-refresh spinner draws
 below its `padding-top`, so a header laid over that padding does not hide it. A
@@ -462,7 +467,7 @@ as in CSS: `scroll-padding-top` the height of that header brings a row to just
 below it, and the first row to the very top. On iOS the row also lands clear of
 the bars UIKit draws the list under (a header, or a composer it lifts into a
 bar), as `scrollToItem(at:at:animated:)` does: `block="end"` puts the newest
-message just above the composer. Other elements refuse it.
+message just above the composer. Any other scroll container takes it too.
 Virtualized lists nest one level deep (an inner vertical list needs a literal
 `height` or `max-height`); deeper nesting, masonry, wrapping, reversed lists, and
 RTL horizontal collections are not supported.
@@ -670,9 +675,22 @@ with, until the reply before it has landed and its `then` has run. The source
 sees one request at a time, `then` runs once per reply, and `pending(saved)`
 stays true while anything waits. Assigning `saved = none` forgets nothing under
 `queue`: every reply still lands. Keep newest-wins for a sign-in or a draft whose
-late reply should be dropped.
+late reply should be dropped (LLP 1092).
 
-For a mutation without `queue`, the action that sends `saved` must not also
+Independent writes a person may repeat before the first answers, such as two
+renames or two comments, want every send at once. Declare the mutation
+`parallel` (`mutation renamed as shape Renamed parallel refreshes issues`):
+each send is asked when it is made, its write shows through the overlay until
+its own reply and the answer asked after it, and its reply lands whatever else
+is out. The slot and `failure(renamed)` follow the latest send that has
+concluded, so a late reply never overwrites a newer outcome, and an earlier
+send's failure shows unless a later send has already concluded. `pending`
+stays true while any send is out, an assignment forgets no request, at most 64
+sends are in flight, and there is no `then`. The source is called once per
+send: one that reads local storage, changes it and writes it back must order
+its own work, or the mutation should be `queue` (LLP 1161.000).
+
+For a newest-wins mutation, the action that sends `saved` must not also
 assign `saved = none`. Assignments commit after sends, so that reset can discard
 the new reply even when it appears first. Hide a previous error while
 `pending(saved)` instead. `none` means the slot contains no reply, not a failed write; use
@@ -697,7 +715,7 @@ changed. During a live replacement request, the prior displayed value may remain
 visible even when call arguments changed, so private-data views must gate it by
 owner and authorization. Neither call arguments nor `with` make a resource wait
 for an upstream request to succeed. The default web JS target keeps no persisted
-resource answers.
+resource answers (LLP 1027.005 D5).
 The minute must already contain the current sample for the first ask; a timer
 can update it thereafter. Use `refresh` or `refreshes` for values whose only job
 is forcing another ask. Await true asynchronous prerequisites, such as a valid
@@ -928,8 +946,8 @@ call outside them fails. The capabilities are:
   `then`. A failed read should fail its resource so Exact retains its last valid
   answer.
 - *`app.ts` imports local files and pure-JavaScript packages.* The bake bundles
-  a package's code (ESM or CommonJS, its `browser` build first), as a chat
-  app's `fflate` is. One that needs Node (`fs`, `Buffer`), the DOM or a native addon
+  a package's code (ESM or CommonJS, its `browser` build first), as Excord's
+  `fflate` is. One that needs Node (`fs`, `Buffer`), the DOM or a native addon
   is refused by name. An `import type` (or a name used only as a type) may
   reach any package's declarations, such as the rows `snapback4 types` writes
   to `snapback/generated/api.ts`, and every build checks against them.
@@ -963,7 +981,7 @@ including a data module's `secret.keep`.
 **Rust instead.** A data module can be a Rust crate rather than `app.ts`:
 `bun exact.mjs contract rust app.contract -o shapes.rs` generates the shapes as
 structs with their conversions, and [Caltrain's data crate](../apps/caltrain/data/src/lib.rs)
-answers its sources that way. The [reference](reference.md#generate-typescript-data-source-types)
+answers its sources that way. The [Exact developer reference](reference.md#generate-typescript-data-source-types)
 covers placement on a worker, live replacement, and the platform limits.
 
 ## Styling and layout
@@ -983,7 +1001,13 @@ strings: `width="50%"`, `height="auto"`, `padding-top="env(safe-area-inset-top)"
 `width="calc(100% - 24px)"`, and CSS's `min()`, `max()` and `clamp()` over px,
 percentages, the safe-area insets and viewport lengths: `padding-bottom="clamp(15px,
 env(safe-area-inset-bottom), 60px)"`, `bottom="calc(max(15px,
-env(safe-area-inset-bottom)) + 44px)"`, `width="min(50%, 600px)"`. Supported values
+env(safe-area-inset-bottom)) + 44px)"`, `width="min(50%, 600px)"`. `env()` is the
+screen's safe area; `var(--exact-safe-area-inset-top)` (and `-right`, `-bottom`,
+`-left`) is the one where the box is: inside a route, its bars included, so
+`margin-top="calc(-1 * var(--exact-safe-area-inset-top))"` takes a background up
+under the navigation bar (LLP 1123 D9). A route is cleared of its bars by itself, the
+clearance added to its padding unless that padding reads the inset; `-exact-safe-area`
+on the route turns it off per edge (D3, D4). Supported values
 are property-specific; this is not
 an unrestricted browser stylesheet. The compiler and kernel reject unsupported
 names or values. `line-height=1.5` is a ratio; `line-height="24px"` is fixed.
@@ -1004,10 +1028,12 @@ component App
 The element's own attributes override its class. `class=(selected ? Active :
 Idle)` chooses between two named styles. This is not CSS selector matching, a
 cascade, or a string of multiple class names. Put computed values on the node;
-style bodies are constant. Properties omitted by the selected style revert to
-their defaults rather than keeping the other style's previous value. The one
-host-policy prop a style can hold, `buttonStyle`, must be set in both styles or
-neither.
+style bodies are constant. Style rows omitted by the selected style revert to
+their defaults rather than keeping the other style's previous value. A style
+can also hold the props `backgroundMaterial`, `glassGroup` and `buttonStyle`.
+In a conditional class, each prop must be set in both styles or neither, unless
+the element supplies its own value. Use `backgroundMaterial="none"` to remove
+a material.
 
 Useful property families include flex/block layout; sizes and min/max sizes;
 padding, margin, and gaps; borders and radii; overflow and clipping; text metrics
@@ -1041,6 +1067,7 @@ measured layout as well as the compiler's structural checks.
 
 Use `aria-label`, roles, and other admitted ARIA attributes where content alone
 does not name a control. Keep accessible labels separate from driver `testId`s.
+A literal `role` must name a concrete ARIA role, or it is refused.
 They mean on every host what they mean in a browser: `aria-hidden` takes a
 subtree off the tree and out of its ancestors' names; `role="checkbox"`,
 `"radio"` or `"switch"` with `aria-checked` is that control, `role="img"` with a
@@ -1052,7 +1079,11 @@ this one) and `aria-description` are its description. `aria-invalid`,
 `"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
 property for those four, so iOS exposes the first three not at all and a
 pressable's (a button's, a link's) `aria-current` other than `false` as its
-selected trait, as `aria-selected` is. A data table is HTML's `table`: an
+selected trait, as `aria-selected` is.
+`aria-activedescendant` names the active option while a field keeps focus
+([combobox recipe](recipes/combobox.md)); the web exposes it, and other hosts carry it
+without using it.
+A data table is HTML's `table`: an
 optional `caption`, then `thead`, `tbody` and `tfoot` row groups of `tr`s (or
 `tr`s alone, which are a `tbody` of their own, as HTML's parser makes them),
 each `tr` holding `th` header cells (`scope="col"` or `"row"`) and `td`
@@ -1066,16 +1097,18 @@ kernel lays a table out as a grid of `auto` columns as wide as its content.
 Where columns share width (a span wider than the columns it covers, a table
 narrower than its content), the grid shares it equally and the browser in
 proportion to the columns' widths, so unequal columns can differ by a few
-points. macOS, Linux and Windows expose a table's, a row's
+points (LLP 1153 D7.3). macOS, Linux and Windows expose a table's, a row's
 and a cell's roles, and a description list's; iOS announces a table as a
 data table and a `dl` as a list, its rows and cells with no role of their
 own. A drawn range —
 `role="progressbar"`, `"slider"`, `"meter"`, `"scrollbar"` or `"spinbutton"` —
 takes `aria-valuenow`, `aria-valuemin` and `aria-valuemax` (numbers; ARIA's 0
-and 100 where a bound is unsaid) and `aria-valuetext`: it is one element, its
-children unread, and its value is the platform's (UIKit's `accessibilityValue`
-as a percentage, "30%", or the text; AppKit's value, minimum and maximum, the
-text its description). A `progress` or `input type="range"` says its own value.
+and 100 where a bound is unsaid, and none for a `spinbutton`) and
+`aria-valuetext`: it is one element, its children unread, and its value is the
+platform's (UIKit's `accessibilityValue` as a percentage, "30%", a
+`spinbutton`'s as its number, "3", or the text; AppKit's value, minimum and
+maximum, the text its description). A `progress` or `input type="range"` says
+its own value.
 Leave font sizes, colours and control metrics unsaid and the platform supplies them;
 what you set on a node wins.
 
@@ -1108,9 +1141,25 @@ the face's own.
 `font-variant-ligatures` turns the face's ligatures on or off, as CSS does:
 `none` keeps a ligating font such as Fira Code from joining `://` or `->` in an
 address or code, and the other keywords (`no-contextual`,
-`discretionary-ligatures`, …) name one kind each. Text fields take it too. A
-terminal draws no ligatures; Android's native text fields, UIKit's grouped list
-cells and content regions keep the font's own; widgets and the watch refuse it.
+`discretionary-ligatures`, …) name one kind each. Text fields take it too,
+including Android's native fields. A terminal draws no ligatures; UIKit's
+grouped list cells and content regions keep the font's own; widgets and the
+watch refuse it.
+
+Any other OpenType feature of the face is set by tag, as CSS sets it:
+`font-feature-settings="'cv05', 'cv11', 'zero'"` draws Inter's tailed `l`,
+single-storey `a` and slashed zero. A tag alone or `on` is 1, `off` is 0, and a
+larger number, up to 65535, picks an alternate (`'salt' 2`); a tag the face
+lacks does nothing. It is an element's property, not a `font` declaration's,
+and it is inherited: it applies to the text under the node it is on, in
+whatever face that text is drawn. Set it on the root to cover the app, or on
+the elements that use the face when another face under the same ancestor has a
+feature of the same tag (`cv05` is a different letter in each face). Up to
+sixteen features are named in one value.
+It applies after `font-variant-numeric` and `font-variant-ligatures` and wins
+for a feature it names, so `'tnum' 0` undoes `tabular-nums`; prefer those
+properties where they say it. It reaches text and text fields, including
+Android's native fields, where `font-variant-ligatures` does.
 
 ## Input, events, and commands
 
@@ -1126,7 +1175,7 @@ validation and button enablement follow typing. A text field fires `change` on
 Enter or blur; its handler should normalize the draft. A textarea commits when
 editing ends. Use `submit` for explicit submission.
 
-A text field is the platform's own by default: `input` with no type
+A text field is the platform's own by default (LLP 1104): `input` with no type
 or `text`, `email`, `password`, `search`, `tel`, `url`, `number`, and `textarea`
 outside the Markdown editor. On the web it inherits the page's font and
 colour, as a CSS reset does. Disabled and placeholder appearances are the
@@ -1173,7 +1222,7 @@ scrolling, and delivery commands. Commands are distinct from pure functions:
 `openURL` does not return a Contract value, and a `fn` cannot issue it; to hear
 whether the URL opened, name an element, `openURL(url, "opened")`, whose `change`
 hears `opened` or `failed`. The compiler does not check most commands'
-arguments, and hosts differ: headless Linux carries neither `focus` nor
+arguments, and hosts differ: headless Linux does not carry
 `openURL`. Check the host you target.
 
 A file `input` with no `accept`, an empty `accept`, or `accept="*/*"` offers any
@@ -1283,7 +1332,18 @@ title, an optional second `text` (a value) or a `column` of two texts (a
 subtitle), and an optional trailing accessory — a `forward-chevron` or
 `checkmark` image, a checkbox or switch `input`, or a `button` holding only
 `image "symbol:info"`. `destructive` draws a row red. Any other row is custom
-and keeps its own views. A section written `background-color="transparent"` has no card: its rows sit on the list's background with no separators or corners, as a profile header does. That literal is the only `background-color` a section takes, and not beside a `class`; a section that gains and loses its card is two sections under `if`.
+and keeps its own views. A row with an authored `height`, `background-color` or
+corner radius also keeps its views, including a row laid out as a column. A
+subtitle column does too when it writes any of those or `min-height`. Authored
+`align-items` or `justify-content` on either a nested column or a row laid out
+as a column keeps its views too. Classes count as authored. Such nested
+columns omit subtitle block padding when lowering can establish that their
+row or column writes a box. Literal values and ternary arms are recognized;
+a `none` arm keeps the platform padding. Other expressions keep that padding
+because they may evaluate to `none`. Write explicit padding to control it.
+The title-to-subtitle gap stays the platform's
+unless you write your own gap. A row's own `min-height` alone still works
+on a standard cell. A section written `background-color="transparent"` has no card: its rows sit on the list's background with no separators or corners, as a profile header does (LLP 1084 §6.2). That literal is the only `background-color` a section takes, and not beside a `class`; a section that gains and loses its card is two sections under `if`.
 
 ```text
 list appearance="auto" listStyle="inset-grouped" flex=1
@@ -1298,6 +1358,15 @@ list appearance="auto" listStyle="inset-grouped" flex=1
       text "Who can see you."
 ```
 
+A section's `box-shadow`, written directly or in its `class`, belongs to the
+card around its rows, with the platform's corners. It excludes the header and
+footer. State overrides and the shadow’s transition follow the card. On iOS
+the rows remain UIKit list cells. A section without its card
+(`background-color="transparent"`) takes no shadow. Keyframe shadow animation
+on a grouped section is not supported yet and fails the build; use a shadow
+`transition` instead. On iPad, pointer hover over a grouped section does not
+activate its `:hover` shadow yet.
+
 Row buttons and their detail accessories stay bare by default, preserving the
 cell's title and action. Explicit `appearance="auto"` makes one a custom native control.
 
@@ -1305,7 +1374,7 @@ cell's title and action. Explicit `appearance="auto"` makes one a custom native 
 iOS draws UIKit's own list (`UICollectionView` with a list configuration); the
 other hosts draw a sheet measured from it, and your own attributes replace any
 of its rows. A section's own `margin-top` or `margin-bottom` is the space iOS
-leaves there too, collapsed with its neighbour's as on the web.
+leaves there too, collapsed with its neighbour's as on the web (LLP 1084 §6.4).
 The rest of a section's layout is the platform's, its rows one under another
 across the card: besides those margins a section takes only `display` `"block"`
 or `"none"` of its own layout, written or from its `class`, and the compiler
@@ -1314,9 +1383,10 @@ A row is as wide as its card, `border-box`, with the cell's insets as its
 padding, so `width="100%"` keeps it in the card. The separator under it is the
 platform's, in the platform's colour: `border-bottom-color` alone does not
 recolour it; a bottom border you write (or `border-bottom-style="none"`) takes
-its place under that row, except on iOS under a row UIKit draws as
+its place under that row (LLP 1084 D7), except on iOS under a row UIKit draws as
 a standard cell, which keeps UIKit's line and draws no border of yours.
-See [the grouped-list fixture](../scripts/fixtures/grouped-list.contract).
+See [the grouped-list fixture](../scripts/fixtures/grouped-list.contract)
+and LLP 1084.
 
 ## Navigation and documents
 
@@ -1386,9 +1456,27 @@ nothing from it. On iOS every viewport unit (`vw`, `vh`, `vmin`, `vmax` and thei
 `s`/`l`/`d` kin) is the window's in every sheet (`vmin` and `vmax` its
 smaller and larger side), as CSS's `vh` is the viewport's and never a
 dialog's, so `height: 50vh` is half the screen at any sheet height
-and `min-height: 100vh` opens the sheet at its tallest. A route that scrolls itself is measured by what it scrolls,
-laid out in the sheet, so give its rows `flex-shrink: 0`. macOS, the web and
-Linux show a modal route as authored and ignore the detent.
+and `min-height: 100vh` opens the sheet at its tallest. A scrolling route is
+measured the same way; its rows can keep the default `flex-shrink: 1`. On a window
+narrower than 900 pixels the web's sheet opens at the height iOS opens it at, its foot on
+the window's, and stays there: it has no grabber and is not dragged between
+heights. A route pushed inside it stays in it at that height, as in UIKit's
+sheet. It is the tallest sheet in a window under 480 pixels tall (UIKit's compact
+height), and on a touch screen while a text field in it has the focus, as UIKit
+raises a sheet over the keyboard. A wider window shows the card it always does.
+Android shows a modal route as Material's bottom sheet at these heights (`large`
+the window below the status bar, `medium` half that; `fit-content` rests at
+`medium`), dragged between them or down to dismiss, over a scrim
+(`host/android/README.md`). macOS and desktop Linux ignore the detent
+(LLP 1075.003 §9.11, LLP 1115.000 D4.8).
+
+A route pushed while a sheet is on top is shown inside that sheet, which keeps the
+detents of the route that opened it, and Back returns to the route before it in
+the sheet. iOS and macOS show it in the sheet's own navigation stack, the web and
+Android lay it out in the sheet's box, and desktop Linux in the box the sheet's
+own route was laid out in. On Android a drag down or a tap on the scrim closes the
+sheet with what was pushed inside it. A route pushed over a `fullscreen` route is
+a page of its own.
 
 `path("item", value)` checks the route and encodes its parameters. Always build
 locations with it: a template literal as a location is refused and a string
@@ -1410,10 +1498,11 @@ ordinary `scroll` for an inner scrollport; both need a bound. Route rows can
 declare `render`, `activate`, `paint` and `pages` policies; these interact with
 the site's build/render pipeline, not just its client-side view. Leave `activate`
 unsaid unless a page needs otherwise: a rendered page then loads no script until
-the reader acts, when nothing on it needs the runtime sooner. Follow
+the reader acts, when nothing on it needs the runtime sooner
+(LLP 1048.007). Follow
 [the document corpus](../contract/corpus/document.contract) and
 [the document tests](../contract/cli/tests/it/document.rs) for accepted policy
-values and serving behavior. A compiled interface alone is not a deployed website.
+values and serving behavior (LLP 1048.003). A compiled interface alone is not a deployed website.
 
 ## Time, motion, and geometry
 
@@ -1458,7 +1547,7 @@ The timer exists while `toast != ""` holds, as an `if` arm's nodes do, and a new
 gets its whole five seconds. Nothing runs when the gate changes, and an idle task
 keeps no host awake. The action runs at the deadline exactly, so it clears the
 toast without testing the time again. Gates and keys read state, never `performanceNow()`
-.
+(LLP 1092).
 
 `performanceNow()` reads milliseconds since this launch of the app on the runner's clock (it
 restarts at 0 on every launch; the driver's clock under the agent); it is not a date, and
@@ -1498,12 +1587,22 @@ appropriate [motion fixture](../contract/corpus/spring.contract).
 In a `list virtualized=true` row, an animation waits until its row first
 shows in the list (`-exact-animation-trigger="view"`, the default), because the list
 builds rows before they scroll in; `-exact-animation-trigger="none"` starts it when
-the row is built, so the row arrives settled. The web build does not hold it
-yet.
+the row is built, so the row arrives settled. Revealing a row preserves an authored
+`animation-play-state="paused"`. A row that stays mounted plays only once;
+retiring and mounting it again starts a new play.
 
 `-exact-exit-animation`, `-exact-layout-transition`, and presentation timelines
 (`-exact-drag-timeline`, `animation-timeline`, `animation-range`, `timeline-scope`) are
 declared extensions with bounded behavior, not arbitrary layout animation.
+
+A value that follows a scroll is CSS's scroll-driven animation, not a `scroll` action
+that writes state (one round trip behind the scroll). `scroll-timeline` on a scroller
+names its offset; `view-timeline` on any node names that node crossing its nearest
+scroller; `animation-timeline` names either, or is `scroll()` or `view()`, and
+`animation-range` takes lengths, percentages and the view ranges (`cover`, `contain`,
+`entry`, `exit`, `entry-crossing`, `exit-crossing`). Every host moves the consumer in the
+scroll's own frame, and the web leaves it to the browser
+([agents' guide](contract-for-agents.md#motion-that-follows-a-scroll)).
 
 For direct manipulation, `pan`, `panrelease`, `heightrelease`,
 `transformgeometry`/`transformrelease`, and `reorderdrop` supply measured payloads.
@@ -1517,8 +1616,8 @@ and [Spark](../apps/spark/app.contract) for complete bindings.
 
 `frame("id")` reads the last laid-out border box where the viewer sees it, as
 `getBoundingClientRect` does: in the viewport, every scroll offset above it
-applied (the page's too), but without transforms. `measure("id")` asks for its
-height-auto layout, at the same origin, under its
+applied (the page's too), and every transform, its own and its ancestors'.
+`measure("id")` asks for its height-auto layout, at the same origin, under its
 current offer; its id is literal. Both are action-only and return `Geometry`,
 including `unavailable` and `provisional`; handle those flags rather than assuming
 layout already happened. Geometry reads are not reactive view expressions.
@@ -1548,7 +1647,10 @@ raw source and has no `iframe` or `video`.
 A hyphenated tag can address the app's native module: the bake checks the tag
 against `app.json`'s `modules` list, and its unknown attributes pass to the
 module unchecked; a known attribute styles or labels the module's box, and one
-the box has no use for is refused. Merely inventing a tag does not create a widget. Native
+the box has no use for is refused. A package view is declared in a dependency's
+`exact.json` `views` and accepts only its declared props and events beyond standard
+box attributes and common module events (`lower-native-attr` for an undeclared
+attribute). Merely inventing a tag does not create a widget. Native
 modules and GPU capabilities are separate optional artifacts; they do not add
 features to every core build. Use [Photo Editor](../apps/photo-editor/app.contract)
 as a concrete native-module example.
@@ -1604,21 +1706,33 @@ for the app to honor, not automatic engine policy. `displayMode: string` reads
 CSS's current `display-mode`: the browser's media query on the web,
 `fullscreen` or `standalone` for the window on macOS, and `standalone` on
 other native hosts. `navigationType` is how the browser loaded the page
-(`navigate`, `reload` or `back_forward`), and empty in a native app. Available fields are documented beside their source validation; start with [the viewport corpus](../contract/corpus/viewport.contract).
+(`navigate`, `reload` or `back_forward`), and empty in a native app. Available fields are documented beside their source validation (LLP 1039); start with [the viewport corpus](../contract/corpus/viewport.contract).
 
 Localized strings live in the app's `strings/<locale>.json` files. Author calls
 such as `t("greeting", name=person.name)`, with `{name}` in the table value. The
 key must be a literal; keys and placeholder names are checked at compilation. The
 base table is `en` unless `app.json` sets `strings.base`, and a translation may
 omit keys but not add them. The locale comes from the host; lookup falls back from
-the exact tag to shorter tags, then to the base. See
+the exact tag to shorter tags, then to the base. An app's own language setting
+calls `setLocale("de")` in its action, and `setLocale("")` for "System": the
+choice stands over the host's locale, is kept across launches, and applies before
+the next launch's first frame, so the setting needs no mount task.
+`exactTime().resolvedLocale` follows it; `locale` and `formatLocale` stay the
+device's. See
 [the locale fixture](../host/web-js/conformance/locale) and
 [the string tests](../contract/cli/tests/it/strings.rs).
 
-`formatTime`, `formatDate`, and `formatNumber` are deterministic formatting calls
-with specific accepted format literals. They print en-US whatever the viewer's
-locale, and their vocabulary is not a general `Intl` options object. App-specific
-wording belongs in app `fn`s.
+`formatTime`, `formatDate`, `formatDay` and `formatNumber` are deterministic
+formatting calls with specific accepted format literals. They format in the
+locale of the strings table the app shows, as `Intl` formats it: with a `de` table
+`formatDate(at, offset, "medium")` is `26.09.2026` and `formatNumber(1234.5,
+"decimal")` is `1.234,5`, and `setLocale` moves them with the text. An app with no
+tables, or only English ones, prints en-US. A table's region is its formats' region,
+so an app that wants British dates ships `strings/en-GB.json` (it may be `{}`).
+The viewer's forced 12- or 24-hour clock applies; dates are Gregorian in every
+locale ([formatting by locale](contract-grammar.md#formatting-by-locale)). Their
+vocabulary is not a general `Intl` options object. App-specific wording belongs in
+app `fn`s.
 
 ## Testing, diagnostics, and delivery
 
@@ -1667,9 +1781,9 @@ payload type, current action binding, and whether the node exists.
 
 `app.json` also controls delivery policy. `bun scripts/deploy.mjs <app>` is a
 dry run, which expects a committed tree (or `--dirty`); publication uses `--yes`,
-an origin, a signing key, and the configured signed streams. Read
-[the deploy script](../scripts/deploy.mjs) and its signing module before changing
-trust or publishing. Writing Contract does not require inventing a deployment
+an origin, a signing key, and the configured signed streams. Before
+changing trust or publishing, read [the reference](reference.md) on
+`EXACT_UPDATE_TRUST` (LLP 1030.000). Writing Contract does not require inventing a deployment
 service. To put an iOS app on someone's iPhone, run `bun exact.mjs share`: it
 builds the app and prints an AppDrop link that installs it with their own Apple ID.
 
@@ -1689,6 +1803,7 @@ builds the app and prints an AppDrop link that installs it with their own Apple 
 | Text flowing around shapes | [Text Flow](../apps/textflow/app.contract), [Reflow](../apps/reflow/app.contract) |
 | All language forms | [grammar reference](contract-grammar.md) |
 
-Read current source examples rather than older design notes: only the current
-compiler decides what it accepts. When the compiler refuses something, keep its diagnostic id and
+Read current source examples rather than predecessor design documents. A feature
+in a predecessor's design document is historical evidence, not proof that the current compiler
+accepts it. When the compiler refuses something, keep its diagnostic id and
 source range: its suggested accepted form is often the quickest next step.

@@ -1,8 +1,9 @@
 //! A resource a turn over its budget refused (`DataError::Overrun`, exact-js's
 //! own time or its wall backstop) is asked again, twice at most, before it
-//! fails as any refused resource does. The refusal is the machine's load as
+//! fails as any refused resource does (LLP 1027 as amended 2026-10-27; theme2's
+//! 18:06 ruling and the 18:55 redesign). The refusal is the machine's load as
 //! much as the source's: under load one stood a resource on a stale value until
-//! the app's own 10 s redial (a chat app's gateway).
+//! the app's own 10 s redial (Excord's gateway, x2-perf4's evidence).
 //!
 //! The wait is a request the runner holds and never sends (`reask_at`): the
 //! resource's ask in flight, so it reads exactly as one (`pending`, its last
@@ -10,7 +11,7 @@
 //! the resource again burns no try), and it keeps its ask's origin and
 //! invocation. It comes due in the runner's own deadline order and is asked
 //! again as a commit of that ask; the streak counts each re-ask as it is made.
-//! A mutation is never asked again, nor a stream's message; an
+//! A mutation is never asked again (LLP 1041 D2), nor a stream's message; an
 //! argument change, a refresh or an answer ends the streak, as each replaces
 //! or answers the ask.
 use super::{lines, CommitReceipt, DataError, DataSource, PendingReq, Runner, RunnerError, Target};
@@ -97,6 +98,7 @@ impl<D: DataSource> Runner<D> {
         self.next_ticket += 1;
         self.note_asked(target, ticket);
         self.pending.push(PendingReq {
+            module: self.data.module_identity(&source).map(|m| m.instance()),
             inspection_generation: self.inspected_request(i),
             refusal: None,
             refused: false,
@@ -118,6 +120,7 @@ impl<D: DataSource> Runner<D> {
             long_poll: false,
             replied: false,
             reask_at: Some(at),
+            launch: self.launch.contains(&i),
             reasks,
             module_again: None,
             effects: false,
@@ -143,7 +146,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     fn said_reask(&mut self, i: usize, why: &str, after: f64, reasks: usize) {
-        let name = self.plan.str(self.plan.resources[i].name).to_string();
+        let name = self.plan.str(self.resource_row(i).name).to_string();
         let line = lines::overrun_reask(&name, why, after, reasks + 1, REASK_MS.len());
         self.log(line);
     }
@@ -177,7 +180,9 @@ impl<D: DataSource> Runner<D> {
         else {
             return false;
         };
-        if self.pending[pos].replay_unsafe {
+        if self.pending[pos].replay_unsafe
+            || self.pending.iter().filter(|p| p.target == target).count() > 1
+        {
             return false;
         }
         let reasks = self.pending[pos].reasks;
@@ -240,6 +245,9 @@ impl<D: DataSource> Runner<D> {
             unreachable!("only a resource waits to be asked again")
         };
         let args = p.args.clone();
+        if p.launch {
+            self.launch.push(i);
+        }
         let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
         let result = self.as_invocation(origin, id, |r| {
             let before = r.overrun.reasking.replace((i, reasks + 1, args));
@@ -247,6 +255,7 @@ impl<D: DataSource> Runner<D> {
             r.overrun.reasking = before;
             result
         });
+        self.launch.clear();
         let refused = match &result {
             Err(e) => Some(Failure::of(e).message),
             // Stood without asking it (a source not ready): its forced ask

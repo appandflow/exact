@@ -1,11 +1,12 @@
-//! SVG islands: the pixel work native hosts cannot hand to their compositor, as
-//! pure functions over premultiplied RGBA8, row-major and tightly packed.
+//! SVG islands (LLP 1055.000 D2, §3, §8 ruling 4): the pixel work native
+//! hosts cannot hand to their compositor, as pure functions over
+//! premultiplied RGBA8, row-major and tightly packed.
 //!
 //! Each host rasterizes an island's source with the rasterizer it already
 //! has (Core Animation's own `render(in:)` on Apple, tiny-skia on Linux), so
 //! the source antialiases as the rest of that host's SVG does and text comes
 //! along. This crate does what comes after: turning a mask's content into
-//! coverage, and running a filter's primitives. On Apple it is a
+//! coverage, and (stage 9) running a filter's primitives. On Apple it is a
 //! separately loaded module (`abi`); on Linux a plain dependency.
 
 pub mod abi;
@@ -48,7 +49,7 @@ pub fn apply_coverage(target: &mut [u8], coverage: &[u8], stride: usize) {
     }
 }
 
-/// CSS `backdrop-filter: blur(σ)` over a backdrop, in
+/// CSS `backdrop-filter: blur(σ)` over a backdrop (LLP 1053.000 D2), in
 /// place: premultiplied RGBA8, `w` × `h`, σ in pixels. The Gaussian is
 /// feFilter's three box blurs (Filter Effects 1 §15.6), over encoded sRGB
 /// as Chrome blurs, and the backdrop's edges mirror outward, as Chrome's

@@ -1,4 +1,5 @@
-// The agent's tap and a sticky box: a target whose middle a sticky box of its own scroller covers is scrolled into the band
+// The agent's tap and a sticky box (QUEUE "The agent's tap doesn't scroll a target covered by a sticky overlay clear of
+// it"; theme2's 14:49 ruling): a target whose middle a sticky box of its own scroller covers is scrolled into the band
 // the box leaves (`reveal`, host/web/agent-input.js), as a person scrolls a row out from under a docked bar, and pressed;
 // a pass-through sticky (pointer-events: none), which the tap's own hit-test passes, scrolls nothing; a popover over a
 // row is no scroll's to clear, and the tap still refuses there; nor a dock taller than the band it leaves.
@@ -10,8 +11,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { serveBuildTree } from './serve.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const compiler = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
 const rows = Array.from({ length: 20 }, (_, i) => i + 1).join(', ');
 const CONTRACT = `component StickyFixture
@@ -73,7 +75,7 @@ const drive = async (session) => {
   const t3 = await session.tap(ghosted);
   expect(t3.scrolled).toBeUndefined();
   expect(await pressed()).toBe(ghosted);
-  // A popover over a row in the clear, opened from inside the dock: no scroll takes it away, and the
+  // A popover over a row in the clear, opened from inside the dock (Astra's round 2): no scroll takes it away, and the
   // tap refuses, naming what covers it.
   const clearRow = await rowIn(100, 200);
   await session.carrier.evaluate(`(() => { const r = document.querySelector('[data-testid="${clearRow}"]').getBoundingClientRect(), p = document.createElement('div');
@@ -83,7 +85,7 @@ const drive = async (session) => {
   await expect(session.tap(clearRow)).rejects.toThrow(/covers its middle/);
   expect(await scrollTop()).toBe(top);
   await session.carrier.evaluate(`document.getElementById('sticky-test-popover')?.remove()`);
-  // A dock over more than half the port (each row in a card that clips): the band above it.
+  // A dock over more than half the port (each row in a card that clips, as Astra's round 1 had it): the band above it.
   await session.carrier.evaluate(`document.querySelector('[data-testid="dock"]').style.height = '240px'`);
   const tall = await rowIn(200, 300);
   expect(tall).not.toBe(null);
@@ -105,7 +107,7 @@ const drive = async (session) => {
 };
 
 // (The JS page; the wasm page's glue.js calls the same `reveal`, from agent-input.js.)
-test('a tap scrolls its target clear of a sticky box of its own scroller, and only then', async () => {
+test('a tap scrolls its target clear of a sticky box of its own scroller, and only then (theme2\'s 14:49 conditions)', async () => {
   const session = await open({ host: 'web', url: await serve() });
   try { await drive(session); } finally { await session.close(); }
 }, 900000);

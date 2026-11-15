@@ -1,5 +1,5 @@
-// An AVPlayer and native presentation survive every layout/keyboard change.
-// The media session is NowPlaying.swift's, compiled into this arm.
+// @ref LLP 1042. An AVPlayer and native presentation survive every layout/keyboard change.
+// The media session (LLP 1098) is NowPlaying.swift's, compiled into this arm.
 import Foundation
 import AVFoundation
 import AVKit
@@ -100,7 +100,7 @@ private final class AudioControls: UIView {
 }
 #endif
 
-/// One parsed asset per unchanged local file: a feed that repeats a
+/// One parsed asset per unchanged local file (LLP 1042): a feed that repeats a
 /// source makes each new item from it instead of opening and inspecting the
 /// file again. A remote source is always its own asset; a failed item's asset
 /// is dropped. The file's size and modification time are part of the key, so
@@ -161,16 +161,18 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     var displayObservations: [NSKeyValueObservation] = []
     var pendingSeek: Double?
     /// A seek in flight: HTML's official playback position, which `currentTime`
-    /// reads at once, while AVPlayer still reports where it was.
+    /// reads at once, while AVPlayer still reports where it was (jukebox F20).
     var seekTarget: Double?
     var seeks = 0
     /// Whether the current item reached readyToPlay: a failure before it is
     /// HTML's "source not supported", one after it a network or decode error.
     var itemReady = false
+    var hdrItem = false
+    var hdrTask: Task<Void, Never>?
     var naturalSize = CGSize.zero
     var wantsPlay = false
     /// The item played to its end (HTML's "ended playback"): the next play
-    /// starts it over, as HTML's play() does (a sound effect
+    /// starts it over, as HTML's play() does (LLP 1042 §8: a sound effect
     /// replays by asking to play again).
     var atEnd = false
     var lastPaused = true
@@ -185,7 +187,8 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     /// cross the ABI, as the web glue sends only handled events.
     var listeners: Set<String> = []
     /// AVKit's own Now Playing publication, off while a claimant owns the
-    /// media session; a controller made later takes it.
+    /// media session (LLP 1098 D7); a controller made later, inline or full
+    /// screen, takes it.
     var avkitPublishes = true
 
     init(context: UnsafeMutableRawPointer?, callback: @escaping VideoCallback) {
@@ -283,12 +286,13 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     var snapshot: [String: Any] {
         let duration = player.currentItem?.duration.seconds ?? .nan
         return ["currentTime": seconds, "duration": duration.isFinite ? duration as Any : NSNull(),
-                "paused": player.rate == 0, "muted": player.isMuted, "volume": player.volume,
+                "playing": player.timeControlStatus == .playing, "paused": player.rate == 0, "muted": player.isMuted, "volume": player.volume,
                 "playbackRate": player.rate, "readyState": player.currentItem?.status == .readyToPlay ? 4 : 0,
                 "videoWidth": naturalSize.width, "videoHeight": naturalSize.height,
                 "error": (lastError ?? player.currentItem?.error?.localizedDescription).map { $0 as Any } ?? NSNull(),
                 "src": props["src"] ?? "", "renderer": renderer, "generation": generation, "fullscreen": isFullscreen,
                 "poster": poster.image == nil ? "none" : poster.isHidden ? "hidden" : "shown", "frameReady": frameReady,
+                // @ref LLP 1100 D11
                 "hdr": hdrItem, "eligibleForHDR": AVPlayer.eligibleForHDRPlayback,
                 "dynamicRange": props["dynamicRangeLimit"] ?? "no-limit",
                 "appliedDynamicRange": appliedDynamicRange].merging(fullscreenReport) { $1 }
@@ -312,10 +316,10 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         guard let data = try? JSONSerialization.data(withJSONObject: message) else { return }
         data.withUnsafeBytes { callback(context, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
     }
-    /// The reports that move the published position or state.
+    /// The reports that move the published position or state (LLP 1098 D4).
     static let moves: Set<String> = ["loadedmetadata", "durationchange", "play", "pause", "ratechange", "seeked", "ended"]
 
-    // MARK: - the media session (NowPlaying.swift)
+    // MARK: - the media session (LLP 1098; NowPlaying.swift)
     var sessionProps: [String: String] { props }
     var sessionPaused: Bool { player.timeControlStatus == .paused }
     /// HTML's duration: a live item's is infinite, an unknown one NaN.
@@ -325,7 +329,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     }
     var sessionElapsed: Double { seconds }
     var sessionRate: Double { Double(rate) }
-    /// A remote play is a person's: ExactKit latches it over the visibility threshold.
+    /// A remote play is a person's: ExactKit latches it over the visibility threshold (D3).
     func sessionPlay() {
         guard !invalidated else { return }
         send(["remote": "play"])
@@ -341,6 +345,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         presentation.updatesNowPlayingInfoCenter = on
         #elseif os(iOS)
         controller?.updatesNowPlayingInfoCenter = on
+        fullscreen?.updatesNowPlayingInfoCenter = on
         #endif
     }
     /// `error`'s payload is a stable code, never AVFoundation's text (jukebox
@@ -434,7 +439,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         // `load(id)`: the source again, as a changed `src` loads it (a retry
         // after an error, or a file written since); `fastSeek(id, seconds)`
         // seeks each time, to the exact time, which HTML's approximate-for-
-        // speed allows. Each is a numbered request.
+        // speed allows (podcast F8, F18). Each is a numbered request.
         if changed("exactLoad"), props["exactLoad"] != nil {
             wantsPlay = props["paused"].map { $0 == "false" } ?? bool("autoplay")
             loadSource()
@@ -446,7 +451,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         if let error = props["sourceError"], error != old["sourceError"] { fail("src-not-supported", error) }
         layout()
         NowPlaying.shared.updated(self)
-        // The driver's `tap … mediasession`: `<n> <action> [seconds]`,
+        // The driver's `tap … mediasession` (LLP 1098 D10): `<n> <action> [seconds]`,
         // the command target's own path, its status reported back at once.
         if changed("exactRemote"), let request = props["exactRemote"] {
             let parts = request.split(separator: " ").map(String.init)
@@ -477,6 +482,8 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     }
     func loadSource() {
         generation += 1
+        hdrTask?.cancel(); hdrTask = nil
+        hdrItem = false
         lastError = nil
         observations.removeAll()
         notifications.forEach(NotificationCenter.default.removeObserver)
@@ -500,6 +507,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
                     self.fail(Self.code(item.error, ready: self.itemReady), item.error?.localizedDescription ?? "Media could not be loaded")
                 }
                 if item.status == .readyToPlay {
+                    if !self.itemReady { self.loadHDR(item, generation: token) }
                     self.itemReady = true
                     self.naturalSize = item.presentationSize
                     self.emit(self.listeners.contains("loadedmetadata") ? "loadedmetadata" : "snapshot")
@@ -597,7 +605,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         showPoster()
     }
     /// An HDR poster is decoded with its gain map: UIKit's reader must be
-    /// asked; `NSImage` keeps it. A remote one is fetched
+    /// asked; `NSImage` keeps it (LLP 1100 D11). A remote one is fetched
     /// through the shared HTTP cache; either is decoded here, off the main
     /// thread.
     func loadPoster() {
@@ -633,8 +641,23 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         }
     }
 
-    var hdrItem: Bool {
-        player.currentItem?.asset.tracks(withMediaType: .video).contains { $0.hasMediaCharacteristic(.containsHDRVideo) } ?? false
+    /// Snapshots read only the cached flag: unloaded track properties can wait on the network.
+    func loadHDR(_ item: AVPlayerItem, generation token: Int) {
+        hdrTask = Task { @MainActor [weak self] in
+            var hdr = false
+            if let tracks = try? await item.asset.loadTracks(withMediaType: .video) {
+                for track in tracks {
+                    if let characteristics = try? await track.load(.mediaCharacteristics), characteristics.contains(.containsHDRVideo) {
+                        hdr = true
+                        break
+                    }
+                }
+            }
+            guard !Task.isCancelled, let self, !self.invalidated, self.generation == token else { return }
+            self.hdrTask = nil
+            self.hdrItem = hdr
+            self.emit()
+        }
     }
 
     /// Read the presentation objects, so diagnostics can catch a missed update.
@@ -663,7 +686,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     }
 
     /// `dynamic-range-limit` on the poster, AVKit's player and the inline
-    /// layer. Before iOS/macOS 26 AVKit has no range control.
+    /// layer (LLP 1100 D11). Before iOS/macOS 26 AVKit has no range control.
     func applyDynamicRange() {
         let limit = props["dynamicRangeLimit"] ?? "no-limit"
         #if !os(macOS)
@@ -698,7 +721,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     }
     #if os(iOS) || os(tvOS)
     /// A video without `controls` uses the native player layer, as Chrome's
-    /// `<video>` without controls draws no UI: PiP and frame
+    /// `<video>` without controls draws no UI (LLP 1042 §7 A): PiP and frame
     /// analysis select AVKit only when set by name, since without controls or
     /// automatic start PiP cannot be reached. Enabling a controller feature
     /// promotes the same player; an existing controller remains its owner
@@ -706,7 +729,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     private func configurePresentation() {
         guard props["src"] != nil || presentation != nil else { return }
         // An `audio` has no picture to take full screen or to picture in
-        // picture. Its inline controls are UIKit on iOS.
+        // picture. Its inline controls are UIKit on iOS (LLP 1042 §8).
         let audio = props["semanticTag"] == "audio"
         #if os(iOS)
         if audio {
@@ -822,6 +845,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     func invalidate() {
         guard !invalidated else { return }
         invalidated = true; generation += 1; posterGeneration += 1
+        hdrTask?.cancel(); hdrTask = nil
         NowPlaying.shared.left(self)
         player.pause()
         if let tick { player.removeTimeObserver(tick) }; tick = nil
@@ -868,6 +892,10 @@ extension VideoArm {
         guard var host = responder as? UIViewController else { return }
         while let shown = host.presentedViewController { host = shown }
         let full = FullscreenPlayer()
+        #if os(iOS)
+        // AVKit's default publishes Now Playing, which a claimant may own.
+        full.updatesNowPlayingInfoCenter = avkitPublishes
+        #endif
         full.player = player
         full.videoGravity = gravity
         full.modalPresentationStyle = .fullScreen
@@ -966,7 +994,7 @@ final class FullscreenWindow: NSObject, NSWindowDelegate {
         entered = nil; left = nil
         if window.delegate != nil { window.close() }
     }
-    /// The driver's view of it: the window server's number for a
+    /// The driver's view of it (LLP 1012): the window server's number for a
     /// `screencapture -l`, its frame on screen, and whether it is full screen yet.
     var report: [String: Any] {
         let frame = window.frame

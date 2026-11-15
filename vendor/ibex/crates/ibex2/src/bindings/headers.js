@@ -14,7 +14,7 @@
   // PURE begins with Headers, so it owns the bootstrap-only identity registry
   // shared by every later platform factory. structured_clone.js captures the
   // reader after all selected groups have evaluated, then deletes both names.
-  // Platform values are classified by private identity, never public shape.
+  // @ref LLP 0059.000#310-atob--btoa-structuredclone-blob--file--formdata-customevent--pure-ungated — platform values are classified by private identity, never public shape
   var FunctionCall = Function.prototype.call;
   var FunctionBind = Function.prototype.bind;
   function uncurry(fn) { return FunctionCall.call(FunctionBind, FunctionCall, fn); }
@@ -45,6 +45,7 @@
   // in the runtime by guessing one.
   var h = global.__ibex2_headers;
   delete global.__ibex2_headers;
+  // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — the JS binding owns request-snapshot cleanup
   // fetch.js captures and removes this during binding installation, before
   // any module runs. Only that binding may free its temporary request list.
   global.__ibex2_headers_free = h.free;
@@ -61,6 +62,7 @@
     }
   }
 
+  // @ref LLP 0068#opt-in-headers-hooks-protocol — a Headers object's guard reaches only trusted bootstrap
   // A Headers object's guard (Fetch, "Headers class"): "immutable" refuses
   // every change, and "response" ignores a change to a forbidden
   // response-header name. fetch.js gives its responses' headers "immutable";

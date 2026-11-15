@@ -1,4 +1,4 @@
-// Exact's own floating window for an image's pictures, as
+// @ref LLP 1042 §9.1. Exact's own floating window for an image's pictures, as
 // `requestPictureInPicture(id, presentation=…)` asks for it in place of AVKit's
 // panel. Both kinds are non-activating panels at the floating level, on every
 // Space and over full-screen apps, locked to the picture's aspect and
@@ -63,7 +63,8 @@ final class PictureInPictureWindow: NSObject, NSWindowDelegate {
         panel.title = titled ? title : "Picture in Picture"
         panel.isFloatingPanel = true
         panel.isRestorable = false // the author opens it; a relaunch does not
-        panel.level = .floating
+        // A drive's panel never shows over the person's apps (`Agent.windowsBehind`).
+        panel.level = Agent.windowsBehind ? .agentBehind : .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
@@ -143,7 +144,7 @@ final class PictureInPictureWindow: NSObject, NSWindowDelegate {
             if !titled { panel.maxSize = NSSize(width: Self.screen.width * 0.75, height: Self.screen.height * 0.75) }
             // Chromium's window fades in.
             panel.alphaValue = titled ? 1 : 0
-            panel.orderFrontRegardless()
+            if Agent.windowsBehind { panel.orderFront(nil) } else { panel.orderFrontRegardless() }
             if !titled { NSAnimationContext.runAnimationGroup { $0.duration = 0.25; panel.animator().alphaValue = 1 } }
             say("enter")
         } else {

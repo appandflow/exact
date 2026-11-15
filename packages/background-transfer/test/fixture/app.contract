@@ -1,4 +1,4 @@
-// The conformance fixture: @exact/background-transfer's
+// The conformance fixture (LLP 1133.001 D7): @exact/background-transfer's
 // names as an app uses them. Data code starts each transfer; the root's
 // three handlers hand the registration to data code, which tells the
 // suite's server what it carried and then retires it.
@@ -52,7 +52,19 @@ component Fixture
         text "Download a missing file"
       button press=start("ungranted", "x1") testId="ungranted-x1"
         text "Upload to an ungranted origin"
+      button press=start("folder", "f1") testId="folder-f1"
+        text "Download to a folder"
+      button press=start("appear", "f2") testId="appear-f2"
+        text "Download to where a folder appears"
+      button press=start("replace", "r1") testId="replace-r1"
+        text "Download over a file"
+      button press=start("userinfo", "c1") testId="userinfo-c1"
+        text "Download from a URL with a password"
       button press=start("hold", "h1") testId="hold-h1"
         text "Download, held"
       button press=abort("h1") testId="abort-h1"
         text "Abort h1"
+      button press=start("keep", "k1") testId="keep-k1"
+        text "Download over a file, held"
+      button press=abort("k1") testId="abort-k1"
+        text "Abort k1"

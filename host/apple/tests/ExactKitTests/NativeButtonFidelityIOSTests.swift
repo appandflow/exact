@@ -1,4 +1,4 @@
-// The compiled Contract fixture beside hand-configured UIKit.
+// @ref LLP 1069.011.001 §4: the compiled Contract fixture beside hand-configured UIKit.
 #if os(iOS)
 import UIKit
 import CExact
@@ -89,7 +89,7 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
             XCTAssertNotNil(c.preferredSymbolConfigurationForImage, name)
         }
     }
-    /// A symbol with no title is as large as UIKit draws one in a configuration of its own, which
+    /// LLP 1116.019 D1: a symbol with no title is as large as UIKit draws one in a configuration of its own, which
     /// follows the body text to the accessibility sizes; without a title the label's font is a fixed 17.
     func testASymbolAloneFollowsTheTextSizeAsUIKitsDoes() throws {
         for name in ["plain", "gray", "bordered", "filled"] {
@@ -106,11 +106,11 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
             XCTAssertGreaterThan(size.height, 40, "\(name): grown with the text, not 17's")
         }
     }
-    /// Unsaid, the ink on an accent fill is UIKit's on every accent, the pale ones too (a
+    /// LLP 1116.019 D3: unsaid, the ink on an accent fill is UIKit's on every accent, the pale ones too (a
     /// hand-built filled button keeps white on teal and yellow); an authored colour wins.
     func testAFilledButtonKeepsUIKitsInkOnEveryAccent() throws {
         func rgb(_ r: Double, _ g: Double, _ b: Double) -> UIColor { UIColor(red: r / 255, green: g / 255, blue: b / 255, alpha: 1) }
-        // iOS 27's measured system colours, light.
+        // iOS 27's measured system colours, light (LLP 1115.000 D3.2).
         let accents: [(String, UIColor)] = [("blue", rgb(0, 136, 255)), ("indigo", rgb(97, 85, 245)), ("red", rgb(255, 56, 60)),
                                             ("brown", rgb(172, 127, 94)), ("orange", rgb(255, 141, 40)), ("yellow", rgb(255, 204, 0)),
                                             ("green", rgb(52, 199, 89)), ("teal", rgb(0, 195, 208))]
@@ -133,7 +133,7 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         ButtonConfigurationIOS.apply(face, to: b, traits: b.traitCollection, accent: rgb(255, 204, 0))
         XCTAssertEqual(b.configuration?.baseForegroundColor.flatMap(rgba), [1, 0, 0, 1])
     }
-    /// A system accent reaches UIKit as UIKit's own colour, which its filled styles draw at the
+    /// LLP 1116.019 D3: a system accent reaches UIKit as UIKit's own colour, which its filled styles draw at the
     /// high-contrast value under Increase Contrast (a fixed colour they darken once more); a colour of the
     /// author's stays the one the node resolved.
     func testASystemAccentReachesUIKitAsItsOwnColour() throws {
@@ -185,7 +185,7 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         let actual = UIButton(configuration: .filled()); surface.addSubview(actual)
         ButtonConfigurationIOS.apply(f, to: actual, traits: surface.traitCollection, accent: nil)
         XCTAssertEqual(try XCTUnwrap(actual.titleLabel?.font).pointSize, expected.pointSize, accuracy: 0.01)
-        // An authored absolute size is the author's
+        // LLP 1115.000 D12.1: an authored absolute size is the author's
         // number at every Dynamic Type size, as it is on a `text` or a field,
         // where the button had scaled it through `UIFontMetrics` (13 to 30
         // at this size). The symbol and the subtitle likewise.
@@ -254,6 +254,65 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         let misses = cache.misses
         _ = cache.answer(face: try face("123456789", "heart", style: "plain"), widthKind: 0, width: 60)
         XCTAssertEqual(cache.misses, misses + 1)
+    }
+    /// Counts answer from their face's reference and are not each kept;
+    /// other titles are kept within the cache's budget, and a face layouts
+    /// keep asking for stays measured.
+    func testTheCacheKeepsRecentFacesWithinItsBudget() throws {
+        let surface = UIView()
+        surface.traitOverrides.preferredContentSizeCategory = .large
+        surface.updateTraitsIfNeeded()
+        let cache = ButtonMeasureCache()
+        cache.configure(surface.traitCollection, in: surface)
+        func data(_ title: String) throws -> Data {
+            try JSONSerialization.data(withJSONObject: ["title": title, "symbol": "heart", "ios": "plain"], options: [.sortedKeys])
+        }
+        _ = cache.answer(face: try data("7"), widthKind: 2, width: 0)
+        let counted = cache.retained.entries
+        for n in 0..<500 { _ = cache.answer(face: try data("\(n)"), widthKind: 2, width: 0) }
+        XCTAssertEqual(cache.retained.entries, counted, "a count is answered from its face's reference")
+        let live = try data("Live")
+        for n in 0..<1_000 {
+            _ = cache.answer(face: try data("Title \(n)"), widthKind: 2, width: 0)
+            guard n % 50 == 0 else { continue }
+            let misses = cache.misses
+            _ = cache.answer(face: live, widthKind: 2, width: 0)
+            if n > 0 { XCTAssertEqual(cache.misses, misses, "the live face at \(n)") }
+        }
+        XCTAssertLessThanOrEqual(cache.retained.entries, 2 * 257 + counted)
+        surface.traitOverrides.preferredContentSizeCategory = .extraExtraLarge
+        surface.updateTraitsIfNeeded()
+        XCTAssertTrue(cache.configure(surface.traitCollection, in: surface))
+        XCTAssertEqual(cache.retained.entries, 0, "a change of traits releases the old measurements")
+    }
+    func testAWrappedCountDoesNotSupplyAnotherCountsHeight() throws {
+        let surface = UIView()
+        surface.traitOverrides.preferredContentSizeCategory = .large
+        surface.updateTraitsIfNeeded()
+        let traits = surface.traitCollection
+        for style in ["plain", "bordered", "filled"] {
+            for first in ["1,234,567", "5"] {
+                let cache = ButtonMeasureCache()
+                cache.configure(traits, in: surface)
+                func data(_ title: String) throws -> Data {
+                    try JSONSerialization.data(withJSONObject: ["title": title, "symbol": "heart", "ios": style], options: [.sortedKeys])
+                }
+                let short = cache.measure(ButtonFace(json: try data("5")), widthKind: 0, width: 100, traits: traits)
+                let wrapped = cache.measure(ButtonFace(json: try data("1,234,567")), widthKind: 0, width: 100, traits: traits)
+                XCTAssertGreaterThan(wrapped.height, short.height, "the reference count wraps: \(style)")
+                for title in [first, "1,234,567", "5", "88", "12,345,678", "9"] {
+                    let face = try data(title)
+                    let answered = cache.answer(face: face, widthKind: 0, width: 100)
+                    let measured = cache.measure(ButtonFace(json: face), widthKind: 0, width: 100, traits: traits)
+                    XCTAssertEqual(answered.width, measured.width, accuracy: 0.001, "\(style) \(first) then \(title)")
+                    XCTAssertEqual(answered.height, measured.height, accuracy: 0.001, "\(style) \(first) then \(title)")
+                }
+                let misses = cache.misses
+                _ = cache.answer(face: try data("4"), widthKind: 0, width: 100)
+                _ = cache.answer(face: try data("1,234,567"), widthKind: 0, width: 100)
+                XCTAssertEqual(cache.misses, misses, "short counts use the shortcut; a repeated wrapped count uses its exact entry")
+            }
+        }
     }
     // Independent use of UIKit's public system-spacing API for the reference column.
     func testMinContentUsesUnbreakableRunsAndTheNativeChrome() throws {

@@ -1,4 +1,4 @@
-//! One submit per tick: every canvas the host renders records
+//! One submit per tick (LLP 1009 D7): every canvas the host renders records
 //! into one encoder the module owns; [`Module::flush`] submits it once and
 //! then presents each canvas's drawable.
 //!
@@ -22,6 +22,9 @@ pub(crate) struct Open {
 struct Rendered {
     id: u32,
     complete: bool,
+    /// The surface drew a complete frame of its picture (`frame_ready`),
+    /// which `complete` cannot say on the web, where every frame is shown.
+    drawn: bool,
     /// Its drawable, presented after the submit; `None` when the surface
     /// failed after recording — then only kept alive until the submit, since
     /// the recorded commands still name its texture, and discarded.
@@ -83,6 +86,7 @@ impl Module {
         // A canvas renders once per frame: a second render submits the first.
         self.settle(id);
         let scale = self.render_scale(id);
+        let timing = self.timing(id, frame.now_ms);
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail("no such canvas");
         };
@@ -189,17 +193,13 @@ impl Module {
         // offscreen and a complete one is copied in, so a drawable takes two
         // submissions at most, whatever a pending surface does.
         #[cfg(not(target_arch = "wasm32"))]
-        let scratch = if retry {
-            Some(scratch(
-                &mut inst.scratch,
-                &gpu.device,
-                format,
-                (config.width, config.height),
-            ))
-        } else {
-            inst.scratch = None;
-            None
-        };
+        let scratch = Scratch::fit(
+            &mut inst.scratch,
+            retry,
+            &gpu.device,
+            format,
+            (config.width, config.height),
+        );
         // The browser shows every frame: none is held.
         #[cfg(target_arch = "wasm32")]
         let scratch: Option<wgpu::TextureView> = {
@@ -222,6 +222,11 @@ impl Module {
                 }),
             canvases: Vec::new(),
         });
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(s) = inst.scratch.as_mut().filter(|s| retry && !s.continues) {
+            s.clear(&mut open.encoder);
+        }
+        inst.surface.timing(&timing);
         let wants = inst.surface.render(
             &frame,
             &gpu.device,
@@ -233,12 +238,15 @@ impl Module {
         inst.drain();
         let failure = inst.surface.take_error();
         let ready = cfg!(target_arch = "wasm32") || inst.surface.frame_ready();
+        let cap = inst.surface.max_fps();
+        inst.cadence
+            .after(cap, frame.now_ms, self.period_ms, wants || !ready);
         #[cfg(not(target_arch = "wasm32"))]
-        if let (Some(from), Some((_, blitter)), true, None) =
-            (&scratch, &inst.scratch, ready, &failure)
-        {
-            blitter.copy(&gpu.device, &mut open.encoder, from, &view);
-            inst.scratch = None;
+        if let Some(s) = inst.scratch.as_mut().filter(|_| retry) {
+            if ready && failure.is_none() {
+                s.copy(&mut open.encoder, &view);
+            }
+            s.continues = !ready && failure.is_none();
         }
         let (texture, failed) = if failure.is_some() {
             (None, Some(texture))
@@ -251,6 +259,7 @@ impl Module {
         open.canvases.push(Rendered {
             id,
             complete: ready,
+            drawn: inst.surface.frame_ready() && failure.is_none(),
             texture,
             failed,
             request: off_thread && wants && ready,
@@ -269,15 +278,15 @@ impl Module {
     #[cfg(target_os = "android")]
     fn render_to_buffer(&mut self, id: u32, frame: &Frame) -> Option<bool> {
         let (w, h) = frame.pixels();
+        let timing = self.timing(id, frame.now_ms);
         let gpu = self.gpu.as_ref()?;
         let inst = self.instances.get_mut(&id)?;
-        if inst
-            .ring
-            .as_ref()
-            .is_some_and(|r| r.size != (w.max(1), h.max(1)))
-        {
-            inst.ring = crate::buffers::Ring::new(gpu, w, h, inst.offscreen_format());
-        }
+        let (size, format) = ((w.max(1), h.max(1)), inst.offscreen_format());
+        inst.presented.refit(
+            &mut inst.ring,
+            |r| r.size == size,
+            || crate::buffers::Ring::new(gpu, w, h, format),
+        );
         // The GPU's word on the frames it has finished, before counting them.
         let _ = gpu.device.poll(wgpu::PollType::Poll);
         let ring = inst.ring.as_mut()?;
@@ -319,6 +328,7 @@ impl Module {
                 }),
             canvases: Vec::new(),
         });
+        inst.surface.timing(&timing);
         let wants = inst.surface.render(
             &frame,
             &gpu.device,
@@ -330,9 +340,13 @@ impl Module {
         inst.drain();
         let failure = inst.surface.take_error();
         let ready = inst.surface.frame_ready();
+        let cap = inst.surface.max_fps();
+        inst.cadence
+            .after(cap, frame.now_ms, self.period_ms, wants || !ready);
         open.canvases.push(Rendered {
             id,
             complete: ready,
+            drawn: ready && failure.is_none(),
             texture: None,
             failed: None,
             request: false,
@@ -367,15 +381,34 @@ impl Module {
         // canvas frame, as an `MTKView` draw is. Not when a surface failed
         // after recording: its drawable is in the submit, and must not be
         // shown.
-        // Canvases whose first frame this is (`Module::seen`).
-        let first: Vec<Arc<AtomicBool>> = open
+        // Canvases whose first frame this is (`Module::seen`), or the first
+        // of their current picture (`presented`). A frame in a buffer is
+        // presented when the reader is handed it (`Module::buffer`), once the
+        // GPU has finished it, not here.
+        let first: Vec<First> = open
             .canvases
             .iter()
             .filter(|c| c.complete && (c.texture.is_some() || c.buffer.is_some_and(|(_, p)| p)))
-            .filter_map(|c| self.instances.get(&c.id))
-            .filter(|i| !i.seen.load(Ordering::Acquire))
-            .map(|i| i.seen.clone())
+            .filter_map(|c| {
+                let i = self.instances.get(&c.id)?;
+                let first = First {
+                    seen: (!i.seen.load(Ordering::Acquire)).then(|| i.seen.clone()),
+                    presented: (c.drawn && c.texture.is_some())
+                        .then(|| i.presented.pending())
+                        .flatten(),
+                };
+                (first.seen.is_some() || first.presented.is_some()).then_some(first)
+            })
             .collect();
+        // Canvases whose HUD reads `cpuSubmitMs`: only then is the submit timed.
+        let timed: Vec<u32> = (open.canvases.iter())
+            .map(|c| c.id)
+            .filter(|id| (self.instances.get(id)).is_some_and(|i| i.performance.enabled()))
+            .collect();
+        let submit = |encoder: wgpu::CommandEncoder| {
+            let commands = encoder.finish();
+            crate::performance::time(!timed.is_empty(), || gpu.queue.submit([commands])).1
+        };
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
         let mut first = first;
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
@@ -388,18 +421,24 @@ impl Module {
             let before = ride
                 .then(|| ride_next_submit(&gpu.queue, std::mem::take(&mut first)))
                 .flatten();
-            gpu.queue.submit([open.encoder.finish()]);
+            let submit_ms = submit(open.encoder);
             // Every drawable of the frame, or none: a surface that drew
             // nothing into its target is in no command buffer, and then each
             // is presented the ordinary way (one already scheduled is not
             // scheduled twice).
-            before.is_some_and(|n| presented_with_submit(&gpu.queue) == Some(n + drawn))
+            let rode = before.is_some_and(|n| presented_with_submit(&gpu.queue) == Some(n + drawn));
+            (rode, submit_ms)
         };
         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "tvos")))]
-        let rode = {
-            gpu.queue.submit([open.encoder.finish()]);
-            false
-        };
+        let rode = (false, submit(open.encoder));
+        let (rode, submit_ms) = rode;
+        if let Some(ms) = submit_ms {
+            for id in &timed {
+                if let Some(i) = self.instances.get_mut(id) {
+                    i.performance.submitted(ms);
+                }
+            }
+        }
         let mut ok = true;
         for c in open.canvases {
             // Android presents a canvas that asks for its next texture on its
@@ -440,7 +479,8 @@ impl Module {
             };
             #[cfg(target_os = "android")]
             if let (Some((slot, publish)), Some(ring)) = (c.buffer, inst.ring.as_mut()) {
-                ring.submitted(slot, publish, &gpu.queue);
+                let shown = publish.then(|| inst.presented.pending()).flatten();
+                ring.submitted(slot, publish, &gpu.queue, shown);
             }
             #[cfg(not(target_os = "android"))]
             let _ = c.buffer;
@@ -494,19 +534,80 @@ impl Module {
     }
 }
 
-/// The view of `slot`'s texture at `format` and `size`, made (with what
-/// copies it into a drawable) when it does not exist or differs.
+/// Renders after which a canvas that has stopped retrying gives back its
+/// [`Scratch`]: about a second of frames. A surface that holds every other
+/// frame never goes this long without a retry.
 #[cfg(not(target_arch = "wasm32"))]
-fn scratch(
-    slot: &mut Option<(wgpu::Texture, wgpu::util::TextureBlitter)>,
-    device: &wgpu::Device,
-    format: wgpu::TextureFormat,
-    (width, height): (u32, u32),
-) -> wgpu::TextureView {
-    if slot
-        .as_ref()
-        .is_none_or(|(t, _)| t.format() != format || (t.width(), t.height()) != (width, height))
-    {
+pub(crate) const SCRATCH_IDLE: u32 = 60;
+
+/// Where the renders after an incomplete frame draw (`Module::render`), and
+/// what copies a complete one into the held drawable.
+///
+/// Everything here is made once for a size and format and kept across retry
+/// sequences, so a surface that alternates incomplete and complete frames
+/// allocates nothing per frame. Made for each complete frame, it would be a
+/// full-screen texture, a pipeline and a descriptor set dozens of times a
+/// second; on a Mali phone's Vulkan driver that ended in a refused
+/// descriptor set, which wgpu-hal answers with a panic (issue #47). The copy
+/// is a pipeline of its own because `wgpu::util::TextureBlitter` makes a
+/// bind group on every copy.
+///
+/// Given back when a render that is not a retry finds it the wrong size or
+/// format, after [`SCRATCH_IDLE`] such renders, and when the canvas lets go
+/// of its presentation (`Instance::release`) or the module takes another
+/// device. A canvas at rest renders nothing and keeps it until one of these.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) struct Scratch {
+    pub(crate) texture: wgpu::Texture,
+    view: wgpu::TextureView,
+    pipeline: wgpu::RenderPipeline,
+    bind_group: wgpu::BindGroup,
+    /// The last render was a retry that left the drawable held: the next
+    /// retry continues its frame. Otherwise the next one starts on a cleared
+    /// texture, as on a new one.
+    continues: bool,
+    /// Renders since the last retry.
+    idle: u32,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Scratch {
+    /// The view a retry renders into, `slot`'s scratch made when it does not
+    /// exist or differs in format or size; `None` when this render is not a
+    /// retry, and then the scratch is dropped if it is stale or idle.
+    fn fit(
+        slot: &mut Option<Scratch>,
+        retry: bool,
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        size: (u32, u32),
+    ) -> Option<wgpu::TextureView> {
+        let fits = |s: &Scratch| {
+            s.texture.format() == format && (s.texture.width(), s.texture.height()) == size
+        };
+        if !retry {
+            if let Some(s) = slot.as_mut() {
+                s.continues = false;
+                s.idle += 1;
+                if s.idle >= SCRATCH_IDLE || !fits(s) {
+                    *slot = None;
+                }
+            }
+            return None;
+        }
+        if !slot.as_ref().is_some_and(fits) {
+            *slot = Some(Scratch::new(device, format, size));
+        }
+        let s = slot.as_mut()?;
+        s.idle = 0;
+        Some(s.view.clone())
+    }
+
+    fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        (width, height): (u32, u32),
+    ) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("exact canvas incomplete frame"),
             size: wgpu::Extent3d {
@@ -521,13 +622,128 @@ fn scratch(
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        *slot = Some((texture, wgpu::util::TextureBlitter::new(device, format)));
+        let view = texture.create_view(&Default::default());
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("exact canvas incomplete frame copy"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("exact canvas incomplete frame copy"),
+            layout: &layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            }],
+        });
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("exact canvas incomplete frame copy"),
+            source: wgpu::ShaderSource::Wgsl(COPY_WGSL.into()),
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("exact canvas incomplete frame copy"),
+            layout: Some(
+                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: None,
+                    bind_group_layouts: &[Some(&layout)],
+                    immediate_size: 0,
+                }),
+            ),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs"),
+                compilation_options: Default::default(),
+                targets: &[Some(format.into())],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        Self {
+            texture,
+            view,
+            pipeline,
+            bind_group,
+            continues: false,
+            idle: 0,
+        }
     }
-    slot.as_ref().unwrap().0.create_view(&Default::default())
+
+    /// Start a retry sequence on a texture of zeros, as a new texture is.
+    fn clear(&self, encoder: &mut wgpu::CommandEncoder) {
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("exact canvas incomplete frame clear"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &self.view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+    }
+
+    /// Copy the texture into `target`, a view of its size and format.
+    pub(crate) fn copy(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("exact canvas incomplete frame copy"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.bind_group, &[]);
+        pass.draw(0..3, 0..1);
+    }
 }
 
-/// The presenter's callback for a canvas's first frame (`gpu_on_presented`),
-/// as an address; 0 when none is registered. On Metal it runs on the thread
+/// One triangle over the target; each fragment loads its own texel, so no
+/// sampler is bound.
+#[cfg(not(target_arch = "wasm32"))]
+const COPY_WGSL: &str = "
+@group(0) @binding(0) var source: texture_2d<f32>;
+
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    let corner = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+    return vec4<f32>(corner * 2.0 - 1.0, 0.0, 1.0);
+}
+
+@fragment
+fn fs(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    return textureLoad(source, vec2<i32>(at.xy), 0);
+}
+";
+
+/// The presenter's callback for a canvas's first frame, or the first of its
+/// current picture (`gpu_on_presented`), as an address; 0 when none is
+/// registered. On Metal it runs on the thread
 /// that scheduled the frame's command buffer.
 static SHOWN: AtomicUsize = AtomicUsize::new(0);
 
@@ -537,11 +753,23 @@ pub(crate) fn on_presented(callback: Option<extern "C" fn()>) {
     SHOWN.store(callback.map_or(0, |f| f as usize), Ordering::SeqCst);
 }
 
+/// A canvas's frame that is the first it presents, or the first of its
+/// current picture.
+pub(crate) struct First {
+    seen: Option<Arc<AtomicBool>>,
+    presented: Option<crate::presented::Shown>,
+}
+
 /// These canvases' first frames are with the compositor: say so, and tell
 /// the presenter.
-fn shown(first: Vec<Arc<AtomicBool>>) {
-    for seen in first {
-        seen.store(true, Ordering::Release);
+fn shown(first: Vec<First>) {
+    for f in first {
+        if let Some(seen) = f.seen {
+            seen.store(true, Ordering::Release);
+        }
+        if let Some(presented) = f.presented {
+            presented.shown();
+        }
     }
     let address = SHOWN.load(Ordering::SeqCst);
     if address != 0 {
@@ -557,7 +785,7 @@ fn shown(first: Vec<Arc<AtomicBool>>) {
 /// drawables it has presented that way so far. `None` off Metal, with
 /// `first` shown at once.
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
-fn ride_next_submit(queue: &wgpu::Queue, first: Vec<Arc<AtomicBool>>) -> Option<usize> {
+fn ride_next_submit(queue: &wgpu::Queue, first: Vec<First>) -> Option<usize> {
     // SAFETY: a flag, a callback and a counter of the queue wgpu owns;
     // nothing is encoded.
     let Some(q) = (unsafe { queue.as_hal::<wgpu::hal::api::Metal>() }) else {

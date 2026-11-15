@@ -1,5 +1,5 @@
 // @exact/altimeter under the declared substitute on the Linux host,
-// headless: Linux has no barometer, so the
+// headless (LLP 1133.026 §11, §15 stage 0): Linux has no barometer, so the
 // status reads `available` false until the drive prefers it true; then the
 // altitude's track over its group's zero, the barometer's batch, a hidden
 // stretch's `interrupted`, and the zero kept across it. The fixture app is the pedometer suite's

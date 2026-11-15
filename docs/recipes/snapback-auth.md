@@ -1,6 +1,6 @@
 # Recipe: guests, personas and password sessions
 
-Use the complete mixed identity app in [the snapback4 package's README](https://www.npmjs.com/package/snapback4)
+Use the [complete mixed identity app](../../snapback4/README.md#a-complete-mixed-identity-app)
 for the schema, Contract, TypeScript and browser tests. The README retest command
 runs it twice against the selected Snapback version.
 
@@ -48,5 +48,5 @@ test "persona reload signs out; a password session restores"
 ```
 
 Run that test against `dev` with `fresh` and `epoch now` at the file's top.
-The password example in [the snapback4 package's README](https://www.npmjs.com/package/snapback4)
+The [password example](../../snapback4/README.md#a-complete-online-password-app)
 adds login and periodic session refresh with Contract time.

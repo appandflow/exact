@@ -2,7 +2,7 @@
 //! character the app's prose uses and the GPOS `kern` pairs between them, in
 //! font units. The runtime crate then measures text by arithmetic — exactly
 //! what Pretext caches from canvas `measureText`, read here from the same
-//! bytes the hosts shape with, so no font is parsed at runtime
+//! bytes the hosts shape with (LLP 1019 D3), so no font is parsed at runtime
 //! and the wasm carries a table, not a font.
 use std::fmt::Write as _;
 use std::{env, fs, path::Path};

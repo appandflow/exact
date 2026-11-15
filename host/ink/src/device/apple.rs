@@ -1,4 +1,5 @@
 //! The carrier owns the view; the render thread only owns its Metal layer.
+//! @ref LLP 1149 D7, D11, D12.
 #[cfg(exact_ink_metal)]
 pub use super::metal::startup::Startup;
 #[cfg(any(not(exact_ink_metal), test))]
@@ -447,7 +448,7 @@ impl Retry {
     fn failed(&self) -> bool {
         let previous = self
             .failures
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
                 Some(n.saturating_add(1).min(2))
             })
             .unwrap();

@@ -1,21 +1,24 @@
-//! The base scale (the schema's `scale`): nine names an
+//! The base scale (LLP 1121 stage 11 B; the schema's `scale`): nine names an
 //! app's views read with no design defining them, `space.xs` to `space.xl`
 //! and `radius.sm` to `radius.full`, each a length in this process's column.
 //!
 //! - The token lookup falls back to them (`theme::measure`): a design that
-//!   defines one wins, app-wide, as any token does; one it leaves
+//!   defines one wins, app-wide, as any token does (ruling 4); one it leaves
 //!   unset reads this table. The compiler knows the nine names, so a view
 //!   reading one compiles with no design (`contract_lower::theme`), and the
 //!   plan keeps nothing for them: the kernel already holds every column.
-//! - Every cell names its source (a metrics row, a stretch of one with its
-//!   reason, a measurement or a guideline, `docs/scale-measured.md`), which
-//!   the build resolves. This is the one table every reader of the base
-//!   takes: the design server's `describe`, `resolve` and `explain` read it
-//!   under `tamber/1.14`, never a copy.
-//! - Units are px (points), never scaled by Dynamic Type. radius.full is
-//!   [`RADIUS_FULL`], one oversized length every host clamps into a pill by
-//!   CSS's corner-overlap rule. The terminal's spacings are cells (`ch`), its
-//!   radii 0.
+//! - Every cell names its source (a metrics row, a stretch of one theme2
+//!   ruled, a measurement or a guideline, `docs/scale-measured.md`), which
+//!   the build resolves. This is
+//!   the one table every reader of the base takes (theme2's condition (c)):
+//!   the design server's `describe`, `resolve` and `explain` read it under
+//!   `forma/1.14` (rt1's stage 10 D), never a copy.
+//! - Units are px (points), never scaled by Dynamic Type (ruling 6; QUEUE
+//!   holds the opt-in). radius.full is [`RADIUS_FULL`], one oversized length
+//!   every host clamps into a pill by CSS's corner-overlap rule (theme2's C
+//!   ruling). The terminal's spacings are cells (`ch`), its radii 0.
+//!
+//! @ref LLP 1121 stage 11 B
 
 pub use crate::generated::{ScaleCell, ScaleRow, ScaleSource, ScaleValue, SCALE};
 use crate::style::metrics::Column;
@@ -43,7 +46,7 @@ pub fn is_base(name: &str) -> bool {
 /// A row's cell in a column.
 pub fn cell(row: &ScaleRow, column: Column) -> ScaleCell {
     match column {
-        // No web column: every web build draws the neutral look.
+        // No web column: every web build draws the neutral look (theme2).
         Column::Web | Column::Neutral => row.neutral,
         Column::Ios => row.ios,
         Column::Mac => row.macos,
@@ -74,7 +77,7 @@ pub fn text(name: &str) -> Option<String> {
 
 /// The base names `expr` reads, each a whole word of it, in order, each
 /// once: a length token's expression over base names the design leaves
-/// unset, which the compiler writes with each
+/// unset (LLP 1121 D11, stage 12 B2), which the compiler writes with each
 /// operator spaced (`calc(space.md * 2 + 4px)`).
 pub fn named_in(expr: &str) -> Vec<&'static str> {
     let mut out = Vec::new();
@@ -142,8 +145,11 @@ pub fn substitute(expr: &str, column: Column) -> Option<String> {
 /// 32); `None` for a text that folds to no px.
 pub fn fold(text: &str) -> Option<f32> {
     match crate::style::calc::parse(text) {
-        // Past f32's range the calc saturates: no length a row reads back.
-        Ok(Some(crate::style::Dimension::Points(n))) if n.is_finite() && n.abs() < f32::MAX => {
+        // At the largest length the calc saturates (`calc::LARGEST`): no
+        // length a row reads back.
+        Ok(Some(crate::style::Dimension::Points(n)))
+            if n.is_finite() && f64::from(n.abs()) < crate::style::calc::LARGEST =>
+        {
             Some(n)
         }
         _ => None,
@@ -156,7 +162,7 @@ pub fn evaluate(expr: &str, column: Column) -> Option<f32> {
 }
 
 /// Whether a shadow's item is a length, as [`fold_lengths`] and the JS
-/// target read one: px (`4px`, unitless `0`), a bare
+/// target read one (LLP 1121 stage 12 B3): px (`4px`, unitless `0`), a bare
 /// base name, or a `calc()`, `min()`, `max()` or `clamp()`, in any case.
 /// Any other function, a colour's, is none, whatever its words.
 pub fn is_length_item(item: &str) -> bool {
@@ -174,14 +180,14 @@ pub fn is_length_item(item: &str) -> bool {
     }
 }
 
-/// A shadow's text with each length over base names folded to px: split at
-/// white space and commas outside parentheses, an item naming a base is
-/// substituted through `base` ([`substitute_with`]) and folded by the kernel's
-/// `calc()` ([`fold`]) to `<px>px`, when it is a bare word or a `calc()`,
-/// `min()`, `max()` or `clamp()`; every other item (px, `inset`, any other
-/// function, a colour's) and every separator is kept byte for byte, so the
-/// row's codec reads the text as a literal's. `None` when `base` gives none for
-/// a base, or an item doesn't fold.
+/// A shadow's text with each length over base names folded to px (LLP 1121
+/// stage 12 B3): split at white space and commas outside parentheses, an
+/// item naming a base is substituted through `base` ([`substitute_with`])
+/// and folded by the kernel's `calc()` ([`fold`]) to `<px>px`, when it is
+/// a bare word or a `calc()`, `min()`, `max()` or `clamp()`; every other
+/// item (px, `inset`, any other function, a colour's) and every separator is
+/// kept byte for byte, so the row's codec reads the text as a literal's.
+/// `None` when `base` gives none for a base, or an item doesn't fold.
 pub fn fold_lengths(text: &str, mut base: impl FnMut(&str) -> Option<String>) -> Option<String> {
     let mut out = String::with_capacity(text.len());
     let mut item = |part: &str, out: &mut String| -> Option<()> {
@@ -226,10 +232,10 @@ pub const COLUMNS: [(&str, Column); 5] = [
     ("terminal", Column::Terminal),
 ];
 
-/// The scale column a shipped target reads: Apple's phones and their kin
-/// iOS's, the Mac's own, the web and Linux the neutral look's, Android's reader
-/// Material's, the terminal its cells. The design server sends it (`describe`'s
-/// `targets`), so no client keeps a map.
+/// The scale column a shipped target reads (theme2's 16:32 ruling): Apple's
+/// phones and their kin iOS's, the Mac's own, the web and Linux the neutral
+/// look's (D17), Android's reader Material's, the terminal its cells. The
+/// design server sends it (`describe`'s `targets`), so no client keeps a map.
 pub fn column_for(target: &str) -> Option<&'static str> {
     Some(match target {
         "ios" | "tvos" | "visionos" | "watchos" => "ios",
@@ -292,7 +298,7 @@ mod tests {
         );
     }
 
-    // Every cell equals its source's value, read again here
+    // theme2's (a): every cell equals its source's value, read again here
     // from the metrics table the kernel holds.
     #[test]
     fn every_cell_holds_its_source() {
@@ -331,8 +337,8 @@ mod tests {
         }
     }
 
-    // The Mac's space.xl is the one stretch, its metric's value, with its
-    // reason.
+    // Stage 13 D5: the Mac's space.xl is the one stretch theme2 ruled, its
+    // metric's value, with its reason.
     #[test]
     fn the_macs_space_xl_is_a_stretch() {
         let xl = SCALE.iter().find(|r| r.name == "space.xl").unwrap();
@@ -350,9 +356,9 @@ mod tests {
         assert!(source(xl.macos).starts_with("stretch of grouped-label-inset: "));
     }
 
-    // Within each look, xs ≤ sm ≤ md ≤ lg ≤ xl and radius
+    // theme2's (a): within each look, xs ≤ sm ≤ md ≤ lg ≤ xl and radius
     // sm ≤ md ≤ lg, so a borrowed value cannot invert the scale;
-    // radius.full is left out.
+    // radius.full is left out (theme2's C ruling).
     #[test]
     fn each_looks_steps_are_in_order() {
         for (column_name, column) in COLUMNS {
@@ -371,7 +377,7 @@ mod tests {
 
     // Every measured or guideline id has its entry in docs/scale-measured.md,
     // whose `Binds:` line binds this step to this value exactly (a shared
-    // entry's other numbers do not stand in). The build
+    // entry's other numbers do not stand in; round 1, Astra 4). The build
     // refuses the same.
     #[test]
     fn every_measured_and_guideline_id_is_documented_with_its_number() {
@@ -404,7 +410,7 @@ mod tests {
         }
     }
 
-    // The token lookup's fallback: a base name no entry
+    // The token lookup's fallback (theme2's (c)): a base name no entry
     // defines reads this table in the process's column, bound theme or none;
     // one the design defines is the design's, even where a row may not name
     // it; and only a row that takes a length reads one.
@@ -446,7 +452,7 @@ mod tests {
         assert_eq!(names, vec![Box::<str>::from("space.xs")]);
     }
 
-    // An alias: a length whose value is a bare base
+    // An alias (round 1, theme2's (a)): a length whose value is a bare base
     // name reads the base, the design's own definition first; both reads are
     // recorded, so an edit of either sets the row again; a base name set to
     // itself reads the scale.
@@ -488,7 +494,7 @@ mod tests {
         );
     }
 
-    // A length token over base names reads each base as an
+    // Stage 12 B2: a length token over base names reads each base as an
     // alias does, the design's own definition first, both reads recorded,
     // and folds to px in the process's column.
     #[test]
@@ -549,7 +555,7 @@ mod tests {
         );
     }
 
-    // No web column: `Column::Web`, a process that says no column
+    // No web column (theme2): `Column::Web`, a process that says no column
     // and Material's fallback, reads the neutral cell, for every name.
     #[test]
     fn the_web_column_reads_the_neutral_cell() {
@@ -564,7 +570,7 @@ mod tests {
         }
     }
 
-    // An expression over base names is each column's, its
+    // Stage 12 B2: an expression over base names is each column's, its
     // bases substituted and folded by the kernel's own `calc()`: `min()`,
     // `max()` and `clamp()` too, and the terminal's cells as px.
     #[test]
@@ -620,7 +626,7 @@ mod tests {
         assert_eq!(substitute_with(expr, |_| None), None);
     }
 
-    // A shadow's lengths over base names, each folded to px
+    // Stage 12 B3: a shadow's lengths over base names, each folded to px
     // in a column, every other item and separator kept byte for byte.
     #[test]
     fn a_shadows_lengths_fold_and_the_rest_is_kept() {
@@ -659,7 +665,7 @@ mod tests {
             Some(format!("0px {}px 1px #000", crate::style::cells::COLUMN))
         );
         // A colour function is kept whole, a base name inside it too, for
-        // the codec to refuse.
+        // the codec to refuse (round 1, Grok 4).
         assert_eq!(
             mac("0px space.md 1px light-dark(space.md, #000)"),
             Some(format!(
@@ -671,7 +677,7 @@ mod tests {
             mac("0px 1px 1px RGB(space.sm 0 0)").as_deref(),
             Some("0px 1px 1px RGB(space.sm 0 0)")
         );
-        // Any function but a length's: a platform colour
+        // Any function but a length's (round 2, Astra 1): a platform colour
         // whose asset is named for a base, a contrast colour; a length's
         // in any case.
         for text in [
@@ -712,7 +718,7 @@ mod tests {
         );
     }
 
-    // A shadow entry over base names reads each base as an
+    // Stage 12 B3: a shadow entry over base names reads each base as an
     // alias does, the design's own first, every read recorded, and its
     // lengths fold to px in the process's column; a row that may not take a
     // varying token reads no varying base either.

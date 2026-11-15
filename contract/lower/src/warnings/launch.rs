@@ -1,10 +1,10 @@
-//! `lower-resource-launch-identity`: an identifying
+//! `lower-resource-launch-identity` (LLP 1027.005 D6): an identifying
 //! argument of a resource that is this launch's own — the `epochAtZero` or
 //! `seed` of an `exactTime()` resource, through a derive, a state (its
 //! initial value or an action's assignment), a list or a `fn` that holds it
 //! or the resource. It differs at every launch, so the answer a
 //! store-reading resource kept at the last launch never matches it, and its
-//! first frame never shows that answer; after `with` it still
+//! first frame never shows that answer (LLP 1027 D4); after `with` it still
 //! reaches the source but does not identify the answer. So is one that
 //! equals it at launch, the runner's test (`kept.rs`, `say_of_launch`): plus
 //! or minus a value that is zero then (`epochAtZero + tick * 60000` with
@@ -174,7 +174,8 @@ impl<'a> Names<'a> {
 
 pub(super) fn launch_identity(root: &Component, fns: &[FnDecl], out: &mut Vec<LowerError>) {
     let names = Names::of(root, fns);
-    for r in &root.resources {
+    // A `transient` resource keeps no answer to show (LLP 1156.005 D4).
+    for r in root.resources.iter().filter(|r| !r.transient) {
         let identity = &r.args[..r.identity.unwrap_or(r.args.len())];
         for (k, arg) in identity.iter().enumerate() {
             if names.of_launch(arg, &[], 4) {
@@ -220,7 +221,7 @@ fn message(r: &ResourceDecl, identity: &[Expr], k: usize) -> String {
         )
     };
     format!(
-        "`{name}`'s kept answer is never shown at launch because `{said}` changes every launch: a store-reading resource's first frame shows the answer kept at the last launch only when its identifying arguments match. Pass it after `with` (`{declaration}`), which still reaches the source but is not counted; {order}",
+        "`{name}`'s kept answer is never shown at launch because `{said}` changes every launch: a store-reading resource's first frame shows the answer kept at the last launch only when its identifying arguments match (LLP 1027 D4). Pass it after `with` (`{declaration}`), which still reaches the source but is not counted; {order}",
         name = r.name,
     )
 }

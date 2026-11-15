@@ -1,5 +1,5 @@
 //! Fieldnotes' backup operation moved from TypeScript to portable Rust.
-//! It preserves the operation, durable data and grants.
+//! @ref LLP 1027.001 — preserve the operation, durable data and grants.
 mod backup;
 
 use exact_data::storage;
@@ -34,8 +34,8 @@ pub struct Backup {
     pending: Option<Pending>,
 }
 
-/// The two source owners of the Fieldnotes application; the Rust one placed,
-/// on `main` or on an owner thread of its own.
+/// The two source owners of the Fieldnotes application; the Rust one placed
+/// (LLP 1027.002 D1), on `main` or on an owner thread of its own.
 pub type Data<J> = exact_data::Mixed<J, exact_data::Placed<Backup>>;
 
 /// The source names the Rust half owns: the composer's list and the bake's.

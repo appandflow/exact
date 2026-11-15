@@ -6,8 +6,9 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
+import { fileURLToPath } from 'node:url';
 
-const root = resolve(new URL('../../..', import.meta.url).pathname);
+const root = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-popflip-'));
 const dist = resolve(dir, 'dist');
 const tries = 'flip-block, flip-inline, flip-block flip-inline';
@@ -26,7 +27,7 @@ const cases = [
   ['bottom span-right', tries, 332, 560, 420, 600, [10, 0, 0, 5]],
   ['bottom span-right', tries, 332, 560, 420, 600, [0, 0, 0, 110]],
   // flip-start, alone and composed in order; a square box, since the width and
-  // height it exchanges are the laid-out size natively.
+  // height it exchanges are the laid-out size natively (LLP 1021 D2).
   ['bottom span-right', 'flip-start flip-block', 8, 500, 420, 600, [0, 0, 0, 0], [120, 120]],
   ['bottom span-right', 'flip-block flip-start', 8, 500, 420, 600, [0, 0, 0, 0], [120, 120]],
   ['bottom span-right', 'flip-start flip-block', 8, 500, 420, 600, [1, 2, 3, 4], [120, 120]],

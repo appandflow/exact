@@ -1,15 +1,16 @@
-//! `lower-width-padding`: a box written `width="100%"`
+//! `lower-width-padding` (LLP 1116.009 D5): a box written `width="100%"`
 //! with horizontal padding or a border, under the default
 //! `box-sizing: content-box`. The percentage is of the content, so the box
 //! is as wide as its parent plus its padding and runs past it, and past the
-//! phone's right side when the parent is the screen: `column padding=24
-//! width="100%"` for a page's body clips the right side of a phone while
-//! `verify` says nothing. The repair is one of two words: drop the width (a block or a
+//! phone's right side when the parent is the screen. Focus-timer and
+//! recipe-finder, round 11, wrote `column padding=24 width="100%"` for a
+//! page's body, which clipped the right side of a phone while `verify` said
+//! nothing. The repair is one of two words: drop the width (a block or a
 //! stretched flex item fills its parent), or say `box-sizing="border-box"`.
 //!
 //! Only what is certain is named. The width is exactly `100%` (a smaller
 //! percentage may fit); the box is a container; its parent takes the
-//! percentage of its own content (a block, or a column: a row's items
+//! percentage of its own content (the window, a block, or a column: a row's items
 //! shrink to fit, a grid's resolve against a cell); a padding or border
 //! that is written with a positive size. A computed value, a `class` the
 //! compiler would have to look through for an unnamed style, a positioned
@@ -20,11 +21,11 @@ use crate::LowerError;
 use contract_syntax::{Attr, Expr, Node, Span, StyleDecl};
 use std::collections::BTreeSet;
 
-/// How a node lays out the children the walk gives it.
+/// How the containing box lays out the children the walk gives it.
 #[derive(Clone, Copy, PartialEq)]
 enum Parent {
-    /// A block, or a column that stretches its items: a child's percentage
-    /// width is of this box's content.
+    /// The window, a block, or a column that stretches its items: a child's
+    /// percentage width is of this box's content.
     Fills,
     /// Anything else, or nothing known: a row, a grid, a component's slot.
     Other,
@@ -196,7 +197,7 @@ fn inset(rows: &[&Attr]) -> bool {
 /// `lower-width-padding` over the whole view.
 pub(super) fn width_padding(view: &[Node], styles: &[StyleDecl], out: &mut Vec<LowerError>) {
     let mut seen = BTreeSet::new();
-    walk(view, Parent::Other, false, styles, &mut seen, out);
+    walk(view, Parent::Fills, false, styles, &mut seen, out);
 }
 
 fn walk(
@@ -232,19 +233,12 @@ fn walk(
                     out,
                 );
             }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                walk(then, parent, in_list, styles, seen, out);
-                walk(otherwise, parent, in_list, styles, seen, out);
-            }
-            Node::Each { body, .. } => walk(body, parent, in_list, styles, seen, out),
-            Node::Match { some, none, .. } => {
-                walk(&some.1, parent, in_list, styles, seen, out);
-                walk(none, parent, in_list, styles, seen, out);
-            }
             Node::Use { children, .. } => walk(children, Parent::Other, in_list, styles, seen, out),
-            Node::Children { .. } => {}
+            node => {
+                for list in node.child_lists() {
+                    walk(list, parent, in_list, styles, seen, out);
+                }
+            }
         }
     }
 }
@@ -292,7 +286,7 @@ fn flag(span: Span, seen: &mut BTreeSet<(u32, u32, u32, u32)>, out: &mut Vec<Low
     });
 }
 
-/// Role text grows with accessibility sizes; px widths do not.
+/// @ref LLP 1116.011 D2.4 — role text grows with accessibility sizes; px widths do not.
 pub(super) fn text_px_width(
     view: &[Node],
     styles: &[StyleDecl],
@@ -625,19 +619,6 @@ fn text_widths(
                     && tag != "dialog"
                     && last(&layout, "popover").is_none()
             }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                let yes = text_widths(then, inherited, context, styles, lowered, seen, out);
-                text_widths(otherwise, inherited, context, styles, lowered, seen, out) || yes
-            }
-            Node::Each { body, .. } => {
-                text_widths(body, inherited, context, styles, lowered, seen, out)
-            }
-            Node::Match { some, none, .. } => {
-                let yes = text_widths(&some.1, inherited, context, styles, lowered, seen, out);
-                text_widths(none, inherited, context, styles, lowered, seen, out) || yes
-            }
             Node::Use { children, .. } => text_widths(
                 children,
                 None,
@@ -647,7 +628,14 @@ fn text_widths(
                 seen,
                 out,
             ),
-            Node::Children { .. } => false,
+            // Every list is walked, so not `any`.
+            node => {
+                let mut yes = false;
+                for list in node.child_lists() {
+                    yes |= text_widths(list, inherited, context, styles, lowered, seen, out);
+                }
+                yes
+            }
         };
     }
     scales

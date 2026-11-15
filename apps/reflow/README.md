@@ -7,8 +7,8 @@ repository).
 
 Pretext has two halves and this app shows both without the library.
 
-- **Text around shapes** is the kernel's (`wrap-flow` / `shape-outside`):
-  the balls, the dragon, the drop caps, the pull quote and the
+- **Text around shapes** is the kernel's (`wrap-flow` / `shape-outside`,
+  LLP 1043.000): the balls, the dragon, the drop caps, the pull quote and the
   picture are exclusions every host flows text around.
 - **Heights before layout** are the data crate's. `data/build.rs` reads every
   glyph advance and `kern` pair the prose can use out of the app's own font

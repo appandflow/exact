@@ -1,4 +1,4 @@
-//! Limited reports: owed rows, lead order, retirement.
+//! Limited reports (@ref LLP 1050.000 §6): owed rows, lead order, retirement.
 use super::*;
 
 #[test]
@@ -258,7 +258,7 @@ fn a_glimpse_builds_its_limit_of_what_shows_nearest_the_middle() {
     );
 }
 
-/// A build-only report then a retire-only one leave the
+/// @ref LLP 1072 §5 — a build-only report then a retire-only one leave the
 /// rows one immediate report leaves, and the build-only one destroys none.
 #[test]
 fn a_build_only_report_then_a_retire_only_one_equal_one_immediate_report() {
@@ -382,8 +382,8 @@ fn a_window_that_leans_keeps_half_a_viewport_behind_its_travel() {
     assert_eq!(rows(true, 0.0), rows(false, 0.0));
 }
 
-/// A report's padding takes effect with it, and only if it is accepted: a
-/// stale report's, or a refused build-only one's, leaves
+/// A report's padding takes effect with it, and only if it is accepted (@ref
+/// LLP 1010 §6.9): a stale report's, or a refused build-only one's, leaves
 /// the padding as the last accepted report left it, and a request after them
 /// aligns within the scroll padding the list's style has.
 #[test]
@@ -700,4 +700,33 @@ fn a_pin_that_changes_while_moving_keeps_the_reports_limit() {
     assert!(h.snapshot().pending);
     // A new pin still retires every row that left the window.
     assert!(now.iter().all(|&i| i >= 105), "{now:?}");
+}
+
+#[test]
+fn a_view_offset_crosses_the_wire_and_rejects_invalid_geometry() {
+    let h = Harness::new(100, false, false);
+    let feedback = h.feedback(1000.0);
+    let fill = CollectionFill {
+        animating: true,
+        view_offset: Some(100.0),
+        ..Default::default()
+    };
+    let bytes = feedback.encode_with(fill).unwrap();
+    assert_eq!(
+        CollectionFeedback::decode_with_fill(&bytes).unwrap(),
+        (feedback.clone(), fill)
+    );
+    for offset in [f64::NAN, f64::INFINITY, f64::MAX] {
+        assert!(feedback
+            .encode_with(CollectionFill {
+                view_offset: Some(offset),
+                ..fill
+            })
+            .is_err());
+        let mut invalid = bytes.clone();
+        let at = invalid.len() - 8;
+        invalid[at..].copy_from_slice(&offset.to_le_bytes());
+        assert!(CollectionFeedback::decode_with_fill(&invalid).is_err());
+    }
+    assert!(CollectionFeedback::decode_with_fill(&bytes[..bytes.len() - 1]).is_err());
 }

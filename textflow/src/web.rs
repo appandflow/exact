@@ -1,10 +1,10 @@
 //! Browser measurement into the shared walker; retained by paragraph id.
-//! Shape math and breaks stay in wasm.
+//! @ref LLP 1043.000 §3 D1, D6, D7 — shape math and breaks stay in wasm.
 //!
 //! `textflow_request(op, id, len)` uses the optional artifact's own input
 //! and JSON output buffers. All numeric input is little endian:
 //! 0 segments: overflow-wrap u32 (0 normal, 1 break-word, 2 anywhere),
-//! white-space u32 (0 normal, 1 pre-wrap, 2 nowrap, 3 pre-line), word count u32, that many
+//! white-space u32 (0 normal, 1 pre-wrap, 2 nowrap, 3 pre-line, 4 pre), word count u32, that many
 //! ascending UTF-16 word boundaries u32 (`Intl.Segmenter`'s between two Thai,
 //! Lao, Khmer or Myanmar letters; others are dropped), UTF-8;
 //! 1 prepare: hyphen f32, then one f32 per returned measurement range;
@@ -28,6 +28,7 @@
 //! query work and I emitted exclusion intervals per band. No history of widths
 //! or frames is retained. Serialization is linear in source/geometry output.
 
+use exact_num::Shortest32;
 use exact_textflow::{FlowOptions, FlowShape, Fragment, Options, OverflowWrap, Prepared};
 use std::{collections::BTreeMap, fmt::Write as _, ops::Range};
 
@@ -348,7 +349,7 @@ impl TextFlow {
                 }
             }
         }
-        // Overload may reserve extra whitespace,
+        // @ref LLP 1043.000 §3 D7 — overload may reserve extra whitespace,
         // never overlap an omitted exclusion. At most 64 shapes reach the walker.
         if let Some((x, y, right, bottom)) = overflow {
             shapes.push(FlowShape::RoundRect {
@@ -392,12 +393,12 @@ impl TextFlow {
                 last.end = source.text.len();
             }
         }
-        let height = result.height;
+        let height = Shortest32(result.height);
         let complete = result.complete;
         let clamped = result.clamped && options.max_lines < MAX_BANDS;
         let mut out = format!(
             "{{\"height\":{height},\"line_height\":{},\"complete\":{complete},\"clamped\":{clamped},\"shapes\":[",
-            options.line_height
+            Shortest32(options.line_height)
         );
         for (i, shape) in shapes.iter().enumerate() {
             if i > 0 {
@@ -431,7 +432,7 @@ impl TextFlow {
             let (start, end) = (paint_range.start, paint_range.end);
             let hyphenated = f.hyphenated;
             let _ = write!(out, "{{\"start\":{},\"end\":{},\"utf16_start\":{},\"utf16_end\":{},\"paint_start\":{},\"paint_end\":{},\"x\":{},\"y\":{},\"width\":{},\"available\":{},\"line\":{},\"hyphenated\":{hyphenated}}}",
-                f.start, f.end, source.utf16[f.start], source.utf16[f.end], source.utf16[start], source.utf16[end], f.x, f.y, f.width, available, f.line);
+                f.start, f.end, source.utf16[f.start], source.utf16[f.end], source.utf16[start], source.utf16[end], Shortest32(f.x), Shortest32(f.y), Shortest32(f.width), Shortest32(available), f.line);
         }
         out.push_str("]}");
         Ok(out)

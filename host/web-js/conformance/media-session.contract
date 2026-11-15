@@ -1,5 +1,5 @@
 // data: video-player
-// Synthetic conformance plan: the media session. Two
+// Synthetic conformance plan: the media session (LLP 1098 §5). Two
 // claimants and a non-claimant: the owner by mount (the later in the
 // document of one commit), the metadata and an artwork the page resolves,
 // the offered actions; the six landing in state with and without seconds;

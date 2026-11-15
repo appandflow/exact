@@ -1,13 +1,14 @@
-//! Real Chrome coverage of the shipped Fieldnotes web app on its placement:
-//! the notebook drive, then the frame gaps
+//! Real Chrome coverage of the shipped Fieldnotes web app on its placement
+//! (LLP 1027.002 §5 steps 4 and 5): the notebook drive, then the frame gaps
 //! the page's main thread shows while a backup of 1,000 notes runs beside
 //! wheel scrolling, judged against the display's own frame interval, at 1×
 //! and 4× CPU throttling. Needs `CHROME` and a Fieldnotes `host/web/dist`
 //! built as the dev loop builds it (`EXACT_WEB_LINK=all bun
 //! host/web/build.mjs fieldnotes`; `EXACT_FIELDNOTES_DIST`, else `EXACT_WEB_DIST`,
 //! names another); skips otherwise, or fails under `EXACT_REQUIRED=1`. The drive swaps the module generation, the dev loop's module
-//! swap: a shipped TypeScript client takes no module replacement. The numbers are reported, not asserted:
-//! the bar is judged on a named device.
+//! swap: a shipped TypeScript client takes no module replacement (LLP 1047
+//! D6, D7). The numbers are reported, not asserted: the bar is the RFC's to
+//! judge, on a named device.
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -113,7 +114,7 @@ try {
   const placement = await evaluate('globalThis.exact.compat.inputs.typescriptPlacement');
   const rustPlacement = await evaluate('globalThis.exact.compat.inputs.rustPlacement');
   console.log(JSON.stringify({ placement, rustPlacement, boot: await state() }));
-  // The notebook drive: save, back up, restore.
+  // The notebook drive (LLP 1027.002 §5 step 4): save, back up, restore.
   await type('note-title', 'Field 🌿 東京');
   await type('note-body', 'Placed on ' + placement + '\nCafé, naïve, 🦀');
   await tap('save-note');
@@ -133,7 +134,7 @@ try {
   const restored = await state();
   assert.equal(restored.status, 'Restored 1000 notes.', JSON.stringify({ seeded, restored }));
   assert.match(restored.count, /^1000 notes/);
-  // The frame-gap sampler: every animation frame's
+  // The frame-gap sampler (LLP 1027.002 §5 step 5): every animation frame's
   // distance from the previous one, on the page's main thread.
   await evaluate(`(()=>{const s=globalThis.__gaps={samples:[],last:performance.now(),on:true};const f=t=>{if(!s.on)return;s.samples.push(t-s.last);s.last=t;requestAnimationFrame(f);};requestAnimationFrame(f);})()`);
   const take = () => evaluate('(()=>{const s=globalThis.__gaps.samples.splice(0);return s;})()');
@@ -185,10 +186,12 @@ try {
   await evaluate('globalThis.__gaps.on=false');
   console.log(JSON.stringify({ frame_gaps: report }));
   // The app permits this much stored text even though a backup is capped at
-  // 4 MiB. Seed via the real browser SQLite service, then reopen through UI.
+  // 4 MiB. Seed via the real browser SQLite service, under the grant set the
+  // host admitted from the app's declaration (a parsed set, never its text),
+  // then reopen through UI.
   await evaluate(`(async()=>{
     const {createSqlite}=await import('/storage-sqlite.js');
-    const sql=createSqlite('com.exact.fieldnotes','sqlite.open app:/data/fieldnotes.db');
+    const sql=createSqlite('com.exact.fieldnotes',(await import('/glue.js')).host.grantSet);
     const db=await sql.open('app:/data/fieldnotes.db');
     try {await db.execute('UPDATE notes SET body=?',['🌿'.repeat(9998)+'ÉΣKx']);}
     finally {await db.close();sql.dispose();}
@@ -229,7 +232,7 @@ try {
   // and the following whitespace must collapse before the visible suffix.
   await evaluate(`(async()=>{
     const {createSqlite}=await import('/storage-sqlite.js');
-    const sql=createSqlite('com.exact.fieldnotes','sqlite.open app:/data/fieldnotes.db');
+    const sql=createSqlite('com.exact.fieldnotes',(await import('/glue.js')).host.grantSet);
     const db=await sql.open('app:/data/fieldnotes.db');
     try {await db.execute('UPDATE notes SET body=?',[String.fromCharCode(0)+'\u2003'.repeat(19998)+'x']);}
     finally {await db.close();sql.dispose();}
@@ -253,8 +256,8 @@ try {
 }
 "#;
 
-/// A prerequisite this run lacks: skipped, and a failure under EXACT_REQUIRED=1
-/// (scripts/coverage.mjs).
+/// A prerequisite this run lacks: skipped, and a failure under EXACT_REQUIRED=1,
+/// which the async lane sets (scripts/coverage.mjs).
 fn missing(kind: &str, why: &str) {
     assert_ne!(
         std::env::var("EXACT_REQUIRED").as_deref(),

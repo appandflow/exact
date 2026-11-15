@@ -1,4 +1,4 @@
-// Synthetic conformance plan: HTML's `tabindex` is the
+// Synthetic conformance plan (LLP 1088 D7.3): HTML's `tabindex` is the
 // attribute on both renderers. A plain box with `tabindex=0` and no handler
 // is a Tab stop; a positive value goes first; `-1` is focusable by a click
 // but Tab skips it, a key handler's node included; absent is never `0`; a

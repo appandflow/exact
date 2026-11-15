@@ -1,5 +1,5 @@
-//! `sequence NAME when COND [key=EXPR]` holding one `play(tracks, bpm=…)`:
-//! what should play, declared as a value the runner expands
+//! `sequence NAME when COND [key=EXPR]` holding one `play(tracks, bpm=…)`
+//! (LLP 1125 D2): what should play, declared as a value the runner expands
 //! into its voice table a second ahead.
 
 use crate::ast::Expr;

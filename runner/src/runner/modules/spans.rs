@@ -1,6 +1,6 @@
 //! A device a call names, a send answered after a span, and a list whose
-//! changes are events: forms of the declared substitute that a
-//! module with devices of its own declares:
+//! changes are events: forms of the declared substitute (§6) that a
+//! module with devices of its own declares (LLP 1133.022 D10 item 3, §9):
 //!
 //! - **`"of"`**: `{"source", "list", "key", "current", "missing", "lacks",
 //!   "needs"}`. The call names an entry of a sibling source's list by its

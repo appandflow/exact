@@ -139,8 +139,8 @@ fn compile_sweep_root(
     let staged = Staged(dir);
     std::fs::copy(path, staged.0.join("app.contract")).unwrap();
     std::fs::copy(
-        path.with_file_name("dials.tamber"),
-        staged.0.join("app.tamber"),
+        path.with_file_name("dials.forma"),
+        staged.0.join("app.forma"),
     )
     .unwrap();
     let result = contract::compile_path_mapped(&staged.0.join("app.contract"));

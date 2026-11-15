@@ -1,5 +1,5 @@
 //! Admission of one producer result, before creating its engine.
-//! First frame is data; plan and module travel together.
+//! @ref LLP 1027 D4/D7 — first frame is data; plan and module travel together.
 
 use crate::{Module, ABI, BYTECODE_VERSION};
 use exact_plan::Plan;
@@ -45,7 +45,7 @@ impl Paired {
         Ok(Self { plan, module })
     }
     /// Admit bytecode from an already pinned widget generation without decoding
-    /// the running app's plan. The generation pairs all its entry plans.
+    /// the running app's plan. The generation pairs all its entry plans (D8).
     pub(crate) fn module(
         receipt: &str,
         bytecode: impl AsRef<[u8]> + Into<Bytecode>,

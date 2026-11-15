@@ -1,5 +1,5 @@
-//! HTML's table and description list are their elements on the web:
-//! the browser's table layout and UA sheet, a cell's attributes
+//! HTML's table and description list are their elements on the web (LLP
+//! 1153 D7.2): the browser's table layout and UA sheet, a cell's attributes
 //! the DOM's, and no `display` of the host's on any of them.
 
 use exact_web::Host;
@@ -111,7 +111,7 @@ fn a_table_and_a_description_list_are_their_elements() {
     );
 }
 
-/// The page rendered ahead is the DOM the runtime builds:
+/// The page rendered ahead (LLP 1048.000) is the DOM the runtime builds:
 /// the rows a table holds directly are in the `tbody` the plan has, where
 /// HTML's parser would put them, and a cell or caption holding one text
 /// keeps the display HTML's UA sheet gives it.

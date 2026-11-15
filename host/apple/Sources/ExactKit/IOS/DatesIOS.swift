@@ -1,11 +1,11 @@
-// `input type="date|time|datetime-local"` is a
+// @ref LLP 1069.001 D5 — `input type="date|time|datetime-local"` is a
 // `UIDatePicker` in its compact style: the value in place, the calendar or
 // wheel on a tap, formatted in the reported locale. HTML's values carry no
 // zone, so the picker reads and writes them at UTC and never converts; a
 // choice is HTML's `input` then `change`. The bound value is written into it
 // when it changes, as the web build writes an input's `value`: an action
 // that has not written it yet (a `send` whose reply is in flight) leaves the
-// person's choice showing.
+// person's choice showing (x2apps kanban2 #5).
 #if os(iOS)
 import UIKit
 
@@ -22,10 +22,20 @@ extension ControlHost {
 
     /// The compact picker opens its calendar or wheel: the press's focus
     /// decision, as a press elsewhere makes it, so the text editing under way
-    /// ends and the keyboard does not stay behind the popover.
+    /// ends and the keyboard does not stay behind the popover (LLP 1116.019 D5).
     @objc func dateBegan(_ picker: UIDatePicker) {
         guard let owner = presenter.views[UInt32(picker.tag)] else { return }
         owner.focusForPress(target: owner)?.dispatched()
+        // What a tap requires once its own callback has run (`activate`):
+        // the focus handler may have replaced, detached or disabled the picker.
+        guard let picker = picker as? BoundDatePicker, picker.empty,
+              presenter.views[owner.id] === owner, controls[owner.id] === picker,
+              picker.window != nil, picker.isEnabled, !owner.disabled, !owner.inert,
+              let kind = kinds[owner.id] else { return }
+        // UIKit sends no valueChanged for a tap on the selected day. Accept
+        // the initial value on opening an empty picker, as Safari does.
+        picker.setDate(DateValue.initial(kind, minimum: picker.minimumDate, maximum: picker.maximumDate), animated: false)
+        dateChanged(picker)
     }
 
     func configureDate(_ picker: UIDatePicker, _ owner: NodeView) {
@@ -41,8 +51,7 @@ extension ControlHost {
         }
         let value = DateValue.parse(kind, bound)
         // No date is a state a picker cannot show: it is recorded, and read
-        // back as "" until a value is applied or chosen (b6 review B7; the
-        // Mac's `DateField.empty`).
+        // back as "" until a value is applied or the picker opens.
         (picker as? BoundDatePicker)?.empty = value == nil
         if let value, picker.date != value {
             picker.setDate(value, animated: false)
@@ -57,7 +66,7 @@ extension ControlHost {
         if let owner = presenter.views[id] { configureDate(picker, owner) }
     }
 
-    /// The agent's `type <id> <value>`: the value a pick reports, in
+    /// The agent's `type <id> <value>` (D9): the value a pick reports, in
     /// HTML's format; the runner holds it to the format and `min`/`max`.
     func typeDate(_ picker: UIDatePicker, _ node: NodeView, _ text: String) -> [String: Any] {
         let kind = kinds[node.id] ?? "date"
@@ -76,7 +85,8 @@ extension ControlHost {
         if let owner = presenter.views[node.id] { configureDate(picker, owner) }
         // What it shows, as the web's reply says: the choice, or what the
         // action wrote over it.
-        return ["typed": Int(node.id), "value": DateValue.shown(kind, picker), "delivery": "host-activation", "native": "control"]
+        let shown = (picker as? BoundDatePicker)?.empty == true ? "" : DateValue.shown(kind, typed: text, picker.date)
+        return ["typed": Int(node.id), "value": shown, "delivery": "host-activation", "native": "control"]
     }
 }
 
@@ -86,11 +96,11 @@ extension ControlHost {
 /// 2026-10-08). Its own content is masked out, still taking the tap that
 /// opens the calendar, under the platform's pill, in the same system
 /// fill, which holds the author's `placeholder` in the placeholder colour
-/// and, with none, no words at all: a date format there
+/// and, with none, no words at all (LLP 1115.000 D13.1): a date format there
 /// (Chrome's `mm/dd/yyyy`, or the locale's own) is a browser's empty field
 /// drawn on a control that has none. The pill is layers, not a view, so it
 /// takes no touch and no part in Auto Layout or the picker's measured size.
-/// Opening it starts at today, and only a choice commits it.
+/// Opening an empty picker accepts the wall clock's value within its bounds.
 final class BoundDatePicker: UIDatePicker {
     var applied: String?
     /// The author's `placeholder`, "" when there is none.
@@ -109,24 +119,40 @@ final class BoundDatePicker: UIDatePicker {
     /// each of UIKit's, kept while that element lives so VoiceOver's cursor
     /// stays on one (`EmptyDateElement`).
     private var standIns: [EmptyDateElement] = []
+    /// What UIKit declares as the picker's elements, before any of Exact's
+    /// stand in; UIKit's answer may ask this picker again meanwhile.
+    private var readingDeclared = false
+    private func declared() -> [NSObject] {
+        readingDeclared = true
+        defer { readingDeclared = false }
+        return declaredElements(super.accessibilityElements, count: super.accessibilityElementCount(), at: { super.accessibilityElement(at: $0) })
+    }
     private func emptyElements() -> [EmptyDateElement] {
-        let natives = nativeAccessibilityElements()
+        let natives = nativeAccessibilityElements(declared: declared())
         standIns = natives.map { native in standIns.first { $0.native === native } ?? EmptyDateElement(standingFor: native, in: self) }
         return standIns
     }
+    /// Inside a placed canvas child, UIKit's parts are stood in for at the
+    /// frames the surface draws them at (PlacedAccessibilityIOS.swift).
+    private let placedParts = PlacedStandIns()
+    /// Exact's elements, when any stand in for UIKit's.
+    private func ownElements() -> [UIAccessibilityElement]? {
+        if readingDeclared { return nil }
+        if empty { return emptyElements() }
+        return placedParts.elements(of: self, declared: declared)
+    }
     override var accessibilityElements: [Any]? {
-        get { empty ? emptyElements() : super.accessibilityElements }
+        get { ownElements() ?? super.accessibilityElements }
         set { super.accessibilityElements = newValue }
     }
-    override func accessibilityElementCount() -> Int { empty ? emptyElements().count : super.accessibilityElementCount() }
+    override func accessibilityElementCount() -> Int { ownElements()?.count ?? super.accessibilityElementCount() }
     override func accessibilityElement(at index: Int) -> Any? {
-        guard empty else { return super.accessibilityElement(at: index) }
-        let elements = emptyElements()
+        guard let elements = ownElements() else { return super.accessibilityElement(at: index) }
         return elements.indices.contains(index) ? elements[index] : nil
     }
     override func index(ofAccessibilityElement element: Any) -> Int {
-        guard empty else { return super.index(ofAccessibilityElement: element) }
-        return emptyElements().firstIndex { $0 === element as AnyObject } ?? NSNotFound
+        guard let elements = ownElements() else { return super.index(ofAccessibilityElement: element) }
+        return elements.firstIndex { $0 === element as AnyObject } ?? NSNotFound
     }
     /// A choice ends the empty state while VoiceOver's cursor may be on one
     /// of Exact's elements, which then go: the cursor moves to UIKit's.

@@ -1,8 +1,8 @@
-//! MIDI in the runner's commits: what a host reports of
+//! MIDI in the runner's commits (LLP 1125 D6–D8): what a host reports of
 //! the ports re-answers `exactMIDI`'s readers in one commit, as a page fact
 //! does; a host delivery of input messages is coalesced, and each message
 //! is dispatched to every mounted element that hears its input, one commit
-//! per element in tree order, at the same instant; the queue's
+//! per element in tree order, at the same instant (rulings #1); the queue's
 //! ops go to the host through [`Runner::take_midi`].
 
 use super::{CommitReceipt, DataError, DataSource, Event, Runner, RunnerError};
@@ -26,7 +26,7 @@ pub(super) fn queue<D: DataSource>(plan: &exact_plan::Plan, data: &D) -> Midi {
     midi
 }
 
-/// Whether `data` is one whole message clock in reads:
+/// Whether `data` is one whole message clock in reads (LLP 1125 D9):
 /// Timing Clock, Start, Continue, Stop, or Song Position.
 fn clock_message(data: &[u8]) -> bool {
     match data {
@@ -36,7 +36,7 @@ fn clock_message(data: &[u8]) -> bool {
     }
 }
 
-/// What a `midimessage` handler's action hears: Web MIDI's
+/// What a `midimessage` handler's action hears (LLP 1125 D8): Web MIDI's
 /// `MIDIMessageEvent`, with the input, runner time and the transport's beat.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MidiMessage {
@@ -86,7 +86,7 @@ impl<D: DataSource> Runner<D> {
     /// `exactMIDI()`'s answer, by the declared fields and, in its port
     /// lists, the `MIDIPort` shape's.
     pub(super) fn midi_answer(&self, i: usize) -> Result<Value, DataError> {
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i);
         if row.args.len > 0 {
             return Err(DataError::BadArguments(format!(
                 "{SOURCE} takes no arguments"
@@ -129,7 +129,7 @@ impl<D: DataSource> Runner<D> {
         Ok(Value::record(fields))
     }
 
-    /// What a host reported of the ports: when `exactMIDI`
+    /// What a host reported of the ports (LLP 1125 D6): when `exactMIDI`
     /// changed, its readers are asked again in one commit.
     pub fn set_midi(&mut self, ports: Ports) -> Result<Option<CommitReceipt>, RunnerError> {
         let mut lines = Vec::new();
@@ -188,7 +188,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The inputs the mounted listeners name, each once, in tree order, then
-    /// the input a sequence follows, opened with or without a
+    /// the input a sequence follows (LLP 1125 D9), opened with or without a
     /// listener.
     pub fn midi_inputs(&self) -> Vec<String> {
         let mut open: Vec<String> = Vec::new();
@@ -216,14 +216,14 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// What MIDI does since the last take: sends and retractions, the
-    /// inputs to open, a request.
+    /// inputs to open, a request (LLP 1125 D7).
     pub fn take_midi(&mut self) -> Vec<crate::midi::MidiOp> {
         self.midi_open();
         self.midi.take()
     }
 
-    /// One host delivery of input messages: the followed input's clock
-    /// and transport messages to the transport first, in arrival order,
+    /// One host delivery of input messages (D8): the followed input's clock
+    /// and transport messages to the transport first, in arrival order (D9),
     /// then the delivery coalesced and each message dispatched, in arrival
     /// order, to every element that hears its input, a commit each; one no
     /// element hears is dropped unrecorded. A refusal does not stop the rest
@@ -341,7 +341,7 @@ impl<D: DataSource> Runner<D> {
         Ok(self.midi_input(batch))
     }
 
-    /// The agent's MIDI: `{"op":"prefer","midi":{"state"?,
+    /// The agent's MIDI (LLP 1125 §4): `{"op":"prefer","midi":{"state"?,
     /// "inputs"?, "outputs"?}}`, the ports a request finds, by name; and
     /// `{"op":"midi","input":…,"data":[…]}`, a message from that input now
     /// (`tap midi`). `None` for any other request; else the receipts and
@@ -408,7 +408,7 @@ impl<D: DataSource> Runner<D> {
     /// and a mounted element hears it or a sequence follows it. With
     /// `"clock":[[stamp, byte, (lsb, msb)?]…]` instead (the driver's `tap
     /// midi "<input>" clock <bpm> <ms>`, a slice at a time), one delivery of
-    /// clock and transport messages at those stamps.
+    /// clock and transport messages at those stamps (LLP 1125 D9).
     fn midi_tap(&mut self, v: &serde_json::Value) -> (Vec<CommitReceipt>, Result<String, String>) {
         let input = v.get("input").and_then(|i| i.as_str()).unwrap_or("");
         if let Some(list) = v.get("clock") {

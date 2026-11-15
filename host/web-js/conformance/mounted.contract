@@ -1,7 +1,7 @@
 // Values a node is mounted with: a select's (constant, bound, and one whose
-// option comes in the same commit) is its option's `value`, shown at once;
-// a scroller's `scrollTop` and `scrollLeft`, constant or bound, at
-// boot and in a commit that mounts it, are where it opens. A
+// option comes in the same commit) is its option's `value`, shown at once
+// (calendar diary F6); a scroller's `scrollTop` and `scrollLeft`, constant or bound, at
+// boot and in a commit that mounts it, are where it opens (calendar diary F8). A
 // branch that replaces a select's options with equal values keeps its value shown.
 component Mounted
   state pick = "b"

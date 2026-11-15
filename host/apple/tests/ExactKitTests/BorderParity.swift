@@ -3,7 +3,7 @@ import ImageIO
 import XCTest
 @testable import ExactKit
 
-/// Per-side border colours as the node view paints them, held
+/// LLP 1053 G2: per-side border colours as the node view paints them, held
 /// to Chrome's pictures of the parity page (`scripts/fixtures/borders.contract`,
 /// the web host at 1×): each case's box, over the page's colour, within an
 /// antialiasing band. The styles are what the host's Rust side sends for

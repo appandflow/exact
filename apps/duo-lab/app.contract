@@ -1,17 +1,21 @@
 use ArrangementScreen from "./arrangement.contract"
+use ArrangementView, ArrangementSettings from "./arrangement-view.contract"
 
-// Duo Lab: the first consumer of `device-posture` and the
+// Duo Lab (LLP 1078 D8): the first consumer of `device-posture` and the
 // viewport segments, and the iPhone Duo's stress fixture — what
 // `bun scripts/smoke.mjs duo` drives fully open, partially folded and closed.
 //
 // Fold reads the three fields `exactViewport` gained and lays two panes on the segments with `env(viewport-segment-*)`,
 // the fold band empty between them. Images is a virtualized list of a few
 // hundred image rows over four bundled PNGs (the raster budget's stress).
-// Reflow is one long Markdown document and a dense feed (the text caches'
-// stress from 951 to 466 points and back). Combinations pushes a route with
+// Reflow is a long Markdown document, one text per block
+// (docs/recipes/long-text.md), and a dense feed (the text caches' stress from
+// 951 to 466 points and back). Combinations pushes a route with
 // an absolutely positioned sheet holding a textarea, so keyboard + sheet +
 // pushed screen + fold is one sequence of taps. Keyboard adds physical-device
 // checks with an app-local geometry recorder and a native share sheet.
+// Arrangement is a UIKit app's arrangement screen: two scrolling panes in a
+// `UIArrangementViewController`, with the bar's options.
 
 routes nav
   tab fold "/"
@@ -25,8 +29,10 @@ routes nav
     keyboard-editor "/keyboard/editor"
     keyboard-form "/keyboard/form"
     keyboard-search "/keyboard/search"
+  tab arrangement "/arrangement"
+    arrangement-next "/arrangement/:depth"
 
-// The web's vocabulary, exactly: two postures, two counts.
+// The web's vocabulary, exactly (LLP 1078 D1, D2): two postures, two counts.
 shape Viewport
   width: number
   height: number
@@ -37,13 +43,16 @@ shape Item
   id: number
   title: string
   summary: string
-  body: string
+  body: string[]
 shape ImageRow
   id: number
   asset: string
   caption: string
+shape Block
+  id: number
+  text: string
 shape Document
-  body: string
+  blocks: Block[]
 shape FeedRow
   id: number
   who: string
@@ -73,7 +82,7 @@ style ReadingBody
   padding-bottom=16
   padding-left="max(calc(env(-exact-safe-area-corners-inset-left) + 16px), env(-exact-readable-content-corners-inset-left))"
   padding-right="max(calc(env(-exact-safe-area-corners-inset-right) + 16px), env(-exact-readable-content-corners-inset-right))"
-// The safe area kept clear of the panel's rounded corners
+// The safe area kept clear of the panel's rounded corners (LLP 1123 D10)
 style Safe
   box-sizing="border-box"
   padding-top="env(-exact-safe-area-corners-inset-top)"
@@ -122,6 +131,8 @@ component DuoLab
   resource doc = document() as shape Document
   resource feed = feed() as shape FeedRow[]
   resource keyboardRows = keyboardRows() as shape KeyboardRow[]
+  // The settings an Arrangement screen starts with: those the last Next carried, else the defaults
+  state arrangementSeed = ArrangementSettings(layout="split", titleDisplay="automatic", barMinimization="automatic", safeAreaAdjustment="automatic", contentScroll="automatic")
   // Shared across the Fold screen's two layouts: a fold mid-reading keeps the item.
   state selected = 1
   state title = ""
@@ -162,10 +173,16 @@ component DuoLab
     nav = push(nav, path("note"))
   action openPanesNext
     nav = push(nav, path("panes-next"))
+  action openArrangement(settings: ArrangementSettings, depth: number)
+    arrangementSeed = settings
+    nav = push(nav, path("arrangement-next", depth))
   action back
     nav = back(nav)
+  // A location on the shown tab moves through its stack, back to a screen already there for the
+  // platform's Back; one of another tab opens on that tab, where this view draws its screens
   action navigate(location: string)
-    nav = open(nav, location)
+    let opened = open(nav, location)
+    nav = opened.tab == nav.tab ? go(nav, location) : opened
   action writeTitle(value: string)
     title = value
   action write(value: string)
@@ -215,7 +232,7 @@ component DuoLab
       column flex=1 min-height=0 position="relative"
         for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
-            for entry in t.stack key=entry.id
+            for entry, i in t.stack key=entry.id
               if t.name == "keyboard"
                 column navigationKey=`${entry.id}` navigationScroll=`keyboard-scroll-${entry.id}` id=`keyboard-route-${entry.id}` hatch="keyboard-route" data-keyboard-screen=entry.name data-focus-on-show=(entry.name == "keyboard-editor" ? "keyboard-editor" : entry.name == "keyboard" and returnFocus ? "keyboard-return" : "") class=Screen background-color=((entry.name == "keyboard" or entry.name == "keyboard-form") ? "-exact-grouped-background" : "Canvas") testId=`screen-${entry.name}`
                   header class=Head display="flex" align-items="center" gap=8
@@ -300,7 +317,7 @@ component DuoLab
               // UIKit's navigation bar, whose large title UIKit takes away as the
               // scroller immediately following the header moves. Fold, Combinations
               // and the note screen draw their own headers, which move with their
-              // panes when the device folds.
+              // panes when the device folds (LLP 1115.000 D5.2).
               if entry.name == "images"
                 column navigationKey=`${entry.id}` navigationScroll="image-list" class=Screen testId="screen-images"
                   header class=Head
@@ -317,7 +334,11 @@ component DuoLab
                     text "Reflow" role="heading" aria-level=1 testId="reflow-title"
                   scroll id="reflow-scroll" flex=1 min-height=0 width="100%" box-sizing="border-box" testId="reflow-scroll"
                     column class=ReadingBody gap=16
-                      text doc.body markup="markdown" testId="document" width="100%" font-size=17 line-height="26px"
+                      // The gap is the blank line one Markdown text would leave between
+                      // these blocks: one line of its 26px line height.
+                      column testId="document" width="100%" gap=26
+                        for block in doc.blocks key=block.id
+                          text block.text markup="markdown" width="100%" font-size=17 line-height="26px"
                       text "Feed" font-size=22 font-weight=700 testId="feed-title"
                       for post in feed key=post.id
                         row gap=10 class=Card testId=`feed-${post.id}`
@@ -328,18 +349,20 @@ component DuoLab
                   ArrangementScreen(routeKey=`${entry.id}`, routeName=entry.name, prefix="panes", title="Panes", nextTitle="Next", openNext=openPanesNext, nativeArrangement=paneSupport.available)
                 else
                   ArrangementScreen(routeKey=`${entry.id}`, routeName=entry.name, prefix="pushed", title="Pushed panes", nextTitle="Back", openNext=back, nativeArrangement=paneSupport.available)
-              if entry.name != "images" and entry.name != "reflow" and t.name != "keyboard" and t.name != "panes"
+              if t.name == "arrangement"
+                ArrangementView(routeKey=`${entry.id}`, depth=(match parseNumber(entry.params.depth) { case some(n) => n, case none => i + 1 }), native=paneSupport.available, seed=arrangementSeed, openNext=openArrangement)
+              if entry.name != "images" and entry.name != "reflow" and t.name != "keyboard" and t.name != "panes" and t.name != "arrangement"
                 column navigationKey=`${entry.id}` navigationBar="none" class=Screen testId=`screen-${entry.name}`
                   if entry.name == "fold"
                     // Two segments across: the list on the first, the detail on the
                     // second, each inset on its own side by the safe area kept clear
-                    // of the panel's corners; two down
+                    // of the panel's corners (LLP 1123 D10); two down
                     // (the Duo's inner panel upright): the list on the upper, the
                     // detail on the lower. A pane reaching the bottom ends where the
                     // route does: under UIKit's tab bar along the bottom by the home
                     // indicator's inset, which its padding takes; at the bottom beside
                     // UIKit's rail; above the web's tablist. The band
-                    // belongs to neither; one segment stacks the panes.
+                    // belongs to neither (LLP 1078 D1, D3); one segment stacks the panes.
                     if twoAcross
                       column testId="pane-list" width="env(viewport-segment-width 0 0)" height="100%" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)"
                         Facts(viewport=viewport)
@@ -378,7 +401,7 @@ component DuoLab
                     // header and on the lower segment, where Apple's talk puts controls, down to the
                     // route's end: the viewport's bottom, as this screen hides the tab bar. The
                     // keyboard covers that segment and ends the route above it; the segment keeps its
-                    // top, 0 tall (the keyboard). The step `(segment top - 100%) * 1000`,
+                    // top, 0 tall (LLP 1078, the keyboard). The step `(segment top - 100%) * 1000`,
                     // at most zero while the route reaches the segment and past any cap once it ends
                     // a point or more above it, then lifts the segment's cap, and the sheet riding
                     // the keyboard takes the room below the header.
@@ -415,6 +438,9 @@ component DuoLab
         button role="tab" aria-controls="panel-keyboard" aria-selected=(nav.tab == "keyboard") press=selectTab("keyboard") testId="tab-keyboard" flex=1
           image "symbol:icon.keyboard"
           text "Keyboard"
+        button role="tab" aria-controls="panel-arrangement" aria-selected=(nav.tab == "arrangement") press=selectTab("arrangement") testId="tab-arrangement" flex=1
+          image "symbol:icon.split"
+          text "Arrange"
 
 // The three facts and the viewport, printed so a screenshot is its own evidence.
 component Facts
@@ -460,4 +486,6 @@ component Detail
           if item.id == selected
             text item.title font-size=24 font-weight=700 testId="detail-title"
             text item.summary font-size=15 color="-exact-secondary-label"
-            text item.body font-size=16 line-height="24px" testId="detail-body"
+            column gap=12 testId="detail-body"
+              for paragraph, i in item.body key=i
+                text paragraph font-size=16 line-height="24px"

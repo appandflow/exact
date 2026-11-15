@@ -33,6 +33,9 @@ test('a signalled leg resumes, collecting exit 3, and publishes byte-identical f
     const expected = readFileSync(pinFile,'utf8');
     expect(JSON.parse(expected).profiles).toEqual(['gpu-dev']);
     expect(Object.keys(JSON.parse(readFileSync(resolve(first.root,'legs.json'))).legs)).toHaveLength(7);
+    // A repeated --hosts adds its hosts, so naming one twice is refused like any repeated host.
+    const repeated = await run(['--hosts','linux','--hosts','linux']);
+    expect(repeated.code).not.toBe(0); expect(repeated.text).toContain('distinct proof hosts');
     const drift = await run(['--repin', '--release'], {RELEASE_DRIFT:'1'});
     expect(drift.code).toBe(1);
     expect(drift.text).toContain('release proof missing, failed, or disagrees with gpu-dev');

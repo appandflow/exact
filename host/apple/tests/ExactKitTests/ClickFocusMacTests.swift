@@ -1,8 +1,8 @@
-// On the Mac a click on a button, a pressable or the window's ground leaves
-// the first responder where it is: `retainFocus` is the default. A field
-// keeps its editor and caret, its pending `change` committed before the
-// press acts. A box the author made a taker of keys still takes a click's
-// focus, and `focus()` still moves it.
+// @ref LLP 1115.000 D7.1 — on the Mac a click on a button, a pressable or
+// the window's ground leaves the first responder where it is: `retainFocus`
+// is the default. A field keeps its editor and caret, its pending `change`
+// committed before the press acts. A box the author made a taker of keys
+// still takes a click's focus, and `focus()` still moves it.
 #if os(macOS)
 import AppKit
 import XCTest

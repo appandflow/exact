@@ -70,7 +70,7 @@ test("ordinary exact-origin sessions still reach a held callback", async () => {
   expect(await pending).toBe(callback);
 });
 
-test("a loopback callback answers as the runner's arm does on the web", async () => {
+test("a loopback callback answers as the runner's arm does on the web (LLP 1133.005 D9)", async () => {
   globalThis.location = { origin: "http://localhost:8080" };
   clock.agent = true;
   install("auth.session https://login.example.com\nauth.callback http://127.0.0.1/oauth/loopback", () => "login");
@@ -80,7 +80,7 @@ test("a loopback callback answers as the runner's arm does on the web", async ()
     const loopback = await failed(callback);
     expect([loopback.status, loopback.message]).toEqual([501, "a page cannot listen"]);
   }
-  // Not granted, or not a loopback callback's form (a port `Host` would not carry as written): the grants refuse it first.
+  // Not granted, or not D9's form (a port `Host` would not carry as written): the grants refuse it first.
   for (const callback of ["http://127.0.0.1:4332/other", "http://127.0.0.1:80/oauth/loopback", "http://127.0.0.1:04332/oauth/loopback", "http://localhost:4332/oauth/loopback"])
     expect((await failed(callback)).status).toBe(403);
   // The page's own callback on a loopback development origin is held as ever.
@@ -98,4 +98,16 @@ test("a state outside the BMP is matched whole, as auth.rs decodes it", async ()
   const [hold] = holds();
   answer({ ticket: hold.ticket, op: "type", text: "https://app.example/cb?code=c&state=s😀" });
   expect(await pending).toBe("https://app.example/cb?code=c&state=s😀");
+});
+
+test('auth grants trim Rust whitespace and keep FEFF as part of a declaration', async () => {
+  globalThis.location = { origin: 'https://app.example' };
+  clock.agent = true;
+  install('\u0085auth.session https://login.example\u0085\nauth.callback https://app.example/cb', () => 'login');
+  const pending = openAuthSession('https://login.example/authorize', { callback: 'https://app.example/cb', state: 's' });
+  expect(holds()).toHaveLength(1);
+  answer({ ticket: holds()[0].ticket, op: 'tap', choice: 'cancel' });
+  await expect(pending).rejects.toMatchObject({ status: 499 });
+  install('\ufeffauth.session https://login.example\nauth.callback https://app.example/cb', () => 'login');
+  await expect(openAuthSession('https://login.example/authorize', { callback: 'https://app.example/cb', state: 's' })).rejects.toMatchObject({ status: 403 });
 });

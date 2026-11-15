@@ -1,18 +1,19 @@
-// @exact/pedometer on Android: Google Play services' Recording API where it is current,
+// @exact/pedometer on Android (LLP 1133.026 D12, D15, D17): Google Play services' Recording API where it is current,
 // with the step counter between reads, else the step counter alone. Under the agent the runner's declared substitute
 // answers and nothing here runs.
 //
-// - The Recording API records steps for an app that is not running, "for up to 10 days". The first granted
-//   request subscribes to `TYPE_STEP_COUNT_DELTA`; each answer is its total from the group's boundary to now (one
-//   bucket), plus the step counter's increase since that read while the app is in the foreground, so the line moves
-//   step by step. `since` is the latest of `start`, the subscription's start and ten days back: no read is issued from
-//   before what the API keeps.
+// - The Recording API records steps for an app that is not running, "for up to 10 days" (D12). Each process's first
+//   granted request subscribes to `TYPE_STEP_COUNT_DELTA`; each answer is its total from the group's boundary to now
+//   (one bucket), plus the step counter's increase since that read while the app is in the foreground, so the line
+//   moves step by step. `since` is the latest of `start`, this install's first subscription's start and ten days back:
+//   no read is issued from before what the API keeps. If the wall clock moves behind that boundary, the held total or sensor answers until
+//   the clock catches up.
 // - Without Play services at `LOCAL_RECORDING_CLIENT_MIN_VERSION_CODE`, the step counter alone counts while the app
 //   is in the foreground; each return from the background starts a new zero, so `since` moves and the answer never
 //   claims steps it could not have seen. `android.source` says which path answered.
 // - A counter that falls (a reboot) starts a new zero on either path.
-// - Both ask `ACTIVITY_RECOGNITION`, through the host's permission history.
-// - Tier 3: `PedometerModule.hatch` is given the manager once, when the module is made.
+// - Both ask `ACTIVITY_RECOGNITION`, through the host's permission history (LLP 1133.002 D8).
+// - Tier 3 (D17): `PedometerModule.hatch` is given the manager once, when the module is made.
 package exact.pedometer
 
 import android.Manifest
@@ -37,11 +38,9 @@ import java.util.concurrent.TimeUnit
 
 class PedometerModule(context: ExtensionContext) : ExactExtension(context) {
     companion object {
-        /** What the Recording API keeps: "up to 10 days". */
-        private const val KEPT_MS = 10 * 86_400_000.0
         private const val PERMISSION = Manifest.permission.ACTIVITY_RECOGNITION
 
-        /** The app's access hatch: given the manager once, when the module is made. */
+        /** The app's access hatch (D17): given the manager once, when the module is made. */
         @JvmStatic var hatch: ((SensorManager) -> Unit)? = null
     }
 
@@ -54,15 +53,15 @@ class PedometerModule(context: ExtensionContext) : ExactExtension(context) {
     } catch (e: Throwable) { null }
     private val main = Handler(Looper.getMainLooper())
     private val counts = HashMap<String, Count>()
-    /** When the subscription began, as this process saw it. */
-    private var subscribed: Double? = null
+    private val subscription = Subscription(java.io.File(context.application.noBackupFilesDir, "exact-pedometer-subscribed"))
     private var listening = false
     private var shown = true
 
     private val listener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
             val value = event.values[0].toDouble()
-            counts.values.forEach { it.counter(value, context.now()) }
+            val epoch = System.currentTimeMillis().toDouble()
+            counts.values.forEach { it.counter(value, epoch) }
         }
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
     }
@@ -93,13 +92,24 @@ class PedometerModule(context: ExtensionContext) : ExactExtension(context) {
         }
     }
 
-    /** The Recording API's subscription, made once granted; renewed when Play services dropped it. */
+    /** Subscribe at the process's first granted request. `LocalRecordingClient` lists no subscriptions, and a read
+     * without one answers no steps rather than failing, so neither says whether Play services kept one: the module
+     * subscribes each process, as Google's Recording API sample does at each launch, and bounds every read by the
+     * start this install first subscribed at, which it stores. */
     private fun subscribe() {
         val client = recording ?: return
-        if (subscribed != null || context.permission(PERMISSION).state != "granted") return
-        client.subscribe(LocalDataType.TYPE_STEP_COUNT_DELTA)
-            .addOnSuccessListener { subscribed = subscribed ?: context.now(); context.log("pedometer: recording subscribed") }
-            .addOnFailureListener { e -> context.log("pedometer: recording subscription failed: ${e.message}") }
+        if (context.permission(PERMISSION).state != "granted" || !subscription.begin()) return
+        client.subscribe(LocalDataType.TYPE_STEP_COUNT_DELTA).addOnSuccessListener {
+            val recorded = subscription.stored()
+            val start = subscription.complete(recorded, System.currentTimeMillis().toDouble())
+            if (recorded == null) {
+                subscription.store(start)
+                context.log("pedometer: recording subscribed")
+            }
+        }.addOnFailureListener { e ->
+            subscription.failed()
+            context.log("pedometer: recording subscription failed: ${e.message}")
+        }
     }
 
     private fun read(args: JSONObject, reply: (JSONObject) -> Unit) {
@@ -111,23 +121,25 @@ class PedometerModule(context: ExtensionContext) : ExactExtension(context) {
         }
         subscribe()
         val key = if (args.has("start")) "${args.getDouble("start")}" else "first"
-        val now = context.now()
+        val now = System.currentTimeMillis().toDouble()
         val count = counts.getOrPut(key) { Count(if (args.has("start")) args.getDouble("start") else now) }
         listen()
         val client = recording ?: return reply(answer(count.sensor(now), "sensor"))
-        if (!count.due(now)) return reply(answer(count.between(now), "recording"))
-        // The Recording total from the boundary, which reads no further back than the API keeps.
-        val from = maxOf(count.start, subscribed ?: count.start, now - KEPT_MS)
+        if (!count.due(context.now())) return reply(answer(count.between(now), "recording"))
+        // Until the subscription is made (or while a clock correction leaves its start ahead), the counter answers.
+        val range = subscription.range(count, now) ?: return reply(
+            if (count.hasRecording) answer(count.between(now), "recording") else answer(count.sensor(now), "sensor")
+        )
         val request = LocalDataReadRequest.Builder().aggregate(LocalDataType.TYPE_STEP_COUNT_DELTA)
-            .bucketByTime(maxOf(1, ((now - from) / 1000).toInt() + 1), TimeUnit.SECONDS)
-            .setTimeRange((from / 1000).toLong(), (now / 1000).toLong() + 1, TimeUnit.SECONDS).build()
+            .bucketByTime(range.bucketSeconds, TimeUnit.SECONDS)
+            .setTimeRange(range.startSeconds, range.endSeconds, TimeUnit.SECONDS).build()
         client.readData(request).addOnSuccessListener { response ->
             val total = response.buckets.flatMap { it.dataSets }.flatMap { it.dataPoints }
                 .sumOf { it.getValue(LocalField.FIELD_STEPS).asInt().toLong() }.toDouble()
-            main.post { reply(answer(count.recorded(total, from, context.now()), "recording")) }
+            main.post { reply(answer(count.recorded(total, range.from, context.now(), System.currentTimeMillis().toDouble()), "recording")) }
         }.addOnFailureListener { e ->
             context.log("pedometer: recording read failed: ${e.message}")
-            main.post { reply(answer(count.sensor(context.now()), "sensor")) }
+            main.post { reply(answer(count.sensor(System.currentTimeMillis().toDouble()), "sensor")) }
         }
     }
 

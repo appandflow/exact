@@ -1,5 +1,5 @@
-// `-webkit-font-smoothing: antialiased` in the text AppKit draws for a field:
-// a textarea's text view and an input's field editor lay
+// `-webkit-font-smoothing: antialiased` in the text AppKit draws for a field
+// (LLP 1019 D12): a textarea's text view and an input's field editor lay
 // their text out in fragments that draw with Core Graphics font smoothing
 // off, and an input's cell draws its value and placeholder so, as Exact
 // draws an `antialiased` paragraph.

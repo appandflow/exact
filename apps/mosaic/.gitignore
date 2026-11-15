@@ -1,0 +1,5 @@
+# What `npx convex dev` writes: the deployment it made on this machine.
+/.env.local
+/target/
+/dist/
+/.convex/

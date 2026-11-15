@@ -1,8 +1,8 @@
 // The wake entry points the host keeps, and its store of packages' wake
-// requests. `BGTaskScheduler` takes a launch handler only
+// requests (LLP 1133.017 D8). `BGTaskScheduler` takes a launch handler only
 // before the app finishes launching, and a package's Swift loads with the
 // app's module after its session boots, so the host registers the
-// identifiers Info.plist permits (a grant line derived each) and
+// identifiers Info.plist permits (a grant line derived each, D14) and
 // multiplexes every package's requests through them:
 //
 // - iOS: `<bundle id>.refresh`, one `BGAppRefreshTaskRequest` at the soonest
@@ -29,7 +29,7 @@
 //   (Transfers.swift).
 //
 // A wake that arrives with no module ready is held, and `boot` (the app's
-// host, ExactIOS/main.swift) boots a session for it with no view.
+// host, ExactIOS/main.swift) boots a session for it with no view (D7).
 import Foundation
 import os
 #if os(iOS)
@@ -48,6 +48,9 @@ public enum WakeStore {
         let token = UUID().uuidString, kind: String, due: [Request]
         let complete: (Bool) -> Void
         var waiting: Set<String> = [], success = true, offered = false, booted = false
+        /// Its packages are being offered their work: one that finishes
+        /// meanwhile does not end it, since others may not have been offered yet.
+        var offering = false
         init(kind: String, due: [Request], complete: @escaping (Bool) -> Void) { self.kind = kind; self.due = due; self.complete = complete }
         #if os(iOS)
         var task: BGTask?
@@ -103,7 +106,7 @@ public enum WakeStore {
                   let a = arrivals.first(where: { $0.token == token }) else { return }
             a.waiting.remove(package)
             if body["success"] as? Bool == false { a.success = false }
-            if a.waiting.isEmpty { finish(a, a.success) }
+            if a.waiting.isEmpty, !a.offering { finish(a, a.success) }
         }
         center.addObserver(forName: Notification.Name("exact.wakes.ready"), object: nil, queue: .main) { _ in
             for a in arrivals where !a.offered { offer(a) }
@@ -128,15 +131,6 @@ public enum WakeStore {
         if let data = try? JSONEncoder().encode(requests) { UserDefaults.standard.set(data, forKey: key) }
     }
 
-    /// The due requests of `kind` (and, for processing, of `power`), taken from the store.
-    private static func take(kind: String, power: Bool?) -> [Request] {
-        let at = now()
-        let due = requests.filter { $0.value.kind == kind && $0.value.at <= at && (power == nil || $0.value.power == power) }
-        for id in due.keys { requests[id] = nil }
-        keep()
-        return Array(due.values)
-    }
-
     /// Hand `a`'s due requests to each package's implementation. None taken:
     /// no module is ready yet, so one is booted and `exact.wakes.ready` offers
     /// it again; taken by none after that, no module composes these packages,
@@ -144,16 +138,26 @@ public enum WakeStore {
     private static func offer(_ a: Arrival) {
         let packages = Dictionary(grouping: a.due, by: \.package)
         guard !packages.isEmpty else { return finish(a, true) }
+        // A package waits from before its offer is posted, since it may
+        // finish while the post is delivered; one that declines is let go.
         a.waiting = []
+        a.offering = true
+        var taken = false
         for (package, due) in packages {
             let body = NSMutableDictionary(dictionary: ["token": a.token, "package": package, "kind": a.kind, "keys": due.map(\.key)])
             #if os(iOS)
             if let task = a.task { body["task"] = task }
             #endif
+            a.waiting.insert(package)
             NotificationCenter.default.post(name: Notification.Name("exact.wakes.due"), object: body)
-            if body["taken"] as? Bool == true { a.waiting.insert(package) }
+            if body["taken"] as? Bool == true { taken = true } else { a.waiting.remove(package) }
         }
-        if !a.waiting.isEmpty { a.offered = true; return }
+        a.offering = false
+        if taken {
+            a.offered = true
+            if a.waiting.isEmpty { finish(a, a.success) }
+            return
+        }
         if !a.booted, let boot {
             a.booted = true
             log("wakes: a \(a.kind) wake found no module ready; booting a session for it")
@@ -165,7 +169,7 @@ public enum WakeStore {
         finish(a, false)
     }
 
-    /// Transfers' endings, by package and registration id: a wake of kind `transfer`.
+    /// Transfers' endings, by package and registration id: a wake of kind `transfer` (D10).
     static func transfer(_ due: [(String, String)], complete: @escaping (Bool) -> Void) {
         let a = Arrival(kind: "transfer", due: due.map { Request(package: $0.0, key: $0.1, kind: "transfer", at: now(), network: false, power: false) },
                         complete: complete)
@@ -173,7 +177,7 @@ public enum WakeStore {
         offer(a)
     }
 
-    /// Regions' crossings, by package and region name: a wake of kind `region`.
+    /// Regions' crossings, by package and region name: a wake of kind `region` (LLP 1133.021 D14).
     static func region(_ due: [(String, String)], complete: @escaping (Bool) -> Void) {
         let a = Arrival(kind: "region", due: due.map { Request(package: $0.0, key: $0.1, kind: "region", at: now(), network: false, power: false) },
                         complete: complete)
@@ -194,8 +198,29 @@ public enum WakeStore {
         return ids.contains("\(bundle).\(suffix)")
     }
 
+    /// Whether the task `suffix` carries a request of `kind` and `power`.
+    /// Without `processing.network` the refresh task carries the processing
+    /// requests too (LLP 1133.017, stage 2), so `schedule` and `take` ask
+    /// this one question.
+    static func carries(_ suffix: String, kind: String, power: Bool, processing: Bool) -> Bool {
+        suffix == "refresh" ? kind == "refresh" || !processing && kind == "processing" : kind == "processing" && power == suffix.hasSuffix("power")
+    }
+
+    private static func carries(_ suffix: String, _ r: Request) -> Bool {
+        carries(suffix, kind: r.kind, power: r.power, processing: permitted("processing.network"))
+    }
+
+    /// The due requests the task `suffix` carries, taken from the store.
+    private static func take(_ suffix: String) -> [Request] {
+        let at = now()
+        let due = requests.filter { $0.value.at <= at && carries(suffix, $0.value) }
+        for id in due.keys { requests[id] = nil }
+        keep()
+        return Array(due.values)
+    }
+
     private static func arrived(_ task: BGTask, _ suffix: String) {
-        let due = suffix == "refresh" ? take(kind: "refresh", power: nil) : take(kind: "processing", power: suffix.hasSuffix("power"))
+        let due = take(suffix)
         let a = Arrival(kind: suffix == "refresh" ? "refresh" : "processing", due: due) { success in task.setTaskCompleted(success: success) }
         a.task = task
         // The platform's time is up: each package's events still running
@@ -220,11 +245,11 @@ public enum WakeStore {
     /// One request an identifier: at the soonest due time of the requests it carries, or none.
     public static func schedule() {
         let all = Array(requests.values)
-        let soonest = { (match: (Request) -> Bool) in all.filter(match).map(\.at).min() }
-        submit("refresh", at: soonest { $0.kind == "refresh" || !permitted("processing.network") && $0.kind == "processing" }) { BGAppRefreshTaskRequest(identifier: $0) }
+        let soonest = { (suffix: String) in all.filter { carries(suffix, $0) }.map(\.at).min() }
+        submit("refresh", at: soonest("refresh")) { BGAppRefreshTaskRequest(identifier: $0) }
         for power in [false, true] {
             let suffix = power ? "processing.network-power" : "processing.network"
-            submit(suffix, at: soonest { $0.kind == "processing" && $0.power == power }) { id in
+            submit(suffix, at: soonest(suffix)) { id in
                 let r = BGProcessingTaskRequest(identifier: id)
                 r.requiresNetworkConnectivity = true
                 r.requiresExternalPower = power
@@ -272,15 +297,15 @@ public enum WakeStore {
     #endif
 
     #if !os(iOS) && !os(macOS)
-    /// tvOS's refresh is later: its requests are kept, never submitted.
+    /// tvOS's refresh is later (D17): its requests are kept, never submitted.
     public static func schedule() {}
     #endif
 }
 
 extension ExactApp {
-    /// Install at launch, before the app finishes launching. `boot` boots a
-    /// session with no view for a wake that launched the
-    /// app with none.
+    /// Install at launch, before the app finishes launching (LLP 1133.017
+    /// D8). `boot` boots a session with no view for a wake that launched the
+    /// app with none (D7).
     public func installWakes(boot: (() -> Void)? = nil) {
         WakeStore.boot = boot
         WakeStore.install()

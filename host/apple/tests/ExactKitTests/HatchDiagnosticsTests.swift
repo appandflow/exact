@@ -1,7 +1,7 @@
 import XCTest
 @testable import ExactKit
 
-/// What hatch code records is bounded: each
+/// What hatch code records is bounded (LLP 1075.003.000.001 §3.2): each
 /// bound refuses and counts past it, a call's time is its own, counts from
 /// other threads sum exactly, and their other records overwrite the oldest
 /// past the ring. A read changes nothing.

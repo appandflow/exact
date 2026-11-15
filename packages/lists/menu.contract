@@ -1,8 +1,8 @@
 // A menu's items and their group (the clone's MenuItem and MenuGroup,
 // Bluesky's Menu.Item and Menu.Group): drawn items in a sheet, not the
 // platform's list cells. Bluesky's native menu is a Dialog, a bottom sheet
-// of drawn items, not the platform's menu, so these are drawn too, unlike
-// ListRow. The app passes the label and
+// of drawn items, not the platform's menu, so these are drawn too (theme2's
+// stage 15 B batch 2 ruling), unlike ListRow. The app passes the label and
 // the icon; the look is the params and the package's tokens.
 
 // One item: its label, then its icon at the end, a hairline above every

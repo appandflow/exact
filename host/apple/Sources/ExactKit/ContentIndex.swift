@@ -1,4 +1,4 @@
-// The content index's mirror and Spotlight.
+// The content index's mirror and Spotlight (LLP 1133.023 D4, D9, D15 item 2).
 //
 // The mirror is what the app set, kept in its container: Spotlight's index
 // cannot be read back, and the system asks the app to index everything again
@@ -25,7 +25,7 @@ import UniformTypeIdentifiers
 #endif
 
 public enum ExactContentIndex {
-    /// The limits: past them a change refuses `QuotaExceededError`.
+    /// D4's limits: past them a change refuses `QuotaExceededError`.
     static let most = 5_000, textBytes = 1_024
     private struct Mirror: Codable {
         var entries: [[String: JSONValue]] = []
@@ -34,6 +34,8 @@ public enum ExactContentIndex {
     }
     private static var mirror: Mirror?
     private static var installed = false
+    /// The keys whose change is pending, as the mirror marks them.
+    static var pendingKeys: [String] { load().pending }
 
     /// The mirror's file, in the app's container; a test names its own and forgets what was read.
     static var file: URL = {
@@ -76,13 +78,20 @@ public enum ExactContentIndex {
         mirror = read
         return read
     }
-    private static func save(_ m: Mirror) {
+    /// The mirror, kept and written; false, with a journal line, when the file was not written.
+    @discardableResult private static func save(_ m: Mirror) -> Bool {
         mirror = m
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(m) { try? data.write(to: file, options: .atomic) }
+        do {
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(m).write(to: file, options: .atomic)
+            return true
+        } catch {
+            ExactTools.log(nil, "contentIndex: the mirror was not written: \(error.localizedDescription)")
+            return false
+        }
     }
 
-    /// An entry's identity: its kind and its id.
+    /// An entry's identity: its kind and its id (D2).
     static func key(_ e: [String: JSONValue]) -> String { "\(e["kind"]?.string ?? ""):\(e["id"]?.string ?? "")" }
 
     private static func refusal(_ entries: [[String: JSONValue]]) -> String? {
@@ -132,7 +141,7 @@ public enum ExactContentIndex {
 
     /// The mirror's entries of `kind` by id, or matching `text` in the title
     /// or description (case- and diacritic-insensitive, in the person's
-    /// locale), or all of them in the app's order.
+    /// locale), or all of them in the app's order (D9).
     static func query(kind: String, ids: [String]?, matching text: String?) -> [[String: Any]] {
         let ofKind = load().entries.filter { $0["kind"]?.string == kind }
         var found = ofKind
@@ -154,7 +163,7 @@ public enum ExactContentIndex {
     }
 
     /// Open an entry's location in the app's session: a launch location
-    /// before its boot, a navigation after.
+    /// before its boot, a navigation after (LLP 1133.023 D1).
     public static func open(_ url: String) {
         guard let session = ExactApp.shared.sessions.first(where: { $0.state != .destroyed }) else { return }
         _ = session.openLocation(url)
@@ -163,7 +172,7 @@ public enum ExactContentIndex {
     // MARK: Spotlight
 
     #if canImport(CoreSpotlight) && !os(tvOS)
-    /// One index named for the app, readable after the first unlock as the app's files are.
+    /// One index named for the app, readable after the first unlock as the app's files are (D4).
     static let index = CSSearchableIndex(name: Bundle.main.bundleIdentifier ?? "app", protectionClass: .completeUntilFirstUserAuthentication)
 
     private static func item(_ e: [String: JSONValue]) -> CSSearchableItem {
@@ -175,29 +184,30 @@ public enum ExactContentIndex {
             if case .number(let rating)? = apple["rating"] { attributes.rating = NSNumber(value: rating) }
         }
         let item = CSSearchableItem(uniqueIdentifier: key(e), domainIdentifier: e["kind"]?.string, attributeSet: attributes)
-        // An entry ends when the app removes it, not when the system expires it.
+        // An entry ends when the app removes it, not when the system expires it (D4).
         item.expirationDate = .distantFuture
         return item
     }
 
     private static func publish(_ m: inout Mirror, changed: [[String: JSONValue]], gone: [String]) {
         let keys = changed.map(key) + gone
-        guard !keys.isEmpty else { return save(m) }
+        guard !keys.isEmpty else { save(m); return }
         m.pending = Array(Set(m.pending).union(keys))
-        save(m)
-        tell(changed: changed, gone: gone)
+        // Spotlight is told only what the mirror holds as pending, so a crash leaves it to the next launch.
+        if save(m) { tell(changed: changed, gone: gone) }
         parametersChanged()
     }
 
+    /// Each told key's latest change in this process, by the number of the telling that made it.
+    private(set) static var stamps: [String: Int] = [:]
+    private static var told = 0
+
     /// Spotlight told, and each key unmarked once it answers.
     private static func tell(changed: [[String: JSONValue]], gone: [String]) {
-        let done = { (keys: [String]) in
-            DispatchQueue.main.async {
-                var m = load()
-                m.pending.removeAll { keys.contains($0) }
-                save(m)
-            }
-        }
+        told += 1
+        let stamp = told
+        for k in changed.map(key) + gone { stamps[k] = stamp }
+        let done = { (keys: [String]) in DispatchQueue.main.async { acknowledge(keys, stamp: stamp) } }
         if !changed.isEmpty {
             index.indexSearchableItems(changed.map(item)) { error in
                 if let error { ExactTools.log(nil, "contentIndex: Spotlight refused \(changed.count) entries: \(error.localizedDescription)") } else { done(changed.map(key)) }
@@ -210,6 +220,17 @@ public enum ExactContentIndex {
         }
     }
 
+    /// Spotlight answered the telling `stamp`: its keys are unmarked, except
+    /// those changed again since, whose newer change is still to be answered.
+    static func acknowledge(_ keys: [String], stamp: Int) {
+        let answered = Set(keys.filter { stamps[$0] == stamp })
+        guard !answered.isEmpty else { return }
+        for k in answered { stamps[k] = nil }
+        var m = load()
+        m.pending.removeAll { answered.contains($0) }
+        save(m)
+    }
+
     /// What a crash left between the mirror and Spotlight, finished.
     private static func finishPending() {
         let m = load()
@@ -218,7 +239,7 @@ public enum ExactContentIndex {
         tell(changed: m.pending.compactMap { byKey[$0] }, gone: m.pending.filter { byKey[$0] == nil })
     }
 
-    /// The system lost the index, or some items: the mirror again.
+    /// The system lost the index, or some items: the mirror again (D4).
     final class Reindexer: NSObject, CSSearchableIndexDelegate {
         static let shared = Reindexer()
         /// What the system asked, for a person checking it on a device (`packages/search-index/test/checklist.md`).
@@ -251,8 +272,8 @@ public enum ExactContentIndex {
     public static func location(of activity: NSUserActivity) -> String? { nil }
     #endif
 
-    /// App Shortcuts whose phrases name a parameter learn the index's values,
-    /// through the generated module's hooks when it has any.
+    /// App Shortcuts whose phrases name a parameter learn the index's values
+    /// (D9), through the generated module's hooks when it has any.
     private static func parametersChanged() {
         guard let hooks = NSClassFromString("ExactIntentsHooks") as? NSObject.Type else { return }
         _ = hooks.perform(NSSelectorFromString("parametersChanged"))

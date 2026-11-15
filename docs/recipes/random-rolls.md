@@ -1,8 +1,8 @@
 # Recipe: random rolls in an expression
 
-Contract has no ambient randomness: a draw comes from a seed passed to
+Contract has no ambient randomness (LLP 1027.000 D1): a draw comes from a seed passed to
 a pure function. A deal or a shuffle is the data module's
-([random-and-shuffle](random-and-shuffle.md)); dozens of rolls a second, dice under a held
+([randomness and a shuffle](random-and-shuffle.md)); dozens of rolls a second, dice under a held
 finger, need no source. `roll(seed, k, n)` is a whole number from 0 to `n - 1`, the `k`th
 draw of the stream `seed` names. Copy its three `fn`s. They use only integer `*`, `%` and
 `floor`, every product below 2^47, then one division, so the runner, the web and the

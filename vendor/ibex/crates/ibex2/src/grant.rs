@@ -1,17 +1,21 @@
 //! The authority model: carried, not inferred.
 //!
-//! A capability grant is bound to the identity of the binding a module was
-//! handed at instantiation. Nothing here inspects a call stack, because
-//! nothing in Ibex 2 is permitted to.
+//! LLP 0067 R2 binds a capability grant to the identity of the binding a
+//! module was handed at instantiation. Nothing here inspects a call stack,
+//! because nothing in Ibex 2 is permitted to.
 //!
-//! The binary question — *may this module reach the network at
+//! Under D1 and D2 the binary question — *may this module reach the network at
 //! all?* — is answered structurally: a module that was not injected `fetch`
 //! has no expression that evaluates to one. So what lives here is only the
-//! **parameterized** half: the per-family questions asked against a grant the
-//! caller already provably holds.
+//! **parameterized** half of LLP 0059.000 §4: the per-family questions asked
+//! against a grant the caller already provably holds (LLP 0067 §2 keeps the
+//! current list).
 //!
 //! This is pure Rust and needs no engine, which is why it is the first thing
 //! built.
+//!
+//! @ref LLP 0067#3-the-check — the parameterized questions the boundary asks
+//! @ref LLP 0059.000#4-capability-summary — the six capabilities and their granularity
 
 use std::collections::BTreeSet;
 
@@ -20,7 +24,7 @@ use std::collections::BTreeSet;
 /// Compared by exact tuple equality. Patterns are separate grant kinds, so an
 /// exact grant never matches as a pattern: either network family may name every
 /// host under one domain, such as `https://*.host.example` or `wss://*.host.example`,
-/// or every origin of one of its schemes, such as `https:`.
+/// or every origin of one of its schemes, such as `https:` (LLP 0067 §2).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Origin {
     pub scheme: String,
@@ -48,7 +52,7 @@ impl Origin {
 /// anybody wrote down.
 ///
 /// Paths reaching here are expected to be already resolved through the virtual
-/// filesystem namespace, so `..` has no meaning at this
+/// filesystem namespace (LLP 0059.000 §3.11), so `..` has no meaning at this
 /// layer and is rejected rather than interpreted.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PathPrefix(Vec<String>);
@@ -74,7 +78,7 @@ impl PathPrefix {
             .into_iter()
             .find_map(|ns| Some((ns, path.strip_prefix(ns)?.strip_prefix('/')?)))
         {
-            // Exact patch: the person's home
+            // Exact patch (exact2 LLP 1133.007 D6): the person's home
             // directory and the app's installed bundle, resolved by the host.
             found
         } else if path.starts_with('/') {
@@ -111,7 +115,7 @@ impl PathPrefix {
     }
 }
 
-// Display prints one unambiguous target.
+// @ref LLP 0068#proposed-quoted-filesystem-targets — print one unambiguous target.
 impl std::fmt::Display for PathPrefix {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let namespace = self.0[0].strip_prefix("win:").unwrap_or(&self.0[0]);
@@ -152,10 +156,10 @@ pub enum Operation {
     /// Open a database by path. Capability `sqlite.open`.
     SqliteOpen { path: String },
     /// Keep — read, replace, forget — one secret by name. Capability
-    /// `secret.keep`.
+    /// `secret.keep` (LLP 0069 §1).
     SecretKeep { name: String },
     /// Read, write, delete, and list durable state under one scope.
-    /// Capability `storage.kv`: keys are free within the
+    /// Capability `storage.kv` (LLP 0070 §1): keys are free within the
     /// scope, and the scope is the grant.
     StorageKv { scope: String },
 }
@@ -165,7 +169,7 @@ pub enum Operation {
 pub enum Grant {
     Fetch(Origin),
     /// `net.fetch https://*.<suffix>`: every host strictly under `suffix`, at
-    /// the origin's scheme and port. The suffix is at least
+    /// the origin's scheme and port (LLP 0067 §2). The suffix is at least
     /// two labels and not an address.
     FetchSubdomains(Origin),
     /// `net.fetch http:` or `net.fetch https:`: every origin of the scheme,
@@ -177,7 +181,7 @@ pub enum Grant {
     WebSocketSubdomains(Origin),
     /// `net.websocket ws:` or `net.websocket wss:`: every origin of the scheme.
     WebSocketScheme(String),
-    /// Exact patch: `net.fetch local-network`, an
+    /// Exact patch (exact2 LLP 1133.036 D5): `net.fetch local-network`, an
     /// `http:` or `https:` origin whose host, as written, is on the local
     /// network ([`is_local_network`]), at any port; `loopback` for the line
     /// a development build's bake writes, `net.fetch local-network development`.
@@ -239,10 +243,10 @@ impl Grant {
 
 /// The authority a single binding carries.
 ///
-/// There is no ambient authority; this value is all of it. It is handed to a
-/// binding at module instantiation and consulted at the boundary. It is never
-/// derived from a frame, a `Domain`, or a job queue, and there is deliberately
-/// no constructor that reads ambient state.
+/// This is the value LLP 0060 D1 is about. It is handed to a binding at module
+/// instantiation and consulted at the boundary. It is never derived from a
+/// frame, a `Domain`, or a job queue, and there is deliberately no constructor
+/// that reads ambient state.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct GrantSet {
     grants: BTreeSet<Grant>,
@@ -265,7 +269,7 @@ impl GrantSet {
 
     /// The environment variables this set may read, in a stable order.
     ///
-    /// `process.env` is a **snapshot**, not a live proxy,
+    /// `process.env` is a **snapshot**, not a live proxy (LLP 0059.000 §3.8),
     /// and the snapshot is built from exactly this list — so a module cannot
     /// see a variable it was not granted, with no check at read time. The
     /// capability is the object's contents.
@@ -306,7 +310,7 @@ impl GrantSet {
         }
     }
 
-    /// The kv scopes this set may use, in a stable order.
+    /// The kv scopes this set may use, in a stable order (LLP 0070 §1).
     pub fn kv_scopes(&self) -> Vec<&str> {
         self.grants
             .iter()
@@ -318,7 +322,7 @@ impl GrantSet {
     }
 
     /// The secrets this set may keep, in a stable order: the load list a
-    /// host reads into a snapshot before its consumer boots.
+    /// host reads into a snapshot before its consumer boots (LLP 0069 §1).
     pub fn kept_secrets(&self) -> Vec<&str> {
         self.grants
             .iter()
@@ -356,7 +360,7 @@ impl GrantSet {
     /// Parse a grant spec: one grant per line, `capability target`.
     ///
     /// Fixed at creation, because a grant set that can be added to after the
-    /// fact is ambient authority wearing a struct. Blank lines
+    /// fact is ambient authority wearing a struct (LLP 0067 §2). Blank lines
     /// and `#` comments are ignored.
     ///
     /// ```text
@@ -378,7 +382,7 @@ impl GrantSet {
                 .ok_or_else(|| format!("line {}: `{capability}` needs a target", index + 1))?;
             // Decode the complete remainder once, never as additional manifest
             // lines. Legacy unquoted tokenization remains unchanged.
-            // Only fs targets may be quoted.
+            // @ref LLP 0068#proposed-quoted-filesystem-targets — quoted fs targets only.
             let quoted = if matches!(capability, "fs.read" | "fs.write") && first.starts_with('"') {
                 let value: String = serde_json::from_str(line[capability.len()..].trim_start())
                     .map_err(|e| {
@@ -396,7 +400,7 @@ impl GrantSet {
             };
             let target = quoted.as_deref().unwrap_or(first);
             let grant = match capability {
-                // Exact patch: the local network,
+                // Exact patch (exact2 LLP 1133.036 D5): the local network,
                 // decided from a URL's host as written.
                 "net.fetch" | "net.websocket" if target == "local-network" => {
                     let loopback = match parts.next() {
@@ -471,6 +475,13 @@ impl GrantSet {
                     let port = url.port_or_known_default().ok_or_else(|| {
                         format!("line {}: no default port for `{}`", index + 1, url.scheme())
                     })?;
+                    // A socket's origin is `ws` or `wss`: a line with another scheme would admit none.
+                    if capability == "net.websocket" && !matches!(url.scheme(), "ws" | "wss") {
+                        return Err(format!(
+                            "line {}: `{target}`: a `net.websocket` line needs `ws` or `wss`",
+                            index + 1
+                        ));
+                    }
                     let origin = Origin::new(url.scheme(), host, port);
                     if capability == "net.fetch" {
                         Grant::Fetch(origin)
@@ -537,8 +548,8 @@ impl GrantSet {
     }
 }
 
-/// Exact patch: the words after a `secret.keep` name are its presence policy:
-/// one of four policies, then `optional`, then
+/// Exact patch: the words after a `secret.keep` name are its presence policy
+/// (exact2 LLP 1133.010 D4, D10): one of four policies, then `optional`, then
 /// platform words, each once and in that order. The grant is the name's
 /// either way; exact2's runner and hosts read the policy. Mirrors
 /// `exact_grants::presence_words`, word for word.
@@ -600,15 +611,19 @@ fn presence_words(words: &[&str]) -> Result<(), String> {
 #[path = "grant_quoted_tests.rs"]
 mod quoted_tests;
 
-/// Exact patch: whether `host`, as a URL serializes
+/// Exact patch (exact2 LLP 1133.036 D5): whether `host`, as a URL serializes
 /// it, is on the local network: an RFC 1918, link-local IPv4, unique-local
 /// or link-local IPv6 literal (an IPv4-mapped address judged by the IPv4
 /// address it carries) or a name ending in `.local`; with `loopback`, also
-/// 127.0.0.0/8, `[::1]` and `localhost`. Mirrors
+/// 127.0.0.0/8, `[::1]` and `localhost`. Never the cloud metadata service,
+/// 169.254.169.254 or `[fd00:ec2::254]`. Mirrors
 /// `exact_grants::is_local_network`.
 pub fn is_local_network(host: &str, loopback: bool) -> bool {
     use std::net::{Ipv4Addr, Ipv6Addr};
-    let v4 = |a: Ipv4Addr| a.is_private() || a.is_link_local() || loopback && a.is_loopback();
+    let v4 = |a: Ipv4Addr| {
+        a != Ipv4Addr::new(169, 254, 169, 254)
+            && (a.is_private() || a.is_link_local() || loopback && a.is_loopback())
+    };
     let host = host.to_ascii_lowercase();
     if let Some(inner) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
         return inner
@@ -617,9 +632,10 @@ pub fn is_local_network(host: &str, loopback: bool) -> bool {
                 Some(mapped) => v4(mapped),
                 None => {
                     let first = a.segments()[0];
-                    (first & 0xfe00) == 0xfc00
-                        || (first & 0xffc0) == 0xfe80
-                        || loopback && a.is_loopback()
+                    a != Ipv6Addr::new(0xfd00, 0xec2, 0, 0, 0, 0, 0, 0x254)
+                        && ((first & 0xfe00) == 0xfc00
+                            || (first & 0xffc0) == 0xfe80
+                            || loopback && a.is_loopback())
                 }
             });
     }
@@ -630,7 +646,7 @@ pub fn is_local_network(host: &str, loopback: bool) -> bool {
     name.ends_with(".local") && name.len() > ".local".len() || loopback && name == "localhost"
 }
 
-/// Exact patch: why a path line's namespace refuses
+/// Exact patch (exact2 LLP 1133.007 D6): why a path line's namespace refuses
 /// it. A line naming the whole home directory would stop meaning anything
 /// (`home-grant-whole`), and the bundle is read only.
 fn namespace_refusal(capability: &str, prefix: &PathPrefix) -> Result<(), String> {
@@ -655,7 +671,7 @@ fn is_scheme_source(target: &str) -> bool {
     })
 }
 
-/// The suffix origin of `scheme://*.suffix[:port]`: `*` is
+/// The suffix origin of `scheme://*.suffix[:port]` (LLP 0067 §2): `*` is
 /// the whole leftmost label and appears nowhere else, the suffix is a domain
 /// of two labels or more (`*.com` would be every site), and nothing follows
 /// the origin.
@@ -694,6 +710,22 @@ fn has_userinfo(url: &url::Url) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_local_network_excludes_cloud_metadata() {
+        for host in ["169.254.3.4", "[fd00:ec2::253]", "[::ffff:a9fe:a903]"] {
+            assert!(is_local_network(host, false), "{host}");
+        }
+        for host in [
+            "169.254.169.254",
+            "[::ffff:a9fe:a9fe]",
+            "[::ffff:169.254.169.254]",
+            "[fd00:ec2::254]",
+        ] {
+            assert!(!is_local_network(host, false), "{host}");
+            assert!(!is_local_network(host, true), "{host}");
+        }
+    }
 
     fn origin(host: &str) -> Origin {
         Origin::new("https", host, 443)
@@ -810,7 +842,7 @@ mod tests {
         let socket = |origin: Origin| set.permits(&Operation::WebSocket { origin });
 
         assert!(fetch(Origin::new("http", "127.0.0.1", 49152)));
-        assert!(fetch(Origin::new("http", "laptop.example", 80)));
+        assert!(fetch(Origin::new("http", "laptop.tailnet.ts.net", 80)));
         assert!(socket(Origin::new("ws", "[::1]", 3773)));
         assert!(!fetch(Origin::new("https", "127.0.0.1", 49152)));
         assert!(!socket(Origin::new("wss", "127.0.0.1", 3773)));
@@ -898,7 +930,7 @@ mod tests {
         assert!(set.permits(&Operation::EnvRead {
             name: "NODE_ENV".into()
         }));
-        // The canonical supply-chain case: a dependency reading cloud credentials.
+        // The canonical supply-chain case from LLP 0059.000 §3.8.
         assert!(!set.permits(&Operation::EnvRead {
             name: "AWS_SECRET_ACCESS_KEY".into()
         }));

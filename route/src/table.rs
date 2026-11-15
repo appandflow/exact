@@ -1,6 +1,6 @@
 //! Declared order decides matching; parent links decide a deep link's stack.
 //!
-//! Table, Match, Chain; the static rejects and path expansion.
+//! @ref LLP 1038 §3 — Table, Match, Chain; D2's static rejects, D3's path.
 //!
 //! Parameter records have every name in the table. Ancestors bind only their
 //! own names, so matching an ancestor's URL reads the same record back. The
@@ -29,7 +29,7 @@ impl Table {
         names
     }
 
-    /// The static checks. Parameter identifiers use the ASCII subset
+    /// D2's static checks. Parameter identifiers use the ASCII subset
     /// `[A-Za-z_$][A-Za-z0-9_$]*`; literals may contain Unicode and spaces. Malformed parent links use route-parent-param;
     /// an empty table uses route-pattern; an unmatched boot location uses route-root.
     pub fn check(&self) -> Result<(), CheckError> {

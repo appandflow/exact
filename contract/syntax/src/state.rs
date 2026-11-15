@@ -1,4 +1,4 @@
-//! A state part's row as Contract carries it.
+//! A state part's row as Contract carries it (LLP 1121 D8).
 
 /// The states a part may name: the runner's (`disabled`, `checked`) and the
 /// host's (`active`, `hover`, `focus-visible`).

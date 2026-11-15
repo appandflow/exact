@@ -4,11 +4,11 @@ import QuartzCore
 @testable import ExactKit
 @testable import ExactSurfaces
 
-/// Canvas 2D recording: the tracker's covers and refusals,
+/// Canvas 2D recording (LLP 1056 §8.4): the tracker's covers and refusals,
 /// replay from the kept lists' start matching a bitmap drawn throughout, and
 /// the host's policy.
 final class Canvas2DRecordTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactSurfaces.install() }
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     /// A list writer: records as (opcode, operands).
     private func list(_ records: [(Canvas2DOp, [Double])]) -> Data {
         var d = Data()
@@ -54,6 +54,20 @@ final class Canvas2DRecordTests: XCTestCase {
         c.draw(image, in: CGRect(x: 0, y: 0, width: 300, height: 200))
         XCTAssertTrue(CapturePixels.hasPaint(px), "the canvas draws")
         return px
+    }
+
+    /// What a canvas the GPU gave up continues from on Core Graphics.
+    func testACanvasContinuesFromPixelsDrawnElsewhere() throws {
+        let first = Canvas2DReplayer(width: 300, height: 200, scale: 2, lifetime: 1, generation: 0)
+        XCTAssertTrue(first.apply(list([(.fillColor, [255, 0, 0, 1]), (.fillRect, [0, 0, 150, 50]), (.save, []), (.fillColor, [0, 0, 255, 1])])))
+        let next = Canvas2DReplayer(width: 300, height: 200, scale: 2, lifetime: 1, generation: 0)
+        next.continue(from: first.image(), state: first.snapshot())
+        XCTAssertTrue(next.apply(list([(.fillRect, [0, 50, 150, 50]), (.restore, []), (.fillRect, [75, 75, 75, 25])])))
+        let px = pixels(try XCTUnwrap(next.image()))
+        func at(_ x: Int, _ y: Int) -> [UInt8] { Array(px[(y * 300 + x) * 4..<(y * 300 + x) * 4 + 4]) }
+        XCTAssertEqual(at(10, 10), [255, 0, 0, 255], "the earlier pixels, upright")
+        XCTAssertEqual(at(10, 150), [0, 0, 255, 255], "the fill style carried over")
+        XCTAssertEqual(at(250, 190), [255, 0, 0, 255], "the saved level carried over")
     }
 
     func testAnEmptyDrawingIsRejected() throws {

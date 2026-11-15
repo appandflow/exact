@@ -12,7 +12,7 @@ extension UIColor {
     @objc class func exactTestUndocumentedColor() -> UIColor { .systemRed }
 }
 
-/// A colour row naming a platform colour shows UIKit's own
+/// LLP 1095 D5: a colour row naming a platform colour shows UIKit's own
 /// colour for the view's traits, and its fallback where UIKit has none.
 final class SystemColorIOSTests: XCTestCase {
     private func channels(_ c: UIColor, _ traits: UITraitCollection) -> [Double] {
@@ -118,7 +118,7 @@ final class SystemColorIOSTests: XCTestCase {
         for name in named + ["systemTealColor", "systemMintColor", "systemPinkColor", "systemOrangeColor", "systemBlueColor", "labelColor", "secondaryLabelColor", "tintColor"] { XCTAssertNotNil(SystemColorNames.color(name), name) }
     }
 
-    /// `@tint` is the requesting view's own tint, its window's,
+    /// LLP 1095 D8: `@tint` is the requesting view's own tint, its window's,
     /// not the key window's, and follows it when it changes.
     func testATintRowIsItsWindowsTint() throws {
         let p = Presenter()
@@ -140,7 +140,7 @@ final class SystemColorIOSTests: XCTestCase {
         XCTAssertEqual(node.channels("background_color"), channels(.systemGreen, traits))
     }
 
-    /// An authored `accent-color` is its subtree's tint, so
+    /// LLP 1116.001 D2: an authored `accent-color` is its subtree's tint, so
     /// a row naming the tint beneath it (an `exact:content` bar's fill) is
     /// the accent, and one beside it keeps the window's.
     func testAnAuthoredAccentIsItsSubtreesTint() throws {
@@ -206,7 +206,7 @@ final class SystemColorIOSTests: XCTestCase {
     }
 
     func testMarkdownAndPlainTextResolveTheSameViewTintAndTraits() throws {
-        ExactMarkdown.install() // the capability this tests
+        ExactMarkdown.install() // LLP 1047.001 D4: the capability this tests
         let p = Presenter()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 300))
         window.overrideUserInterfaceStyle = .dark
@@ -239,7 +239,7 @@ final class SystemColorIOSTests: XCTestCase {
         }
     }
 
-    /// Off a window there is no report, so the kernel's table
+    /// LLP 1095 D9: off a window there is no report, so the kernel's table
     /// (replaced whole by each) never loses `AccentColor`; in one, there is.
     func testNoColourReportIsMadeOffAWindow() throws {
         let session = ExactApp.shared.makeSession(label: "colours-off-window")
@@ -258,7 +258,7 @@ final class SystemColorIOSTests: XCTestCase {
         XCTAssertEqual(reads, 1, "in a window: reported")
     }
 
-    /// The report's `AccentColor` is the tint read on main,
+    /// LLP 1095 D9: the report's `AccentColor` is the tint read on main,
     /// wherever the resolution runs.
     func testAReportedTintIsTheOneReadOnMain() throws {
         let pair = try XCTUnwrap(SystemColor.tintPair(.systemRed))

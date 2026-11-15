@@ -1,5 +1,5 @@
-// A held import's card's choice: which of its tokens and role overrides are in, as the card begins and
-// as a value edit carries it to the import held again.
+// A held import's card's choice (LLP 1122 D11): which of its tokens and role overrides are in, as the card begins and
+// as a value edit carries it to the import held again (third pass #6).
 
 /** Whether a held import's card begins with everything it holds chosen (a recomputed import holds only what was
  * chosen) or as a fresh import's does, its tokens in and its role overrides off until ticked. A value edit holds the
@@ -9,7 +9,7 @@
 export const startsChosen = (h: any, r: any): boolean => !!r && (!!h?.replaces || !!r.kept) && !(h?.editedBy && h.replaces && r.from === h.replaces);
 
 /** An import's items its card has chosen: the server's choice (`heldChoice.base`) when there is one, else the mapped
- * tokens unless unticked and the role overrides only if ticked, or, on a recomputed import
+ * tokens unless unticked and the role overrides only if ticked (LLP 1121 D1), or, on a recomputed import
  * (`startsChosen`), all unless unticked; `picked`'s flips (`<proposal>:<i[,j]>`, joined by `;`) over it. */
 export function chosenOf(proposal: string, picked: string, r: any, ops: unknown[], h: any): number[] {
   const tokens = Number(r?.tokens ?? 0), recomputed = startsChosen(h, r), chose = heldChoice.base(proposal), base = chose && new Set(chose);
@@ -35,7 +35,7 @@ export function carriedChoice(fresh: string, tokens: number, offers: { items?: n
   ];
 }
 
-// The choice on the server (tamber/1.18 `choose`, #6's follow-up): what the card has chosen is sent as it is ticked,
+// The choice on the server (forma/1.18 `choose`, #6's follow-up): what the card has chosen is sent as it is ticked,
 // so a reload or another client starts from it. The card shows a base, the server's choice as this page took it (or
 // the card's default when there was none), with the page's flips over it. The page's own `choose` answers leave the
 // base be (its flips already say so). Another client's choice since replaces the base, and the page's flips on that

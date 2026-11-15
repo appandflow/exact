@@ -1,7 +1,8 @@
-//! The executor's fixture: Caltrain's data crate and
+//! The executor's fixture (LLP 1027 §9 stage 1): Caltrain's data crate and
 //! its TypeScript twin (`fixtures/caltrain.ts`, compiled by `build.rs` with
 //! Rolldown and hermesc) answer the same bytes on every source and every
-//! error path: the byte-equality test that is this seam's fixture.
+//! error path — the byte-equality test LLP 1026 D3 named as the ABI's
+//! fixture, now this seam's.
 
 #![cfg(exact_js_engine)]
 
@@ -88,13 +89,13 @@ fn identity_and_grants_are_the_bakes_and_the_modules_agree() {
     assert_eq!(m.app_id(), "com.exact.caltrain");
     assert_eq!(m.grants(), "");
     // The fixture exports ABI 1 (it draws nothing); the executor speaks
-    // ABI 2 and runs both.
+    // ABI 2 (LLP 1056 D1) and runs both.
     assert!(abi_supported("1") && abi_supported(&ABI.to_string()));
     let mut names = m.sources();
     names.sort_unstable();
-    // `exactDelivery`, `exactViewport` (the TV fit,
-    // 1e6cb3bb0), `exactActivities` and the three activity sends
-    // are the plan's too: the runner answers them before the
+    // `exactDelivery` (LLP 1030 D7), `exactTime`, `exactViewport` (the TV
+    // fit, 1e6cb3bb0), `exactActivities` and the three activity sends (LLP
+    // 1126.001 WP9) are the plan's too: the runner answers them before the
     // data seam, so the module is never asked for them and need not
     // export them.
     assert_eq!(
@@ -105,6 +106,7 @@ fn identity_and_grants_are_the_bakes_and_the_modules_agree() {
             "endActivity",
             "exactActivities",
             "exactDelivery",
+            "exactTime",
             "exactViewport",
             "nearest",
             "search",

@@ -1,4 +1,4 @@
-# The router value and its pure functions, in one crate.
+# The router value and its pure functions. @ref LLP 1038 §3, D9.
 # Serde is the only runtime dependency; JSON is only the fixture reader.
 [package]
 name = "exact-route"

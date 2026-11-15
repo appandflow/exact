@@ -1,4 +1,4 @@
-//! Presence secrets in a session: the
+//! Presence secrets in a session (LLP 1133.010 D5, D8, D12, §7): the
 //! store's calls that wait on the host's backend, the person's check under
 //! the agent, and the occupancy the store adopts from the backend.
 //!
@@ -6,7 +6,7 @@
 //! calls whose body is `{"presence": <op>, "name": …, "reason": …}`. They are
 //! answered here, never by a module, on the store's own path: the reply
 //! carries an unlocked value to the waiting promise alone, it is journaled by
-//! its size, and the value never enters the store's values. A
+//! its size, and the value never enters the store's values (D13). A
 //! committed write of a presence name goes to the backend's queue instead of
 //! the host's plain store, so one queue orders every operation on a name.
 //!
@@ -14,7 +14,8 @@
 //! ticket first while Face ID's permission is `prompt` (the local-auth
 //! module's own state), then a `presence` ticket, whose `allow` is the
 //! check passing. A call from a tool or a wake fails `person-required`
-//! before anything is asked, in every state: presence is not delegable.
+//! before anything is asked, in every state: presence is not delegable
+//! (D12).
 
 use super::super::{CommitReceipt, DataSource, Runner, RunnerError};
 use super::{response, CallOrigin, Json, ModulesRow, Pending};
@@ -31,7 +32,7 @@ pub(in crate::runner) struct Presence {
     backend: Option<Backend>,
     /// The host keeps locked secrets: its boot snapshot said so.
     capable: bool,
-    /// The data source is ready: a pending move may run.
+    /// The data source is ready: a pending move may run (D4).
     moves: bool,
     /// Data code's presence requests not yet dispatched: ticket and body.
     requests: Vec<(u64, Vec<u8>)>,
@@ -52,11 +53,11 @@ pub(in crate::runner) struct Presence {
     credential: Option<bool>,
     /// Checks that wait for the implementation to be bound: outside the
     /// agent no ticket answers for the person, and the module loads after
-    /// first pixel.
+    /// first pixel (D8).
     waiting: Vec<u64>,
 }
 
-/// A presence check the host's platform makes: the bound
+/// A presence check the host's platform makes (LLP 1133.010 D13): the bound
 /// implementation's authenticator shows the sheet, and the host's backend
 /// reads the item under the context it evaluated.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,7 +99,7 @@ pub enum PresenceAnswer {
     /// Passed, and the host read the item: its value, or `None` when the
     /// platform has dropped it.
     Read(Option<Vec<u8>>),
-    /// Failed: its code and the platform's message.
+    /// Failed: D1's code and the platform's message.
     Failed(String, String),
 }
 
@@ -137,14 +138,14 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether this session keeps locked secrets: a backend that can keep
-    /// them (`localAuthStatus().presenceSecrets`).
+    /// them (`localAuthStatus().presenceSecrets`, D7).
     pub(in crate::runner) fn presence_secrets(&self) -> bool {
         let p = &self.extensions.presence;
         p.backend.is_some() && p.capable
     }
 
     /// The local-auth module's status source: the store's checks read its
-    /// permission and status.
+    /// permission and status (§7).
     fn local_auth(&self) -> Option<ModulesRow> {
         (self.plan.modules.iter())
             .find(|m| {
@@ -162,7 +163,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A locked item can be kept now: the host keeps them, and a device
-    /// credential is set.
+    /// credential is set (D5).
     fn can_lock(&self) -> bool {
         let credential = match self.presence_bound() {
             true => self.extensions.presence.credential.unwrap_or(true),
@@ -286,7 +287,7 @@ impl<D: DataSource> Runner<D> {
         };
         let origin = self.data_origin();
         let occupancy = self.store.occupancy(&name).unwrap_or(Occupancy::Absent);
-        // Presence is not delegable: refused before anything is asked.
+        // Presence is not delegable (D12): refused before anything is asked.
         if matches!(op, "unlock" | "unprotect") && occupancy.locked() && origin != CallOrigin::App {
             self.log(format!(
                 "store {op} {name}: refused, person-required ({} origin)",
@@ -333,7 +334,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Committed writes for the host: a presence name's go to the backend's
-    /// queue instead, carrying its value there and nowhere else.
+    /// queue instead, carrying its value there and nowhere else (D5).
     pub(in crate::runner) fn presence_writes(
         &mut self,
         writes: Vec<StoreWrite>,
@@ -357,7 +358,7 @@ impl<D: DataSource> Runner<D> {
         rest
     }
 
-    /// The data source is ready: a pending move may run.
+    /// The data source is ready: a pending move may run (D4).
     pub(in crate::runner) fn presence_ready(&mut self) {
         if !self.extensions.presence.moves {
             self.extensions.presence.moves = true;
@@ -394,11 +395,8 @@ impl<D: DataSource> Runner<D> {
         if changed {
             // Unlike an explicit unprotect, boot recovery has no caller's
             // reply to tell readers that the plain value is available.
-            let readers = self
-                .store_readers
-                .iter()
-                .enumerate()
-                .filter_map(|(i, reads)| (recovered_plain && *reads).then_some(i))
+            let readers = (0..self.resources.len())
+                .filter(|&i| recovered_plain && self.asks_on_store_change(i))
                 .collect();
             self.commit_again(readers, "presence").map(Some)
         } else {
@@ -460,7 +458,7 @@ impl<D: DataSource> Runner<D> {
         Pending::complete(&call.slot, response(&answer(&done)));
     }
 
-    /// Call `id` waits on the person: under the agent, a ticket.
+    /// Call `id` waits on the person: under the agent, a ticket (§7).
     fn presence_check(
         &mut self,
         id: u64,
@@ -484,7 +482,7 @@ impl<D: DataSource> Runner<D> {
             return;
         }
         // The platform's own sheet: its permission and its refusals are the
-        // platform's, and the host reads the item.
+        // platform's, and the host reads the item (D6, D13).
         if self.presence_bound() {
             let p = &self.extensions.presence;
             let generation = p.backend.as_ref().map_or(0, |b| b.generation(name));
@@ -631,7 +629,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The store's checks' substitute, declared under the local-auth
-    /// interface's authenticator: the ticket, what `cancel` fails with,
+    /// interface's authenticator (§7): the ticket, what `cancel` fails with,
     /// and each other choice's code (`unlock`: the item invalidated).
     fn store_check(&self) -> Json {
         let declared = self
@@ -659,7 +657,8 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The presence names, each with what the agent's `state` says of it:
-    /// `locked, user-presence`, `pending`, `plain` or `absent`, never a value.
+    /// `locked, user-presence`, `pending`, `plain` or `absent`, never a value
+    /// (§7, Disclosure).
     pub fn presence_list(&self) -> Vec<(String, String)> {
         (self.store.presence_names().into_iter())
             .map(|(name, presence)| {
@@ -693,7 +692,7 @@ fn presence_body(body: &[u8]) -> Option<(&'static str, String, String)> {
 
 impl<D: DataSource> Runner<D> {
     /// A Rust source's answer that read a locked name with `get` fails, as
-    /// data code's `store.get` throws: its value is `unlock`'s alone.
+    /// data code's `store.get` throws (D5): its value is `unlock`'s alone.
     pub(in crate::runner) fn refuse_locked<T>(
         &self,
         answer: Result<T, super::DataError>,
@@ -716,7 +715,7 @@ mod tests {
             name: "token".into(),
             generation: 2,
             policy: "user-presence optional".into(),
-            reason: "Unlock the app".into(),
+            reason: "Unlock Excord".into(),
             origin: CallOrigin::App,
             keystore: Some("com.example.presence".into()),
         };
@@ -724,7 +723,7 @@ mod tests {
         assert_eq!(
             json,
             json!({ "call": 4, "name": "token", "account": "token#2", "service": "com.example.presence",
-                "policy": "user-presence optional", "reason": "Unlock the app", "origin": "app" })
+                "policy": "user-presence optional", "reason": "Unlock Excord", "origin": "app" })
         );
     }
 }

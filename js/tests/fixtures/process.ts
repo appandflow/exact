@@ -1,4 +1,4 @@
-// A child process as a stream resource: the mapper keeps
+// A child process as a stream resource (LLP 1133.007 D2): the mapper keeps
 // each incarnation's handle and writes its stdin; a mutation writes, ends
 // and signals through the kept handle; a one-shot `execFile` and the
 // permission fact.
@@ -63,7 +63,7 @@ async function twice(): Promise<string> {
   return `${a.stdout.trim()} ${b.stdout.trim()}`;
 }
 
-// A one-shot its `signal` aborts: another answer's turn aborts it, and
+// A one-shot its `signal` aborts (D3): another answer's turn aborts it, and
 // the answer that awaited it resumes with the rejection.
 let stopping: AbortController | null = null;
 async function held(): Promise<string> {

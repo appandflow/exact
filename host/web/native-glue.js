@@ -1,4 +1,4 @@
-// Native modules on the web: the host
+// Native modules on the web (@ref LLP 1024 D2–D5, D7; LLP 1067 D5): the host
 // half of the app's module table. Loaded after first paint for an app with a
 // module artifact (`./modules/index.js`, the app's `modules/web/`), whose
 // exports are the table's names:
@@ -31,30 +31,21 @@ const artifact = () => globalThis.exact.nativeArtifact ??= new Promise((resolve,
   const attempt = globalThis.exact.nativeAttempt ?? 0;
   globalThis.exact.nativeAttempt = attempt + 1;
   const url = new URL(artifactUrl());
-  // Failed module fetches are cached by the browser too. A retry gets a fresh
-  // URL; a late result from an older attempt cannot answer the new one.
+  // Failed module fetches are cached by the browser too: a retry gets a fresh
+  // URL. A late answer to an attempt that timed out settles nothing.
   if (attempt) url.searchParams.set('exact-native-retry', attempt);
-  const script = document.createElement('script');
-  const finish = (error, table) => {
-    clearTimeout(timer); removeEventListener('error', failed); script.remove();
-    if (globalThis.exact.nativeTable === loaded) globalThis.exact.nativeTable = null;
-    if (error) reject(error); else resolve(table);
-  };
-  const loaded = (token, table) => { if (token === attempt) finish(null, table); };
-  const failed = e => { if (e.filename === url.href) finish(new Error(`${url}: ${e.message}`)); };
-  const timer = setTimeout(() => finish(new Error(`the module artifact ${url} did not load in 10 s`)), 10000);
-  script.type = 'module';
-  globalThis.exact.nativeTable = loaded;
-  script.textContent = `import * as table from ${JSON.stringify(url.href)}; globalThis.exact.nativeTable?.(${attempt}, table);`;
-  script.onerror = () => finish(new Error(`the module artifact ${url} did not load`));
-  addEventListener('error', failed);
-  document.head.append(script);
+  const timer = setTimeout(() => reject(new Error(`the module artifact ${url} did not load in 10 s`)), 10000);
+  // A dynamic import, not an injected inline script, which a page whose
+  // `script-src` is `'self'` refuses (CSP Level 3).
+  import(url.href).then(
+    table => { clearTimeout(timer); resolve(table); },
+    error => { clearTimeout(timer); reject(new Error(`the module artifact ${url} did not load: ${error?.message ?? error}`)); });
 }).catch(error => { globalThis.exact.nativeArtifact = null; throw error; });
 
-// The artifact itself, for the page module's hatches.
+// The artifact itself, for the page module's hatches (LLP 1075.003.000).
 globalThis.exact.nativeModule = artifact;
 
-// `packages` (the JS target's views.js): the tags a package
+// `packages` (the JS target's views.js, LLP 1133.001 D1): the tags a package
 // serves, each made by its extension's implementation in the session, never
 // by the app's artifact, which such a tag does not load.
 globalThis.exact.nativeHost = ({ dispatch, log, packages = null }) => {
@@ -110,7 +101,7 @@ globalThis.exact.nativeHost = ({ dispatch, log, packages = null }) => {
     const st = el.exactNative;
     if (!st || st.destroyed) return;
     if (failure) return fail(st, failure.state ?? 'unavailable', failure.message);
-    // The name is a table key, checked again on plan bytes.
+    // The name is a table key, checked again on plan bytes (D2, D5).
     if (!/^[a-z][a-z0-9_]*(-[a-z][a-z0-9_]*)+$/.test(st.name)) return fail(st, 'error', `refused module name ${JSON.stringify(st.name)}`);
     if (!Object.hasOwn(table.roster, st.name)) return fail(st, 'error', `the module artifact has no factory for ${st.name}`);
     const mine = ++nonce;
@@ -134,7 +125,7 @@ globalThis.exact.nativeHost = ({ dispatch, log, packages = null }) => {
     st.nonce = mine;
     const { live, event } = events(el, st, mine);
     const handlers = Object.fromEntries(NAMES.map((name, kind) => [name, (payload) => event(kind, payload)]));
-    // An event the package declares beyond the nine
+    // An event the package declares beyond the nine (LLP 1133.021 §9 item 2)
     // rides the message kind; the plan's handler decodes its arguments.
     handlers.emit = (name, ...args) => event(8, JSON.stringify({ 'exact:event': String(name), args }));
     const props = el.getAttribute('data-nativeviewprops') ?? '{}';
@@ -165,14 +156,14 @@ globalThis.exact.nativeHost = ({ dispatch, log, packages = null }) => {
   };
 };
 
-// The same artifact answers `native.later` on the page, where
+// The same artifact answers `native.later` on the page (LLP 1067 D5), where
 // the browser's own capabilities are: an optional export
 //
 //   export async function later(request) → reply   // JSON in, JSON out
 //   export function connect({ changed, agent, now }) // optional: announce a
-//                                                   // device topic;
+//                                                   // device topic (LLP 1016.002);
 //                                                   // `agent`: substitute device
-//                                                   // input;
+//                                                   // input (LLP 1067.000 Q7);
 //                                                   // `now()`: the page's clock,
 //                                                   // the agent's under the agent
 //

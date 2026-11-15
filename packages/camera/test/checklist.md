@@ -1,4 +1,4 @@
-# The camera by a person
+# The camera by a person (LLP 1133.008 §10 drive 8, §13)
 
 What no tool can do here: grant the camera on a Mac, open a phone's camera,
 and look. Each step says what to run and what you should see.
@@ -38,11 +38,11 @@ and look. Each step says what to run and what you should see.
      camera again with no dialog.
   8. Turn the camera off in Settings > Photo Editor: on return the editor
      says the camera is off, with Open Settings.
-  9. The restart time: with the viewfinder hidden and shown again,
+  9. The restart time (D11): with the viewfinder hidden and shown again,
      note how long the camera takes to return (the journal's
      `capture started` beside the view's `displayed true`).
-- Android: the photo editor is not yet ported; the fixture
-  app is the Android acceptance. Build it as
+- Android: the photo editor's port waits (`rules/DEFERRED.md`); the fixture
+  app is the Android acceptance (§14 question 5). Build it as
   `packages/camera/test/android.mjs` does (it builds and deletes it; keep its
   app directory to install the APK), install it on a phone, and with
   `--bind media-capture --bind camera`: Open, allow the dialog: the back
@@ -53,3 +53,17 @@ and look. Each step says what to run and what you should see.
   return, since Android may still ask, and `denied` once Open's ask was
   refused without a dialog. Tap and pinch do nothing on Android yet (hosted views take a click
   only).
+- Android, the camera app (`takePhotoWithCameraApp`), with `--bind camera`: Camera app
+  opens the phone's camera app (the fixture declares CAMERA, so while it is not
+  allowed the dialog shows first, and allowing it opens the camera app by itself);
+  take and keep a photo: the shot line names `app:/tmp/camera/N.jpg` with its size,
+  upright. Open it again and close the camera app: the shot error reads `AbortError`.
+  Deny the dialog: `NotAllowedError`, and no camera app. An app that does not open the
+  camera itself (no `getUserMedia`) asks nothing: its manifest names no CAMERA.
+- iPhone, the camera app, with `--bind camera`: Camera app shows the system camera
+  (allow the camera's dialog the first time); take a photo and Use Photo: the shot
+  line names `app:/tmp/camera/N.jpg`, sized upright as held. Cancel: `AbortError`.
+  With the camera off in Settings: `NotAllowedError`, and no camera shows.
+- A phone's browser (Safari on iOS, Chrome on Android), the web build: Camera app opens
+  the browser's camera; the kept photo is the shot line. A desktop browser opens its
+  file chooser instead, as `capture` asks nothing there.

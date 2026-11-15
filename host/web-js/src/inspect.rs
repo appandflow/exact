@@ -1,8 +1,8 @@
-//! The JS target's inspect table: what a
+//! The JS target's inspect table (LLP 1122 T2b, the JS target): what a
 //! development page needs to report a selected node row for row as the
 //! runner's `node` op does (runner/src/agent.rs), with no kernel in the
-//! page. A separate generated file beside app.js, development builds only:
-//! release bytes are unchanged.
+//! page. A separate generated file beside app.js, development builds only
+//! (theme2's ruling): release bytes are unchanged.
 //!
 //! From the static tree the parts are made from (`style::static_tree`, every
 //! site a view), for each site: its type; the chain of regions above it
@@ -98,7 +98,8 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
             // Literal as the runner's `node` says (`vm::is_literal`); the
             // value, as the emitter reads it.
             let literal = binding.and_then(|b| style::literal(plan, plan.code(b.expr)));
-            let dynamic = binding.is_some_and(|b| !exact_runner::vm::is_literal(plan.code(b.expr)));
+            let dynamic =
+                binding.is_some_and(|b| !exact_runner::vm::is_literal(plan, plan.code(b.expr)));
             // A platform text style that gives the row where no own row
             // does (an expression's row cleared falls back to it too).
             if !view.style.mask.has(row) {
@@ -213,7 +214,7 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
                 json!({ "tuples": values })
             };
             // A length relative to the element's or the root's font (`em`,
-            // `rem`) or to the display (a hairline), as the kernel parses it:
+            // `rem`), the viewport or the display (a hairline), as the kernel parses it:
             // the page reads it from the element, whose font and display are
             // the instance's. (A text style's size is its ramp at the 16 px
             // root: a limit.)
@@ -224,6 +225,7 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
                         exact_kernel::style::relative::Unit::Em
                             | exact_kernel::style::relative::Unit::Rem
                             | exact_kernel::style::relative::Unit::Hairline
+                            | exact_kernel::style::relative::Unit::Viewport(_)
                             | exact_kernel::style::relative::Unit::Ramp(_),
                         _
                     ))
@@ -243,7 +245,7 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
         site.insert("t".into(), json!(view.node_type.name()));
         // A mode boundary (its `mode` or `color-scheme` row, as modes.rs
         // finds it): the inherited colour rows it does not set are its own
-        // implied rows, the page's to find.
+        // implied rows (LLP 1121 D7), the page's to find.
         if node.bindings.iter().map(|b| plan.binding(b)).any(|b| {
             b.kind == BindingKind::Style
                 && matches!(
@@ -274,8 +276,8 @@ pub fn table(plan: &Plan, sites: &Sites) -> Result<String, String> {
         .into_iter()
         .map(|(name, prop)| (prop, json!(name)))
         .collect();
-    // The inherited colour rows a mode boundary writes again
-    // (runner/src/instance/theme.rs `INHERITED`).
+    // The inherited colour rows a mode boundary writes again (LLP 1121 D7;
+    // runner/src/instance/theme.rs `INHERITED`).
     let implied = [
         StyleId::TextColor,
         StyleId::CaretColor,

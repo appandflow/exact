@@ -1,4 +1,4 @@
-// A software authenticator for drives and tests, outside
+// A software authenticator for drives and tests (LLP 1133.011 §9), outside
 // the runner: given a `credential` ticket's `args`, it makes the response a
 // platform authenticator would, which the drive types into the ticket.
 // Its credentials are ES256 keys kept in a file the drive names; each is

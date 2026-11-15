@@ -1,5 +1,5 @@
-//! A text field's selection, and the `InputEvent` record: what `input`
-//! and `change` hand an action that takes one
+//! A text field's selection, and the `InputEvent` record (x2apps codeedit
+//! #2, survey #2): what `input` and `change` hand an action that takes one
 //! more parameter, and what a text field's `select` carries — the target's
 //! own fields as the event fires, by the DOM's names
 //! (`contract/types/src/selection.rs` declares the record).

@@ -1,12 +1,14 @@
 //! The C ABI carrying `hostCall(op, args)` across the engine seam.
 //!
-//! There is **one** surface, so this is one entry point taking
+//! LLP 0059.000 §1 asks for **one** surface, so this is one entry point taking
 //! an opcode and an argument vector — not N specific entry points, which would
 //! be a different design wearing the same words.
 //!
-//! Primitives and handles only. A value is a tag plus either a double or
+//! §1.1: primitives and handles only. A value is a tag plus either a double or
 //! a pointer/length pair; strings and byte buffers cross as borrowed spans in
 //! and Rust-owned allocations out. Nothing is serialized.
+//!
+//! @ref LLP 0059.000#1-the-host-call-boundary — one surface, no JSON
 
 use std::ffi::{c_char, c_int, c_uchar};
 
@@ -45,9 +47,9 @@ impl AbiValue {
         }
     }
 
-    /// Borrow this value as an argument. **No bytes are copied**:
-    /// `HostArg` has no owned byte variant, so this cannot silently regress
-    /// into a copy.
+    /// Borrow this value as an argument. **No bytes are copied** — see
+    /// LLP 0059.000 §1.2. `HostArg` has no owned byte variant, so this cannot
+    /// silently regress into a copy.
     ///
     /// # Safety
     /// `data`/`len` must describe a span valid for the duration of the call,
@@ -79,7 +81,7 @@ impl AbiValue {
     /// Borrow a byte argument mutably, so Rust writes through to the engine's
     /// own buffer.
     ///
-    /// This is the inbound zero-copy path and the reason `ArrayBuffer` is in the
+    /// This is the inbound half of §1.2 and the reason `ArrayBuffer` is in the
     /// boundary contract at all: `encodeInto` must be visible in the buffer the
     /// caller already holds, and an `encodeInto` that copies has implemented
     /// `encode` with extra steps.
@@ -241,7 +243,7 @@ thread_local! {
     ///
     /// Thread-local rather than global: a runtime belongs to one thread, and a
     /// process-wide queue would interleave two runtimes' output. Note this is
-    /// buffering, NOT authority — there is no ambient authority, and
+    /// buffering, NOT authority — LLP 0060 D1 forbids ambient authority, and
     /// nothing capability-bearing may ever live here.
     static CONSOLE: std::cell::RefCell<console::Console> =
         std::cell::RefCell::new(console::Console::with_capacity(4096));
@@ -548,15 +550,19 @@ pub unsafe extern "C" fn ibex2_host_call(
     }
 
     let state = crate::task::clone_queue(state);
-    // The shims call icu.dll's number API through pointers the probe binds;
-    // no Intl operation may reach the shims unless it passed.
+    // @ref LLP 0057.000#511-windows-intl-uses-the-os-icu — the shims call
+    // icu.dll's number API through pointers the probe binds; no Intl
+    // operation may reach the shims unless it passed.
     #[cfg(all(feature = "intl", windows))]
     if crate::host_opcodes::is_intl(op) {
         if let Err(reason) = crate::stdlib::intl_os::available() {
             return fail(out, &format!("Intl is unavailable: {reason}"));
         }
     }
-    #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
+    #[cfg(all(
+        feature = "intl",
+        any(target_os = "linux", ibex2_android_intl, windows)
+    ))]
     if let Some(result) = crate::stdlib::intl::dispatch(op, &args, state.as_deref()) {
         return match result {
             Ok(value) => {
@@ -566,7 +572,10 @@ pub unsafe extern "C" fn ibex2_host_call(
             Err(err) => fail(out, &err.to_string()),
         };
     }
-    #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
+    #[cfg(all(
+        feature = "intl",
+        any(target_os = "linux", ibex2_android_intl, windows)
+    ))]
     if let Some(result) = crate::stdlib::intl_datetime::dispatch(op, &args, state.as_deref()) {
         return match result {
             Ok(value) => {
@@ -576,7 +585,10 @@ pub unsafe extern "C" fn ibex2_host_call(
             Err(err) => fail(out, &err.to_string()),
         };
     }
-    #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
+    #[cfg(all(
+        feature = "intl",
+        any(target_os = "linux", ibex2_android_intl, windows)
+    ))]
     if let Some(result) = crate::stdlib::intl_case::dispatch(op, &args) {
         return match result {
             Ok(value) => {
@@ -707,7 +719,7 @@ pub fn leak_value(value: HostValue) -> AbiValue {
 
 /// Build a grant set from a spec and hand ownership to the caller.
 ///
-/// This is how authority becomes *carried*: the caller binds the
+/// This is how authority becomes *carried* (LLP 0060 D1): the caller binds the
 /// result to a binding at install time, and the binding passes it back on every
 /// call. There is no way to ask for "the current grants" — no ambient lookup
 /// exists, by construction.
@@ -763,7 +775,7 @@ pub(crate) unsafe fn clone_grants(grants: *const GrantSet) -> Option<std::sync::
 
 /// Read a field from a stored response.
 ///
-/// A `Response` crosses as a **handle**, not a value: nothing is serialized
+/// A `Response` crosses as a **handle**, not a value: §1.1 forbids serializing
 /// at the boundary, and a response is a status plus headers plus a body. These
 /// are the accessors the binding layer turns back into a `Response` object.
 ///
@@ -842,7 +854,7 @@ pub unsafe extern "C" fn ibex2_response_field(
 /// Start a delegating op on another thread.
 ///
 /// Returns immediately. The op is **not** run on the JavaScript thread — that
-/// is the entire point of the delegating shape — and it
+/// is the entire point of the delegating shape (LLP 0059.000 §1.1) — and it
 /// touches no engine state, because nothing in `crate::task` may hold a `jsi`
 /// value.
 ///
@@ -876,8 +888,8 @@ pub unsafe extern "C" fn ibex2_async_begin(
         return 1;
     };
     if op == AsyncOp::FsCompressImage {
-        // Exact patch 9: a fifth, the media type.
-        // Patch 9a: a sixth, the edit's JSON; or
+        // Exact patch 9 (exact2 LLP 1069.002 A1.11): a fifth, the media type.
+        // Patch 9a (exact2 LLP 1133.019 D17): a sixth, the edit's JSON; or
         // `transformImage`'s three, its options' JSON third.
         let transform = raw.len() == 3;
         if !(3..=6).contains(&raw.len()) {
@@ -973,7 +985,7 @@ fn prepare_image_args(
     grants: std::sync::Arc<GrantSet>,
     task_id: u64,
 ) -> Result<crate::stdlib::fs_image::ImageJob, HostError> {
-    // Exact patch 9a: one JSON value of options,
+    // Exact patch 9a (exact2 LLP 1133.019 D17): one JSON value of options,
     // which the codec reads. `transformImage` is (from, to, options);
     // `compressImage` may add its edit after its type.
     let options = |value: Option<&HostValue>| match value {
@@ -1009,7 +1021,7 @@ fn prepare_image_args(
             "compressImage expects from, to, maxDimension, maxBytes".into(),
         ));
     };
-    // Exact patch 9: an optional media type last.
+    // Exact patch 9 (exact2 LLP 1069.002 A1.11): an optional media type last.
     let format = match args.get(4) {
         None => crate::stdlib::fs_image::ImageFormat::Jpeg,
         Some(HostValue::Str(t)) if t == "image/jpeg" => crate::stdlib::fs_image::ImageFormat::Jpeg,
@@ -1057,8 +1069,8 @@ enum AsyncOp {
     Fetch = host_opcodes::async_ops::FETCH,
     ReadBody = host_opcodes::async_ops::READ_BODY,
     /// `fs`, one op per method. Delegating and capability-bearing, so it leaves
-    /// the JavaScript thread like fetch does, and it has no synchronous variants
-    /// on purpose.
+    /// the JavaScript thread like fetch does — LLP 0059.000 §3.11 has no
+    /// synchronous variants on purpose.
     FsReadFile = host_opcodes::async_ops::FS_READ_FILE,
     FsWriteFile = host_opcodes::async_ops::FS_WRITE_FILE,
     FsAppendFile = host_opcodes::async_ops::FS_APPEND_FILE,
@@ -1229,7 +1241,7 @@ fn run_async(
                     _ => RedirectMode::Follow,
                 };
             }
-            // The JS-thread boundary snapshots handle-backed headers before scheduling.
+            // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — the JS-thread boundary snapshots handle-backed headers before scheduling
             if let Some(headers) = fetch_headers {
                 request.headers = headers;
             }
@@ -1307,8 +1319,8 @@ fn fs_op_for(op: AsyncOp) -> Option<crate::stdlib::fs::FsOp> {
     })
 }
 
-/// A lock `flock` took moves to the runtime that asked (Exact
-/// patch 24): its handle there is the one the code gets.
+/// A lock `flock` took moves to the runtime that asked (exact2 LLP 1133.007
+/// D6a): its handle there is the one the code gets.
 fn held(taken: HostValue, state: &crate::task::RuntimeState) -> Result<HostValue, HostError> {
     let HostValue::Str(transfer) = taken else {
         return Err(HostError::Failed("flock: no lock".into()));
@@ -1364,7 +1376,7 @@ fn run_fs(
         None
     };
 
-    // Data is the second argument for single-path writes; patch 24's take theirs
+    // Data is the second argument for single-path writes; D6a's take theirs
     // as text: a mode, a link's target, an algorithm, a lock's timeout. A
     // link names its target first, as Node's `symlink(target, path)`.
     use crate::stdlib::fs::FsOp;
@@ -1428,7 +1440,7 @@ fn run_fs(
 
 /// Take at most ONE admitted host task for the engine to run.
 ///
-/// One task per drive cycle, from one FIFO carrying both
+/// LLP 0058.000.000 §8: one task per drive cycle, from one FIFO carrying both
 /// timer deliveries, settlements, and events. `kind` is 0 for none, 1 for a
 /// settlement, 2 for a timer, and 3 for an event. Timer handles and event
 /// subscription ids arrive in `task_id`; events carry their payload in `out`.
@@ -1488,7 +1500,7 @@ pub unsafe extern "C" fn ibex2_take_task(
 }
 
 /// Take the runtime's drive flag for one borrowed-adapter delivery or cycle
-/// Returns a retained reference to the state, which
+/// (LLP 0071 D5). Returns a retained reference to the state, which
 /// [`ibex2_adapter_end_drive`] releases with the flag, or null when a
 /// delivery, a cycle or an owning pump already holds the flag: the state then
 /// outlives the guard even if the caller's `Context` is dropped meanwhile.
@@ -1506,7 +1518,7 @@ pub unsafe extern "C" fn ibex2_adapter_begin_drive(
 }
 
 /// Admit every timer due on the runtime's clock, for a borrowed adapter's
-/// cycle; returns how many.
+/// cycle (LLP 0071 D5); returns how many.
 ///
 /// # Safety
 /// `state` must be null or a live runtime state.
@@ -1586,7 +1598,7 @@ pub unsafe extern "C" fn ibex2_host_free_string(value: *mut c_char) {
 /// `process.env` is built from this list at binding time rather than checked at
 /// read time: the snapshot contains exactly the granted variables, so an
 /// ungranted one is `undefined` because it is absent, not because a check
-/// refused it. Authority carried by the binding, in its most
+/// refused it. Authority carried by the binding (LLP 0060 D1), in its most
 /// literal form.
 ///
 /// # Safety

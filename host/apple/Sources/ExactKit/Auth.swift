@@ -1,9 +1,9 @@
-// `openAuthSession`: one sign-in sheet per `exact-auth:`
-// request, in ExactKit so an embedder gets it with the session.
+// `openAuthSession` (LLP 1069.006 D3): one sign-in sheet per `exact-auth:`
+// request, in ExactKit so an embedder (LLP 1031) gets it with the session.
 // The runner rules first (grants, the one-sheet rule, supersession); this
 // keeps each request's ticket until its sheet's completion runs, and reports
 // what came back. The sheet itself, `ASWebAuthenticationSession`, is the
-// `ExactAuthSession` module's: AuthenticationServices
+// `ExactAuthSession` module's (LLP 1047.001.000 E): AuthenticationServices
 // is linked only by an app whose grants name `auth.session`. The callback's
 // scheme, host, path and `state` are checked in Rust
 // (`exact_runner::auth::accept`), since `.customScheme` matches the scheme
@@ -31,7 +31,7 @@ package protocol AuthSheet: AnyObject {
     func cancel()
 }
 
-/// An outcome without a callback URL: a status and a message.
+/// An outcome without a callback URL: LLP 1069.006 D1's status and message.
 package struct AuthFailure: Error {
     package let status: Int
     package let message: String
@@ -58,8 +58,8 @@ extension ExactSession {
             authSessions.live.removeValue(forKey: ticket)?.cancel()
             return
         }
-        // Under the agent the request is held — unless the drive asked
-        // for the real device (`EXACT_DEVICE=real`), which
+        // Under the agent the request is held (D7) — unless the drive asked
+        // for the real device (`EXACT_DEVICE=real`, LLP 1069.007 D8), which
         // also restores OS entropy (`exact_data::crypto`).
         if ExactEnv.agentMode && ExactEnv.environment["EXACT_DEVICE"] != "real" {
             runtime.auth(["op": "hold", "ticket": ticket])
@@ -71,8 +71,8 @@ extension ExactSession {
         guard let urlText = op["url"] as? String, let url = URL(string: urlText),
               let callback = op["callback"] as? String, let parts = URLComponents(string: callback), parts.scheme != nil
         else { return authDone(ticket, AuthFailure(status: 502, message: "the session's URL or callback is unreadable")) }
-        // A loopback callback: the default browser and the
-        // listener's receiver on macOS; iOS waits on a device measurement.
+        // A loopback callback (LLP 1133.005 D9): the default browser and the
+        // listener's receiver on macOS; iOS waits on a device measurement (§8).
         if let loopback = op["loopback"] as? [String: Any] {
             #if os(macOS)
             let opened = authLoopback(ticket, url: url, state: op["state"] as? String ?? "", ephemeral: op["ephemeral"] as? Bool ?? false,
@@ -114,7 +114,7 @@ extension ExactSession {
         runtime.auth(["op": "done", "ticket": ticket, "status": failure.status, "message": failure.message])
     }
 
-    /// Teardown or reload: every open sheet ends with it.
+    /// Teardown or reload: every open sheet ends with it (D3).
     func cancelAuthSessions() {
         let live = authSessions.live
         authSessions.live = [:]

@@ -78,6 +78,28 @@ fn a_plan_round_trips_and_its_bytes_are_canonical() {
 }
 
 #[test]
+fn structure_remaps_table_and_bytecode_strings_independently_of_interning_order() {
+    let plan = |words: [&str; 2], literal: &str| {
+        let mut b = PlanBuilder::new(0, 0);
+        for word in words {
+            b.str(word);
+        }
+        let string = b.primitive(TypeKind::String);
+        let mut body = Asm::new();
+        body.str(b.str(literal));
+        let body = b.code(body);
+        b.derive("first", string, body);
+        b.finish().unwrap()
+    };
+    let a = plan(["first", "second"], "second");
+    let b = plan(["second", "first"], "second");
+    assert_ne!(a.encode(), b.encode());
+    assert_eq!(a.structure(), b.structure());
+    let other = plan(["first", "second"], "first");
+    assert_ne!(a.structure(), other.structure());
+}
+
+#[test]
 fn resource_context_defaults_to_zero_and_decoding_refuses_an_oversized_tail() {
     let plan = sample();
     assert_eq!(plan.resources[0].context, 0);
@@ -349,7 +371,7 @@ fn font_sources_are_portable_local_relative_paths() {
 }
 
 /// A bool is 0 or 1. Any other byte is refused, not read as `true`: a
-/// binding's `written` is a claim about its author.
+/// binding's `written` is a claim about its author (LLP 1115.000 D2).
 #[test]
 fn a_bool_is_zero_or_one_and_nothing_else() {
     let written = sample();
@@ -380,6 +402,9 @@ fn host_event_kinds_round_trip_through_the_enum_codec() {
         EventKind::Contextmenu,
         EventKind::Dblclick,
         EventKind::Swiperight,
+        EventKind::Swipeleft,
+        EventKind::Scrolldragstart,
+        EventKind::Scrolldragend,
     ] {
         let mut plan = sample();
         plan.handlers[0].event = event;
@@ -707,7 +732,7 @@ fn region_topology_and_timer_progress_are_validated() {
     // A one-shot timer is refused the same way: `after(0, x)` would fire at boot.
     stuck.timers[0].once = true;
     assert_eq!(stuck.validate(), Err(PlanError::ZeroInterval { timer: 0 }));
-    // A frame timer carries no interval and repeats.
+    // A frame timer (LLP 1073) carries no interval and repeats.
     stuck.timers[0].once = false;
     stuck.timers[0].frame = true;
     assert!(stuck.validate().is_ok());
@@ -724,8 +749,8 @@ fn a_huge_announced_count_reserves_little_before_it_is_refused() {
     // (count > remaining), and never reserved 16M entries first.
     let plan = sample();
     let mut bytes = plan.encode();
-    // strings count sits right after the 52-byte header.
-    bytes[52..56].copy_from_slice(&(1u32 << 24).to_le_bytes());
+    // The strings count sits right after the 60-byte header.
+    bytes[60..64].copy_from_slice(&(1u32 << 24).to_le_bytes());
     assert!(matches!(Plan::decode(&bytes), Err(PlanError::BadCount(_))));
 }
 
@@ -747,9 +772,10 @@ fn a_count_is_bounded_by_max_count_and_the_bytes_left() {
     );
 }
 
-// New rows, header link, cache key, and typed roster.
+// @ref LLP 1038 D2/D3/D5 — new rows, header link, cache key, and typed roster.
 #[test]
 fn a_placeholder_is_another_row_of_the_same_type_without_its_own() {
+    // @ref LLP 1048.003 D6
     let mut b = PlanBuilder::from_plan(sample());
     let nearby = exact_plan::ResourcesId(0);
     let ty = b.plan().resources[0].ty;
@@ -911,7 +937,7 @@ fn sites_nest_at_most_max_site_depth_and_types_never_contain_themselves() {
     assert!(matches!(plan.validate(), Err(PlanError::TypeCycle { .. })));
 }
 
-/// A `Map`/`Filter` callback body is a region no jump
+/// LLP 1017.003 D5: a `Map`/`Filter` callback body is a region no jump
 /// leaves or enters, though a branch around it may land on its end.
 #[test]
 fn a_callback_body_is_entered_and_left_only_at_its_ends() {
@@ -1005,17 +1031,25 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
     assert_eq!(same, plan);
 }
 
-/// The `module_events` table joins the plan: a native
-/// module's event the root hears, a wake event's budget,
-/// and `currententrychange`, `navigatesuccess` and `navigateerror` the event
-/// kinds; `atompress` joins them, then
-/// `newwindow` and `download`, then `capture`, then `userpromptopened`, then an image's `enterpictureinpicture`, `leavepictureinpicture` and `pictureinpictureerror`, then `historyswipe`. The `tools` table joins it, and the roster's `sharedFiles`, then `fragment`; a resource row's `each`. Every host needs a new binary for this plan format. The format digest is pinned: a change to `tables/format.json`, a
-/// comment included, moves it, and every host then needs a new binary (LLP
-/// 1030 D3a).
+/// Version 6 adds the header's `surface` (LLP 1101.003 D9), which every host
+/// checks before it boots a plan; declared sources add the `fetches` and
+/// `fetch_parts` tables (LLP 1162.001); the format slot, each strings table's
+/// format data and the format locale a localized roster entry takes last come
+/// with formatting by locale (LLP 1054.000.003 D6). `formatDate` also admits
+/// day keys alongside epoch milliseconds. Every plan-reading host
+/// needs a new binary, including Apple, web, Linux, Windows, Android and
+/// terminal (LLP 1030 D3a). Executable instance expressions add `owner` and
+/// `unsettled` to derives; those hosts must also rebuild for the new rows.
+/// `formatDay` takes `"section"` (LLP 1168.000 D5), which a runner before it
+/// does not print: every host rebuilds for it. `formatTime` takes
+/// `"2-digit"`, `formatDate` `"month-day"` and `formatNumber` a `decimal`
+/// digit count (expo/exact#491), and a table's format data gains their
+/// fields: every host rebuilds for them.
+/// The digest covers all of `tables/format.json`, including comments.
 #[test]
 fn the_format_digest_is_pinned() {
     assert_eq!(
-        FORMAT_DIGEST, 0x830296ddb388e86a,
+        FORMAT_DIGEST, 0xafe3_eb09_1549_1423,
         "the plan format digest moved: if intended, name the break and the hosts that move"
     );
 }
@@ -1054,6 +1088,62 @@ fn invalid_timer_wait_rows_are_refused_by_the_decoder() {
                 Err(PlanError::TimerWait { timer: 0 })
             ),
             "wait={wait} max={maximum} frame={frame} tolerance={tolerance}"
+        );
+    }
+}
+
+#[test]
+fn resumed_type_interning_keeps_the_first_equal_row_and_retyped_enums() {
+    let mut b = PlanBuilder::new(0, 0);
+    let string = b.primitive(TypeKind::String);
+    let empty_record = b.record("enum", &[]);
+    assert_eq!(b.string_enum(&[]), empty_record);
+    assert_eq!(
+        b.plan().types[empty_record.0 as usize].kind,
+        TypeKind::String
+    );
+    let next_record = b.record("enum", &[]);
+    assert_ne!(next_record, empty_record);
+    let mut plan = b.finish().unwrap();
+    plan.types.push(plan.types[string.0 as usize].clone());
+    let mut resumed = PlanBuilder::from_plan(plan);
+    assert_eq!(resumed.primitive(TypeKind::String), string);
+    assert_eq!(resumed.record("enum", &[]), next_record);
+    assert_eq!(resumed.string_enum(&[]), next_record);
+    assert_ne!(resumed.record("enum", &[]), next_record);
+}
+
+/// LLP 1101.003 D9: the header names the plan's surface, and each decoder
+/// refuses the other's by name before reading a table. A plan no compiler
+/// wrote (an empty surface) is a GUI plan.
+#[test]
+fn each_decoder_takes_only_its_own_surface() {
+    let mut terminal = sample();
+    terminal.surface = "terminal".into();
+    let bytes = terminal.encode();
+    let refused = PlanError::WrongSurface {
+        plan: "terminal".into(),
+        host: "gui",
+    };
+    assert_eq!(Plan::decode(&bytes).unwrap_err(), refused);
+    assert_eq!(
+        Plan::decode_static(bytes.clone().leak()).unwrap_err(),
+        refused
+    );
+    assert_eq!(Plan::decode_terminal(&bytes).unwrap(), terminal);
+    assert_eq!(terminal.redecode().unwrap(), terminal);
+    for surface in ["gui", ""] {
+        let mut gui = sample();
+        gui.surface = surface.into();
+        let bytes = gui.encode();
+        assert_eq!(Plan::decode(&bytes).unwrap(), gui);
+        assert_eq!(gui.redecode().unwrap(), gui);
+        assert_eq!(
+            Plan::decode_terminal(&bytes).unwrap_err(),
+            PlanError::WrongSurface {
+                plan: "gui".into(),
+                host: "terminal",
+            }
         );
     }
 }

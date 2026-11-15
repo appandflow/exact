@@ -1,4 +1,4 @@
-// AppKit chrome around the kernel's editor content rect.
+// @ref LLP 1104 D3–D6: AppKit chrome around the kernel's editor content rect.
 #if os(macOS)
 import AppKit
 import CoreText
@@ -23,7 +23,7 @@ extension NodeView {
     /// start at the content box's edge. A grouped row's field is out by it
     /// already (`layoutField`).
     func nativeEditorRect(in proposed: NSRect) -> NSRect? {
-        guard isNativeTextControl, let rect = kernelContentBox else { return nil }
+        guard pageField == nil, isNativeTextControl, let rect = kernelContentBox else { return nil }
         // Layout's insets less what the drawn box lost to the pixel grid, so
         // the text keeps layout's width (`PixelGridMac.swift`).
         let content = proposed.insetBy(left: rect.minX, top: rect.minY,
@@ -36,7 +36,7 @@ extension NodeView {
     /// content box for its frame; its line is placed as a native one's, and
     /// AppKit's horizontal placement is kept.
     func authoredEditorRect(_ appKit: NSRect, in proposed: NSRect) -> NSRect? {
-        guard !isNativeTextControl, let font = field?.font else { return nil }
+        guard pageField == nil, !isNativeTextControl, let font = field?.font else { return nil }
         let line = cssLine(in: proposed, font: font)
         return NSRect(x: appKit.minX, y: line.minY, width: appKit.width, height: line.height)
     }
@@ -46,7 +46,7 @@ extension NodeView {
     /// leading below the line box's top; the cell draws its line at the
     /// rect's top, the baseline the font's ascent, rounded to a point,
     /// below it (the field is flipped). The line box rounds in the window's
-    /// device pixels, as a textarea's and a paragraph's do, so
+    /// device pixels, as a textarea's and a paragraph's do (LLP 1008 §3), so
     /// at 2x the baseline, and the rect's top, can be on a half point.
     func cssLine(in box: NSRect, font: NSFont) -> NSRect {
         let (above, below) = CSSLineBox.extents(font as CTFont, height: usedLineHeight, scale: pixelScale ?? 1)
@@ -56,7 +56,7 @@ extension NodeView {
     }
     static let editorPadding = NSTextView.fieldEditor().textContainer?.lineFragmentPadding ?? 0
     func layoutField() {
-        // A field the window's toolbar hosts is AppKit's to place and to style.
+        // A field the window's toolbar hosts is AppKit's to place and to style (LLP 1115.002 D2).
         guard let field, pageField == nil else { return }
         // AppKit sets a borderless field's text in from its frame by the field
         // editor's line fragment padding (2 points, which the cell's drawing
@@ -65,11 +65,11 @@ extension NodeView {
         // author-drawn one at its content box's, where CSS puts it.
         let out = fieldInCell || !isNativeTextControl ? Self.editorPadding : 0
         field.frame = (isNativeTextControl ? bounds : contentBox()).insetBy(dx: -out, dy: 0)
-        layoutStepper() // a number input's stepper takes the field's trailing end
+        layoutStepper() // a number input's stepper takes the field's trailing end (LLP 1116.007 D4)
         field.needsDisplay = true
     }
     /// The AppKit class an input's field is: a password's secure field; a
-    /// native search input's `NSSearchField` (its magnifier, its
+    /// native search input's `NSSearchField` (LLP 1115 D8: its magnifier, its
     /// clear button, Escape clearing it); a plain field otherwise, including
     /// a search input the author draws (`appearance: none`).
     var wantedFieldClass: FieldClass {
@@ -78,9 +78,16 @@ extension NodeView {
         return .plain
     }
     /// A different class on AppKit, so a changed `type` or appearance remakes
-    /// the field in place.
+    /// the field in place, keeping its editing and selection.
     func remakeFieldIfNeeded() {
-        guard let f = field, pageField == nil else { return }
+        guard let f = field else { return }
+        // A field lent to an alert is remade there, in its accessory view
+        // (`AlertHost.relend`); the toolbar's header takes back a field that
+        // is no longer a search field's (HeaderMac.swift).
+        if pageField != nil {
+            if FieldClass(f) != wantedFieldClass.lentToAlert { presenter?.alerts.relend(self) }
+            return
+        }
         let wanted = wantedFieldClass
         guard FieldClass(f) != wanted else { return }
         let n = makeField(wanted)
@@ -88,17 +95,39 @@ extension NodeView {
         n.stringValue = f.stringValue
         n.font = f.font
         n.textColor = f.textColor
-        let focused = window != nil && editingEditor != nil
-        f.removeFromSuperview()
-        addSubview(n)
-        field = n
-        if focused { window?.makeFirstResponder(n) }
+        // A style can remake it (`appearance`), and a style's pass assigns
+        // no props.
+        applyPlaceholder(n)
+        applyFieldProps(n)
+        replaceField(f, with: n) {
+            f.removeFromSuperview()
+            (clipBox ?? self).addSubview(n)
+        }
+    }
+    /// What the field's props say of it besides its value and placeholder.
+    func applyFieldProps(_ f: NSTextField) {
+        f.contentType = Autofill.contentType(props["autocomplete"], fallback: nil) // LLP 1102 §3.6
+        f.isEnabled = !disabled
+        f.isEditable = !disabled && props["editable"] != "false"
+    }
+    /// `n` in `f`'s place, which `install` puts it in, keeping the editing
+    /// and its selection.
+    func replaceField(_ f: NSTextField, with n: NSTextField, install: () -> Void) {
+        let selection = editingEditor.map { presenter?.fieldSelections.current(self) ?? FieldSelection($0.selectedRange()) }
+        keepingEditing(f) {
+            install()
+            field = n
+            if let selection, n.window?.makeFirstResponder(n) == true {
+                if let selections = presenter?.fieldSelections { selections.restore(self, selection) }
+                else { _ = showSelection(selection.range) }
+            }
+        }
     }
     func styleNativeField() {
         remakeFieldIfNeeded()
         guard let field, pageField == nil else { return }
         let native = isNativeTextControl
-        // A grouped form's field has no bezel, no
+        // @ref LLP 1115.002 D6 — a grouped form's field has no bezel, no
         // ground and no ring: the row is the field, as SwiftUI's `Form` has it.
         let themed = fieldGround != nil
         let bezel = native && !fieldInCell && !themed
@@ -129,7 +158,7 @@ extension NodeView {
         if field.baseWritingDirection != fieldBaseDirection { field.baseWritingDirection = fieldBaseDirection }
     }
     /// A field lent to the toolbar or an alert, which no page chrome styles:
-    /// its side and base, its editor's text too.
+    /// its side and base, its editor's text too (LLP 1001 §1).
     func styleLentFieldSide() {
         guard pageField != nil, let field else { return }
         syncFieldSide()
@@ -140,7 +169,7 @@ extension NodeView {
     }
     /// A plain field's paragraph base direction: CSS `direction`, said either
     /// way as Apple text's is (`TextEngine.setBaseDirection`), so no first
-    /// strong character picks it.
+    /// strong character picks it (LLP 1001 §1).
     var fieldBaseDirection: NSWritingDirection {
         style["direction"]?.string == "rtl" ? .rightToLeft : .leftToRight
     }
@@ -222,6 +251,9 @@ enum FieldClass {
     init(_ field: NSTextField) { self = field is NSSecureTextField ? .secure : field is NSSearchField ? .search : .plain }
     /// The kernel's `FieldKind` code, which keys `FieldChromeCache`.
     var chromeKind: UInt8 { switch self { case .plain: 0; case .secure: 1; case .search: 2 } }
+    /// The class of the field an alert's accessory view holds for an input
+    /// of this class: a secure field for a password, a plain one otherwise.
+    var lentToAlert: FieldClass { self == .secure ? .secure : .plain }
 }
 
 /// A search field's cell, as `FieldCell` (Accessibility.swift): its text in
@@ -229,21 +261,21 @@ enum FieldClass {
 /// `FieldChromeCache`), its buttons where AppKit puts them.
 final class SearchFieldCell: NSSearchFieldCell {
     /// The input's node is its field's delegate, in the page and in the
-    /// window's toolbar alike: there too it edits in the
+    /// window's toolbar alike (LLP 1115.002 D2): there too it edits in the
     /// session's editor, which tells the node of a composition and of a
-    /// copy, cut or paste. The rectangles below are the page's: a field
-    /// the toolbar hosts has no node above it, and its geometry is AppKit's.
+    /// copy, cut or paste. The rectangles below use the page's content box;
+    /// a lent field keeps AppKit's geometry.
     override func fieldEditor(for controlView: NSView) -> NSTextView? {
         ((controlView as? NSTextField)?.delegate as? NodeView)?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
     }
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
-        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)
+        fieldNode?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)
     }
     override func titleRect(forBounds rect: NSRect) -> NSRect {
-        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.titleRect(forBounds: rect)
+        fieldNode?.nativeEditorRect(in: rect) ?? super.titleRect(forBounds: rect)
     }
     override func searchTextRect(forBounds rect: NSRect) -> NSRect {
-        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.searchTextRect(forBounds: rect)
+        fieldNode?.nativeEditorRect(in: rect) ?? super.searchTextRect(forBounds: rect)
     }
     override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
         drawingAntialiased(node?.drawsAntialiased == true) { super.drawInterior(withFrame: cellFrame, in: controlView) }
@@ -259,7 +291,7 @@ final class SearchFieldCell: NSSearchFieldCell {
     }
 }
 
-// A header's search input in the window's toolbar.
+// @ref LLP 1115.002 D2 — a header's search input in the window's toolbar.
 // The toolbar's search item holds a field (`NSSearchToolbarItem.searchField`,
 // which SwiftUI gives a subclass of its own too), and that field is this
 // node's: one of the node's own class with the node its delegate, so its
@@ -294,20 +326,26 @@ extension NodeView {
     /// delegate and its editor the session's, AppKit's to draw and place.
     func lendFieldToAlert() -> NSTextField? {
         guard pageField == nil, let page = field else { return nil }
-        let lent: NSTextField = page is NSSecureTextField ? SecureField(frame: .zero) : Field(frame: .zero)
-        lent.delegate = self
-        lent.formatter = TextInputFormatter(self)
-        lent.stringValue = page.stringValue
-        lent.isEnabled = page.isEnabled
-        lent.isEditable = page.isEditable
-        lent.contentType = page.contentType // `autocomplete`
-        lent.cell?.isScrollable = true
-        lent.cell?.wraps = false
-        lent.cell?.usesSingleLineMode = true
+        let lent = makeAlertField(like: page)
         pageField = page
         field = lent
         syncFieldSide()
         syncBarField()
+        return lent
+    }
+    /// A field for an alert's accessory view, of the class this input's
+    /// type wants there, holding what `field` holds.
+    func makeAlertField(like field: NSTextField) -> NSTextField {
+        let lent: NSTextField = wantedFieldClass.lentToAlert == .secure ? SecureField(frame: .zero) : Field(frame: .zero)
+        lent.delegate = self
+        lent.formatter = TextInputFormatter(self)
+        lent.stringValue = field.stringValue
+        lent.isEnabled = field.isEnabled
+        lent.isEditable = field.isEditable
+        lent.contentType = field.contentType // `autocomplete` (LLP 1102 §3.6)
+        lent.cell?.isScrollable = true
+        lent.cell?.wraps = false
+        lent.cell?.usesSingleLineMode = true
         return lent
     }
     /// The page has its field again, holding what the toolbar's or the

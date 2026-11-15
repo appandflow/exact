@@ -1,8 +1,8 @@
-// UIKit spring probe. Builds as a one-scene simulator app; on
+// UIKit spring probe for LLP 1099. Builds as a one-scene simulator app; on
 // launch it makes each UIKit / SwiftUI spring call, reads back what it
 // resolves to (the CASpringAnimation UIKit adds, or SwiftUI's Spring
 // fields), samples rendered curves on a paused layer, writes
-// tmp/out.txt and exits. See probe.sh.
+// tmp/out.txt and exits. See probe.sh. Line formats are in the LLP, §3.
 import UIKit
 import SwiftUI
 

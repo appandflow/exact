@@ -1,4 +1,4 @@
-// CSS white space, `nowrap`, `pre-line`, `text-overflow: ellipsis`
+// LLP 1053 §0 G4, G5: CSS white space, `nowrap`, `pre-line`, `text-overflow: ellipsis`
 // without `line-clamp`, and `tabular-nums`, as the browser renders them.
 import XCTest
 import CoreText
@@ -7,6 +7,96 @@ import CExact
 
 final class TextCSSTests: XCTestCase {
     let engine = TextEngine(resolve: { _ in nil })
+
+    func testFontCacheIsBoundedAcrossContinuousSizesAndAxes() {
+        for axes in [false, true] {
+            let engine = TextEngine(resolve: { _ in nil })
+            var peak = 0
+            for i in 0..<1024 {
+                autoreleasepool {
+                    let font = engine.font(size: 14 + CGFloat(i) * 0.005,
+                                           weight: axes ? 301 + i % 397 : 400,
+                                           family: 0, italic: false,
+                                           stretch: axes ? 75 + CGFloat(i % 501) * 0.1 : 100)
+                    let line = CTLineCreateWithAttributedString(NSAttributedString(
+                        string: "Changing font size", attributes: [.font: font]))
+                    XCTAssertGreaterThan(CTLineGetTypographicBounds(line, nil, nil, nil), 0)
+                    peak = max(peak, engine.fonts.count)
+                }
+            }
+            XCTAssertLessThanOrEqual(peak, 256, "axes: \(axes)")
+        }
+    }
+
+    func testFontCacheBoundsDeclaredCascadesAndFeatureVariants() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../")
+        let data = try Data(contentsOf: root.appendingPathComponent("host/painted/tests/fonts/RobotoFlex-subset.ttf").standardized)
+        let descriptor = (CTFontManagerCreateFontDescriptorsFromData(data as CFData) as! [CTFontDescriptor])[0]
+        let face = RegisteredFace(family: "Flex", generic: nil, weights: 100...1000,
+                                  stretches: 25...151, italic: false, descriptor: descriptor)
+        let fallback = RegisteredFace(family: "system-ui", generic: 0, weight: 400,
+                                      italic: false, descriptor: descriptor)
+        for (family, numeric) in [(0, 1), (8, 0), (9, 0), (9, 1)] {
+            let engine = TextEngine(resolve: { _ in nil })
+            engine.catalog[8] = [face]
+            engine.catalog[9] = [face, fallback]
+            var peak = 0
+            for i in 0..<1024 {
+                autoreleasepool {
+                    let font = engine.font(size: 16, weight: 400, family: family, italic: false,
+                                           numeric: numeric, variations: [FontAxis(tag: 0x77676874, value: 300 + Float(i) * 0.1)])
+                    XCTAssertEqual(CTFontGetSize(font as CTFont), 16)
+                    peak = max(peak, engine.fonts.count)
+                }
+            }
+            XCTAssertLessThanOrEqual(peak, 256, "family: \(family), numeric: \(numeric)")
+        }
+    }
+
+    func testFontCacheBoundsPlatformControlVariants() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let base = engine.font(size: 16, weight: 400, family: 0, italic: false)
+        let family = Int(engine.registerControlFont(base))
+        var peak = 0
+        for i in 0..<1024 {
+            autoreleasepool {
+                let size = 14 + CGFloat(i) * 0.005
+                let font = engine.font(size: size, weight: 400, family: family, italic: false)
+                XCTAssertEqual(CTFontGetSize(font as CTFont), size, accuracy: 0.00001)
+                peak = max(peak, engine.fonts.count)
+            }
+        }
+        XCTAssertLessThanOrEqual(peak, 256)
+        XCTAssertTrue(engine.font(size: 16, weight: 400, family: family, italic: false) === base)
+    }
+
+    func testFontCacheEvictionAndPressurePreserveLiveTextAndCheckpoints() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let font = engine.font(size: 16, weight: 400, family: 0, italic: false, numeric: 1)
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: "0123456789", attributes: [.font: font]))
+        let width = CTLineGetTypographicBounds(line, nil, nil, nil)
+        let saved = engine.fonts
+        XCTAssertTrue(engine.font(size: 16, weight: 400, family: 0, italic: false, numeric: 1) === font)
+        XCTAssertEqual(engine.fonts.count, saved.count)
+        let checkpoint = engine.checkpoint()
+        for i in 0..<1024 {
+            autoreleasepool {
+                _ = engine.font(size: 20 + CGFloat(i) * 0.005, weight: 400, family: 0, italic: false)
+            }
+        }
+        XCTAssertFalse(engine.fonts.values.contains { $0 === font })
+        XCTAssertEqual(CTLineGetTypographicBounds(line, nil, nil, nil), width)
+        let rebuilt = engine.font(size: 16, weight: 400, family: 0, italic: false, numeric: 1)
+        XCTAssertTrue(CFEqual(font as CTFont, rebuilt as CTFont))
+        engine.install(nil)
+        XCTAssertTrue(engine.fonts.isEmpty)
+        engine.restore(checkpoint)
+        XCTAssertEqual(engine.fonts, saved)
+        engine.dropCold()
+        XCTAssertTrue(engine.fonts.isEmpty)
+        XCTAssertEqual(CTLineGetTypographicBounds(line, nil, nil, nil), width)
+        XCTAssertTrue(CFEqual(font as CTFont, engine.font(size: 16, weight: 400, family: 0, italic: false, numeric: 1) as CTFont))
+    }
 
     func testRuntimeInstalledFamiliesSelectTheirOwnFacesAndWidths() throws {
         guard !TextEngine.installedFaces("Arial").isEmpty,
@@ -106,7 +196,7 @@ final class TextCSSTests: XCTestCase {
     /// CSS Text 3 §4.1.2 removes collapsible spaces at a soft line break and
     /// hangs `pre-wrap`'s there; Core Text keeps their advance in the line's
     /// typographic width. Before a forced break, which the paragraph's end
-    /// also is, `pre-wrap`'s spaces conditionally hang: only as far as
+    /// also is (§5), `pre-wrap`'s spaces conditionally hang: only as far as
     /// they would not fit. `pre`'s count.
     func testAWrappedLinesTrailingSpaceTakesNoWidth() {
         let first = width("word word", numeric: 0)
@@ -125,7 +215,7 @@ final class TextCSSTests: XCTestCase {
                        "pre-wrap without: the spaces past the room hang")
         XCTAssertEqual(engine.paragraph(spec([run("word   \nx")], whiteSpace: 4), width: word + 1).width, spaced, accuracy: 1.0 / 64,
                        "pre: they count")
-        // Max-content counts them. Chrome (156, 14px Helvetica): a pre-wrap "Say " is 28.02 px wide, "Say" 24.13
+        // §8.2 counts them in max-content. Chrome (156, 14px Helvetica): a pre-wrap "Say " is 28.02 px wide, "Say" 24.13
         XCTAssertEqual(engine.paragraph(spec([run("word   ")], whiteSpace: 1), width: .infinity).width, spaced, accuracy: 1.0 / 64,
                        "pre-wrap at the paragraph's end, max-content: the spaces count")
         XCTAssertEqual(engine.paragraph(spec([run("word   ")], whiteSpace: 1), width: spaced).width, spaced, accuracy: 1.0 / 64,
@@ -178,7 +268,7 @@ final class TextCSSTests: XCTestCase {
         XCTAssertEqual(start(make("שלום ", align: 0, rtl: true), in: 100), space, accuracy: 0.02, "rtl left: the space starts at the left edge")
         XCTAssertEqual(start(make("שלום ", align: 1, rtl: true), in: 100), (100 - shalom - space) / 2 + space, accuracy: 0.02, "rtl centred")
         XCTAssertEqual(start(make("שלום ", align: 0, rtl: true)), space, accuracy: 0.02, "rtl shrink-to-fit, left: the space fills the box")
-        // Min-content leaves out what conditionally hangs (Chrome: 24.13)
+        // §8.2: min-content leaves out what conditionally hangs (Chrome: 24.13)
         XCTAssertEqual(engine.minContentWidth(make("Say ")), say, accuracy: 1.0 / 64, "min-content")
     }
 
@@ -200,7 +290,7 @@ final class TextCSSTests: XCTestCase {
         XCTAssertEqual(engine.paragraph(s, width: width("one two", numeric: 0) + 1).lines.count, 3, "and it wraps")
     }
 
-    /// `white-space: pre`: preserve × nowrap. Chrome's widths
+    /// `white-space: pre` (LLP 1053 G5): preserve × nowrap. Chrome's widths
     /// (13px system-ui, headless Chrome 154, `getBoundingClientRect` of an
     /// inline-block, scripts/fixtures/pre.contract's cases): kept spaces,
     /// trailing ones included, and lines only where a line feed is.
@@ -227,7 +317,7 @@ final class TextCSSTests: XCTestCase {
 
     /// Tab stops every eight spaces of the face (CSS `tab-size: 8`), from the
     /// line's start. Chrome's widths, 13px DejaVu Sans (the pinned fixture
-    /// face, as a web font): system-ui's are declared apart.
+    /// face, as a web font): system-ui's are declared apart (LLP 1053 §0 r3).
     func testTabsStopEveryEightSpacesAsChromeDoes() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf").standardized
@@ -299,13 +389,67 @@ final class TextCSSTests: XCTestCase {
         XCTAssertEqual(drawn(700), 600, "700 matches the 600 face, drawn at its declared weight")
     }
 
-    /// `font-variation-settings` draws after the weight, the
+    func testInlineOpticalSizingSurvivesEitherKeyOrder() throws {
+        let settings = #""font_variation_settings":[["opsz",20]]"#
+        let axis = FontAxis(tag: 0x6f70737a, value: 20)
+        let cases: [(String, [FontAxis])] = [
+            ("", []),
+            (#""font_optical_sizing":"auto""#, []),
+            (#""font_optical_sizing":"none""#, [.ownOpticalSize]),
+            (#""font_optical_sizing":"auto","# + settings, [axis]),
+            (#""font_optical_sizing":"none","# + settings, [.ownOpticalSize, axis]),
+            (settings + #", "font_optical_sizing":"none""#, [.ownOpticalSize, axis]),
+        ]
+        for fields in [#""op":"paragraph","id":1"#, #""id":1,"op":"paragraph""#] {
+            for (style, expected) in cases {
+                let wire = """
+                {"ops":[{\(fields),"runs":[{"id":2,"parent":1,"props":{"text":"text"},"style":{\(style)}}]}]}
+                """
+                let batch = Batch.decode(Data(wire.utf8))
+                XCTAssertNil(batch.error)
+                let inline = try XCTUnwrap(batch.ops.first?.runs.first)
+                XCTAssertEqual(inline.run(dark: false).variations, expected, wire)
+            }
+        }
+    }
+
+    func testInlineOpticalSizingPaintsAtTheMeasuredWidth() throws {
+        let parts = ["The quick ", "brown fox", " jumps over the lazy dog"]
+        let bytes = Array(parts.joined().utf8)
+        let measured = bytes.withUnsafeBufferPointer { text in
+            var run = ExactTextRun()
+            run.text = text.baseAddress; run.len = text.count
+            run.font_size = 12; run.font_weight = 400; run.font_stretch = 100
+            run.optical_sizing_none = 1
+            return withUnsafePointer(to: &run) { runs in
+                var request = ExactMeasureRequest()
+                request.runs = runs; request.count = 1; request.strut = runs.pointee; request.width = -1
+                return engine.measure(request).width
+            }
+        }
+        let runs = parts.enumerated().map { index, text in
+            """
+            {"id":\(index + 2),"parent":1,"paint":true,"props":{"text":"\(text)"},
+             "style":{"font_size":12,"font_optical_sizing":"none","text_color":\(index == 1 ? "[255,0,0,255]" : "[0,0,0,255]")}}
+            """
+        }.joined(separator: ",")
+        for fields in [#""op":"paragraph","id":1"#, #""id":1,"op":"paragraph""#] {
+            let batch = Batch.decode(Data("{\"ops\":[{\(fields),\"runs\":[\(runs)]}]}".utf8))
+            XCTAssertNil(batch.error)
+            let painted = try XCTUnwrap(batch.ops.first).runs.map { $0.run(dark: false) }
+            XCTAssertEqual(painted.count, parts.count)
+            let paragraph = engine.paragraph(spec(painted), width: .infinity)
+            XCTAssertEqual(Float(paragraph.width), measured, accuracy: 0.01, fields)
+        }
+    }
+
+    /// LLP 1019 D9: `font-variation-settings` draws after the weight, the
     /// width and the size, each axis it names winning; `font-stretch` on a
     /// platform face is its `wdth`, as Chrome and WebKit set San Francisco's;
     /// `font-optical-sizing: none` leaves `opsz` to the face.
     func testFontVariationSettingsWinAndAPlatformFaceStretches() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../")
-        let flex = try Data(contentsOf: root.appendingPathComponent("host/linux/tests/fonts/RobotoFlex-subset.ttf").standardized)
+        let flex = try Data(contentsOf: root.appendingPathComponent("host/painted/tests/fonts/RobotoFlex-subset.ttf").standardized)
         let engine = TextEngine(resolve: { _ in nil }, read: { _ in flex })
         let family = Array("Flex".utf8), source = Array("flex.ttf".utf8)
         family.withUnsafeBufferPointer { f in
@@ -345,13 +489,13 @@ final class TextCSSTests: XCTestCase {
         XCTAssertGreaterThan(width(0, 400, 100, own), width(0, 400, 100))
     }
 
-    /// A face declared over a weight range and a width range
+    /// LLP 1019 D2, D8: a face declared over a weight range and a width range
     /// draws each request on `wght` and `wdth`, clamped to the ranges, as a
     /// browser draws an `@font-face` with range descriptors; matching treats
     /// a range as its value nearest the request (CSS Fonts 4 §5.2).
     func testADeclaredRangeDrawsEachWeightAndWidthOnTheAxes() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../")
-        let flex = try Data(contentsOf: root.appendingPathComponent("host/linux/tests/fonts/RobotoFlex-subset.ttf").standardized)
+        let flex = try Data(contentsOf: root.appendingPathComponent("host/painted/tests/fonts/RobotoFlex-subset.ttf").standardized)
         let engine = TextEngine(resolve: { _ in nil }, read: { _ in flex })
         let family = Array("Flex".utf8), source = Array("flex.ttf".utf8)
         family.withUnsafeBufferPointer { f in
@@ -501,8 +645,8 @@ final class TextCSSTests: XCTestCase {
     #endif
 
     /// A clamp's last line wider than its box, one word longer than the
-    /// line, ends in "…" as UILabel's tail truncation does (in a notes app at
-    /// the largest text size, "Packing" would run over the row's time);
+    /// line, ends in "…" as UILabel's tail truncation does (notes at the
+    /// largest text size, round 22: "Packing" ran over the row's time);
     /// layout keeps the word's width, as CSS measures it.
     func testLineClampTruncatesAWordLongerThanItsLastLine() {
         let clamped = Spec(runs: [run("Packing")], align: 0, lineClamp: 1, color: [0, 0, 0, 255])

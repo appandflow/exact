@@ -1,4 +1,4 @@
-// The labels are written five times: the interface's `tables.labels`
+// D2's labels are written five times: the interface's `tables.labels`
 // (the substitute's), and the web, Rust, Swift and Kotlin implementations';
 // the Apple symbols twice, `tables.apple` and the Swift's for a drive's pad.
 // This checks each copy is the interface's, family by family.

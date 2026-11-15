@@ -1,4 +1,4 @@
-// The display's scale is a layout input the presenter
+// LLP 1115.000 D10.3: the display's scale is a layout input the presenter
 // reads from the platform and tells the kernel, as it tells the root font
 // size: a hairline (`-exact-hairline`) is one device pixel of it.
 #if os(macOS)

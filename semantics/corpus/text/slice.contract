@@ -1,4 +1,4 @@
-// `slice` is JavaScript's over UTF-16 code units: negative
+// `slice` is JavaScript's over UTF-16 code units (LLP 1088 D2): negative
 // and fractional indices, NaN, an omitted end, a cut through a surrogate
 // pair made well formed (U+FFFD).
 component App

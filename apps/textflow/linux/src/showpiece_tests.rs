@@ -1,6 +1,6 @@
-//! Real app coverage, live drag, seek and CPU cost.
+//! @ref LLP 1043.000 §3 D7/D8 — real app coverage, live drag, seek and CPU cost.
 use crate::tests::{boot_size, id};
-use exact_linux::Presenter;
+use exact_painted::Presenter;
 use std::time::{Duration, Instant};
 use textflow_data::Textflow;
 const SCENES: [&str; 7] = [
@@ -74,7 +74,7 @@ fn check(p: &Presenter<Textflow>, scene: &str, slack: bool) {
         }
         assert_eq!(end, source.len(), "{name}: lost trailing bytes");
         let bottom = para.fragments().last().unwrap().y + para.flow_line_height();
-        // An auto-height paragraph is exactly its flow.
+        // @ref LLP 1043.000 §8 — an auto-height paragraph is exactly its flow.
         if scene == "article" {
             assert!(
                 (bottom - node.frame.height).abs() < 0.01,
@@ -304,7 +304,7 @@ fn per_scene_cpu_frame_cost() {
 }
 #[test]
 fn article_paragraphs_take_their_flowed_heights_and_stack() {
-    // The Reader's drop cap: auto height grows, what follows moves.
+    // @ref LLP 1043.000 §8 — the Reader's drop cap: auto height grows, what follows moves.
     for size in [(960., 900.), (390., 844.)] {
         let heights = |wrap: bool| {
             let mut p = boot_size(wrap, size);

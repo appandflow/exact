@@ -1,23 +1,23 @@
-// @exact/purchases on Apple: StoreKit 2, answered in the
+// @exact/purchases on Apple (LLP 1133.015): StoreKit 2, answered in the
 // Digital Goods API's shapes. Under the agent the implementation is its own
-// substitute: it reaches no store and keeps a synthetic one
+// substitute (§9): it reaches no store and keeps a synthetic one
 // (AgentStore.swift); `--bind purchases` reaches StoreKit, which in a
 // development build is Xcode's local environment or the sandbox.
 //
-// - Made when the module loads (`"start": "load"`), not at its first
+// - Made when the module loads (`"start": "load"`, D6), not at its first
 //   call: the first session starts the process's listener over
 //   `Transaction.updates`, `Status.updates` and `Storefront.updates`, then
 //   sweeps `Transaction.unfinished`. A call that arrives before the sweep
 //   has finished waits for it. The last session's end stops the listener.
-// - Two facts: `listPurchases` is `currentEntitlements` with the
+// - Two facts (D3): `listPurchases` is `currentEntitlements` with the
 //   unfinished consumables, `unfinishedPurchases` is `Transaction.unfinished`,
 //   both verified only. Each store change, return to the foreground and
 //   finished call re-answers both in every session.
 // - `listPurchases` names its earliest future `expirationTime` as its stale
-//   time, the grace period's end where a subscription is in one.
+//   time (D7), the grace period's end where a subscription is in one.
 // - Nothing is finished but by the app (`acknowledge`, `consume`), except a
-//   revoked transaction left unfinished, which is finished and journaled.
-// - Tier 3: `PurchasesModule.hatch` adds options to each purchase's
+//   revoked transaction left unfinished, which is finished and journaled (D5).
+// - Tier 3 (D11): `PurchasesModule.hatch` adds options to each purchase's
 //   set after the module's own.
 import ExactPackage
 import Foundation
@@ -29,7 +29,7 @@ import UIKit
 #endif
 
 public final class PurchasesModule: ExactPackage {
-    /// The app's access hatch: each purchase's option set, after the
+    /// The app's access hatch (D11): each purchase's option set, after the
     /// module's words (`appAccountToken`, `quantity`) are in it.
     public static var hatch: ((Product, inout Set<Product.PurchaseOption>) -> Void)?
 
@@ -68,7 +68,7 @@ public final class PurchasesModule: ExactPackage {
         }
     }
 
-    /// Apple asks for both reads again at a return to the foreground:
+    /// Apple asks for both reads again at a return to the foreground (D3):
     /// the account may have changed.
     public func foreground(_ shown: Bool) {
         if shown { Shared.changed() }
@@ -91,7 +91,7 @@ public final class PurchasesModule: ExactPackage {
                 "apple": ["storefront": Shared.storefront ?? NSNull(), "unverified": Shared.unverified.sorted()]]
     }
 
-    // MARK: under the agent
+    // MARK: under the agent (§9)
 
     private func agentLater(_ name: String, _ args: [String: Any], _ sheet: [String: Any]?, _ reply: @escaping ([String: Any]) -> Void) {
         guard let store = Shared.agentStore(context) else { return reply(["error": "OperationError", "message": "no scratch tree for the synthetic store"]) }
@@ -133,7 +133,7 @@ public final class PurchasesModule: ExactPackage {
         case "acknowledge", "consume":
             let token = args["purchaseToken"] as? String ?? ""
             // The drive's fault point (`prefer extension purchases.fault="finish"`): the process dies before the
-            // store hears the finish, so the row stays in the queue for the next launch.
+            // store hears the finish, so the row stays in the queue for the next launch (§10, drives 7 to 9).
             if Shared.fault == "finish" {
                 say("\(name) \(token): refused at the drive's fault point; it stays unfinished")
                 return reply(["error": "OperationError", "message": "fault point"])
@@ -176,14 +176,14 @@ public final class PurchasesModule: ExactPackage {
         return out
     }
 
-    /// `accountToken` is a UUID, which fits both stores' account fields.
+    /// `accountToken` is a UUID, which fits both stores' account fields (D8).
     static func refuseAccount(_ args: [String: Any]) -> [String: Any]? {
         guard let token = args["accountToken"] as? String, UUID(uuidString: token) == nil else { return nil }
         return ["error": "OperationError", "message": "accountToken-not-uuid: \(token) is not a UUID"]
     }
 
     /// A minute after the session's first queue answer, each purchased row
-    /// still unfinished is journaled by token: Apple delivers it again
+    /// still unfinished is journaled by token (D5): Apple delivers it again
     /// at every launch until the app finishes it.
     private func watchForgotten() {
         guard !watched else { return }
@@ -203,7 +203,7 @@ public final class PurchasesModule: ExactPackage {
         }
     }
 
-    // MARK: StoreKit
+    // MARK: StoreKit (stage 1)
 
     @MainActor
     private func realLater(_ name: String, _ args: [String: Any]) async -> [String: Any] {
@@ -222,13 +222,13 @@ public final class PurchasesModule: ExactPackage {
                 let now = Date().timeIntervalSince1970 * 1000
                 for await result in Transaction.currentEntitlements {
                     guard case .verified(let t) = result, t.productType != .consumable else { continue }
-                    let row = await Self.details(t, acknowledged: !unfinished.contains(t.id))
+                    let row = await Self.details(t, result.jwsRepresentation, acknowledged: !unfinished.contains(t.id))
                     if let end = row["expirationTime"] as? Double, end > now { stale = min(stale ?? end, end) }
                     rows.append(row)
                 }
                 for await result in Transaction.unfinished {
                     guard case .verified(let t) = result, t.productType == .consumable, t.revocationDate == nil else { continue }
-                    rows.append(await Self.details(t, acknowledged: false))
+                    rows.append(await Self.details(t, result.jwsRepresentation, acknowledged: false))
                 }
                 var out: [String: Any] = ["exact:answer": rows]
                 if let stale { out["exact:stale"] = stale }
@@ -237,7 +237,7 @@ public final class PurchasesModule: ExactPackage {
                 var rows: [[String: Any]] = []
                 for await result in Transaction.unfinished {
                     guard case .verified(let t) = result, t.revocationDate == nil else { continue }
-                    rows.append(await Self.details(t, acknowledged: false))
+                    rows.append(await Self.details(t, result.jwsRepresentation, acknowledged: false))
                 }
                 watchForgotten()
                 return ["exact:answer": rows]
@@ -248,7 +248,7 @@ public final class PurchasesModule: ExactPackage {
                 var rows: [[String: Any]] = []
                 let unfinished = await Shared.unfinishedIDs()
                 for await result in Transaction.currentEntitlements {
-                    if case .verified(let t) = result { rows.append(await Self.details(t, acknowledged: !unfinished.contains(t.id))) }
+                    if case .verified(let t) = result { rows.append(await Self.details(t, result.jwsRepresentation, acknowledged: !unfinished.contains(t.id))) }
                 }
                 return ["exact:answer": rows]
             case "acknowledge", "consume": return await finish(args["purchaseToken"] as? String ?? "")
@@ -285,14 +285,17 @@ public final class PurchasesModule: ExactPackage {
         result = try await product.purchase(confirmIn: anchor.scene, options: options)
         #endif
         switch result {
-        case .success(.verified(let t)):
-            say("transaction \(t.id) for \(t.productID), unfinished")
-            Shared.changed()
-            return await Self.details(t, acknowledged: false)
-        case .success(.unverified(let t, let why)):
-            say("transaction \(t.id) failed verification (\(why)); left unfinished")
-            Shared.unverified.insert(String(t.id))
-            return ["error": "VERIFICATION_FAILED", "message": "\(why)"]
+        case .success(let verification):
+            switch verification {
+            case .verified(let t):
+                say("transaction \(t.id) for \(t.productID), unfinished")
+                Shared.changed()
+                return await Self.details(t, verification.jwsRepresentation, acknowledged: false)
+            case .unverified(let t, let why):
+                say("transaction \(t.id) failed verification (\(why)); left unfinished")
+                Shared.unverified.insert(String(t.id))
+                return ["error": "VERIFICATION_FAILED", "message": "\(why)"]
+            }
         case .pending:
             return ["itemId": itemId, "purchaseToken": "", "purchaseState": "pending", "purchaseTime": Date().timeIntervalSince1970 * 1000,
                     "acknowledged": false, "willAutoRenew": NSNull(), "quantity": args["quantity"] ?? 1, "expirationTime": NSNull(),
@@ -320,7 +323,7 @@ public final class PurchasesModule: ExactPackage {
         return ["error": "NOT_OWNED", "message": "this account holds no \(token)"]
     }
 
-    /// StoreKit's errors in the interface's codes.
+    /// StoreKit's errors in the interface's codes (D1).
     static func failure(_ error: Error) -> [String: Any] {
         let message = "\(error)"
         if let e = error as? StoreKitError {
@@ -385,8 +388,8 @@ public final class PurchasesModule: ExactPackage {
     }
 
     /// A verified transaction as `PurchaseDetails`. A subscription's
-    /// `expirationTime` is its grace period's end while it is in one.
-    static func details(_ t: Transaction, acknowledged: Bool) async -> [String: Any] {
+    /// `expirationTime` is its grace period's end while it is in one (D7).
+    static func details(_ t: Transaction, _ jws: String, acknowledged: Bool) async -> [String: Any] {
         var end = ms(t.expirationDate), renews: Any = NSNull()
         if t.productType == .autoRenewable, let group = t.subscriptionGroupID,
            let statuses = try? await Product.SubscriptionInfo.status(for: group),
@@ -403,7 +406,7 @@ public final class PurchasesModule: ExactPackage {
         }
         return ["itemId": t.productID, "purchaseToken": String(t.id), "purchaseState": "purchased", "purchaseTime": ms(t.purchaseDate),
                 "acknowledged": acknowledged, "willAutoRenew": renews, "quantity": t.purchasedQuantity, "expirationTime": end, "android": NSNull(),
-                "apple": ["jwsRepresentation": NSNull(), "originalID": String(t.originalID),
+                "apple": ["jwsRepresentation": jws, "originalID": String(t.originalID),
                           "ownershipType": t.ownershipType == .familyShared ? "familyShared" : "purchased", "environment": environment,
                           "revocationDate": ms(t.revocationDate), "isUpgraded": t.isUpgraded,
                           "appAccountToken": t.appAccountToken?.uuidString ?? NSNull()] as [String: Any]]
@@ -455,7 +458,7 @@ enum Shared {
         return store
     }
 
-    /// `body` once the process's first sweep has finished.
+    /// `body` once the process's first sweep has finished (D6).
     static func afterSweep(_ body: @escaping () -> Void) {
         if swept { body() } else { waiting.append(body) }
     }
@@ -467,7 +470,7 @@ enum Shared {
     }
 
     /// The listener over the store's three sequences, then the sweep: a
-    /// verified revoked transaction left unfinished is finished.
+    /// verified revoked transaction left unfinished is finished (D5).
     private static func start(_ log: @escaping (String) -> Void) {
         listeners.append(Task { @MainActor in
             for await result in Transaction.updates {

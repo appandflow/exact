@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// What a window that is not key does with the pointer,
+/// LLP 1115.000 D7.9: what a window that is not key does with the pointer,
 /// as an AppKit window does. The click that brings it forward presses a
 /// control and nothing else (every node used to take it, a browser's rule),
 /// and nothing in it is hovered: hover is tracked in the key window only (it
@@ -13,7 +13,7 @@ extension XCTestCase {
     /// them, content included, as in the window a person is using. A test's
     /// process is never the active app, so AppKit treats each of its clicks
     /// as the one that would activate the window, which now presses only a
-    /// control. Given back when the test ends.
+    /// control (LLP 1115.000 D7.9). Given back when the test ends.
     func clicksArriveAsInTheKeyWindow() {
         NodeView.everyClickCounts = true
         addTeardownBlock { NodeView.everyClickCounts = ExactEnv.agentMode }
@@ -220,12 +220,12 @@ final class PointerMannersMacTests: XCTestCase {
         XCTAssertNil(p.restingPointer(), "and a layout under the pointer does not hover it again")
     }
 
-    /// While a mouse button is held the hover stays where it was: AppKit's
-    /// tracking areas report nothing during a drag, and a browser's
-    /// following hover is not the Mac's rule. When the button comes up, what
-    /// is under the pointer is hovered with no further move, as AppKit
-    /// reports an enter "on mouseUp after a drag" (it stayed on the pressed
-    /// node until the pointer next moved).
+    /// X80, re-read under LLP 1115.000 D7. While a mouse button is held the
+    /// hover stays where it was: AppKit's tracking areas report nothing
+    /// during a drag, and a browser's following hover is not the Mac's rule.
+    /// When the button comes up, what is under the pointer is hovered with
+    /// no further move, as AppKit reports an enter "on mouseUp after a drag"
+    /// (it stayed on the pressed node until the pointer next moved).
     func testHoverHoldsThroughADragAndFollowsTheRelease() throws {
         let p = fixture()
         var hovered: [String] = []

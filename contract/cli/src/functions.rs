@@ -1,5 +1,5 @@
 //! The standard functions and intrinsics as `contract vocab <name>` prints
-//! them: a function's signature is the roster's
+//! them (LLP 1116.000 D5): a function's signature is the roster's
 //! (`plan/tables/format.json`'s `stdlib`, as `exact_plan::Stdlib` holds it),
 //! and its rules and example are the grammar's tables (docs/contract-grammar.md,
 //! "Standard functions and intrinsics"), the one place that prose is
@@ -38,7 +38,7 @@ pub struct Function {
 /// The roster's signature: its parameter types, an optional trailing one in
 /// brackets, and its return type (`slice(any, number[, number]) -> any`), the
 /// first parameter before the name for a function written on its value
-/// (`any.slice(number[, number]) -> any`, `any.length -> number`).
+/// (`any.slice(number[, number]) -> any`, `any.length -> number`; LLP 1116.015 D2).
 pub fn signature(f: Stdlib) -> String {
     let name = f.name();
     let params = f.params();

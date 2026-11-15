@@ -51,7 +51,7 @@ final class FrameClockIOSTests: XCTestCase {
     }
 
     /// Motion asks for the display's full rate, and a paint-only cap or a
-    /// timer's `.default` never lowers it.
+    /// timer's `.default` never lowers it (LLP 1061 D4).
     func testMotionAtTheFullRateOutranksAPaintCap() {
         let clock = FrameClock()
         let paint = Owner(), driver = Owner(), timer = Owner()

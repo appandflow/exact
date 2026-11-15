@@ -1,4 +1,4 @@
-//! The async render host: a render waits for its answers,
+//! The async render host (LLP 1048.000 D9): a render waits for its answers,
 //! stops at its deadline with placeholders, and refuses what its environment
 //! doesn't hold — the source keeps its placeholder for the client.
 
@@ -11,10 +11,14 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 mod boot;
+mod checkpoints;
 mod direct;
+mod each;
+mod http_cache;
 mod longpoll;
 mod overload;
 mod serve;
+mod stream;
 mod viewport;
 
 /// How the fixture's `post` source answers later.
@@ -222,7 +226,7 @@ fn at_the_deadline_the_placeholder_stays_and_the_checkpoint_lists_it() {
         started.elapsed()
     );
     assert_eq!(r.settled, Settled::Deadline);
-    // A deadline is a 503, but an unknown URL stays a 404.
+    // A deadline is a 503, but an unknown URL stays a 404 (LLP 1048.000 D11).
     assert_eq!((r.status(false), r.status(true)), (503, 404));
     assert!(r.document.root.contains(">loading<"), "{}", r.document.root);
     assert!(
@@ -428,7 +432,7 @@ fn a_document_whose_ids_nobody_keeps_is_the_settled_tree_projected() {
     for (post, deadline) in [(Post::Soon, 5_000), (Post::Never, 100)] {
         let [runtime, any] = [exact_render::Ids::Runtime, exact_render::Ids::Any].map(|ids| {
             exact_render::render_with_at(
-                &plan(),
+                plan(),
                 &|| Blog::new(post),
                 Default::default(),
                 "/post/7",
@@ -437,6 +441,7 @@ fn a_document_whose_ids_nobody_keeps_is_the_settled_tree_projected() {
                 ids,
                 exact_render::Projection::Auto,
                 1_700_000_000_000.0,
+                &Default::default(),
             )
             .unwrap()
         });
@@ -445,7 +450,7 @@ fn a_document_whose_ids_nobody_keeps_is_the_settled_tree_projected() {
             (runtime.settled, runtime.checkpoint.clone()),
             (any.settled, any.checkpoint.clone())
         );
-        // Only a JavaScript page infers its activation: the
+        // Only a JavaScript page infers its activation (LLP 1048.007 D1): the
         // answered post waits for the reader, the one held at the deadline
         // runs its runtime at once to finish it.
         assert_eq!(runtime.activate, exact_plan::ActivatePolicy::Inferred);
@@ -489,7 +494,7 @@ fn a_page_is_the_shell_around_the_document() {
     assert!(scripts[2].starts_with("<script type=\"module\" src=\"./glue.js\">"));
     assert!(exact_render::capture().len() <= 1024);
     assert_eq!(html.matches("<meta name=\"viewport\"").count(), 1);
-    // An idle page's runtime downloads with the document.
+    // An idle page's runtime downloads with the document (LLP 1048.000 D3).
     assert!(html.contains("<link rel=\"preload\" href=\"./app.wasm\" as=\"fetch\" crossorigin>"));
     assert!(html.contains("<link rel=\"modulepreload\" href=\"./navigation.js\">"));
     assert!(!html.contains("<title>Exact</title>"));
@@ -519,7 +524,25 @@ fn a_page_is_the_shell_around_the_document() {
         !rest.contains("navigation.js"),
         "an interaction page names navigation.js outside a comment, so something fetches it before intent"
     );
+    audio_policy_precedes_runtime(&shell, &interaction);
     a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(interaction);
+}
+
+fn audio_policy_precedes_runtime(shell: &str, rendered: &Rendered) {
+    let entry = "<script src=\"./audio-session.js\"></script>\n";
+    let shell = shell.replace(
+        "<div id=\"exact-root\"></div>",
+        &format!("<div id=\"exact-root\" data-audio-session=\"ambient\"></div>{entry}"),
+    );
+    let html = exact_render::page(&shell, rendered).unwrap();
+    assert_eq!(html.matches(entry).count(), 1);
+    assert!(html.contains("data-audio-session=\"ambient\""));
+    assert!(
+        html.find(entry).unwrap()
+            < html
+                .find("<script type=\"application/vnd.exact.checkpoint\"")
+                .unwrap()
+    );
 }
 
 /// The shell with its CSS (`/* … */`) and HTML (`<!-- … -->`) comments cut:
@@ -549,13 +572,14 @@ fn strip_comments(html: &str) -> String {
 /// The same document over the JavaScript runtime's shell (one render for
 /// both: the render tests share an executor's limits).
 fn a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(mut r: Rendered) {
+    // @ref LLP 1071 D6
     r.activate = exact_plan::ActivatePolicy::Inferred;
     // The shell as host/web-js/build.mjs writes it.
     let shell = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<link rel=\"modulepreload\" href=\"./shared-1.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
     let html = exact_render::page(shell, &r).unwrap();
     // Undeclared is eager: the runtime downloads from the head, before the
     // stylesheet and the document, while the page streams, at low priority:
-    // the page paints without it.
+    // the page paints without it (LLP 1153.001 D8).
     assert!(html.contains("data-activate=\"eager\""), "{html}");
     let head = &html[..html.find("<style>").unwrap()];
     assert!(head.contains("<link rel=\"modulepreload\" href=\"./app.js\" fetchpriority=\"low\">\n"));
@@ -641,6 +665,7 @@ fn a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(mut r: R
     let html = exact_render::page(shell, &r).unwrap();
     assert!(html.contains("data-activate=\"interaction\""));
     assert!(!html.replace(capture, "").contains(".js"), "{html}");
+    audio_policy_precedes_runtime(shell, &r);
     // A shell that declares the plan's fonts (their faces with
     // `font-display`, their preloads early in the head) keeps its own: the
     // render's copies would replace the shell's rules.
@@ -676,6 +701,7 @@ fn strip_view_ids(root: &str) -> String {
 
 #[test]
 fn a_route_lists_its_pages_with_its_source() {
+    // @ref LLP 1048.000 D2
     #[derive(Default)]
     struct Listed {
         later: bool,
@@ -742,9 +768,9 @@ fn a_route_lists_its_pages_with_its_source() {
 }
 
 /// A `pages=` source that is re-asked without end (`Dispatch::Again` gets
-/// its outcome at once, every time) still meets the enumerator's deadline,
-/// checked on every turn of the loop and not only after a drain comes back
-/// empty.
+/// its outcome at once, every time) still meets the enumerator's deadline
+/// (Astra, code review round 1: the loop checked it only after a drain came
+/// back empty, and spun).
 #[test]
 fn a_pages_source_re_asked_without_end_meets_the_deadline() {
     struct Forever;
@@ -788,6 +814,40 @@ fn a_pages_source_re_asked_without_end_meets_the_deadline() {
     assert!(listed.unwrap_err().contains("deadline"));
 }
 
+/// LLP 1048.000 D3: the wasm shell with `host.web.head` written before its
+/// root, as `host/web/build.mjs` writes it. A script's text that spells the
+/// root, a viewport meta or one of the build's preloads is the app's: an
+/// idle page and an interaction page are composed around it, keeping it once.
+#[test]
+fn a_wasm_page_keeps_head_script_text_that_spells_the_shells_places() {
+    let shell =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/index.html"))
+            .unwrap();
+    let entries = concat!(
+        "<script>const t = '<div id=\"exact-root\"></div><meta name=\"viewport\" content=\"x\">';</script>\n",
+        "<script>const p = '<link rel=\"modulepreload\" href=\"./navigation.js\"><link rel=\"preload\" href=\"./app.wasm\">",
+        "<link rel=\"preload\" href=\"./glue.js\">';</script>\n",
+    );
+    // And one after the root, which spells only its opening tag.
+    let after = "<script>const a = '<div id=\"exact-root\"';</script>\n";
+    let root = "<div id=\"exact-root\"></div>\n";
+    let shell = shell.replacen(root, &format!("{entries}{root}{after}"), 1);
+    for activate in [
+        exact_plan::ActivatePolicy::Inferred,
+        exact_plan::ActivatePolicy::Interaction,
+    ] {
+        let mut r = at(Post::Soon, Duration::from_secs(5));
+        r.activate = activate;
+        // A head with a sheet of its own, as a font or an animation gives it.
+        r.head.push_str("<style>@keyframes spin{}</style>");
+        let html = exact_render::page(&shell, &r).unwrap();
+        assert_eq!(html.matches(entries).count(), 1, "{html}");
+        assert_eq!(html.matches(after).count(), 1, "{html}");
+        let document = format!("<div id=\"exact-root\">{}</div>", r.document.root);
+        assert!(html.find(entries) < html.find(&document), "{html}");
+    }
+}
+
 #[test]
 fn rendered_document_sets_html_language_and_direction() {
     let mut rendered = at(Post::Soon, Duration::from_secs(5));
@@ -804,7 +864,7 @@ fn rendered_document_sets_html_language_and_direction() {
         .unwrap()
         .contains(r#"<html lang="en" dir="ltr">"#));
     // A page whose scroller is the page's marks its root for the shell's
-    // rule, on either runtime's shell; a JavaScript page
+    // rule (LLP 1048.003 D4), on either runtime's shell; a JavaScript page
     // sent whole needs no script for it.
     rendered.document.scroll_document = true;
     let js = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
@@ -857,6 +917,7 @@ component Clock
             exact_render::Ids::Any,
             projection,
             now,
+            &Default::default(),
         )
         .unwrap();
         for label in ["First", "Clock", "Resource"] {
@@ -881,4 +942,142 @@ component Clock
     )
     .unwrap();
     assert!(fresh.state.now_ms > now);
+}
+
+#[test]
+fn rendered_delivery_uses_web_version_inputs() {
+    warm_transport();
+    let plan = contract::compile(
+        r#"
+routes nav
+  home "/" render=build activate=never
+shape Build
+  version: string
+  buildNumber: string
+component App
+  resource build = exactDelivery() as shape Build
+  view
+    text `${build.version} (${build.buildNumber})`
+"#,
+    )
+    .unwrap();
+    for (version, build_number) in [("2.3.4", "56"), ("", "")] {
+        let delivery = exact_runner::delivery::Delivery {
+            version: version.into(),
+            build_number: build_number.into(),
+            ..Default::default()
+        };
+        let expected = format!(">{version} ({build_number})<");
+        for (ids, projection) in [
+            (exact_render::Ids::Any, exact_render::Projection::Direct),
+            (exact_render::Ids::Any, exact_render::Projection::Kernel),
+            (exact_render::Ids::Runtime, exact_render::Projection::Kernel),
+        ] {
+            let rendered = exact_render::render_with_at(
+                &plan,
+                &|| Blog::default(),
+                Default::default(),
+                "/",
+                &SITE,
+                Duration::from_secs(5),
+                ids,
+                projection,
+                1700000123456.,
+                &delivery,
+            )
+            .unwrap();
+            assert!(
+                rendered.document.root.contains(&expected),
+                "{ids:?} {projection:?}: {}",
+                rendered.document.root
+            );
+            assert_eq!(rendered.activate, exact_plan::ActivatePolicy::Never);
+        }
+    }
+}
+
+#[test]
+fn served_delivery_uses_the_web_builds_version() {
+    const CHILD: &str = "EXACT_SERVE_VERSION_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "served_delivery_uses_the_web_builds_version",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env_remove("EXACT_VERSION")
+            .env_remove("EXACT_BUILD_NUMBER")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let dir = root.join(format!("target/render-version-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.json"), r#"{"name":"Version","app":{"id":"test.render-version","name":"Version"},"host":{"web":{}}}"#).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        r#"
+routes nav
+  home "/" render=request activate=never
+shape Build
+  version: string
+  buildNumber: string
+component App
+  resource build = exactDelivery() as shape Build
+  view
+    text `${build.version} (${build.buildNumber})` testId="version"
+"#,
+    )
+    .unwrap();
+    let dist = dir.join("dist");
+    let built = std::process::Command::new("bun")
+        .args(["host/web-js/build.mjs", "render-version", "--out"])
+        .arg(&dist)
+        .args(["--render", "none"])
+        .current_dir(&root)
+        .env("EXACT_APP_DIR", &dir)
+        .env("EXACT_VERSION", "2.3.4")
+        .env("EXACT_BUILD_NUMBER", "56")
+        .output()
+        .unwrap();
+    assert!(
+        built.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&built.stdout),
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let plan = Plan::decode(&std::fs::read(dist.join("app.plan")).unwrap()).unwrap();
+    let server = exact_render::Server::bind(
+        exact_render::Serve {
+            dist: dist.clone(),
+            port: 0,
+            name: "Version".into(),
+            origin: None,
+            deadline: Duration::from_secs(5),
+            renders: 1,
+            queue: 1,
+            viewport: Default::default(),
+            lifetime: Duration::from_secs(60),
+            generations: None,
+        },
+        plan,
+        "",
+    )
+    .unwrap();
+    let server = serve::serving(server, Blog::default);
+    let (status, _, body) = serve::get(server.addr, "/");
+    drop(server);
+    std::fs::remove_dir_all(dir).unwrap();
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains(">2.3.4 (56)<"), "{body}");
+    assert!(!body.contains("type=\"module\""), "activate=never: {body}");
 }

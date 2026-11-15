@@ -52,10 +52,24 @@ private struct Shortcut {
         if ["Enter", "Tab", "Escape", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].contains(key) {
             return NodeView.keyName(event) == key
         }
+        var characters = event.charactersIgnoringModifiers
+        // Command can select another layout and omit Shift from characters.
+        // Ask that layout for Shift's glyph first. US omits Shift there too,
+        // so use charactersIgnoringModifiers only when Command kept the base key.
+        if modifiers.contains(.command), !modifiers.contains(.control) {
+            characters = event.characters
+            if modifiers.contains(.shift), let command = event.characters(byApplyingModifiers: .command),
+               characters?.lowercased() == command.lowercased() {
+                if let shifted = event.characters(byApplyingModifiers: [.command, .shift]), shifted.lowercased() != command.lowercased() {
+                    characters = shifted
+                } else if command.lowercased() == event.characters(byApplyingModifiers: [])?.lowercased() {
+                    characters = event.charactersIgnoringModifiers
+                }
+            }
+        }
         // Option changes the logical key (Option-C can produce ç). An empty
         // character is a dead key, not the unmodified letter. Control may
         // instead emit a control character; retranslate with glyph modifiers.
-        var characters = event.charactersIgnoringModifiers
         if modifiers.contains(.option) {
             characters = event.characters
             if modifiers.contains(.control), characters?.unicodeScalars.contains(where: { $0.value < 0x20 }) == true {
@@ -79,7 +93,7 @@ private struct Shortcut {
     }
     /// The chords a Mac's Edit menu holds (Apple's HIG): Undo, Redo, Cut,
     /// Copy, Paste and its variants, Select All, Duplicate, and Find with
-    /// its next and previous.
+    /// its next and previous (studio diary R16).
     var isEdit: Bool {
         if isPasteVariant { return true }
         switch (key, modifiers) {
@@ -90,7 +104,7 @@ private struct Shortcut {
     }
     /// A paste variant, which the HIG puts right after Paste: Paste and
     /// Match Style ⌥⇧⌘V (TextEdit, Safari, Chrome) and ⇧⌘V, Chrome's other
-    /// chord for it and many apps' Paste as Text.
+    /// chord for it and many apps' Paste as Text (#141).
     var isPasteVariant: Bool {
         key == "v" && (modifiers == [.command, .shift] || modifiers == [.command, .shift, .option])
     }
@@ -113,7 +127,7 @@ private struct Shortcut {
 /// Filter only while looking up a shortcut: labels and ordinary menu selection
 /// (including Return on the highlighted item) retain AppKit's usual behavior.
 final class ShortcutMenu: NSMenu {
-    // AppKit can insert these after the app installs its bar.
+    // LLP 1021 §5.3: AppKit can insert these after the app installs its bar.
     // Keep its objects for restoration, suppressing presentation and equivalents.
     private var removalIDs = Set<String>()
     fileprivate func removeStandardItems(_ ids: Set<String>) {
@@ -323,15 +337,17 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     private let viewSeparator = NSMenuItem.separator()
     /// The host's own items an app command stands in for (Edit ▸ Undo, …),
     /// hidden while it does; and those whose chord an app command took, with
-    /// the chord to give back.
+    /// the chord to give back (studio diary R16).
     private var replaced: [NSMenuItem] = []
     private var unbound: [(NSMenuItem, String, NSEvent.ModifierFlags)] = []
     /// The host's items the root gives another chord or none
-    /// (`-exact-menu-keys`), with the chord each was built with.
+    /// (`-exact-menu-keys`, LLP 1021 §5.3.3), with the chord each was built with.
     private var rekeyed: [(NSMenuItem, String, NSEvent.ModifierFlags)] = []
     /// The commands in the app menu or Help: the app's, not the window's
     /// (`enabled`).
     private var appWide: Set<UInt32> = []
+    /// The command that is Settings… (LLP 1030.004 D5).
+    private var settingsItem: UInt32?
     init(presenter: Presenter) { self.presenter = presenter }
     func attach(_ file: ShortcutMenu, application: ShortcutMenu? = nil, navigation: ShortcutMenu? = nil,
                 edit: ShortcutMenu? = nil, view: ShortcutMenu? = nil, window: ShortcutMenu? = nil, help: ShortcutMenu? = nil) {
@@ -373,7 +389,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
                       && declarations(node).contains(where: { $0.matches(event) && $0.permits(event.window?.firstResponder) })
                       && presenter?.shortcutAdmits(node, key: NodeView.keyName(event), held: KeyCodes.held(event.modifierFlags), focus: focus) == true
               }) else { return false }
-        if !event.isARepeat && !view.disabled { presenter?.pressShortcut(view) }
+        if !event.isARepeat && !view.disabled && !(view.id == settingsItem && openSettings(view)) { presenter?.pressShortcut(view) }
         return true
     }
     fileprivate func menuEquivalent(_ item: NSMenuItem, matching event: NSEvent? = nil) -> String {
@@ -400,11 +416,12 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         var live: Set<UInt32> = []
         var chords: [(NSMenuItem, Shortcut?)] = []
         appWide = []
+        settingsItem = nil
         for view in nodes() {
             // A platform alternative does not create a second menu item.
             let shortcut = declarations(view).first(where: { $0.modifiers.contains(.command) })
             // One menu id; `dock` beside it is the Dock menu's, and a status
-            // item is no menu's (StatusItemsMac.swift).
+            // item is no menu's (LLP 1133.025 D4, D5: StatusItemsMac.swift).
             let ids = (view.props["menuPlacement"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
             if ids.contains("status") { continue }
             let placement = ids.first { $0 != "dock" }
@@ -415,7 +432,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             items[view.id] = item
             (item as? AccessibleMenuItem)?.owner = view
             item.title = title(view)
-            // A symbol a button shows is its item's image.
+            // A symbol a button shows is its item's image (LLP 1069.011.000 D7).
             let symbol = view.isButton ? view.face?.symbol : nil
             if itemSymbols[view.id] != .some(symbol) {
                 itemSymbols[view.id] = .some(symbol)
@@ -449,6 +466,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
                 }
             } else if shortcut?.key == ",", shortcut?.modifiers == .command, applicationMenu != nil {
                 item.title = "Settings…"
+                settingsItem = view.id
                 application.append(item)
             } else if navigationMenu != nil, let shortcut, isNavigation(view, shortcut: shortcut) {
                 navigation.append(item)
@@ -469,7 +487,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         // AppKit keeps one item per chord in the bar: giving an item a chord
         // another has takes it from that one. So the host's items give theirs
         // up before the app's take them, and get them back only once no
-        // command claims them.
+        // command claims them (studio diary R16).
         let claimed = chords.compactMap { $0.1.map { ($0.keyEquivalent.lowercased(), $0.modifiers) } }
         let standing = chords.filter { !$0.0.isHidden }.compactMap { $0.1.map { ($0.keyEquivalent.lowercased(), $0.modifiers) } }
         rekey(rootProps("menuKeys"))
@@ -503,7 +521,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             }
             if !top.isEmpty { top.append(viewSeparator) } else { viewSeparator.menu?.removeItem(viewSeparator) }
             place(top, in: viewMenu, at: 0)
-            // Show Sidebar is a window with a sidebar's.
+            // Show Sidebar is a window with a sidebar's (LLP 1115.002 D3).
             for item in viewMenu.items where item.action == #selector(NSSplitViewController.toggleSidebar(_:)) {
                 item.isHidden = presenter?.sidebar.installed != true
             }
@@ -522,7 +540,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             place(application, in: applicationMenu, at: min(2 + about.count, applicationMenu.numberOfItems))
         }
         if let navigationMenu {
-            // The host's own Back leads the menu while
+            // The host's own Back (LLP 1115.000 D5.1) leads the menu while
             // the app has a navigation root, unless an app command took its
             // ⌘[ and stands in for it (`claim`).
             let own = navigationMenu.items.filter { !($0.target is ShortcutHost) }
@@ -555,13 +573,13 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         // Develop goes from the bar; its chords stay, as a hidden menu's do.
         fileMenu.supermenu?.items.first { $0.identifier == DevMenu.removable["develop"] }?.isHidden = removals.contains("develop")
     }
-    /// Edit's commands, where Apple's HIG puts them: one
+    /// Edit's commands (studio diary R16), where Apple's HIG puts them: one
     /// whose chord is a host item's own — Undo ⌘Z, Redo ⇧⌘Z, Cut, Copy,
     /// Paste, Select All — stands in its place, the host's hidden while it
     /// does (`claim`), so Edit ▸ Undo is the app's "Undo Move" whatever has
     /// the focus, as its ⌘Z already is; a paste variant follows Paste, as
     /// Paste and Match Style does; the rest follow Select All, after a
-    /// separator, ahead of Speech and of what AppKit appends.
+    /// separator, ahead of Speech and of what AppKit appends (#141).
     private func placeEdit(_ commands: [NSMenuItem], pastes: [NSMenuItem], in menu: NSMenu, removals: Set<String>) {
         var extra: [NSMenuItem] = []
         // A removed submenu (`find`) holds no command: it would not show.
@@ -648,7 +666,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     /// gives it up and keeps its place (File ▸ New Window beside the app's
     /// ⌘N, Develop ▸ App Info beside its ⌘D) — or, for Edit's own roles,
     /// steps aside for the command (`placeEdit`), as Go ▸ Back does for the
-    /// app's own ⌘[.
+    /// app's own ⌘[ (LLP 1115.000 D5.1).
     private func claim(_ claimed: [(String, NSEvent.ModifierFlags)]) {
         guard let bar = fileMenu?.supermenu else { return }
         var menus = bar.items.compactMap(\.submenu)
@@ -687,7 +705,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
                                                    #selector(NSText.copy(_:)), #selector(NSText.paste(_:)), #selector(NSTextView.pasteAsPlainText(_:)),
                                                    #selector(EditMenuTarget.selectAll(_:))]
     /// Edit ▸ Find's Find…, Find Next and Find Previous: an app's ⌘F, ⌘G,
-    /// ⇧⌘G stands in for them there.
+    /// ⇧⌘G stands in for them there (LLP 1115 D8).
     private static let findRoles = Set([NSTextFinder.Action.showFindInterface, .nextMatch, .previousMatch].map(\.rawValue))
     private static func standsIn(_ host: NSMenuItem) -> Bool {
         guard let action = host.action else { return false }
@@ -732,14 +750,14 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     }
     private func title(_ view: NodeView) -> String {
         if let label = view.props["accessibilityLabel"] { return label }
-        // A native button's children are its face, not views.
+        // A native button's children are its face, not views (LLP 1069.011.000 D1).
         if view.isNativeButton { return view.face?.title ?? "" }
         if view.kind == "text" { return view.paragraphSpec().runs.map(\.text).joined() }
         return view.container.subviews.compactMap { $0 as? NodeView }.map(title).filter { !$0.isEmpty }.joined(separator: " ")
     }
     /// A window's command is enabled while its window is key with no sheet
     /// and no modal dialog over the button. One in the app menu or Help is
-    /// the app's: enabled whatever window is key, under a
+    /// the app's (LLP 1021 §5.3): enabled whatever window is key, under a
     /// sheet and under a modal dialog, as Settings… and Check for Updates…
     /// are in a hand-built Mac app; `disabled` and `inert` still disable it.
     private func enabled(_ view: NodeView, key: Bool = false) -> Bool {
@@ -756,11 +774,24 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         guard validateMenuItem(item), let id = (item.representedObject as? NSNumber)?.uint32Value else { return }
         // Menu selection by keyboard need not use the declared equivalent.
         // AppKit owns that selection; repeat and composition still cannot fire
-        // it, nor a chord that ended one (`Presenter.endComposition`).
+        // it, nor a chord that ended one (`Presenter.endComposition`, #140).
         if let event = NSApp.currentEvent, event.type == .keyDown,
            event.isARepeat || (NSApp.keyWindow?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true
             || presenter?.endedComposition(event) == true { return }
-        if let view = presenter?.views[id] { presenter?.pressShortcut(view, appWide: appWide.contains(id)) }
+        guard let view = presenter?.views[id] else { return }
+        if id == settingsItem, openSettings(view) { return }
+        presenter?.pressShortcut(view, appWide: appWide.contains(id))
+    }
+
+    /// A Settings… link that names no `target` opens the window named
+    /// `settings` at its route, or brings it forward where it is (LLP
+    /// 1030.004 D5). An authored `target`, or a command that runs an
+    /// action, is pressed as any other.
+    private func openSettings(_ view: NodeView) -> Bool {
+        guard view.props["target"] == nil, let url = view.defaultLink, url.hasPrefix("/"), !url.hasPrefix("//"),
+              let session = presenter?.session, let open = session.openWindow, session.runtime.routeMatches(url) else { return false }
+        open(url, "settings", true)
+        return true
     }
 }
 #endif

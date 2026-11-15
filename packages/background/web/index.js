@@ -1,14 +1,14 @@
-// @exact/background on the web: `sync` while the page is
+// @exact/background on the web (LLP 1133.017 D17): `sync` while the page is
 // open, `periodicsync` not at all. The page runtime (host/web-js/modules.js)
 // calls it outside the agent; under the agent the runner's substitute answers
 // and this is never loaded.
 //
 // - A registration fires at once when `navigator.onLine`, else at the page's
-//   `online` event: the specification's `register` fires "if the user
+//   `online` event (D2): the specification's `register` fires "if the user
 //   agent is currently online", and its service worker is not built here.
 // - Tags are kept in `localStorage` for the origin, so one registered while
 //   offline and not fired before the page closed fires at the next open.
-// - Retrying is the runtime's rules: a handler that registers its tag
+// - Retrying is the runtime's rules (D1): a handler that registers its tag
 //   again keeps it, eligible after 5 minutes, doubling to an hour; the third
 //   attempt in a row is `lastChance`, after which it is retired unless
 //   registered again during it.

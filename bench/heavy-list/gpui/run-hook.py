@@ -1,4 +1,4 @@
-"""Run the hook comparison, or one unqualified instrument sample, on the measurement Mac."""
+"""Run the hook comparison, or one unqualified instrument sample, on the silver Mac."""
 import argparse
 import ctypes
 import json
@@ -19,7 +19,7 @@ def system_process(command):
 
 
 def quiet_series(rows):
-    """At most one non-benchmark core and 0.25 core per user process."""
+    """M10 cut 1b: at most one non-benchmark core and 0.25 core per user process."""
     return bool(rows) and all(
         max(row['load']) < 30 and not row['compilers']
         and row['nonBenchmarkBusyCores'] <= BUSY_LIMIT

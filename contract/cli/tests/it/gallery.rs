@@ -1,4 +1,4 @@
-//! `contract gallery`: the design tool's variant
+//! `contract gallery` (LLP 1139 D5, §9 Q2): the design tool's variant
 //! gallery of an app's library components, generated into a build cache
 //! and checked by the compiler. Each cell is a component's variants' first
 //! values or one other value alone; every other prop a placeholder by type;
@@ -68,15 +68,15 @@ fn fixture(tag: &str) -> PathBuf {
     std::fs::create_dir_all(&lib).unwrap();
     std::fs::write(lib.join("package.json"), r#"{"name":"@acme/lib","version":"1.0.0","private":true,"exports":{".":"./index.contract"}}"#).unwrap();
     std::fs::write(
-        lib.join("lib.tamber"),
-        "tamber lib\n\ntheme\n  lib.pad = 4px\n",
+        lib.join("lib.forma"),
+        "forma lib\n\ntheme\n  lib.pad = 4px\n",
     )
     .unwrap();
     std::fs::write(lib.join("index.contract"), LIB).unwrap();
     std::fs::write(dir.join("app.contract"), APP).unwrap();
     std::fs::write(
-        dir.join("app.tamber"),
-        "tamber app\n\ntheme\n  lib.pad = 6px\n",
+        dir.join("app.forma"),
+        "forma app\n\ntheme\n  lib.pad = 6px\n",
     )
     .unwrap();
     std::fs::write(
@@ -98,7 +98,7 @@ fn the_gallery_places_each_cell_refuses_one_the_compiler_wont_take_and_leaves_th
     let dir = fixture("cells");
     let before = (
         plan(&dir),
-        contract::tamber_params::params_of(&dir.join("app.contract")).files,
+        contract::forma_params::params_of(&dir.join("app.contract")).files,
     );
     let out = dir.join("node_modules/.cache/exact-gallery");
     let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
@@ -124,7 +124,7 @@ fn the_gallery_places_each_cell_refuses_one_the_compiler_wont_take_and_leaves_th
     let text = std::fs::read_to_string(&g.source).unwrap();
     assert!(text.contains(&format!("can't place: {why}")), "{text}");
     // A placeholder of each kind, an inert action, the variant values as written, the slot's
-    // sample: a tinted block saying "slot", not an invisible box.
+    // sample: a tinted block saying "slot", not an invisible box (stage 15 D4 batch 3 #1).
     assert!(text.contains(r#"Card(tone="quiet", compact=false, label="label", count=0, maybe=none, items=[], press=noop, info=Info(title="title", n=0))"#), "{text}");
     assert!(
         text.contains("  action noop\n")
@@ -135,13 +135,13 @@ fn the_gallery_places_each_cell_refuses_one_the_compiler_wont_take_and_leaves_th
     // The gallery's design is the app's own; the app's plan and describe's files are as they were.
     let manifest: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(out.join("app.json")).unwrap()).unwrap();
-    assert_eq!(manifest["tamber"], "../../../app.tamber");
+    assert_eq!(manifest["forma"], "../../../app.forma");
     // The app's own id: the gallery's plan runs in the app's build (its wasm checks the id).
     assert_eq!(manifest["app"]["id"], "com.acme.fx");
     assert_eq!(manifest["name"], "Fx gallery");
     let after = (
         plan(&dir),
-        contract::tamber_params::params_of(&dir.join("app.contract")).files,
+        contract::forma_params::params_of(&dir.join("app.contract")).files,
     );
     assert_eq!(before, after);
     assert!(
@@ -308,16 +308,16 @@ fn each_component_is_the_declaration_the_apps_use_reaches_spelled_as_the_app_spe
         &[
             // A re-export's rename (`Fancy`), and a component an exports subpath reaches (`Pill`).
             ("node_modules/@acme/lib/package.json", &package("@acme/lib", r#"{".":"./index.contract","./pill":"./pill.contract"}"#)),
-            ("node_modules/@acme/lib/lib.tamber", "tamber lib\n\ntheme\n  lib.pad = 4px\n"),
+            ("node_modules/@acme/lib/lib.forma", "forma lib\n\ntheme\n  lib.pad = 4px\n"),
             ("node_modules/@acme/lib/card.contract", card),
             ("node_modules/@acme/lib/pill.contract", "component Pill\n  parts\n    face: paint\n  view\n    text \"p\" part=\"face\"\n"),
             ("node_modules/@acme/lib/index.contract", "use Card as Fancy from \"./card.contract\"\nuse Pill from \"./pill.contract\"\n"),
             // A second package with a `Card` and a `Gallery` of its own.
             ("node_modules/@other/kit/package.json", &package("@other/kit", r#"{".":"./index.contract"}"#)),
-            ("node_modules/@other/kit/kit.tamber", "tamber kit\n\ntheme\n  kit.pad = 2px\n"),
+            ("node_modules/@other/kit/kit.forma", "forma kit\n\ntheme\n  kit.pad = 2px\n"),
             ("node_modules/@other/kit/index.contract", "component Card\n  parts\n    face: paint\n  view\n    text \"k\" part=\"face\"\n\ncomponent Gallery\n  parts\n    face: paint\n  view\n    text \"g\" part=\"face\"\n"),
             ("app.contract", "use Fancy from \"@acme/lib\"\nuse Pill from \"@acme/lib/pill\"\nuse Card as KitCard, Gallery from \"@other/kit\"\n\ncomponent App\n  view\n    column\n      Fancy(tone=\"plain\")\n      Pill()\n      KitCard()\n      Gallery()\n"),
-            ("app.tamber", "tamber app\n\ntheme\n  lib.pad = 6px\n"),
+            ("app.forma", "forma app\n\ntheme\n  lib.pad = 6px\n"),
         ],
     );
     let out = dir.join("node_modules/.cache/exact-gallery");
@@ -426,7 +426,7 @@ fn the_design_reads_the_apps_assets_and_a_shape_is_brought_by_the_name_the_packa
         &dir,
         &[
             ("assets/icons/a.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M0 0h24v24H0z\"/></svg>\n"),
-            ("app.tamber", "tamber app\n\ntheme\n  lib.pad = 6px\n\nicons\n  icon.a = icon(svg \"icons/a.svg\")\n"),
+            ("app.forma", "forma app\n\ntheme\n  lib.pad = 6px\n\nicons\n  icon.a = icon(svg \"icons/a.svg\")\n"),
         ],
     );
     let out = dir.join("node_modules/.cache/exact-gallery");
@@ -456,7 +456,7 @@ fn an_app_inside_its_library_package_is_the_apps_own_and_a_compiler_record_has_a
         &pkg,
         &[
             ("package.json", &package("@x/pkg", r#"{".":"./index.contract"}"#)),
-            ("pkg.tamber", "tamber pkg\n\ntheme\n  pkg.pad = 4px\n"),
+            ("pkg.forma", "forma pkg\n\ntheme\n  pkg.pad = 4px\n"),
             ("index.contract", "component Note\n  props\n    marks: TextDecorations\n  parts\n    face: paint\n  view\n    text marks.value part=\"face\"\n"),
             ("example/app.contract", "use Note from \"@x/pkg\"\n\ncomponent App\n  view\n    column\n      Note(marks=TextDecorations(value=\"v\", spans=[]))\n"),
         ],
@@ -484,6 +484,34 @@ fn git_init(dir: &Path) {
         .status()
         .unwrap();
     assert!(status.success());
+}
+
+#[test]
+fn the_cli_reports_when_git_closes_its_input_pipe() {
+    let dir = fixture("git-pipe");
+    git_init(&dir);
+    let mut out = dir.join("target/gallery");
+    // The three paths sent to git exceed a 64 KiB pipe, so its early exit
+    // reaches the writer even if the entire pipe buffer was initially free.
+    for _ in 0..120 {
+        out.push("x".repeat(200));
+    }
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .arg("gallery")
+        .arg(&dir)
+        .arg("-o")
+        .arg(&out)
+        .env("GIT_DIR", "/dev/null")
+        .output()
+        .unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(1), "{error}");
+    assert!(output.stdout.is_empty());
+    assert!(
+        error.contains("git couldn't say whether it ignores the gallery's files"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -533,8 +561,8 @@ fn a_refused_cell_keeps_its_packages_design_and_a_chain_of_re_exports_names_the_
     std::fs::write(dir.join("app.contract"), "use Align from \"@acme/lib\"\n\ncomponent App\n  view\n    column\n      Align(align=\"left\")\n").unwrap();
     // The app's design names the package's token: the package's design must come with the gallery.
     std::fs::write(
-        dir.join("app.tamber"),
-        "tamber app\n\ntheme\n  app.pad = lib.pad\n",
+        dir.join("app.forma"),
+        "forma app\n\ntheme\n  app.pad = lib.pad\n",
     )
     .unwrap();
     let out = dir.join("node_modules/.cache/exact-gallery");
@@ -691,8 +719,8 @@ component App
 
 /// A string prop the view names a symbol by gets a role (its own name names
 /// none), and an action prop a handler calls with its payload gets an inert
-/// action of that signature, one per signature (@exact/lists' ListRow and
-/// SwitchRow).
+/// action of that signature, one per signature (stage 13 C: @exact/lists'
+/// ListRow and SwitchRow).
 #[test]
 fn a_symbols_prop_gets_a_role_and_a_handlers_action_its_payloads_parameters() {
     let dir = fixture("handled");
@@ -1039,18 +1067,18 @@ component App
 
 /// A string prop written as a style row's value, directly or through a
 /// component it is passed to, gets a value of that row's kind, not its name,
-/// which no row reads (Avatar's `width=size`, VerifiedBadge's `color=ink`): a
-/// length row `24px`, a colour row the role `-exact-label` (a caret, an accent
-/// and a press colour too); a label keeps its name, and so does a shadow (a row
-/// that holds a colour but takes no colour alone; its name may be a token's).
+/// which no row reads (LLP 1121 stage 15 B: Avatar's `width=size`,
+/// VerifiedBadge's `color=ink`): a length row `24px`, a colour row the
+/// role `-exact-label` (a caret, an accent and a press colour too); a label keeps its name, and so does a shadow (a row that
+/// holds a colour but takes no colour alone; its name may be a token's).
 #[test]
 fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
     let dir = fixture("styled");
     let lib = dir.join("node_modules/@acme/lib");
     std::fs::write(lib.join("index.contract"), STYLED).unwrap();
     std::fs::write(
-        dir.join("app.tamber"),
-        "tamber app\n\ntheme\n  lib.pad = 6px\n  glow: text-shadow = 0 1px 2px #000000\n",
+        dir.join("app.forma"),
+        "forma app\n\ntheme\n  lib.pad = 6px\n  glow: text-shadow = 0 1px 2px #000000\n",
     )
     .unwrap();
     std::fs::write(dir.join("app.contract"), STYLED_APP).unwrap();
@@ -1081,13 +1109,13 @@ fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
         .expect("a Glow cell");
     assert!(glow.contains(r#"glow="glow""#), "{glow}");
     // A caret, an accent and the press colours, which refuse `currentcolor`,
-    // read the role.
+    // read the role (Astra r2).
     let inks = text
         .lines()
         .find(|l| l.contains("Inks("))
         .expect("an Inks cell");
-    // Each colour prop its own role, in declared order, so one drawn over
-    // another, as VerifiedBadge's check over its disc, shows.
+    // Each colour prop its own role, in declared order (D4 batch 2 #5: one
+    // drawn over another, as VerifiedBadge's check over its disc, shows).
     for (prop, role) in [
         ("caret", "-exact-label"),
         ("accent", "-exact-system-blue"),
@@ -1097,7 +1125,7 @@ fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
         assert!(inks.contains(&format!(r#"{prop}="{role}""#)), "{inks}");
     }
     // A cell whose variant value is one of the roles: the other colour prop
-    // takes another, so the two never match.
+    // takes another, so the two never match (round 1, Astra).
     let blue = text
         .lines()
         .find(|l| l.contains(r#"Pair(ink="-exact-system-blue""#))
@@ -1105,14 +1133,14 @@ fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
     assert!(!blue.contains(r#"mark="-exact-system-blue""#), "{blue}");
     assert!(blue.contains(r#"mark="-exact-label""#), "{blue}");
     // An enum colour prop's placeholder (its first literal) is taken too, and
-    // a role however it is spelled.
+    // a role however it is spelled (round 2, Astra).
     let tinted = (text.lines())
         .find(|l| l.contains("Tinted("))
         .expect("a Tinted cell");
     assert!(tinted.contains(r#"ink="-exact-system-blue""#), "{tinted}");
     assert!(tinted.contains(r#"mark="-exact-label""#), "{tinted}");
     // An enum colour placed by its placeholder (its first literal), read as
-    // written, not as its escaped source.
+    // written, not as its escaped source (re-check 2, Astra).
     let lined = (text.lines())
         .find(|l| l.contains("Lined("))
         .expect("a Lined cell");
@@ -1215,9 +1243,10 @@ component App
       Badge(badge="verified", label="a")
 "#;
 
-/// A string prop the view compares with literals is a variant of those literals
-/// and the empty string, one cell each, never its name, which draws nothing
-/// (VerifiedBadge's `badge`); a text prop keeps its name.
+/// A string prop the view compares with literals is a variant of those
+/// literals and the empty string, one cell each, never its name, which draws
+/// nothing (VerifiedBadge's `badge`, stage 15 D4 batch 1 #2); a text prop
+/// keeps its name.
 #[test]
 fn a_string_compared_with_literals_gets_a_cell_per_literal_and_the_empty_one() {
     let dir = fixture("badges");
@@ -1299,9 +1328,9 @@ component App
 "#;
 
 /// An enum prop the view compares with literals in an `if` is a variant of
-/// every value it declares, in order, one cell each (VerifiedBadge's `badge`,
-/// an enum, so "none" draws its empty cell); an enum the view never compares
-/// stays at its first value.
+/// every value it declares, in order, one cell each (VerifiedBadge's
+/// `badge`, an enum since stage 15 B batch 2, so "none" draws its empty
+/// cell); an enum the view never compares stays at its first value.
 #[test]
 fn an_enum_compared_with_literals_gets_a_cell_per_value() {
     let dir = fixture("enum-badges");
@@ -1333,9 +1362,9 @@ fn an_enum_compared_with_literals_gets_a_cell_per_value() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// An enum guarded by `!=` gets a cell per value too, so a PersonRow's or
-/// PostCard's gallery draws its badge, not only "none"; a string's `!=` adds
-/// no cells (a string's variants come from `==`).
+/// An enum guarded by `!=` gets a cell per value too (Astra's 2b r1: a
+/// PersonRow's or PostCard's gallery kept "none" and never drew a badge); a
+/// string's `!=` adds no cells (batch 1's rule is `==`).
 #[test]
 fn an_enum_guarded_by_not_equal_gets_a_cell_per_value_too() {
     let dir = fixture("ne-badges");

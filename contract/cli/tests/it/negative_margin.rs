@@ -1,7 +1,7 @@
-//! A flex item's negative margin shortens its container, as in CSS,
-//! including when the item has a `min-height`: unpatched Taffy adds the
-//! margin before clamping by the inner min size, and the margin disappears
-//! (vendor/taffy patch 14).
+//! LLP 1054 P1 — a flex item's negative margin shortens its container, as in
+//! CSS, including when the item has a `min-height`: Taffy added the margin
+//! before clamping by the inner min size, and the margin disappeared (the
+//! Bluesky profile header measured 44 pt tall on iOS; vendor/taffy patch 14).
 use exact_kernel::{Kernel, Offer};
 use exact_runner::{DataError, DataSource, Runner, Value};
 

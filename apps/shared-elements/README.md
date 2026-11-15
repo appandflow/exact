@@ -1,6 +1,6 @@
 # Shared Elements
 
-One screen per form of a shared-element flight.
+The LLP 1013.000 example: one screen per form of a shared-element flight.
 A node's `sharedElement` names it; when a commit destroys the node holding a
 name and creates another holding it, the new one flies from where the old one
 was shown, on either one's `-exact-layout-transition`.
@@ -9,7 +9,7 @@ was shown, on either one's `-exact-layout-transition`.
 |---|---|---|
 | Grid | Tap a photo; Close | A live image flies from its card into the viewer and back; its crop opens from `cover` to `contain`. |
 | Grid | Close while it opens | The flight reverses from where it is. |
-| Grid | `+3` twice, then Close | The grid scrolls to the photo's card before it lands there. |
+| Grid | `+3` twice, then Close | The grid scrolls to the photo's card before it lands there (D5). |
 | List | Open a row, `+25`, Close | A virtualized row that was never built is built, scrolled into view and landed in (`scrollIntoView`). |
 | Cards | Tap a card | A box with children grows into a detail: its surface flies, its children keep their places. |
 | Tasks | Tap a task | The task flies between the two lists. |
@@ -41,4 +41,4 @@ with `window` to see it mid-flight.
   the engine's curve; interruptible; reduced motion lands at once.
 - **Web:** CSS View Transitions (`startViewTransition`), the same pairs and
   curve; a new transition skips a running one.
-- **Linux:** not drawn yet; the journal says so once.
+- **Linux:** not drawn (stage 1); the journal says so once.

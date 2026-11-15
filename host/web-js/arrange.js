@@ -1,4 +1,4 @@
-// Arrange, the reorder drag, on the JS target: the runner's
+// Arrange, the reorder drag, on the JS target (LLP 1041 §8.5): the runner's
 // half of `host/web/src/reorder_drag.rs`, answering the reorder packets of
 // the web host's own `arrangeController` (motion-glue.js, unchanged) over
 // the motion engine's holds and the collection's preview (list.js, the
@@ -15,7 +15,7 @@ export function arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatc
   let active = null, reorder = null;
   // The collection half, installed on list.js's collections at the first grip.
   const L = () => reorder ??= globalThis.exact?.lists?.internals ? install(globalThis.exact.lists, hooks, After) : null;
-  // `state.reorder`, as the runner's agent writes it.
+  // `state.reorder` (LLP 1094 D12), as the runner's agent writes it.
   globalThis.exact.reorderState = () => reorder?.json() ?? null;
   const KEYS = ['handle', 'list', 'wrapper', 'root', 'rowEpoch'];
   const GEOMETRY = ['list', 'revision', 'scrollSequence', 'scrollTop', 'portWidth', 'portHeight', 'rowWidth', 'totalExtent'];
@@ -40,7 +40,7 @@ export function arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatc
   };
   const reply = (certified, dispatched, list) => ({ accepted: true, certified, dispatched, runtime: RUNTIME, token: String(active.token),
     terminal: active.terminal, released: active.released, frame: frame(), batch: ops(list) });
-  // A grouped list's session (host/web/src/group_drag.rs): no
+  // A grouped list's session (LLP 1094; host/web/src/group_drag.rs): no
   // holds, the page's ghost; the same packets as JSON facts.
   const groupReply = (certified, dispatched) => {
     const f = active && L().frame(active.token);
@@ -155,13 +155,13 @@ export function arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatc
     let velocity = [0, 0];
     if (certified) { w.m_measured(active.holds.get(active.binding.wrapper), t); velocity = [w.m_scratch(0), w.m_scratch(1)].map(v => Number.isFinite(v) ? v : 0); }
     active.velocity = velocity;
-    const dispatched = certified ? L().drop(active.token, geometryOf(f)) : (L().cancel(active.token), false);
+    const dispatched = certified ? L().drop(active.token, geometryOf(f), f.now) : (L().cancel(active.token), false);
     return reply(certified, !!dispatched, [...extra, ...lower()]);
   }
   const controller = arrangeController({ views, collections: new Proxy({}, { get: (_, k) => L()?.controller()?.[k] }), motion: api, request, applyBatch, now, generation: () => 0, inert: inertAncestor,
     grouped: groupController, root: document.getElementById('exact-root'), viewOf: viewId,
     log: line => globalThis.exact?.journal?.push(`t=${globalThis.exact.clock?.now ?? 0} ${line}`) });
-  // A grip's group, and whether the keys may drive it (no `press`, `key`, `pan` or `pointerdown` of its own).
+  // A grip's group, and whether the keys may drive it (LLP 1094 D9: no `press`, `key`, `pan` or `pointerdown` of its own).
   const groupOf = (h, b) => {
     const group = b ? views.get(b.list)?.dataset.reordergroup || null : null;
     const on = (h.el.dataset.exactOn ?? '').split(' ');
@@ -178,9 +178,9 @@ export function arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatc
       if (!L()) return;
       for (const [id, h] of handles) {
         // A virtualized row is built detached and inserted after: its grip
-        // waits for the document, and leaves only by `gone` (a grip
-        // registered while its row was detached would be dropped here and
-        // never heard of again, so no listener would ever reach it).
+        // waits for the document, and leaves only by `gone` (stocks diary
+        // #1: a grip registered while its row was detached was dropped here
+        // and never heard of again, so no listener ever reached it).
         if (!h.el.isConnected) continue;
         const b = L().binding(id);
         if (same(b, h.published, KEYS) || !b && h.published === null) continue;

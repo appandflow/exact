@@ -30,6 +30,27 @@ fn fixture() -> Kernel {
     k
 }
 
+#[test]
+fn pending_reader_geometry_is_provisional_at_the_kernel_seam() {
+    extern "C" fn pending(_: *mut c_void, _: *const CRequest) -> CMetrics {
+        CMetrics {
+            width: 200.0,
+            height: 1000.0,
+            baseline: -2.0,
+        }
+    }
+    let mut k = fixture().rehydrate(Box::new(CallbackMeasurer::new(
+        pending,
+        std::ptr::null_mut(),
+        None,
+    )));
+    k.compute_layout(1, exact_kernel::Offer::definite(200.0, 400.0))
+        .unwrap();
+    let key = k.arena().key_of(1).unwrap();
+    assert!(k.laid_out_frame(key).unwrap().1);
+    assert!(k.measure_auto_height(key).unwrap().1);
+}
+
 fn metrics(w: f32, h: f32) -> CMetrics {
     // Deterministic full-tuple oracle, sensitive to BOTH exact bit patterns.
     CMetrics {
@@ -478,6 +499,7 @@ mod storage {
             letter_spacing: -0.125,
             font_variant_numeric: 0,
             font_variant_ligatures: 0,
+            font_features: exact_kernel::style::FontFeatures::parse(r#""cv05", "liga" 0"#).unwrap(),
             bold_text: false,
         };
         let strut = TextStyle {
@@ -492,17 +514,20 @@ mod storage {
             letter_spacing: -0.0,
             font_variant_numeric: 0,
             font_variant_ligatures: 0,
+            font_features: Default::default(),
             bold_text: false,
         };
         let runs = [
             TextRun {
                 text: source.as_str().into(),
                 style,
+                edges: Default::default(),
                 inline: None,
             },
             TextRun {
                 text: "".into(),
                 style: strut,
+                edges: Default::default(),
                 inline: None,
             },
         ];
@@ -524,11 +549,20 @@ mod storage {
                 variation_tags: [u32::from_be_bytes(*b"GRAD"), 0, 0, 0, 0, 0, 0, 0],
                 variation_values: [150.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                 optical_sizing_none: 1,
+                feature_count: 2,
+                feature_tags: std::array::from_fn(|i| match i {
+                    0 => u32::from_be_bytes(*b"cv05"),
+                    1 => u32::from_be_bytes(*b"liga"),
+                    _ => 0,
+                }),
+                feature_values: std::array::from_fn(|i| u32::from(i == 0)),
                 inline_box: 0,
                 box_align: 0,
                 box_width: 0.0,
                 box_height: 0.0,
                 box_shift: 0.0,
+                inline_start: 0.0,
+                inline_end: 0.0,
             },
             CRun {
                 text: "".as_ptr(),
@@ -547,11 +581,16 @@ mod storage {
                 variation_tags: [0; 8],
                 variation_values: [0.0; 8],
                 optical_sizing_none: 0,
+                feature_count: 0,
+                feature_tags: [0; 16],
+                feature_values: [0; 16],
                 inline_box: 0,
                 box_align: 0,
                 box_width: 0.0,
                 box_height: 0.0,
                 box_shift: 0.0,
+                inline_start: 0.0,
+                inline_end: 0.0,
             },
         ];
         let widths = [
@@ -649,6 +688,7 @@ mod storage {
             TextMetrics {
                 width: 73.125,
                 height: 17.5,
+                pending: false,
                 first_baseline: Some(9.25),
             }
         );

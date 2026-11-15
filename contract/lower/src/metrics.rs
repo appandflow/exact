@@ -1,9 +1,10 @@
-//! The metrics of a look Exact draws itself: rows
+//! The metrics of a look Exact draws itself (LLP 1115.002 D6, D8.4): rows
 //! of the kernel's schema (`metrics`), a value a platform. A sheet the
 //! compiler writes names one where it used to hold a number, and the kernel
 //! reads the name as its platform's value when the row is set. The names are
 //! the compiler's own: nothing an author writes may be one, so the
 //! vocabulary of Contract does not grow by them.
+//! @ref LLP 1115.002 D6, D8.4
 
 use crate::{err, LowerError};
 use contract_syntax::{Attr, Expr, Span};

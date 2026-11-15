@@ -1,4 +1,4 @@
-//! Intersection visibility: the browser's rootMargin option.
+//! LLP 1005 intersection visibility: the browser's rootMargin option.
 use crate::{err, LowerError};
 use contract_syntax::{Expr, Span};
 

@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// `tree --ax` on UIKit: the walk reports what
+/// `tree --ax` on UIKit (LLP 1080.002 §3 stage 2): the walk reports what
 /// UIKit exposes after the host's own assignments, joins each element to
 /// its view, excludes only by documented properties, and flags a modal
 /// view's leak by UIKit's rule. UIKit, so a simulator runs it:
@@ -66,6 +66,36 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertEqual(image.accessibilityLabel, "Download progress")
         XCTAssertFalse(image.accessibilityTraits.contains(.image))
         XCTAssertEqual(image.accessibilityValue, image.rangeValueText)
+    }
+
+    /// A `spinbutton`'s value is its number, whatever its bounds, as WebKit
+    /// on iOS speaks one and `UIPickerView`'s adjustable column its row ("3");
+    /// ARIA gives the role no default bounds. A slider's is a percentage of
+    /// its range, as `UISlider` speaks its own ("30%").
+    func testASpinbuttonSpeaksItsNumberAndASliderItsPercentage() throws {
+        let p = try fixture()
+        func range(_ id: UInt32, _ props: [String: String]) -> NodeView {
+            let node = NodeView(id: id, kind: "view", presenter: p)
+            p.views[node.id] = node
+            p.root.addSubview(node)
+            node.frame = CGRect(x: 0, y: 300 + CGFloat(id - 40) * 30, width: 100, height: 24)
+            node.applyProps(set: props, clear: [])
+            return node
+        }
+        let bounded = range(40, ["accessibilityRole": "spinbutton", "accessibilityLabel": "Quantity",
+                                 "accessibilityValueNow": "3", "accessibilityValueMin": "1", "accessibilityValueMax": "99"])
+        let unbounded = range(41, ["accessibilityRole": "spinbutton", "accessibilityValueNow": "3"])
+        let slider = range(42, ["accessibilityRole": "slider", "accessibilityValueNow": "30"])
+        XCTAssertTrue(bounded.isAccessibilityElement)
+        XCTAssertEqual(bounded.accessibilityValue, "3", "not 2%, its place between 1 and 99")
+        XCTAssertEqual(unbounded.accessibilityValue, "3", "not 3%, as if bounded by 0 and 100")
+        XCTAssertNil(unbounded.rangeNumbers?.min)
+        XCTAssertNil(unbounded.rangeNumbers?.max)
+        XCTAssertEqual(slider.accessibilityValue, NumberFormatter.localizedString(from: 0.3, number: .percent))
+        bounded.applyProps(set: ["accessibilityValueNow": "2.5"], clear: [])
+        XCTAssertEqual(bounded.accessibilityValue, NumberFormatter.localizedString(from: 2.5, number: .decimal))
+        bounded.applyProps(set: ["accessibilityValueText": "3 tickets"], clear: [])
+        XCTAssertEqual(bounded.accessibilityValue, "3 tickets", "`aria-valuetext` first")
     }
 
     /// A native control is named by `aria-labelledby` as by `aria-label`
@@ -204,9 +234,37 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         return p
     }
     private func elements(_ ax: [String: Any]) -> [[String: Any]] { ax["elements"] as? [[String: Any]] ?? [] }
+
+    func testProjectedSegmentsJoinTheirAuthoredTabsAndStaySuppressedWithTheirOwner() throws {
+        guard Presenter.axRuntimeLoaded else { throw missing("accessibility", "UIKit's segments need its accessibility runtime") }
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+            ["op": "create", "id": 31, "kind": "button", "handlers": ["press"], "props": ["accessibilityRole": "tab", "testId": "one"]],
+            ["op": "create", "id": 32, "kind": "button", "handlers": ["press"], "props": ["accessibilityRole": "tab", "testId": "two"]],
+            ["op": "create", "id": 33, "kind": "text", "props": ["text": "One"]],
+            ["op": "create", "id": 34, "kind": "text", "props": ["text": "Two"]],
+            ["op": "children", "id": 31, "ids": [33]], ["op": "children", "id": 32, "ids": [34]],
+            ["op": "children", "id": 30, "ids": [31, 32]], ["op": "children", "id": 1, "ids": [2, 3, 4, 30]],
+            ["op": "frame", "id": 30, "x": 0, "y": 220, "w": 250, "h": 40],
+        ]))
+        let control = try XCTUnwrap(p.segments.control(of: 30))
+        control.layoutIfNeeded()
+        func projected() -> [[String: Any]] { elements(p.axElements(roots: [p.viewport])).filter { ($0["name"] as? String).map(["One", "Two"].contains) == true } }
+        let shown = projected()
+        XCTAssertEqual(Set(shown.compactMap { $0["id"] as? UInt32 }), [31, 32])
+        XCTAssertEqual(Set(shown.compactMap { $0["testId"] as? String }), ["one", "two"])
+        XCTAssertTrue(shown.allSatisfy { $0["via"] as? String == "owner" })
+        for prop in ["accessibilityElementsHidden", "inert"] {
+            p.apply(wireBatch([["op": "props", "id": 30, "set": [prop: "true"]]]))
+            XCTAssertTrue(projected().isEmpty)
+            p.apply(wireBatch([["op": "props", "id": 30, "clear": [prop]]]))
+            XCTAssertEqual(projected().count, 2)
+        }
+    }
     private func element(_ ax: [String: Any], _ testId: String) -> [String: Any]? { elements(ax).first { $0["testId"] as? String == testId } }
 
-    /// A `link` is a link to VoiceOver. The tag lowers
+    /// LLP 1115.000 D11.6: a `link` is a link to VoiceOver. The tag lowers
     /// to a pressable whose role is `link`, and iOS called every pressable a
     /// button: only a plain box with `role="link"` got the link trait.
     func testALinkIsALinkToVoiceOver() throws {
@@ -368,7 +426,7 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertEqual((kit["coverage"] as? [String: Any])?["complete"] as? Bool, false)
     }
 
-    /// `aria-modal` is the property UIKit's rule reads, only
+    /// `aria-modal` (LLP 1080.003) is the property UIKit's rule reads, only
     /// while the view is exposed: the walk then hides the box's siblings, and
     /// clearing it, `display: none` or an exit exposes them again.
     func testAriaModalIsUIKitsModalViewWhileExposed() throws {
@@ -414,7 +472,7 @@ final class AccessibilityTreeIOSTests: XCTestCase {
 
     /// A modal inside a branch another modal hides is not modal; an
     /// accessibility-hidden ancestor or a destroy ends modality; a sibling
-    /// painted over the modal (a sheet's stack) does too.
+    /// painted over the modal (a sheet's stack) does too (LLP 1080.003 D2).
     func testAriaModalFollowsTheHierarchyAndDestroy() throws {
         let p = try fixture()
         // A (the box, 4) and B (7) are sibling modals, B in front; C (8) is a newer modal inside A.
@@ -456,7 +514,7 @@ final class AccessibilityTreeIOSTests: XCTestCase {
 
     /// The post itself: once per change of the innermost modal, never for an
     /// unchanged batch, and once when the only modal is destroyed with no
-    /// reference left to it.
+    /// reference left to it (LLP 1080.003 D2).
     func testAriaModalPostsOncePerChangeAndOnDestroy() throws {
         var posts = 0
         let post = Presenter.postScreenChanged
@@ -592,7 +650,7 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertNotNil(small["truncated"])
     }
 
-    /// The native boundary: a 300 KB testId is cut before the
+    /// The native boundary (round 3): a 300 KB testId is cut before the
     /// element is budgeted, and a whole reply over 256 KB is cut, counted.
     func testTheNativeReplyIsBoundedAtTheBoundary() throws {
         let p = try fixture()

@@ -1,20 +1,20 @@
-// @exact/maps on Apple: `exact-map` is an
+// @exact/maps on Apple (LLP 1133.021 D1-D5, §12): `exact-map` is an
 // `MKMapView`, its markers MapKit's own `MKMarkerAnnotationView`s.
 //
-// - The camera is a centre and a Web Mercator zoom: MapKit's world is
+// - The camera is a centre and a Web Mercator zoom (D1): MapKit's world is
 //   `MKMapSize.world.width` (2^28) map points wide, which is 256 × 2^20, so
 //   at zoom z one point spans 2^(20 - z) map points.
 // - A camera prop moves the map only when its value changes, and only that
-//   prop: a new `zoom` zooms about the centre the map shows now.
+//   prop: a new `zoom` zooms about the centre the map shows now (D1).
 // - `moveend` is `mapView(_:regionDidChangeAnimated:)`, whoever moved the
 //   map; `change` is a selection the person made, never one a prop asked for.
 // - Under the agent (unless bound with `--bind maps`) the map's content is
-//   replaced by plain tiles, an `MKTileOverlay` that `canReplaceMapContent`,
-//   so a screenshot is stable and offline; the markers stay MapKit's.
-// - Each marker is a part named by its id: the map answers
-//   `exactPart:` with the marker's annotation view, where a drive's real
-//   input lands.
-// - The hatch is given the `MKMapView` after it is made and after each
+//   replaced by plain tiles, an `MKTileOverlay` that `canReplaceMapContent`
+//   (§12), so a screenshot is stable and offline; the markers stay MapKit's.
+// - Each marker is a part named by its id (§9 item 3): the map answers
+//   `exactPartIds` with those ids and `exactPart:` with the marker's
+//   annotation view, where a drive's real input lands.
+// - The hatch (D5) is given the `MKMapView` after it is made and after each
 //   props change; the module owns its delegate and the annotations it added.
 import ExactPackage
 import Foundation
@@ -27,7 +27,7 @@ import UIKit
 #endif
 
 public final class MapsModule: NSObject, ExactPackage {
-    /// The app's access hatch: the map, after it is made and after each
+    /// The app's access hatch (D5): the map, after it is made and after each
     /// props change.
     public static var hatch: ((MKMapView) -> Void)?
 
@@ -79,7 +79,8 @@ final class PartedMap: MKMapView {
     #else
     override func layoutSubviews() { super.layoutSubviews(); laidOut() }
     #endif
-    /// The annotation view of marker `name`, the view a
+    @objc func exactPartIds() -> [String] { markers().map(\.id) }
+    /// The annotation view of marker `name` (§9 item 3), the view a
     /// drive's tap aims at; nil when it is not on screen.
     @objc func exactPart(_ name: String) -> AnyObject? {
         guard let marker = markers().first(where: { $0.id == name }) else { return nil }
@@ -182,7 +183,7 @@ final class MapView: NSObject, ExactPackageView, MKMapViewDelegate {
         }
     }
 
-    // MARK: the camera
+    // MARK: the camera (D1)
 
     /// Map points per screen point at zoom `z`.
     private static func scale(_ z: Double) -> Double { pow(2, 20 - z) }
@@ -266,7 +267,7 @@ final class MapView: NSObject, ExactPackageView, MKMapViewDelegate {
     }
 }
 
-/// The plain tiles: a flat colour with each tile's edges, the same at
+/// §12's plain tiles: a flat colour with each tile's edges, the same at
 /// every zoom, so the map's content is stable and nothing is fetched.
 final class PlainTiles: MKTileOverlay {
     private static let png: Data = {

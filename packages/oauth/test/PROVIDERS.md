@@ -401,7 +401,7 @@ Item IDs are stable (for example `ENTRA-10` or `S25`). The ranked list at the en
 ### AUTH0-12. Loopback redirect with any port (RFC 8252 §7.3) — UNVERIFIED
 - Behaviour: An Auth0 Community feature request (thread 98409) reported that Auth0 rejects redirect URIs with a wildcard port. The thread is now removed, so the current behaviour is UNVERIFIED. Auth0 docs describe subdomain wildcards in Allowed Callback URLs and say nothing about loopback ports.
 - Fake server: Exact string match on registered callbacks, including port; return an error page (no redirect) for `http://127.0.0.1:53124/cb` when only `http://127.0.0.1:3000/cb` is registered.
-- Client must: Let the app pin a fixed loopback port when the provider does not honour RFC 8252 §7.3, and show a clear error when the authorize page does not redirect.
+- Client must: Let the app pin a fixed loopback port when the provider does not honour §7.3, and show a clear error when the authorize page does not redirect.
 - Sources: https://auth0.com/docs/get-started/applications/application-settings ; https://community.auth0.com/t/allow-wildcard-port-in-redirect-uri-as-per-rfc-8252/98409 (removed)
 
 ### AUTH0-13. CORS on `/oauth/token` — partly UNVERIFIED
@@ -1603,7 +1603,7 @@ Each item below is a behaviour that a fully conformant server may exhibit, or a 
 ### S12. Client credentials encoding in HTTP Basic (§2.3.1)
 - Behaviour: The client ID and secret are form-urlencoded before Base64 in HTTP Basic: "the encoded value is used as the username" and "the client password is encoded using the same algorithm". Servers "MUST support the HTTP Basic authentication scheme" for clients with a password.
 - Fake server: A client secret containing `+`, `/`, `:` or `%`: accept only the form-encoded form in Basic (spec), or only the raw form (a common deviation; UNVERIFIED which named providers do this).
-- Client must: For public clients, send `client_id` in the body and no Basic header. For confidential clients, encode per RFC 6749 §2.3.1 or offer `client_secret_post`.
+- Client must: For public clients, send `client_id` in the body and no Basic header. For confidential clients, encode per §2.3.1 or offer `client_secret_post`.
 - Sources: https://www.rfc-editor.org/rfc/rfc6749.html#section-2.3.1
 
 ### S13. Redirect URI fragment and registration (§3.1.2, §3.1.2.2)

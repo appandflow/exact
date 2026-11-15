@@ -2,6 +2,22 @@
 use super::Module;
 
 #[test]
+fn reading_the_abi_keeps_the_loaded_bindings_alive() {
+    let bytecode = include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec();
+    for mut module in [
+        Module::inspect(bytecode.clone()).unwrap(),
+        Module::loaded(bytecode, "test.pure", "").unwrap(),
+    ] {
+        let context = std::sync::Arc::downgrade(&module.storage.as_ref().unwrap().context);
+        assert_eq!(module.abi().unwrap(), 1);
+        assert!(
+            context.upgrade().is_some(),
+            "the loaded engine still borrows its original bindings context"
+        );
+    }
+}
+
+#[test]
 fn hardening_refuses_a_reachable_abort_hook_handoff() {
     let mut module = Module::new(
         include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
@@ -66,4 +82,36 @@ fn hardening_freezes_what_descriptors_reach() {
     // The week tables, built after hardening, take a name planted on the
     // frozen Object.prototype.
     assert_eq!(report["firstDay"], 7, "{report}");
+}
+
+#[test]
+fn an_entry_without_application_sources_does_not_load_typescript() {
+    use exact_runner::DataSource;
+    let mut module = Module::new(Vec::new(), "test.static", "");
+    assert!(!module.ready());
+    let plan = contract::compile("component Watch\n  view\n    text \"Static\"\n").unwrap();
+    module.bind(&plan);
+    module.activate().unwrap();
+    assert!(module.ready());
+    assert!(!module.is_loaded());
+
+    let plan = contract::compile(
+        "shape Value\n  text: string\ncomponent Watch\n  resource value = js() as shape Value\n  view\n    text value.text\n",
+    )
+    .unwrap();
+    module.bind(&plan);
+    assert!(!module.ready());
+    assert!(module.activate().is_err());
+}
+
+#[test]
+fn a_typescript_canvas_keeps_its_executor_reachable() {
+    use exact_runner::DataSource;
+    let mut module =
+        Module::new(Vec::new(), "test.canvas", "").with_canvas_surfaces([("drawing", 0)]);
+    let mut builder = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    builder.surface("drawing", &[]);
+    module.bind(&builder.finish().unwrap());
+    assert!(!module.ready());
+    assert!(module.activate().is_err());
 }

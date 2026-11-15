@@ -1,8 +1,8 @@
-//! A local listener: `exactListen("unix:<path>", options)`,
-//! a stream whose resource holds the address while it is held.
+//! A local listener (LLP 1133.005): `exactListen("unix:<path>", options)`,
+//! a stream whose resource holds the address while it is held (D2).
 //!
-//! A listener has its events and options, its bounds, `unix:` paths, and the
-//! `net.listen` grant.
+//! @ref LLP 1133.005 D1 (the events and options) / D3 (bounds) / D4 (`unix:`
+//! paths) / D11 (the `net.listen` grant)
 //!
 //! A listener is a [`crate::Request`] with [`crate::Request::listen`] set: a
 //! two-way stream whose messages are its events. `listening` (`data` the
@@ -15,8 +15,8 @@
 //! [`crate::SocketOp::End`], addressed by connection.
 
 /// The event of a listener's message that only says where its address
-/// stands: `data` is `waiting` (another listener of this process holds
-/// it), `displaced` (a newer one took it over), `holding` (it holds it
+/// stands: `data` is `waiting` (another listener of this process holds it,
+/// D2), `displaced` (a newer one took it over), `holding` (it holds it
 /// again) or `took over` (its `listening` replaced a live socket), and `id`
 /// the address. The runner records it and calls no mapper.
 pub const LISTEN_STATUS: &str = "exact:listen";
@@ -41,11 +41,11 @@ pub const SUN_PATH: usize = 108;
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 pub const SUN_PATH: usize = 104;
 
-/// A listener's options.
+/// A listener's options (D1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Listen {
     /// Newest wins: publish over a live socket, and take the address from
-    /// another listener of this process.
+    /// another listener of this process (D2, D4).
     pub takeover: bool,
     /// A connection whose first complete line has not arrived within this
     /// many ms ends `timeout`; none by default.
@@ -87,7 +87,7 @@ impl Listen {
 }
 
 /// The path of a `unix:` address, or why it is refused before anything is
-/// created: an address of another scheme, a relative path, a NUL, or a
+/// created (D4): an address of another scheme, a relative path, a NUL, or a
 /// path `sun_path` cannot hold.
 pub fn unix_path(address: &str) -> Result<&str, String> {
     let Some(path) = address.strip_prefix("unix:") else {
@@ -124,7 +124,7 @@ pub fn grant_prefix(line: &str) -> Option<&str> {
     words.next().is_none().then_some(prefix)
 }
 
-/// Why a line that begins `net.listen` is not one, if it is not.
+/// Why a line that begins `net.listen` is not one (D11), if it is not.
 pub fn grant_refusal(line: &str) -> Option<String> {
     match grant_prefix(line) {
         Some("") => None,
@@ -147,7 +147,7 @@ pub fn under(path: &str, prefix: &str) -> bool {
 
 /// The `net.listen` line that admits `path` (its ancestors resolved), of the
 /// app's grants `spec` narrowed by a source's `scope`, which may only select
-/// lines the app has. `resolve` resolves a prefix as the path was, so
+/// lines the app has. `resolve` resolves a prefix as the path was (D4), so
 /// `/tmp/…` and `/private/tmp/…` on macOS are one path.
 pub fn admitting<'a>(
     spec: &'a str,
@@ -164,7 +164,7 @@ pub fn admitting<'a>(
     })
 }
 
-/// A connection's end reason, as the `end` event spells it.
+/// A connection's end reason, as the `end` event spells it (D1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EndReason {
     /// The peer closed or reset it.
@@ -173,7 +173,7 @@ pub enum EndReason {
     App,
     /// `firstLineTimeout` passed before its first complete line.
     Timeout,
-    /// A line or a queue passed its bound.
+    /// A line or a queue passed its bound (D3).
     Overflow,
 }
 
@@ -189,13 +189,13 @@ impl EndReason {
     }
 }
 
-/// Where a listener's address stands, for `state.streams`.
+/// Where a listener's address stands, for `state.streams` (D2, D12).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Standing {
     /// Not yet bound: binding, or the first event has not landed.
     #[default]
     Binding,
-    /// Another listener of this process holds the address.
+    /// Another listener of this process holds the address (D2).
     Waiting,
     /// Bound, and receiving new connections.
     Listening,
@@ -227,7 +227,7 @@ pub struct ConnectionView {
     pub sent: u64,
 }
 
-/// What the host shows of one listener (`state.streams`).
+/// What the host shows of one listener (`state.streams`, D12).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ListenView {
     /// Its address, as asked.

@@ -1,4 +1,5 @@
-// Measurement-Mac diagnostic fixture; no ordinary test run opens this window.
+// Silver-Mac diagnostic fixture; no ordinary test run opens this window.
+// @ref LLP 1149.001 M10, cut 1c.
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <Metal/Metal.h>

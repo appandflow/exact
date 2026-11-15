@@ -1,12 +1,13 @@
-// A page that says nothing about its look: a heading, a
+// A page that says nothing about its look (LLP 1115 D7): a heading, a
 // paragraph, a button and a field, with no colour, font or size written.
 // What shows is the platform's: the page and its text follow the device's
 // scheme, and the text its font scale. The first button opens a second page
 // that says nothing about Back either: no Back control, no `navigate`
-// handler, so the system's Back is the router's own. A fixture
-// for a host's defaults, built for Android's Canvas host first (`android/`).
+// handler, so the system's Back is the router's own (LLP 1115 D5). A fixture
+// for a host's defaults, built for Android's Canvas host first (LLP 1115.001
+// D3, D6; `android/`).
 //
-// The second button opens a page to scroll: a list of 240
+// The second button opens a page to scroll (LLP 1115.001 D7): a list of 240
 // rows, virtualized, each a button that says which it was. Its first row is
 // a strip that scrolls sideways and its second a scroller of its own, nested
 // in the list, which hands a drag on to the list at its ends. The button
@@ -14,7 +15,7 @@
 // says how any of it scrolls: the slop, the fling, the ends and the
 // indicator are the platform's.
 //
-// The third button opens the device's colours: a text
+// The third button opens the device's colours (LLP 1115.001 D4, D5): a text
 // in each label role and a card in each background role, by the roles'
 // names and no colour of the app's own, then the controls whose accent is
 // the platform's, a link of each kind that leaves the app, and a button for
@@ -23,7 +24,7 @@
 // button authors an `accent-color` over the page, the one colour written
 // here, which must win over the platform's.
 //
-// The fourth button opens a form: a field of each kind a
+// The fourth button opens a form (LLP 1115.001 D8): a field of each kind a
 // keyboard has a shape for (text, email, password, number, search), a
 // textarea, a field that takes five characters, one the app rewrites in
 // lower case as it is typed, three chained by their enter keys (Next, Next,
@@ -31,7 +32,7 @@
 // form is longer than the screen. Nothing says how a field looks or types:
 // on Android each is the platform's own field.
 //
-// The fifth button opens the top layer: a confirmation
+// The fifth button opens the top layer (LLP 1115.001 D10): a confirmation
 // with a cancel and a destructive action, one with three buttons, and one
 // menu of four rows (a symbol, a separator, a destructive row that asks
 // first) opened four ways: by the button at the end of a row, by holding

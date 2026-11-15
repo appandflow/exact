@@ -1,9 +1,10 @@
-//! Filters: a `filter` reference or CSS filter
+//! Filters (LLP 1055.000 D14): a `filter` reference or CSS filter
 //! functions, resolved into a chain of primitives in the element's user
 //! space. The chain and its wire form are `exact-svg-filter`'s, re-exported
 //! here; the pixels are the hosts' and `exact-svg-raster`'s.
 //!
-//! Filter Effects 1 §7, §12 (the CSS functions and their equivalents).
+//! @ref LLP 1055.000 D14; Filter Effects 1 §7, §12 (the CSS functions and
+//! their equivalents)
 
 pub use exact_svg_filter::{
     CompositeOp, Convolve, Filter, Input, Light, Lighting, Op, Primitive, Transfer, BLEND_MODES,
@@ -23,8 +24,9 @@ pub enum FilterFn {
     Brightness(f32),
     /// `contrast()`.
     Contrast(f32),
-    /// `drop-shadow(<length>{2,3} <color>?)`: dx, dy, blur (px), colour
-    /// (`currentcolor` when none is given), which may be a reference.
+    /// `drop-shadow([ <color>? && <length>{2,3} ])`: dx, dy, blur (px),
+    /// colour (`None` for an omitted colour or `currentcolor`), which may
+    /// be a reference (LLP 1095 D1).
     DropShadow(f32, f32, f32, Option<crate::style::ColorValue>),
     /// `grayscale()`.
     Grayscale(f32),
@@ -55,35 +57,32 @@ fn amount(arg: &str) -> Option<Option<f32>> {
         Some(n) => (n, 0.01),
         None => (t, 1.0),
     };
-    let v = exact_num::parse_f64(n.trim()).ok()? as f32 * k;
-    (v.is_finite() && v >= 0.0).then_some(Some(v))
+    let v = crate::style::parse_css_number(n)? * k;
+    (v >= 0.0 && (v as f32).is_finite()).then_some(Some(v as f32))
 }
 
-/// A length in px (a bare 0 admitted).
+/// A length in px (a unitless zero admitted), its unit in any case.
 fn px(t: &str) -> Option<f32> {
-    let t = t.trim();
-    let n = t
-        .strip_suffix("px")
-        .unwrap_or(if t == "0" { t } else { "" });
-    let v = exact_num::parse_f64(n.trim()).ok()? as f32;
-    v.is_finite().then_some(v)
+    crate::style::parse_pixel_length(t.trim())
 }
 
-/// An angle in degrees (`deg`, `rad`, `grad`, `turn`; a bare 0).
+/// An angle in degrees (`deg`, `rad`, `grad`, `turn`, in any case; a
+/// unitless zero).
 fn angle(t: &str) -> Option<f32> {
     let t = t.trim();
     for (unit, k) in [
         ("deg", 1.0),
         ("grad", 0.9),
-        ("rad", 180.0 / std::f32::consts::PI),
+        ("rad", 180.0 / std::f64::consts::PI),
         ("turn", 360.0),
     ] {
-        if let Some(n) = t.strip_suffix(unit) {
-            let v = exact_num::parse_f64(n.trim()).ok()? as f32 * k;
+        let at = t.len().saturating_sub(unit.len());
+        if t.get(at..).is_some_and(|u| u.eq_ignore_ascii_case(unit)) {
+            let v = (crate::style::parse_css_number(&t[..at])? * k) as f32;
             return v.is_finite().then_some(v);
         }
     }
-    (t == "0").then_some(0.0)
+    (crate::style::parse_css_number(t)? == 0.0).then_some(0.0)
 }
 
 impl FilterList {
@@ -103,7 +102,9 @@ impl FilterList {
         let mut rest = t;
         while !rest.is_empty() {
             let open = rest.find('(')?;
-            let name = rest[..open].trim().to_ascii_lowercase();
+            // A function's name meets its parenthesis: `saturate (2)` is
+            // not a function.
+            let name = rest[..open].to_ascii_lowercase();
             // The matching parenthesis: a colour may hold its own.
             let mut depth = 0;
             let close = open
@@ -143,14 +144,21 @@ impl FilterList {
                 "drop-shadow" => {
                     let mut lengths = Vec::new();
                     let mut color = None;
+                    // The lengths are together: a colour after the first
+                    // ends them (`<color>? && <length>{2,3}`).
+                    let mut ended = false;
                     for word in split_words(arg) {
                         match px(word) {
-                            Some(v) if lengths.len() < 3 => lengths.push(v),
+                            Some(v) if lengths.len() < 3 && !ended => lengths.push(v),
                             _ if color.is_none() => {
-                                color =
+                                ended = !lengths.is_empty();
+                                color = Some(if word.eq_ignore_ascii_case("currentcolor") {
+                                    None
+                                } else {
                                     Some(crate::style::ColorValue::parse_light_dark(word).or_else(
                                         || crate::style::Color::parse(word).map(Into::into),
                                     )?)
+                                })
                             }
                             _ => return None,
                         }
@@ -162,7 +170,7 @@ impl FilterList {
                         lengths[0],
                         lengths[1],
                         lengths.get(2).copied().unwrap_or(0.0),
-                        color,
+                        color.flatten(),
                     )
                 }
                 _ => return None,
@@ -176,7 +184,7 @@ impl FilterList {
         self.text(ColorText::Css)
     }
 
-    /// The wire form: [`Self::css`], with every reference kept.
+    /// The wire form: [`Self::css`], with every reference kept (LLP 1095 D1).
     pub fn wire(&self) -> String {
         self.text(ColorText::Wire)
     }

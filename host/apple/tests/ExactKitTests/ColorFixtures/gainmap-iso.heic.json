@@ -3,7 +3,7 @@
   "class" : "hdr",
   "file" : "gainmap-iso.heic",
   "id" : "F11a",
-  "note" : "ISO 21496-1 gain map, headroom 4; SDR base shown on an SDR display; HDR linear values as the patches say",
+  "note" : "ISO 21496-1 gain map, headroom 4; SDR base shown on an SDR display; HDR (stage 3) linear values as the patches say",
   "patches" : [
     {
       "h" : 64,

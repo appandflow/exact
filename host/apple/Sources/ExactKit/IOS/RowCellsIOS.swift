@@ -1,7 +1,8 @@
-// Rows of a vertical `list` are cells, on iOS: a
+// @ref LLP 1115.000 D16 — rows of a vertical `list` are cells, on iOS: a
 // list Contract marked (`listRows`) shows what a hand-built plain list
 // shows. The reference is `UICollectionView` with a plain list
-// configuration, measured on an iOS 27.0 simulator at 3x, light and dark:
+// configuration, measured on an iOS 27.0 simulator at 3x, light and dark
+// (`~/audits/exact2-no-tells-2026-10-11/d16/ios-reference/RESULTS.md`):
 //
 // - a separator under every row, the last included, and one above the
 //   first: one point thick (three pixels, not a hairline) in
@@ -22,7 +23,8 @@
 // ground under them, in the list's own content. They are not UIKit's cells.
 // What that leaves to the rows themselves is what they already do: a row's
 // swipe actions are UIKit's own (`SwipeActionsIOS.swift`), and a reordered
-// row is lifted by the presenter.
+// row is lifted by the presenter. What real cells would add is in the LLP's
+// as-built row.
 //
 // What the author writes wins: a row whose author wrote its bottom edge, or
 // the next row's top edge (`none` is written too), has no separator there;
@@ -175,7 +177,7 @@ final class RowCells {
     /// Each row's line layer, by the row, while it draws one.
     private var rowLines: [ObjectIdentifier: (row: Weak<NodeView>, layer: RowLineLayer)] = [:]
     final class Weak<T: AnyObject> { weak var value: T?; init(_ value: T) { self.value = value } }
-    /// The margins each list's rows were last sampled at, which
+    /// The margins each list's rows were last sampled at (LLP 1138), which
     /// its separators follow, and those the kernel was last sent.
     private var told: [UInt32: [CGFloat]] = [:]
     private var sent: [UInt32: [CGFloat]] = [:]
@@ -228,7 +230,7 @@ final class RowCells {
         #endif
     }
 
-    /// The margin UIKit's cell gives a plain list's rows: its
+    /// @ref LLP 1138 — the margin UIKit's cell gives a plain list's rows: its
     /// view controller's system minimum layout margins (16 on an iPhone
     /// upright, 20 in landscape and on the Duo; measured on iOS 27 beside a
     /// `UICollectionView` plain list), at its left and right. Exact's layout

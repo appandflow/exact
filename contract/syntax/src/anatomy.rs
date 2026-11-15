@@ -1,13 +1,13 @@
-//! A component's anatomy: the parts it names and
+//! A component's anatomy (LLP 1139 D2, stage 12 C): the parts it names and
 //! the row groups each takes. [`Anatomy`] is the checked data, whatever its
 //! spelling; the compiler's checks (`contract_lower::anatomy`) read only it.
 //!
-//! **The spelling is this layer's alone**, and it may change. Today's is
+//! **The spelling is this layer's alone** (LLP 1139 §9 Q7 is open): r6's is
 //! a `parts` section, `name: group group …` a line (`parser/anatomy.rs`),
 //! and `part="name"` on a node of the component's own view, which
 //! [`take_marks`] lifts out of the view as the component is parsed, so no
 //! later pass sees the attribute (nothing reaches a plan, the DOM or a
-//! host). A spelling that writes the groups beside `part=` changes this
+//! host). A Q7 answer that writes the groups beside `part=` changes this
 //! file and the parser's section, never the model or the checks.
 
 use crate::ast::{Expr, Node};
@@ -54,21 +54,21 @@ impl Anatomy {
     }
 }
 
-/// The attribute a node is named as a part by.
+/// The attribute a node is named as a part by (r6's spelling).
 pub const PART: &str = "part";
 
-/// How a part is declared, as a diagnostic quotes it: the
+/// How a part is declared, as a diagnostic quotes it (r6's spelling): the
 /// section's name.
 pub const SECTION: &str = "parts";
 
-/// How part `name` is declared with `groups`, as a diagnostic quotes it:
-/// `go: control`.
+/// How part `name` is declared with `groups`, as a diagnostic quotes it
+/// (r6's spelling): `go: control`.
 pub fn declared(name: &str, groups: &[&str]) -> String {
     format!("{name}: {}", groups.join(" "))
 }
 
-/// How a node is named as part `name`, as a diagnostic quotes it:
-/// `part="surface"`.
+/// How a node is named as part `name`, as a diagnostic quotes it (r6's
+/// spelling): `part="surface"`.
 pub fn written(name: &str) -> String {
     format!("{PART}=\"{name}\"")
 }
@@ -109,18 +109,12 @@ fn walk(nodes: &mut [Node], own: bool, marks: &mut Vec<Mark>) {
                 });
                 walk(children, own, marks);
             }
-            Node::Use { children, .. } => walk(children, false, marks),
-            Node::Children { .. } => {}
-            Node::When {
-                then, otherwise, ..
-            } => {
-                walk(then, own, marks);
-                walk(otherwise, own, marks);
-            }
-            Node::Each { body, .. } => walk(body, own, marks),
-            Node::Match { some, none, .. } => {
-                walk(&mut some.1, own, marks);
-                walk(none, own, marks);
+            // A use's slot fill is the user's view, not the component's.
+            node => {
+                let own = own && !matches!(node, Node::Use { .. });
+                for list in node.child_lists_mut() {
+                    walk(list, own, marks);
+                }
             }
         }
     }

@@ -1,3 +1,4 @@
+import { hostFixtureFile } from '../web/tests/glue-fixture.mjs';
 import { test, expect } from 'bun:test';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
@@ -6,19 +7,19 @@ test('relaunch reloads the browser document and keeps committed storage', async 
     const path = new URL(request.url).pathname;
     if (path === '/commands.js') return new Response(Bun.file(new URL('./commands.js', import.meta.url)));
     if (path === '/frame-messages.js') return new Response(Bun.file(new URL('../web/frame-messages.js', import.meta.url)));
-    if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
+    if (path === '/navigation.js') return new Response(hostFixtureFile(new URL('../web/navigation.js', import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('../web/prompt-glue.js', import.meta.url)));
     if (path === '/alert-message.js') return new Response(Bun.file(new URL('../web/alert-message.js', import.meta.url)));
     if (path === '/menu-rows.js') return new Response(Bun.file(new URL('../web/menu-rows.js', import.meta.url)));
     return new Response(`<button id="restart">Restart</button><output id="state"></output>
       <script type="module">
-        import { commands } from '/commands.js';
+        import { relaunch } from '/commands.js';
         const boots = Number(sessionStorage.getItem('boots') ?? 0) + 1;
         sessionStorage.setItem('boots', boots);
         document.querySelector('#state').textContent = boots + ':' + (localStorage.getItem('saved') ?? '');
         document.querySelector('#restart').onclick = () => {
           localStorage.setItem('saved', 'written before relaunch');
-          commands(console.error).relaunch();
+          relaunch(console.error)();
         };
       </script>`, { headers: { 'content-type': 'text/html' } });
   } });
@@ -42,12 +43,13 @@ test('relaunch reloads the browser document and keeps committed storage', async 
 // action the change enables counts; while that action is disabled Return
 // presses nothing, never the next one. A field with its own `submit` (the
 // runtime marks its Enter `$submit`) keeps Return, and nothing is pressed.
+// The page imports the glue as a plan with a dialog does (build.mjs `dialogs.flag`).
 test("a prompt's Return commits its field, then presses its action", async () => {
   const server = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === '/commands.js') return new Response(Bun.file(new URL('./commands.js', import.meta.url)));
     if (path === '/frame-messages.js') return new Response(Bun.file(new URL('../web/frame-messages.js', import.meta.url)));
-    if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
+    if (path === '/navigation.js') return new Response(hostFixtureFile(new URL('../web/navigation.js', import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/prompt-glue.js') return new Response(Bun.file(new URL('../web/prompt-glue.js', import.meta.url)));
     if (path === '/alert-message.js') return new Response(Bun.file(new URL('../web/alert-message.js', import.meta.url)));
     if (path === '/menu-rows.js') return new Response(Bun.file(new URL('../web/menu-rows.js', import.meta.url)));
@@ -56,7 +58,7 @@ test("a prompt's Return commits its field, then presses its action", async () =>
         <button id="save" data-exact-on="press" disabled>Save</button>
         <button id="suggest" data-exact-on="press">Use Suggestion</button></dialog><output id="log"></output>
       <script type="module">
-        import '/commands.js';
+        import '/prompt-glue.js';
         let draft = '';
         const save = document.querySelector('#save'), log = document.querySelector('#log');
         document.querySelector('#name').addEventListener('change', e => { draft = e.target.value; save.disabled = draft === ''; });
@@ -109,22 +111,22 @@ test('openURL opens a declared scheme, refuses the rest, and journals under the 
   const server = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     for (const [name, file] of [['commands.js', './commands.js'], ['frame-messages.js', '../web/frame-messages.js'], ['navigation.js', '../web/navigation.js'], ['prompt-glue.js', '../web/prompt-glue.js'], ['alert-message.js', '../web/alert-message.js'], ['menu-rows.js', '../web/menu-rows.js']]) {
-      if (path === `/${name}`) return new Response(Bun.file(new URL(file, import.meta.url)));
+      if (path === `/${name}`) return new Response(hostFixtureFile(new URL(file, import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
     }
     return new Response(`<script type="module">
-        import { commands } from '/commands.js';
+        import { openURL } from '/commands.js';
         globalThis.exact = { openSchemes: ['vscode', 'javascript'] };
         const opened = [], said = [];
         window.open = (url) => { opened.push(url); };
-        const page = commands(line => said.push(line)), agent = commands(line => said.push(line), () => true);
-        for (const url of ['vscode://vscode-remote/ssh-remote+devbox/p', 'VSCode://file/a', 'zed://ssh/devbox/p', 'javascript:alert(1)']) page.openURL(url);
-        agent.openURL('vscode://file/b');
+        const page = openURL(line => said.push(line), () => false), agent = openURL(line => said.push(line), () => true);
+        for (const url of ['vscode://vscode-remote/ssh-remote+devbox/p', 'VSCode://file/a', 'zed://ssh/devbox/p', 'javascript:alert(1)']) page(url);
+        agent('vscode://file/b');
         const asked = document.body.appendChild(document.createElement('div')), heard = [];
         asked.id = 'asked';
         asked.addEventListener('change', e => heard.push(e.detail));
-        page.openURL('https://example.com/', 'asked');
-        page.openURL('zed://ssh/devbox/p', 'asked');
-        page.openURL('https://example.com/', 'absent');
+        page('https://example.com/', 'asked');
+        page('zed://ssh/devbox/p', 'asked');
+        page('https://example.com/', 'absent');
         await new Promise(r => setTimeout(r));
         globalThis.result = { opened, said, heard };
       </script>`, { headers: { 'content-type': 'text/html' } });
@@ -148,17 +150,17 @@ test('openURL opens a declared scheme, refuses the rest, and journals under the 
   }
 }, 30000);
 
-// A page cannot open the browser's developer tools: `openDevTools(id)` is refused in the journal.
+// A page cannot open the browser's developer tools (LLP 1020.002 D11): `openDevTools(id)` is refused in the journal.
 test('openDevTools is refused on the web', async () => {
   const server = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     for (const [name, file] of [['commands.js', './commands.js'], ['frame-messages.js', '../web/frame-messages.js'], ['navigation.js', '../web/navigation.js'], ['prompt-glue.js', '../web/prompt-glue.js'], ['alert-message.js', '../web/alert-message.js'], ['menu-rows.js', '../web/menu-rows.js']]) {
-      if (path === `/${name}`) return new Response(Bun.file(new URL(file, import.meta.url)));
+      if (path === `/${name}`) return new Response(hostFixtureFile(new URL(file, import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
     }
     return new Response(`<iframe id="tab"></iframe><script type="module">
-        import { commands } from '/commands.js';
+        import { openDevTools } from '/commands.js';
         const said = [];
-        commands(line => said.push(line)).openDevTools('tab');
+        openDevTools(line => said.push(line))('tab');
         globalThis.result = said;
       </script>`, { headers: { 'content-type': 'text/html' } });
   } });
@@ -180,13 +182,13 @@ test('the trace commands are refused in the journal', async () => {
   const server = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     for (const [name, file] of [['commands.js', './commands.js'], ['frame-messages.js', '../web/frame-messages.js'], ['navigation.js', '../web/navigation.js'], ['prompt-glue.js', '../web/prompt-glue.js'], ['alert-message.js', '../web/alert-message.js'], ['menu-rows.js', '../web/menu-rows.js']]) {
-      if (path === `/${name}`) return new Response(Bun.file(new URL(file, import.meta.url)));
+      if (path === `/${name}`) return new Response(hostFixtureFile(new URL(file, import.meta.url)), { headers: { 'content-type': 'text/javascript' } });
     }
     return new Response(`<script type="module">
-        import { commands } from '/commands.js';
-        const said = [], page = commands(line => said.push(line));
-        page.startTrace_EXPERIMENTAL();
-        page.stopTrace_EXPERIMENTAL(7500);
+        import { startTrace_EXPERIMENTAL, stopTrace_EXPERIMENTAL } from '/commands.js';
+        const said = [], say = line => said.push(line);
+        startTrace_EXPERIMENTAL(say)();
+        stopTrace_EXPERIMENTAL(say)(7500);
         globalThis.result = said;
       </script>`, { headers: { 'content-type': 'text/html' } });
   } });

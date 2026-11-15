@@ -26,11 +26,12 @@ pub(crate) fn rows(name: &str) -> &'static [StyleId] {
         "border-bottom" => &[BorderWidthBottom, BorderStyleBottom, BorderColorBottom],
         "border-left" => &[BorderWidthLeft, BorderStyleLeft, BorderColorLeft],
         "text-decoration" => &[TextDecorationLine],
+        // @ref LLP 1093 §1
         "columns" => &[ColumnWidth, ColumnCount],
         "column-rule" => &[ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor],
         "column-count" => &[ColumnCount],
         "column-rule-width" => &[ColumnRuleWidth],
-        // Only what it writes; the style's weight and
+        // LLP 1115.000 D12.2: only what it writes; the style's weight and
         // leading are the kernel's, per platform (`fontShorthand`).
         "font" => &[FontStyle, FontSize],
         // CSS Inline Layout 3 §4: one row holds both edges (`cap-alphabetic`
@@ -39,6 +40,9 @@ pub(crate) fn rows(name: &str) -> &'static [StyleId] {
         "text-box" => &[TextBoxTrim, TextBoxEdge],
         // CSS Inline Layout 3 §4: `alignment-baseline` and `baseline-shift`.
         "vertical-align" => &[VerticalAlign, BaselineShift],
+        // @ref LLP 1057.003 D5 — Scroll-driven Animations 1 §2.2.4, §3.2.4.
+        "scroll-timeline" => &[ScrollTimelineName, ScrollTimelineAxis],
+        "view-timeline" => &[ViewTimelineName, ViewTimelineAxis, ViewTimelineInset],
         _ => unreachable!("known shorthand"),
     }
 }
@@ -57,6 +61,9 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
             out = if index == 0 { Expr::Str("baseline".into(), *span) } else { Expr::Number(*n, *span) };
         }
         Expr::Str(text, span) if name == "font" => out = font(text, *span)?[index].clone(),
+        Expr::Str(text, span) if name.ends_with("-timeline") => {
+            out = Expr::Str(timeline(name, text, *span)?[index].clone(), *span);
+        }
         Expr::Number(_, span) if name == "font" => return font("", *span).map(|_| out),
         Expr::Number(n, span) if name == "column-count" && *n < 1.0 => {
             return err("lower-attr-value", "`column-count` is a positive integer or `auto`", *span);
@@ -107,7 +114,54 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
     Ok(out)
 }
 
-/// `vertical-align`'s two rows: a keyword and no shift,
+/// `scroll-timeline: <name> <axis>?` and `view-timeline: <name> [<axis> ||
+/// <inset>]?` (one timeline; a list is refused), into their longhands; an
+/// omitted axis is `block` and an omitted inset `auto`. The name and inset
+/// are the kernel's to check.
+fn timeline(name: &str, text: &str, span: Span) -> Result<Vec<String>, LowerError> {
+    let refuse = |why: &str| {
+        let example = if name == "view-timeline" {
+            "--card x 10px"
+        } else {
+            "--cols x"
+        };
+        err(
+            "lower-css-shorthand",
+            format!("`{name}`: {why}; write a name, then an optional axis, e.g. `{example}`"),
+            span,
+        )
+    };
+    if text.contains(',') {
+        return refuse("one timeline per node, not a list");
+    }
+    let words = words(text);
+    let Some((first, rest)) = words.split_first() else {
+        return refuse("an empty value");
+    };
+    let is_axis =
+        |w: &str| exact_kernel::TimelineAxis::from_name(&w.to_ascii_lowercase()).is_some();
+    let axes: Vec<usize> = (0..rest.len()).filter(|&i| is_axis(rest[i])).collect();
+    let axis = match axes[..] {
+        [] => "block".to_string(),
+        // `<axis> || <inset>`: the axis before or after the inset.
+        [i] if i == 0 || i == rest.len() - 1 => rest[i].to_ascii_lowercase(),
+        _ => return refuse("one axis, before or after the inset"),
+    };
+    let others: Vec<&str> = (0..rest.len())
+        .filter(|i| !axes.contains(i))
+        .map(|i| rest[i])
+        .collect();
+    let mut out = vec![first.to_string(), axis];
+    match (name, others.len()) {
+        ("view-timeline", 0) => out.push("auto".into()),
+        ("view-timeline", 1 | 2) => out.push(others.join(" ")),
+        (_, 0) => {}
+        _ => return refuse("more than a name and an axis"),
+    }
+    Ok(out)
+}
+
+/// `vertical-align`'s two rows (LLP 1011.002 D3): a keyword and no shift,
 /// or `baseline` raised by a length.
 fn vertical_align(text: &str, span: Span) -> Result<[Expr; 2], LowerError> {
     let word = text.trim().to_ascii_lowercase();
@@ -163,7 +217,7 @@ fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError>
     let mut color = None;
     for word in words(text) {
         let lower = word.to_ascii_lowercase();
-        // A border paints `inset`; a column rule does not.
+        // A border paints `inset`; a column rule does not (LLP 1093 §1).
         let rule = name == "column-rule";
         if matches!(lower.as_str(), "none" | "hidden" | "solid")
             || (!rule && matches!(lower.as_str(), "inset" | "dotted" | "dashed"))
@@ -186,7 +240,7 @@ fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError>
             };
             return err("lower-css-shorthand", format!("CSS line style `{word}` in `{name}` is not implemented by native painters; supported styles are {supported}"), span);
         } else if matches!(lower.as_str(), "thin" | "medium" | "thick")
-            // One device pixel, by name.
+            // @ref LLP 1115.000 D10.3 — one device pixel, by name.
             || exact_kernel::style::relative::named_length(word).is_some()
             || word
                 .strip_suffix("px")
@@ -219,23 +273,23 @@ fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError>
                 )
                 .is_err()
             {
-                // A role meant is named first.
+                // @ref LLP 1116.014 D1 — a role meant is named first.
                 if let Some(edit) = crate::edits::role_hint(word, true) {
                     let edit = edit.shifted(text.find(word).unwrap_or(0));
                     return err("lower-css-shorthand", edit.lead(name, text), span);
                 }
-                // A dotted word no token has, in a colour row's words; a
-                // base name or a length
+                // A dotted word no token has, in a colour row's words (LLP
+                // 1121 stage 12 B3, QUEUE's item); a base name or a length
                 // token is a length, which the refusal below names.
                 use exact_kernel::style::{scale, theme};
                 let length = scale::is_base(word)
-                    || crate::theme::measure_named(word) == Some(exact_tamber::Kind::Length);
+                    || crate::theme::measure_named(word) == Some(exact_forma::Kind::Length);
                 if crate::theme::scan::dotted_name(word)
                     && theme::bound()
                     && !theme::names(word)
                     && !length
                 {
-                    return err("tamber-unknown-token", format!("`{name}=\"{text}\"`: `{word}` is no token of this app's design and no role"), span);
+                    return err("forma-unknown-token", format!("`{name}=\"{text}\"`: `{word}` is no token of this app's design and no role"), span);
                 }
                 return err("lower-css-shorthand", format!("`{word}` is not an admitted `{name}` width, style or color; widths are nonnegative px/pt lengths, `-exact-hairline` or thin/medium/thick"), span);
             }
@@ -339,11 +393,10 @@ fn columns_longhand(name: &str, text: &str, span: Span) -> Result<Expr, LowerErr
     }
 }
 
-/// `font`: a platform text style only, or a clear
+/// `font`: a platform text style only (LLP 1115 D3), or a clear
 /// ([`font_clear`]): a `normal` style and the style's size, which the kernel
-/// reads from the platform's ramp at the root font size. Its weight and
-/// leading are the style's on each platform: the node is marked
-/// `fontShorthand`, so the kernel
+/// reads from the platform's ramp at the root font size. Its weight and leading are the style's on each platform
+/// (LLP 1115.000 D12.2): the node is marked `fontShorthand`, so the kernel
 /// gives them as the shorthand resets them, beating an inherited value. The
 /// family stays what it was.
 fn font(text: &str, span: Span) -> Result<[Expr; 2], LowerError> {
@@ -376,7 +429,7 @@ fn font(text: &str, span: Span) -> Result<[Expr; 2], LowerError> {
 /// the shorthand sets or resets takes its parent's value (CSS Fonts 4 §2.8,
 /// CSS Cascade 4 §7.3), as the common reset's `button { font: inherit }` has a
 /// control's text match the text around it. A platform control's start stops
-/// only rows the author did not write.
+/// only rows the author did not write (LLP 1104 D4).
 fn font_clear(text: &str) -> Option<&'static str> {
     match text.trim().to_ascii_lowercase().as_str() {
         "inherit" => Some("inherit"),
@@ -394,6 +447,7 @@ const FONT_LONGHANDS: &[StyleId] = &[
     StyleId::FontFamily,
     StyleId::FontVariationSettings,
     StyleId::FontOpticalSizing,
+    StyleId::FontFeatureSettings,
 ];
 
 /// `text-box` (`normal`, or a trim and an edge in either order, each
@@ -491,7 +545,7 @@ fn decoration(text: &str, span: Span) -> Result<String, LowerError> {
             "underline" if !underline && !none => underline = true,
             "line-through" if !strike && !none => strike = true,
             "solid" | "currentcolor" | "auto" => {},
-            "underline-line-through" => return err("lower-css-shorthand", "`underline-line-through` is spelled `underline line-through`, CSS's two keywords", span),
+            "underline-line-through" => return err("lower-css-shorthand", "`underline-line-through` is spelled `underline line-through`, CSS's two keywords (LLP 1081)", span),
             _ => return err("lower-css-shorthand", format!("CSS text-decoration component `{word}` is not implemented; native text painters support underline and line-through with solid currentcolor at the platform's default thickness{}", crate::edits::role_hint(word, false).map(|e| format!("; {}", e.clause())).unwrap_or_default()), span),
         }
     }
@@ -533,7 +587,7 @@ impl Lowerer<'_> {
                 return Ok(());
             }
         }
-        // Type tokens write only their longhands.
+        // Type tokens write only their longhands (stage 6 C).
         if a.name == "font" && self.type_font(a, scope, locals, font, bindings)? {
             return Ok(());
         }
@@ -670,6 +724,7 @@ fn literals(e: &Expr) -> Option<Vec<(&str, Span)>> {
         Expr::Str(s, span) => Some(vec![(s.as_str(), *span)]),
         Expr::None(_) => Some(Vec::new()),
         Expr::Ternary(_, yes, no, _) => Some([literals(yes)?, literals(no)?].concat()),
+        Expr::Let { body, .. } => literals(body),
         _ => None,
     }
 }
@@ -705,7 +760,7 @@ pub(crate) fn longhands(name: &str) -> Vec<String> {
 pub fn style_values(name: &str, value: &Expr) -> Result<Vec<(StyleId, Expr)>, LowerError> {
     match tags::attr_valued(name, value) {
         Some(tags::AttrTarget::Styles(rows)) => {
-            let split = if rows.len() > 1 {
+            let split = if crate::values::four_sided(rows) {
                 sides(name, value)?
             } else {
                 None
@@ -735,7 +790,7 @@ pub fn style_values(name: &str, value: &Expr) -> Result<Vec<(StyleId, Expr)>, Lo
 /// A computed value that builds a list for a box shorthand (a
 /// concatenation, or a `fn` returning one): no host splits a list at run
 /// time, since an overriding longhand, an `env()` and the rows' own
-/// grammars would each split it differently. Refused, naming
+/// grammars would each split it differently (LLP 1001 §1). Refused, naming
 /// the longhands. A literal (or a literal arm) and a template
 /// (`` `${pad}px 0` ``) are split in [`sides`]; a computed single value
 /// (`padding=pad`) is every side's, and a computed list that reaches a row

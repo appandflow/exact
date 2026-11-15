@@ -1,12 +1,12 @@
-// The file picker on Apple. `showPicker(id)` presents
+// @ref LLP 1069.002 — the file picker on Apple. `showPicker(id)` presents
 // PHPicker on iOS (no permission, no usage string; the `ExactMediaPicker`
-// module's) or a document picker for non-media or
-// unrestricted input, and an NSOpenPanel sheet on macOS. Native hosts don't enforce user activation. Each chosen
-// file is copied into `app:/tmp/picked/` before `change` fires, a HEIC
-// photo becoming a JPEG when `accept` names images but not HEIC
-// (Safari's rule), with its pixel size and a video's duration. Under
-// the agent the request is held for `type @t <path>…` / `tap @t cancel`,
-// whose files take the same path.
+// module's, LLP 1047.001.000 E) or a document picker for non-media or
+// unrestricted input, and an NSOpenPanel sheet on macOS (D8). Native hosts don't enforce user activation (ruled, Q2). Each chosen
+// file is copied into `app:/tmp/picked/` before `change` fires (D4), a HEIC
+// photo becoming a JPEG when `accept` names images but not HEIC (D6,
+// Safari's rule), with its pixel size and a video's duration (D3). Under
+// the agent the request is held for `type @t <path>…` / `tap @t cancel`
+// (D9), whose files take the same path.
 import Foundation
 import ImageIO
 import CoreImage
@@ -24,9 +24,10 @@ package protocol MediaPickerCapability: AnyObject {
     /// Present the photo picker over `controller` for a media-only
     /// `accept`. `done` runs once, on the main queue, with each chosen file
     /// staged in the temporary directory and the name to give it (none
-    /// when cancelled); the caller removes the staged files.
+    /// when cancelled), and why a chosen file could not be staged, if one
+    /// could not; the caller removes the staged files.
     func present(over controller: UIViewController, accept: [String], multiple: Bool,
-                 done: @escaping ([(url: URL, name: String)]) -> Void)
+                 done: @escaping ([(url: URL, name: String)], String?) -> Void)
 }
 
 /// The photo picker's module, installed by the composition.
@@ -36,9 +37,9 @@ package enum MediaPickerLink {
 #endif
 
 /// The app's directories behind `app:/`, so an `image` source can read the
-/// app's own file: told by the library at boot and with each picked
+/// app's own file (D7): told by the library at boot and with each picked
 /// name, so a photo kept in `app:/data` shows after a relaunch with nothing
-/// picked.
+/// picked (recipes F18).
 enum AppFiles {
     private static let lock = NSLock()
     private static var roots: [String: URL] = [:]
@@ -55,22 +56,43 @@ enum AppFiles {
         learn(object)
         return object["roots"] as? [String: String] ?? [:]
     }
-    /// The file an `app:/data|cache|tmp/…` path names; nil for `..` or a root.
+    /// Where an `app:/data|cache|tmp/…` path names, for a file the host
+    /// writes there; nil for `..` or a root. A file the app names is read
+    /// through `open` or `file`, never through this.
     static func url(_ path: String) -> URL? {
+        guard let at = place(path) else { return nil }
+        return at.names.reduce(at.root) { $0.appendingPathComponent($1) }
+    }
+    /// The regular file `path` names, opened through no symbolic link
+    /// (`AppFileWalk`), as `readFile` and a share open it; nil for any other.
+    static func open(_ path: String) -> FileHandle? {
+        lock.lock(); let roots = roots; lock.unlock()
+        return AppFileWalk.open(path, roots: roots)
+    }
+    /// The URL of the file `open` finds, for a reader that takes a URL (a
+    /// player, picture in picture); nil where `open` refuses.
+    static func file(_ path: String) -> URL? {
+        guard let at = place(path), let handle = AppFileWalk.open(at.root, at.names) else { return nil }
+        try? handle.close()
+        return at.names.reduce(at.root) { $0.appendingPathComponent($1) }
+    }
+    private static func place(_ path: String) -> (root: URL, names: [String])? {
         guard path.hasPrefix("app:/") else { return nil }
         let parts = path.dropFirst(5).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard parts.count >= 2, !parts.dropFirst().contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else { return nil }
         lock.lock(); let root = roots[parts[0]]; lock.unlock()
-        return parts.dropFirst().reduce(root) { $0?.appendingPathComponent($1) }
+        return root.map { ($0, Array(parts.dropFirst())) }
     }
 }
 
 final class Picker: NSObject {
     unowned let session: ExactSession
-    /// Inputs whose picker is showing: a second `showPicker` does nothing.
-    private var open: Set<UInt32> = []
+    /// Inputs whose picker is showing, with the session generation that
+    /// showed it: a second `showPicker` does nothing, and a replacement
+    /// generation's input with the same id opens its own.
+    private var open: [UInt32: Int] = [:]
     /// Chosen documents under `startAccessingSecurityScopedResource`, until
-    /// the session ends.
+    /// the session ends (LLP 1069.010 D1).
     var scoped: [URL] = []
     /// The holds of document pickers a drive shows for real (`--touch
     /// platform`), by element: what the person's choice answers.
@@ -79,15 +101,16 @@ final class Picker: NSObject {
     /// Those pickers, by element: what `back` or the agent's answer closes.
     var documentShown: [UInt32: UIViewController] = [:]
     private var requests: [ObjectIdentifier: Request] = [:]
-    /// Exporting document pickers showing: the element
+    /// Exporting document pickers showing (LLP 1069.010 D3): the element
     /// the outcome goes to, and the scratch directory to remove.
     var exports: [ObjectIdentifier: (UInt32, URL)] = [:]
-    /// Document pickers showing: the element, the command.
+    /// Document pickers showing (LLP 1069.010 D2): the element, the command.
     var documentRequests: [ObjectIdentifier: (UInt32, String)] = [:]
     #endif
     init(session: ExactSession) { self.session = session }
 
-    struct Request { let view: UInt32; let id: String; let accept: [String]; let multiple: Bool }
+    /// A picker shown for input `view`, in the session generation `issued`.
+    struct Request { let view: UInt32; let id: String; let accept: [String]; let multiple: Bool; let issued: GenerationStamp }
 
     private func object(_ s: String) -> [String: Any] {
         (try? JSONSerialization.jsonObject(with: Data(s.utf8))) as? [String: Any] ?? [:]
@@ -97,7 +120,7 @@ final class Picker: NSObject {
         return String(String(decoding: d, as: UTF8.self).dropFirst().dropLast())
     }
 
-    /// `showPicker(id)`, from any action.
+    /// `showPicker(id)`, from any action (D2).
     func show(_ args: [Any]) {
         guard let id = args.first as? String else { session.log("picker: refused: showPicker names an element id"); return }
         if ExactEnv.agentMode {
@@ -105,16 +128,31 @@ final class Picker: NSObject {
             if let e = r["error"] as? String { fputs("exact: \(e)\n", stderr) }
             return
         }
-        let r = object(session.agent("{\"op\":\"picker\",\"id\":\(quoted(id))}"))
-        guard let view = (r["view"] as? NSNumber)?.uint32Value else {
-            session.log("picker: refused: no file input with id \"\(id)\""); return
-        }
-        guard !open.contains(view) else { session.log("picker: \"\(id)\" is already open"); return }
-        open.insert(view)
-        present(Request(view: view, id: id, accept: r["accept"] as? [String] ?? [], multiple: r["multiple"] as? Bool ?? false))
+        if let request = request(id) { present(request) }
     }
 
-    /// The agent's answer, after the library consumed the hold: `reply`
+    /// The request to show input `id`'s picker, now marked open; nil when it
+    /// is no file input or its picker shows already.
+    func request(_ id: String) -> Request? {
+        let r = object(session.agent("{\"op\":\"picker\",\"id\":\(quoted(id))}"))
+        guard let view = (r["view"] as? NSNumber)?.uint32Value else {
+            session.log("picker: refused: no file input with id \"\(id)\""); return nil
+        }
+        guard open[view] != session.generation else { session.log("picker: \"\(id)\" is already open"); return nil }
+        open[view] = session.generation
+        return Request(view: view, id: id, accept: r["accept"] as? [String] ?? [], multiple: r["multiple"] as? Bool ?? false,
+                       issued: GenerationStamp(session))
+    }
+
+    /// The platform's answer to `r`: the files chosen, or none when cancelled.
+    /// A reload or plan replacement since it showed numbers nodes afresh, so
+    /// `r.view` may now be another input: the answer is dropped.
+    func finish(_ r: Request, files: [(url: URL, name: String)]) {
+        guard r.issued.session != nil else { return }
+        if files.isEmpty { cancel(r.view) } else { deliver(r.view, accept: r.accept, files: files) }
+    }
+
+    /// The agent's answer, after the library consumed the hold (D9): `reply`
     /// is the library's, `request` the driver's (its paths, never journalled).
     func answered(_ reply: [String: Any], request: [String: Any]) {
         guard reply["capability"] as? String == "pick", let view = (reply["node"] as? NSNumber)?.uint32Value else { return }
@@ -128,13 +166,13 @@ final class Picker: NSObject {
     }
 
     func cancel(_ view: UInt32) {
-        open.remove(view)
+        open[view] = nil
         session.apply(session.runtime.pickerCancel(view, now: session.now()))
     }
 
-    /// Copy each file in, converting a HEIC photo as above, describe it, fire `change`.
+    /// Copy each file in, converting per D6, describe it (D3), fire `change`.
     func deliver(_ view: UInt32, accept: [String], files: [(url: URL, name: String)]) {
-        open.remove(view)
+        open[view] = nil
         var lines: [String] = []
         for f in files {
             let ext = (f.name as NSString).pathExtension.lowercased()
@@ -200,11 +238,11 @@ final class Picker: NSObject {
         return out
     }
 
-    /// JPEG at quality 0.9, orientation applied, with no metadata copied
+    /// D6: JPEG at quality 0.9, orientation applied, with no metadata copied
     /// (so no location). An HDR photo is written with an ISO 21496-1 gain
     /// map where ImageIO can encode it, preserving the color profile.
     /// A rejected HDR encode retries ImageIO's SDR rendition, then Core
-    /// Image's Display P3 tone map if ImageIO still writes HDR.
+    /// Image's Display P3 tone map if ImageIO still writes HDR (LLP 1100 D13).
     static func jpeg(from: URL, to: URL,
                      thumbnail: (CGImageSource, Int, CFDictionary?) -> CGImage? = CGImageSourceCreateThumbnailAtIndex,
                      finalize: (CGImageDestination) -> Bool = CGImageDestinationFinalize) throws {
@@ -285,7 +323,7 @@ final class Picker: NSObject {
         return (decode, encode)
     }
 
-    /// A gain map of either kind, or a PQ or HLG transfer.
+    /// A gain map of either kind, or a PQ or HLG transfer (LLP 1100 D4).
     static func isHDR(_ source: CGImageSource) -> Bool {
         if CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeHDRGainMap) != nil { return true }
         if #available(iOS 18, macOS 15, tvOS 18, *),
@@ -328,8 +366,14 @@ extension Picker: UIDocumentPickerDelegate {
             guard let link = MediaPickerLink.installed else {
                 session.log("picker: refused: this build links no photo picker (media_picker); rebuild"); cancel(r.view); return
             }
-            link.present(over: controller, accept: r.accept, multiple: r.multiple) { [weak self] files in
-                if files.isEmpty { self?.cancel(r.view) } else { self?.deliver(r.view, accept: r.accept, files: files) }
+            link.present(over: controller, accept: r.accept, multiple: r.multiple) { [weak self] files, failure in
+                // A chosen file that did not stage refuses the pick, as one
+                // that does not copy in does (`deliver`): never a shorter list.
+                if let failure {
+                    if r.issued.session != nil { self?.session.log("picker: refused: \(failure)"); self?.cancel(r.view) }
+                } else {
+                    self?.finish(r, files: files)
+                }
                 for f in files { try? FileManager.default.removeItem(at: f.url) }
             }
         } else {
@@ -344,13 +388,13 @@ extension Picker: UIDocumentPickerDelegate {
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         if exportFinished(controller, urls: urls) || documentFinished(controller, urls: urls) { return }
         guard let r = requests.removeValue(forKey: ObjectIdentifier(controller)) else { return }
-        deliver(r.view, accept: r.accept, files: urls.map { ($0, $0.lastPathComponent) })
+        finish(r, files: urls.map { ($0, $0.lastPathComponent) })
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
         if exportFinished(controller, urls: nil) || documentFinished(controller, urls: nil) { return }
         guard let r = requests.removeValue(forKey: ObjectIdentifier(controller)) else { return }
-        cancel(r.view)
+        finish(r, files: [])
     }
 }
 #else
@@ -368,9 +412,9 @@ extension Picker {
         let panel = Picker.panel(for: r)
         let finish: (NSApplication.ModalResponse) -> Void = { [weak self, weak panel] response in
             guard let self else { return }
-            guard response == .OK, let urls = panel?.urls, !urls.isEmpty else { self.cancel(r.view); return }
+            let urls = response == .OK ? panel?.urls ?? [] : []
             let scoped = urls.map { $0.startAccessingSecurityScopedResource() }
-            self.deliver(r.view, accept: r.accept, files: urls.map { ($0, $0.lastPathComponent) })
+            self.finish(r, files: urls.map { ($0, $0.lastPathComponent) })
             for (url, started) in zip(urls, scoped) where started { url.stopAccessingSecurityScopedResource() }
         }
         if let window = session.presenter.root.window { panel.beginSheetModal(for: window, completionHandler: finish) }

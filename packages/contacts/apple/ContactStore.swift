@@ -1,12 +1,12 @@
-// @exact/contacts' production path on Apple: the
+// @exact/contacts' production path on Apple (LLP 1133.018 stage 2): the
 // system's contact picker, and the person's address book under access.
 //
-// - The picker needs no access: `CNContactPickerViewController` on iOS,
+// - The picker needs no access (D4): `CNContactPickerViewController` on iOS,
 //   one contact or several; `CNContactPicker` on macOS, a popover from the
 //   window's centre, one contact at a time. A pick is a copy: no `id`, icons
 //   written to `app:/tmp/picked/contacts/`.
-// - A store read asks for access while undetermined, runs off the main thread,
-//   and answers a page in the store's own order whose cursor is the
+// - A store read asks for access while undetermined, runs off the main thread
+//   (D6), and answers a page in the store's own order whose cursor is the
 //   last contact's identifier: a page after a contact the store no longer
 //   shows fails `InvalidStateError`, `cursor-stale`. Under iOS 18's limited
 //   access the store holds only what the person shared.
@@ -168,7 +168,7 @@ final class ContactStore: NSObject {
         return out
     }
 
-    // MARK: the picker
+    // MARK: the picker (D4)
 
     private func pick(_ args: [String: Any], _ reply: @escaping ([String: Any]) -> Void) {
         guard let properties = Self.asked(args) else { return reply(["error": "TypeError", "message": "properties is empty or names one the picker has not"]) }
@@ -197,7 +197,7 @@ final class ContactStore: NSObject {
         let delegate = shown.delegate
         ContactsModule.contactPicker?(shown)
         if shown.delegate !== delegate {
-            say("the contactPicker hatch changed the delegate, which the module owns")
+            say("the contactPicker hatch changed the delegate, which the module owns (LLP 1133.018 D10)")
             shown.delegate = delegate
         }
         top.present(shown, animated: true)
@@ -211,11 +211,11 @@ final class ContactStore: NSObject {
         if let keys = apple?["displayedPropertyKeys"] as? [String] { shown.displayedKeys = keys }
         ContactsModule.contactPicker?(shown)
         if shown.delegate !== self {
-            say("the contactPicker hatch changed the delegate, which the module owns")
+            say("the contactPicker hatch changed the delegate, which the module owns (LLP 1133.018 D10)")
             shown.delegate = self
         }
         shownPicker = shown
-        // No anchor yet: the window's centre.
+        // No anchor yet (D13 item 1): the window's centre.
         shown.showRelative(to: NSRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1), of: view, preferredEdge: .maxY)
         #endif
         say("picker shown (\(properties.joined(separator: ","))\(multiple ? ", multiple" : ""))")
@@ -230,7 +230,7 @@ final class ContactStore: NSObject {
         reply(["contacts": out])
     }
 
-    // MARK: the store
+    // MARK: the store (D6)
 
     private func page(_ args: [String: Any], _ reply: @escaping ([String: Any]) -> Void) {
         guard let properties = Self.asked(args) else { return reply(["error": "TypeError", "message": "properties is empty or names one the store has not"]) }

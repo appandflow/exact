@@ -1,16 +1,16 @@
-// The synthetic store @exact/purchases keeps under the agent on Apple: the
-// implementation is its own substitute, so a drive reaches no store and
-// spends nothing. The store is the process's, as StoreKit's record is the
-// account's: every session reads the same lists. It lives in the drive's
-// scratch tree (`app:/data`, a named agent store), so it survives a relaunch
-// as the store's servers do.
+// The synthetic store @exact/purchases keeps under the agent on Apple (LLP
+// 1133.015 §9): the implementation is its own substitute, so a drive reaches
+// no store and spends nothing. The store is the process's, as StoreKit's
+// record is the account's: every session reads the same lists. It lives in
+// the drive's scratch tree (`app:/data`, a named agent store), so it survives
+// a relaunch as the store's servers do.
 //
 // It behaves as StoreKit does on Apple, on the agent clock: a subscription
 // ends at its `expirationTime`, which `listPurchases` names as its stale
-// time; a renewal is a new transaction that enters the queue; a
+// time (D7); a renewal is a new transaction that enters the queue (D5); a
 // pending purchase has no transaction until it is approved; a revoked
 // transaction left unfinished is finished by the implementation and listed
-// nowhere. Every time is Unix ms, from the agent clock's
+// nowhere (D5's exception). Every time is Unix ms, from the agent clock's
 // epoch (`EXACT_AGENT_EPOCH`, as the host reads it).
 import ExactPackage
 import Foundation
@@ -105,7 +105,7 @@ final class AgentStore {
         return String(2_000_000_000_000_000 + state.counter)
     }
 
-    // MARK: the two facts
+    // MARK: the two facts (D3)
 
     /// What the account holds at `now`: each non-consumable and non-renewing
     /// subscription, each subscription transaction not yet expired and not
@@ -126,7 +126,7 @@ final class AgentStore {
     }
 
     /// The queue: every transaction not finished. A revoked one is finished
-    /// here, journaled by token, and never listed.
+    /// here, journaled by token, and never listed (D5).
     func unfinished() -> [Transaction] {
         var finished = false
         for i in state.transactions.indices where state.transactions[i].revoked != nil && !state.transactions[i].acknowledged {
@@ -138,7 +138,7 @@ final class AgentStore {
         return state.transactions.filter { !$0.acknowledged && $0.revoked == nil }
     }
 
-    /// The earliest expiration still to come: `listPurchases`' stale time.
+    /// The earliest expiration still to come: `listPurchases`' stale time (D7).
     func nextExpiry(after now: Double) -> Double? {
         entitlements(at: now).compactMap(\.expirationTime).filter { $0 > now }.min()
     }

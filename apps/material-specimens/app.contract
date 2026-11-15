@@ -1,4 +1,4 @@
-// The Material oracle's specimen app. Each specimen is
+// The Material oracle's specimen app (LLP 1115.001.001 D3). Each specimen is
 // its own plan, `specimens/<id>.contract`: headless, the Linux door draws it;
 // on a phone, the reader boots it from the launch extra `x_plan` (EXACT_PLAN).
 // What this app bakes is shown only when no plan is named.

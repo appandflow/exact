@@ -1,6 +1,6 @@
 # Reject fixtures: one per diagnostic id. Format: `id` line, then the source
 # until the next `---` line. The test asserts the compiler rejects each with
-# exactly that id; each rule has a reject fixture.
+# exactly that id (LLP 1004 D6: a reject fixture per rule).
 == contract-no-imports
 use theme from "@exact/facet-contract"
 component A
@@ -158,7 +158,7 @@ component Label
     text accent
 ---
 == syntax-writes-clause
-# An action's effects are inferred from its body.
+# An action's effects are inferred from its body (LLP 1035.005.000 D1).
 # Two spaces before `writes` keep the clause-removing rewrite off this one.
 component A
   state n = 1
@@ -184,7 +184,7 @@ component A
       text "a"
 ---
 == type-child-resource
-# A child may own state, derives, and actions — never a
+# A child may own state, derives, and actions (LLP 1017 P4c) — never a
 # resource, mutation, or task: a row must not open N requests.
 shape S
   id: string
@@ -197,7 +197,7 @@ component Row
     text s.id
 ---
 == type-persist-child
-# `persist` is the root's: a child's state lives as long as
+# `persist` is the root's (LLP 1116 D5): a child's state lives as long as
 # each of its instances.
 component A
   view
@@ -208,7 +208,7 @@ component Row
     text "r"
 ---
 == type-persist-type
-# A list of records is app data: it belongs in a source.
+# A list of records is app data: it belongs in a source (LLP 1116 D5).
 shape Item
   id: string
 component A
@@ -341,7 +341,7 @@ component A
     text "a"
 ---
 == type-now-renamed
-# `now()` reads as `Date.now()`; the clock is `performanceNow()`.
+# LLP 1109 D1: `now()` reads as `Date.now()`; the clock is `performanceNow()`.
 component A
   state at = 0
   action stamp
@@ -359,7 +359,7 @@ component A
       text "inside an input"
 ---
 == lower-leaf-children
-# An image in text is its paragraph's own child.
+# LLP 1011.002 D1: an image in text is its paragraph's own child.
 component A
   view
     text
@@ -367,14 +367,14 @@ component A
         image "app:/a.png"
 ---
 == lower-css-shorthand
-# `top` aligns to the line box, which is not built.
+# LLP 1011.002 D1: `top` aligns to the line box, which is not built.
 component A
   view
     text
       image "app:/a.png" vertical-align="top"
 ---
 == lower-native-attr
-# A known row a module's box never uses is refused, not bound
+# LLP 1024 D1: a known row a module's box never uses is refused, not bound
 # to nothing while the module waits for the prop.
 component A
   view
@@ -516,7 +516,7 @@ component Label
     text text color=accent
 ---
 == syntax-provide-in-view
-# `provide` is a component section.
+# `provide` is a component section (LLP 1035.005.000 D9).
 component App
   view
     column
@@ -616,7 +616,7 @@ component A
     children
 ---
 == syntax-contract-block
-# Assertions belong in `test` blocks beside the app.
+# Assertions belong in `test` blocks beside the app (LLP 1017 P7, 1035.005.000 D8).
 component A
   contract
     has text "first"
@@ -748,7 +748,7 @@ component A
     text "a"
 ---
 == type-source-signature
-# One source, one signature — `same` takes a string here and a
+# LLP 1027 D2: one source, one signature — `same` takes a string here and a
 # number there, so the plan's `sources` table cannot say what it takes.
 shape S
   a: string
@@ -759,7 +759,7 @@ component A
     text one.a
 ---
 == bake-viewport-field
-# The runner cannot fill an unknown viewport field.
+# LLP 1039 D1: the runner cannot fill an unknown viewport field.
 shape Viewport
   depth: number
 component A
@@ -769,7 +769,7 @@ component A
 ---
 ---
 == bake-page-field
-# The runner cannot fill an unknown page field.
+# LLP 1069.000 D2: the runner cannot fill an unknown page field.
 shape Page
   focused: bool
 component A
@@ -779,7 +779,7 @@ component A
 ---
 ---
 == lower-scheme-color
-# A colour branches on the system's scheme; `light-dark()` does it.
+# LLP 1069.000 D1: a colour branches on the system's scheme; `light-dark()` does it.
 shape M
   prefersColorScheme: string
 component A
@@ -893,7 +893,7 @@ component A
         text "Home"
 ---
 == lower-route-place
-# A route behind a wrapper is found by no host.
+# hn-reader F5: a route behind a wrapper is found by no host.
 routes nav
   home "/"
 component A
@@ -921,7 +921,7 @@ component A
             text e.url
 ---
 == syntax-continuation-indent
-# An element's attributes continue only on lines deeper
+# LLP 1035.005 D1: an element's attributes continue only on lines deeper
 # than the element's; at its own depth `width=` is neither a child nor a
 # continuation.
 component A
@@ -931,7 +931,7 @@ component A
     width=40
 ---
 == analyze-action-arity
-# `Row` invokes `pick` with one argument, the id, but
+# LLP 1035.005 D2: `Row` invokes `pick` with one argument, the id, but
 # `App` binds it to `choose`, which takes two — both sides are named.
 shape Item
   id: string
@@ -959,7 +959,7 @@ component App
     canvas surface=world(seed: 7)
 ---
 == lower-route-field
-# A route's policy is a word it knows.
+# A route's policy is a word it knows (LLP 1048.003 D5).
 routes nav
   tab home "/" render=static
 component A
@@ -967,7 +967,7 @@ component A
     text "a"
 ---
 == type-placeholder-reads
-# A placeholder's arguments are values, answered once at build.
+# A placeholder's arguments are values, answered once at build (LLP 1048.003 D6).
 shape S
   a: string
 component A
@@ -987,7 +987,7 @@ component A
 ---
 == type-unknown-command
 # An action of another component is out of this one's scope: a call reaches
-# its own component's actions, its action props and its injects.
+# its own component's actions, its action props and its injects (LLP 1089).
 component App
   state n = 1
   action begin
@@ -1003,7 +1003,7 @@ component Child
       text "a"
 ---
 == type-call-arity
-# A call passes every parameter the action takes.
+# A call passes every parameter the action takes (LLP 1089 D10).
 component A
   state n = 1
   action set(x: number, y: number)
@@ -1015,7 +1015,7 @@ component A
       text "a"
 ---
 == type-call-value
-# A call is a statement: it gives no value.
+# A call is a statement: it gives no value (LLP 1089 D1).
 component A
   state n = 1
   action begin
@@ -1028,7 +1028,7 @@ component A
       text "a"
 ---
 == type-call-action-arg
-# A call passes values, never an action.
+# A call passes values, never an action (LLP 1089 D1).
 component A
   state n = 1
   action begin
@@ -1042,7 +1042,7 @@ component A
       text "a"
 ---
 == syntax-call-cycle
-# No action calls itself, directly or through others.
+# No action calls itself, directly or through others (LLP 1089 D4).
 component A
   state n = 1
   action go
@@ -1053,7 +1053,7 @@ component A
       text "a"
 ---
 == syntax-call-target
-# A called action prop names an action where it is bound.
+# A called action prop names an action where it is bound (LLP 1089 D7).
 component App
   state n = 1
   view
@@ -1069,7 +1069,7 @@ component Child
       text "a"
 ---
 == type-share-argument
-# `share` takes the Web Share API's names, named.
+# `share` takes the Web Share API's names, named (LLP 1069.003 D1).
 component A
   action go
     share("https://example.com")
@@ -1114,7 +1114,7 @@ component A
       text "a"
 ---
 == type-share-argument
-# `files=` is a list of strings.
+# `files=` is a list of strings (LLP 1125 D12).
 component A
   action go
     share(files="app:/data/a.png")
@@ -1150,7 +1150,7 @@ component A
       text "a"
 ---
 == type-file-picker-argument
-# `showSaveFilePicker` takes (id, suggestedName).
+# `showSaveFilePicker` takes (id, suggestedName) (LLP 1069.010 D2).
 component A
   action go
     showSaveFilePicker("out")
@@ -1168,7 +1168,7 @@ component A
       text "a"
 ---
 == type-permission-argument
-# `requestPermission` takes (id, path, mode), mode "read" or "readwrite".
+# `requestPermission` takes (id, path, mode), mode "read" or "readwrite" (LLP 1069.010.000 D7).
 component A
   action go
     requestPermission("asked", "doc:/1/notes.md", "write")
@@ -1177,7 +1177,7 @@ component A
       text "a"
 ---
 == type-save-file-argument
-# `saveFile` takes (id, from, suggestedName), three strings.
+# `saveFile` takes (id, from, suggestedName), three strings (LLP 1069.010 D3).
 component A
   action go
     saveFile("out", "app:/data/a.json")
@@ -1186,7 +1186,7 @@ component A
       text "a"
 ---
 == type-save-file-argument
-# A file to copy or the text to save, not both.
+# A file to copy or the text to save, not both (x2apps notes #4).
 component A
   action go
     saveFile("out", "app:/data/a.json", text="a", suggestedName="a.md")
@@ -1207,7 +1207,7 @@ component A
     text "a" -exact-exit-animation="leave 1s infinite"
 ---
 == lower-timeline-row
-# A timeline drives paint rows only in v1.
+# A timeline drives paint rows only in v1 (LLP 1057.003 Q1).
 keyframes ring
   to r=40
 component A
@@ -1215,7 +1215,7 @@ component A
     box animation="ring 1s linear both" animation-timeline="--pull" animation-range="0px 100px"
 ---
 == lower-timeline-endless
-# A timeline spans an animation's whole length, so it must end.
+# A timeline spans an animation's whole length, so it must end (LLP 1057.003).
 keyframes fade
   to opacity=0
 component A
@@ -1269,7 +1269,7 @@ component A
       text "a"
 ---
 == type-arrow-position
-# An arrow is only the callback of `map` or `filter`.
+# LLP 1017.003: an arrow is only the callback of `map` or `filter`.
 component A
   view
     text round(x => 1).toString()
@@ -1288,21 +1288,21 @@ component A
     text xs.reduce(x => x * 2).toString()
 ---
 == syntax-method-form
-# A roster function is called on its value, `s.trim()`.
+# LLP 1116.015 D2: a roster function is called on its value, `s.trim()`.
 component A
   state s = " a "
   view
     text trim(s)
 ---
 == syntax-method-form
-# A list's length is `xs.length`.
+# LLP 1116.015 D2: a list's length is `xs.length`.
 component A
   state xs = [1]
   view
     text toString(length(xs))
 ---
 == syntax-method-shadowed
-# A method call is the built-in, which a `fn` of its name would capture.
+# LLP 1116.016 D2: a method call is the built-in, which a `fn` of its name would capture.
 fn trim(s: string): string = "x"
 component A
   state s = " a "
@@ -1310,7 +1310,7 @@ component A
     text s.trim()
 ---
 == syntax-list-type
-# A list type is `T[]`.
+# LLP 1116.015 D2: a list type is `T[]`.
 shape S
   xs: list<number>
 component A
@@ -1334,7 +1334,7 @@ component A
       xs.map(x => text x)
 ---
 == syntax-view-keyword
-# A view chooses with `if`, not `when`.
+# LLP 1116.015 D1: a view chooses with `if`, not `when`.
 component A
   state n = 0
   view
@@ -1342,7 +1342,7 @@ component A
       text "a"
 ---
 == syntax-view-keyword
-# A view repeats with `for`, not `each`.
+# LLP 1116.015 D1: a view repeats with `for`, not `each`.
 component A
   state xs = ["a"]
   view
@@ -1381,7 +1381,7 @@ component A
     text reduce(xs, (a, x) => a + x, 0).toString()
 ---
 == type-geometry-outside-action
-# A derive that read layout would feed layout back into the tree it lays out.
+# LLP 1051.000 D2: a derive that read layout would feed layout back into the tree it lays out.
 component A
   derive h = frame("box").height
   view
@@ -1402,7 +1402,7 @@ component A
     text roomOf("x").toString()
 ---
 == type-geometry-outside-action
-# `elementFromPoint` reads `frame`'s boxes, so only an action may.
+# LLP 1094 D10: `elementFromPoint` reads `frame`'s boxes, so only an action may.
 component A
   derive under = elementFromPoint(10, 10)
   view
@@ -1442,7 +1442,7 @@ component A
       text h.toString()
 ---
 == type-record-missing
-# A record names every field; none is defaulted.
+# LLP 1035.005.000 D3: a record names every field; none is defaulted.
 shape Fields
   title: string
   pinned: bool
@@ -1487,7 +1487,7 @@ component A
     text "a"
 ---
 == type-let-shadow
-# A `let` never shadows a name in scope.
+# LLP 1035.005.000 D2: a `let` never shadows a name in scope.
 component A
   state n = 0
   action go
@@ -1545,7 +1545,7 @@ component A
     textarea id="editor" value="text" key=jump
 ---
 == type-sound-undeclared
-# A literal source names a declared sound.
+# LLP 1096 D2: a literal source names a declared sound.
 component A
   action go
     playSound("assets/kick.wav")
@@ -1571,7 +1571,7 @@ component A
     button "go" press=go
 ---
 == type-play-sound
-# A literal playback rate outside 0.25–4.
+# LLP 1125 D10: a literal playback rate outside 0.25–4.
 component A
   state src = "assets/kick.wav"
   action go
@@ -1625,6 +1625,22 @@ component A
     button "go" press=go
 ---
 == type-play-sound
+# `setSounds` with nothing to set.
+component A
+  action go
+    setSounds(group="drag")
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A literal ramp below 0.
+component A
+  action go
+    setSounds(gain=0.5, ramp=-5)
+  view
+    button "go" press=go
+---
+== type-play-sound
 # `stopSounds` takes only `group=`.
 component A
   action go
@@ -1641,7 +1657,7 @@ component A
     audio "assets/a.mp3" seekforward=skip
 ---
 == contract-sequence-body
-# A sequence holds one `play(...)`, not a task's schedule.
+# LLP 1125 D2: a sequence holds one `play(...)`, not a task's schedule.
 component A
   state on = false
   action go
@@ -1839,36 +1855,6 @@ component B
     button "b" press=pick("b")
     text pick(["a"], 0)
 ---
-== type-prop-hides-fn
-# A value prop can redirect the call head to another fn during inlining.
-fn pick(n: number): number = n + 1
-fn other(n: number): number = n + 100
-component App
-  state other = 7
-  view
-    Seg(pick=other)
-component Seg
-  props
-    pick: number
-  view
-    text `${pick(1)}`
----
-== type-prop-hides-fn
-# Injected values undergo the same call-head substitution as props.
-fn pick(n: number): number = n + 1
-fn other(n: number): number = n + 100
-component App
-  state other = 7
-  provide
-    pick = other
-  view
-    Seg()
-component Seg
-  inject
-    pick: number
-  view
-    text `${pick(1)}`
----
 == type-handler-action
 # B's handler names A's action: B takes it as an `action` prop.
 component A
@@ -1882,14 +1868,14 @@ component B
     button "go" press=go("x")
 ---
 == lower-iframe-partition-sandbox
-# A partitioned guest is a top-level page, which WebKit
+# LLP 1020.002 D1: a partitioned guest is a top-level page, which WebKit
 # cannot sandbox; the host would have to fail open.
 component A
   view
     iframe "https://example.com" partition="persist:work" sandbox="allow-scripts"
 ---
 == lower-iframe-partition-message
-# A partitioned guest has no message bridge.
+# LLP 1020.002 D1: a partitioned guest has no message bridge.
 component A
   action got(data: string)
     let x = data
@@ -1905,14 +1891,14 @@ component A
     button "send" press=send
 ---
 == lower-iframe-partition-src
-# A bundled or `app:/` page is the app's own; a
+# LLP 1020.002 D1: a bundled or `app:/` page is the app's own; a
 # partitioned frame never reaches the `exact-app` scheme.
 component A
   view
     iframe "/deck/index.html" partition="persist:work"
 ---
 == lower-frame-command
-# A literal id that names no iframe.
+# LLP 1020.002 D3: a literal id that names no iframe.
 component A
   action back
     traverseHistory("tab", -1)
@@ -1921,7 +1907,7 @@ component A
     button "back" press=back
 ---
 == lower-frame-capture-path
-# A capture writes under the app's own roots.
+# LLP 1020.002 D7: a capture writes under the app's own roots.
 component A
   action snap
     captureScreenshot("tab", "/tmp/shot.png")

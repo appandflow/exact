@@ -16,7 +16,7 @@ fn main() {
     };
     // The bake asks every resource for its first frame. This source's only
     // source reaches a filesystem, and a bake has none: `open("")` is the
-    // welcome document, compiled in.
+    // welcome document, compiled in (LLP 1027 D4).
     let baked = contract::bake(plan, markdown_data::Markdown::new())
         .unwrap_or_else(|e| panic!("bake: {e:?}"));
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
@@ -37,7 +37,7 @@ fn main() {
     } else {
         "exact_apple_update"
     };
-    // What the archive links, as its compatibility inputs name it.
+    // What the archive links, as its compatibility inputs name it (LLP 1047.001 D2).
     let linked = exact_bake::apple_link(&compat, host);
     std::fs::write(out_dir.join("compat.json"), compat.to_json()).unwrap();
     std::fs::write(
@@ -47,7 +47,8 @@ fn main() {
             contract::rust_entry(
                 "exact_data_host::Storage<markdown_data::Markdown>",
                 "exact_data_host::Storage::new(markdown_data::Markdown::new())",
-                compat.inputs["rustMode"].as_str().unwrap()
+                compat.inputs["rustMode"].as_str().unwrap(),
+                &compat.inputs,
             )
             .unwrap(),
             linked

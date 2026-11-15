@@ -1,4 +1,4 @@
-// The share extension's inbox: what a share leaves in
+// @ref LLP 1133.024 D4 — the share extension's inbox: what a share leaves in
 // the App Group for the app to claim. The extension links no Exact runtime;
 // this record's versioned shape is its one contract with the app.
 //
@@ -53,7 +53,7 @@ public struct ShareTargetInfo {
 
 /// One share being written: the sheet's text and what the attachments became.
 public final class ShareInboxWriter {
-    /// The 64 MB an outgoing share also refuses.
+    /// The 64 MB an outgoing share also refuses (LLP 1125 D12).
     public static let cap: Int64 = 64 << 20
     public let info: ShareTargetInfo
     public let directory: URL

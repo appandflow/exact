@@ -1,4 +1,4 @@
-// Accept fixture: `fn` — a pure function written in Contract,
+// Accept fixture: `fn` — a pure function written in Contract (LLP 1017 P5),
 // one expression over its parameters and the roster, expanded where it is
 // called: the escape for a price string or a choice, never a traversal.
 fn dollars(cents: number): string = `$${floor(cents / 100)}`

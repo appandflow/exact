@@ -276,7 +276,7 @@ final class ElementScrollTests: XCTestCase {
     /// `elementAnimation`), checked at once and, after the end, gone. A
     /// motion that a stall longer than itself collapsed to one drawn frame
     /// counts as having intermediate frames only when it also marked itself
-    /// animated, and is kept as a LATE-PASS (one frame, the
+    /// animated, and is kept as a LATE-PASS (theme2's ruling: one frame, the
     /// stall and the mark, all three); else no frame between still fails.
     private func observeMotion(clip: NSClipView, target: CGFloat, marked: (() -> Bool)? = nil,
                                start: (@escaping () -> Void) -> Void) -> (first: CGFloat, intermediate: Bool, last: CGFloat) {
@@ -298,7 +298,7 @@ final class ElementScrollTests: XCTestCase {
             slowest = max(slowest, Date().timeIntervalSince(turn)); turn = Date()
             return false
         }, facts: {
-            // (and the turn that completed it, which ends the loop before its give-up runs)
+            // (and the turn that completed it, which ends the loop before its give-up runs: Astra's round 1)
             slowest = max(slowest, Date().timeIntervalSince(turn))
             return "\(positions.count) frames drawn, the slowest turn \(String(format: "%.3f", slowest)) s"
         }) { completed }
@@ -458,7 +458,7 @@ final class ElementScrollTests: XCTestCase {
         XCTAssertEqual(ended.filter { $0 == 2 }.count, 1, "the retargeted reveal ends once")
     }
 
-    /// A strip of chips in a horizontal scroller (a sequencer's pattern icons):
+    /// A strip of chips in a horizontal scroller (euxy's New Pattern icons):
     /// `chip-a` at x 300, `chip-b` at 600, and `chip-c`, made but not yet
     /// attached (a sheet's subtree before UIKit mounts it).
     private func strip() throws -> (Presenter, UIScrollView) {
@@ -588,7 +588,7 @@ final class ElementScrollTests: XCTestCase {
     }
 
     /// A held request goes with its target: recycled into another row (a
-    /// new incarnation), inside a sheet or dialog that
+    /// new incarnation, LLP 1068 §4.9), inside a sheet or dialog that
     /// closes, or a presenter that resets; none of them scrolls.
     func testAHeldScrollIsCancelledWithItsTarget() throws {
         let (p, sv) = try strip()

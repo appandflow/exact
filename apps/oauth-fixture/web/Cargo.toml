@@ -1,4 +1,4 @@
-# The OAuth fixture on the web.
+# The OAuth fixture on the web (LLP 1019 §13).
 [package]
 name = "oauth-fixture-web"
 version.workspace = true

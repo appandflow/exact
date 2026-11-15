@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { runTests } from '../../scripts/agent-test.mjs';
 import { webCompiler } from './module.mjs';
 
-// On the JS target, a store write outside a commit (here a mutation's, after its fetch) asks every store
+// LLP 1146 D2 on the JS target: a store write outside a commit (here a mutation's, after its fetch) asks every store
 // reader again, a failed one included, as the runner's commit after a module turn does. `renew` refreshes nothing, so
 // only that rule can make `seen` read again.
 test("a store write after a fetch asks a failed store reader again", async () => {
@@ -20,7 +20,7 @@ test("a store write after a fetch asks a failed store reader again", async () =>
 }, 180_000);
 
 // A read that throws at once, before any `await`, makes `seen` a store reader too: a write outside a commit asks it
-// again. Its first answer, of round 0, read nothing.
+// again (LLP 1146 §2.3). Its first answer, of round 0, read nothing.
 test("a store read that throws at once is asked again when the store changes", async () => {
   await drive(`if (_args[0] === 0) return 'start';
     const value = store.get('readers.value');
@@ -38,7 +38,7 @@ test("a store read that throws at once is asked again when the store changes", a
 }, 180_000);
 
 // A read between two `await`s counts while the answer is still out: a write outside a commit while its second
-// request is out asks it again after that reply. The server answers `renew`'s first request only once
+// request is out asks it again after that reply (LLP 1146 §2.3). The server answers `renew`'s first request only once
 // `seen`'s `/slow` has arrived, so the write comes after the read.
 test("a store read between awaits is asked again when the store changes", async () => {
   expect(await drive(`return fetch(${'`'}\${origin}/ping${'`'}).then(() => {
@@ -52,7 +52,7 @@ test("a store read between awaits is asked again when the store changes", async 
 `, undefined, { gate: true })).toBe(2);
 }, 180_000);
 
-// A read made only after an `await` makes `seen` a store reader too, as the runner counts a reply's turn.
+// A read made only after an `await` makes `seen` a store reader too, as the runner counts a reply's turn (LLP 1146 §2.3).
 test("a store read after an await is asked again when the store changes", async () => {
   await drive(`return fetch(${'`'}\${origin}/ping${'`'}).then(() => store.get('readers.value') ?? 'none');`, `test "the late reader reads the renewed value"
   clock data
@@ -63,8 +63,8 @@ test("a store read after an await is asked again when the store changes", async 
 `);
 }, 180_000);
 
-// On the web, a write outside a commit asks a store reader in flight again once its reply lands, not at once.
-// The test starts before the boot's data (`before data`), so `renew` runs while `seen`'s first `/slow` is
+// On the web, a write outside a commit asks a store reader in flight again once its reply lands, not at once (LLP 1146
+// §2.3, §2.4). The test starts before the boot's data (`before data`), so `renew` runs while `seen`'s first `/slow` is
 // out; the server holds it until `renew`, after its write, asks `/release`. `seen` says whether it was asked again
 // while its first request was out.
 test("a store reader in flight is asked again after its reply, not replaced", async () => {
@@ -88,7 +88,7 @@ test("a refused late-write commit keeps a reader in flight asked again", async (
     return 'none';`)).toBe(2);
 }, 180_000);
 
-// A reader whose request may never land (here a held fetch) is asked again at once, as natively.
+// A reader whose request may never land (here a held fetch) is asked again at once, as natively (LLP 1146 §2.3).
 test("a held store reader is asked again at once", async () => {
   expect(await drive(slowReader('{ exactHeld: true }'), `test "the held reader is asked again and reads the renewed value"
   clock data
@@ -98,7 +98,7 @@ test("a held store reader is asked again at once", async () => {
 `)).toBe(2);
 }, 180_000);
 
-// An aborted write, on the JS target: the browser owns the fetch, so an aborted write rejects at once, and
+// LLP 1146 D2's aborted write, on the JS target: the browser owns the fetch, so an aborted write rejects at once, and
 // its catch runs after the aborting answer's commit, outside it (rt.js `set`: a write outside a commit is kept), so
 // the refusal of that commit undoes nothing it writes. Natively such a write, kept as module work, rejects in a module
 // turn for the same end (js/tests/it/outlive.rs). Round 0 starts the write, which the server holds; round 1 lets it

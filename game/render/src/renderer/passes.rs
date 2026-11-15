@@ -1,4 +1,5 @@
 //! The frame's passes, each reading one resolved frame state.
+//! @ref llp/1046.006.000-render-hooks.rfc.md#d3-optional-services-the-scene-copy
 use super::draw::Resolved;
 use super::probe::{Drew, Probe, Stage};
 use super::*;
@@ -32,6 +33,27 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let (near, far) = if viewmodel { (0., split) } else { (split, 1.) };
         pass.set_viewport(0.0, 0.0, size.0 as f32, size.1 as f32, near, far);
         pass.set_scissor_rect(0, 0, size.0, size.1);
+    }
+    /// The frame's shared model key bits, kept for `Game::PREPARE`'s warm-up.
+    pub(super) fn model_frame(
+        &self,
+        state: &super::draw::Resolved,
+        frame: &FrameInput<'_>,
+    ) -> crate::models::ModelFrame {
+        let shadows = self.shadows.as_ref();
+        let model_frame = crate::models::ModelFrame {
+            forward: state.variant
+                + 128 * usize::from(shadows.is_some_and(|s| s.count == 1))
+                + crate::pipeline::MODEL_DIRECT * usize::from(state.direct)
+                + crate::pipeline::MODEL_BILINEAR * usize::from(state.bilinear)
+                + crate::pipeline::MODEL_LIGHTS
+                    * usize::from(self.lights.info[0] != 0. || frame.fill.is_some()),
+            prepass: self.prepass_active,
+            direct: state.direct,
+            casts: shadows.is_some() || self.local.is_some(),
+        };
+        self.model_frame.set(Some(model_frame));
+        model_frame
     }
     /// Whether a batch's records are posed by skin palettes, as a crowd's
     /// avatars are. Those skip the depth prepass: small, many and moving, a
@@ -101,21 +123,20 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         encoder: &mut wgpu::CommandEncoder,
         frame: &FrameInput<'_>,
         custom: &[CustomMaterial],
+        cached: bool,
     ) -> u32 {
         let Some(shadows) = &self.shadows else {
             return 0;
         };
         let mut draws = 0;
-        // A look frame draws every caster itself and leaves the cache as the
-        // live frames left it (`prepare_shadow_cache`).
-        let cache = shadows.cached.as_ref().filter(|_| self.probe.is_none());
+        let cache = shadows.cached.as_ref().filter(|_| cached);
         for i in 0..shadows.count as usize {
             let view = 1 + i as u32;
             self.probe_stage(Stage::SunShadow(i as u8));
             let stamped = cache.is_some()
                 && timing::encoder_stamp(&self.device, encoder, frame.timestamps, i as u32, false);
             if let Some(cache) = cache {
-                if cache.dirty {
+                if cache.dirty && self.probe.is_none() {
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("game static sun casters"),
                         color_attachments: &[],
@@ -150,6 +171,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     }
                     bound.flush(&mut pass);
                 }
+            }
+            if cache.is_some() {
+                self.probe_note(|| Drew::Summary("cached sun casters"));
             }
             let copied = cache.is_some_and(|c| c.copy(encoder, shadows.view.texture(), i));
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -190,7 +214,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             }
             bound.flush(&mut pass);
         }
-        if let Some(cache) = cache {
+        if let Some(cache) = cache.filter(|_| self.probe.is_none()) {
             cache.encoded.set(true);
         }
         draws
@@ -250,9 +274,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 let material = &self.models.materials[material.0];
                 let opaque = material.alpha == exact_game::asset::AlphaMode::Opaque
                     && !self.batch_fading(group.batch);
-                let key = 4 * usize::from(material.double_sided)
-                    + 16 * usize::from(group.mirrored)
-                    + 32 * usize::from(opaque);
+                let key = crate::models::caster(material, group.mirrored, opaque);
                 self.probe_variant(key);
                 bound.pipeline(pass, self.pipelines.model_variant(&self.device, key, true));
                 bound.group(pass, 2, self.depth_material(material, opaque));
@@ -369,6 +391,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.scene_viewport(&mut pass, state.size, false);
         let mut layer = false;
         let variant = state.variant;
+        let model_frame = self.model_frame(state, frame);
         pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
         pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
         let mut bound = Bound::merging(self.probe.is_none());
@@ -384,20 +407,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 } else {
                     let material = &self.models.materials[material.0];
                     let prepassed = self.prepass_active && !self.batch_skinned(group.batch);
-                    let key = variant
-                        + crate::pipeline::PREPASS * usize::from(prepassed)
-                        + 64 * usize::from(material.untextured)
-                        + 128 * usize::from(self.shadows.as_ref().is_some_and(|s| s.count == 1))
-                        + 4 * usize::from(material.double_sided)
-                        + 16 * usize::from(group.mirrored)
-                        + 32 * usize::from(
-                            material.alpha == exact_game::asset::AlphaMode::Opaque
-                                && !self.batch_fading(group.batch),
-                        )
-                        + crate::pipeline::MODEL_DIRECT * usize::from(state.direct)
-                        + crate::pipeline::MODEL_BILINEAR * usize::from(state.bilinear)
-                        + crate::pipeline::MODEL_LIGHTS
-                            * usize::from(self.lights.info[0] != 0. || frame.fill.is_some());
+                    let key = model_frame.forward(
+                        material,
+                        group.mirrored,
+                        prepassed,
+                        material.alpha == exact_game::asset::AlphaMode::Opaque
+                            && !self.batch_fading(group.batch),
+                    );
                     self.probe_variant(key);
                     let pipeline = self.pipelines.model_variant(&self.device, key, false);
                     bound.pipeline(&mut pass, pipeline);
@@ -752,7 +768,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         state: &Resolved,
         size: (u32, u32),
     ) -> u32 {
-        let variant = state.variant;
+        let model_frame = self.model_frame(state, frame);
         self.scene_viewport(pass, size, false);
         let mut layer = false;
         pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
@@ -778,16 +794,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 let batch = &self.batches[index];
                 let material = &self.models.materials[self.model_batches[index].unwrap().0];
                 let mirrored = self.slot_mirrored(self.slot_list[slot as usize], frame);
-                let key = variant
-                    + 64 * usize::from(material.untextured)
-                    + 128 * usize::from(self.shadows.as_ref().is_some_and(|s| s.count == 1))
-                    + 4 * usize::from(material.double_sided)
-                    + 8
-                    + 16 * usize::from(mirrored)
-                    + crate::pipeline::MODEL_DIRECT * usize::from(state.direct)
-                    + crate::pipeline::MODEL_BILINEAR * usize::from(state.bilinear)
-                    + crate::pipeline::MODEL_LIGHTS
-                        * usize::from(self.lights.info[0] != 0. || frame.fill.is_some());
+                let key = model_frame.blended(material, mirrored);
                 self.probe_variant(key);
                 pass.set_pipeline(self.pipelines.model_variant(&self.device, key, false));
                 pass.set_bind_group(0, &self.scene_binds[self.current], &[0]);

@@ -1,4 +1,4 @@
-// Members on the JS target, as the runner's
+// Members on the JS target (LLP 1133.014 D10 item 1), as the runner's
 // `modules/members.rs`: an option another package declares on a ceremony's
 // name (`@exact/sign-in`'s `identity` on `@exact/passkeys`' `get`). A row
 // whose substitute names `memberOf` is the member's; the owner's call
@@ -42,14 +42,14 @@ export function members(rows, valueOf, grants) {
     if (can.available === false) return fail("NotSupportedError", `no ${option} provider is offered on web`);
     let kept = 0;
     for (const [i, p] of providers.entries()) {
-      const known = member.sub.providers?.[p?.configURL];
+      const known = member.sub.providers && Object.hasOwn(member.sub.providers, p?.configURL) ? member.sub.providers[p.configURL] : null;
       if (!known) return fail("NotSupportedError", `${option}.providers[${i}].configURL ${JSON.stringify(p?.configURL ?? null)} is no provider here`);
       if (!granted(known.line, p.clientId)) return fail("SecurityError", `grant-missing (${known.name}'s clientId=${p.clientId} needs \`${known.line} ${p.clientId}\`)`);
       const back = p.web?.redirectURI;
       if (typeof back !== "string") return fail("NotSupportedError", `${known.name} on the web needs web.redirectURI, the app server's return route`);
       if (!fetches(back)) return fail("SecurityError", `grant-missing (web.redirectURI=${back} is outside every \`net.fetch\` line)`);
       const caps = can.providers?.[known.name] ?? {};
-      // Beside a passkey, a provider counts only where one sheet holds both.
+      // Beside a passkey, a provider counts only where one sheet holds both (D1).
       if (caps[mode] === true && (!withKey || caps.withPublicKey === true)) kept++;
       else if (mode === "active") return fail("NotSupportedError", `${known.name} offers no active request on web`);
     }
@@ -64,7 +64,7 @@ export function members(rows, valueOf, grants) {
     refused(owner, args) {
       const takes = owner.sub.takes;
       if (!Array.isArray(takes)) return null;
-      if (args?.mediation === "silent") return fail("NotSupportedError", 'mediation "silent": no target can promise no UI');
+      if (args?.mediation === "silent") return fail("NotSupportedError", 'mediation "silent": no target can promise no UI (LLP 1133.014 D1)');
       const bound = of(owner);
       for (const key of Object.keys(args ?? {})) {
         if (args[key] == null || takes.includes(key) || PLATFORMS.includes(key)) continue;

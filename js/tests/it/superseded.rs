@@ -53,7 +53,7 @@ component App
 
 /// A send let go during its write runs the rest of its chain once the write
 /// lands, as a browser does, but arms no timer there: a timer belongs to an
-/// answer, and a let-go one's never runs.
+/// answer, and a let-go one's never runs (LLP 1027.000 D1).
 #[test]
 fn a_superseded_send_s_chain_arms_no_timer() {
     let root = Root::new();

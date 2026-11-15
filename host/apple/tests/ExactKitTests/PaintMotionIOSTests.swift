@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// Paint motion on UIKit: a text re-styled with a presented colour
+/// Paint motion on UIKit (LLP 1062): a text re-styled with a presented colour
 /// is painted in the batch that carries it, not by a worker a frame later; an inline run
 /// paints the colour its paragraph is told it inherits; a view whose own
 /// appearance differs from the session's is noted for the host. UIKit, so a

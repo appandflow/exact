@@ -1,7 +1,8 @@
-//! `pointerdown` and `pointerup` (a hold-to-record mic is the consumer): DOM's
-//! names for a touch or the primary button going down on a node and coming up,
-//! before and apart from `press`; and `pointermove`, each with an optional
-//! `PointerEvent`.
+//! `pointerdown` and `pointerup` (LLP 1005 §3; Charlie, 2026-10-03, the
+//! Signal Clone's hold-to-record mic as the consumer): DOM's names for a
+//! touch or the primary button going down on a node and coming up, before
+//! and apart from `press`; and `pointermove`, each with an optional
+//! `PointerEvent` (LLP 1056 §3 stage 3; the paint diary's F1).
 
 use exact_kernel::Kernel;
 use exact_plan::{EventKind, Value};
@@ -141,7 +142,7 @@ fn pointer_events_hand_their_record_to_an_action_that_takes_it() {
     }
 }
 
-/// A `press` action that takes one more parameter hears the
+/// Gallery F20: a `press` action that takes one more parameter hears the
 /// click's `MouseEvent` — the modifiers held, for shift-click range
 /// selection and ⌘-click — and a pointer's record carries them too.
 #[test]
@@ -179,7 +180,7 @@ fn a_press_hears_the_modifiers_held() {
     assert_eq!(Event::press(""), Some(Event::Press));
 }
 
-/// A press's `MouseEvent` says where the pointer was, from the
+/// LLP 1021 D2: a press's `MouseEvent` says where the pointer was, from the
 /// viewport, so a popover can open there; a keyboard's or assistive press is
 /// at 0, 0, as Chrome's synthetic `click` is.
 #[test]
@@ -217,10 +218,11 @@ fn a_press_hears_where_the_pointer_was() {
     }
 }
 
-/// A board's input as a canvas editor hears it: a `contextmenu` at its point, a
-/// `wheel` (⌘-scroll and a pinch, a Control-held wheel) that it claims with
-/// `preventDefault()`, files dropped as `doc:` handles, and `beforeunload`
-/// asking before the window closes while there are unsaved changes.
+/// A board's input as a canvas editor hears it (studio diary R3, R17, R19,
+/// R22): a `contextmenu` at its point, a `wheel` (⌘-scroll and a pinch,
+/// a Control-held wheel) that it claims with `preventDefault()`, files
+/// dropped as `doc:` handles, and `beforeunload` asking before the window
+/// closes while there are unsaved changes.
 #[test]
 fn a_board_hears_its_menu_point_its_wheel_its_drop_and_its_unload() {
     const BOARD: &str = r#"component App
@@ -296,9 +298,9 @@ fn a_board_hears_its_menu_point_its_wheel_its_drop_and_its_unload() {
     );
 }
 
-/// A file drag over a column (as T3 Code's chat column, `ChatView.tsx`, has):
-/// `dragenter` and `dragleave` bracket it so the app can draw a drop overlay;
-/// their `DragEvent` has the point and no files.
+/// A file drag over a column (the oracle's chat column, T3 Code
+/// `ChatView.tsx`): `dragenter` and `dragleave` bracket it so the app can
+/// draw a drop overlay; their `DragEvent` has the point and no files.
 #[test]
 fn a_column_hears_a_file_drag_enter_and_leave() {
     const COLUMN: &str = r#"component App

@@ -32,7 +32,7 @@ extension NodeView {
     func reorderShouldBegin(_ gesture: UIGestureRecognizer) -> Bool? {
         if gesture === reorderPress { return SwipeInput.allows(self) }
         guard gesture === reorderPan, let pan = gesture as? UIPanGestureRecognizer else { return nil }
-        // A grouped grip lifts on a move in any direction.
+        // A grouped grip lifts on a move in any direction (LLP 1094 D6).
         if reorderGroupList != nil { return SwipeInput.allows(self) && (presenter?.reorderGroup == nil || presenter?.reorderGroup?.isLanding == true) }
         let v = pan.velocity(in: window), t = pan.translation(in: window)
         let vertical = HeightDragDirection.accepts(velocityX: Double(v.x), velocityY: Double(v.y),

@@ -1,21 +1,21 @@
-// @exact/photos's PhotoKit half: what the module
+// @exact/photos's PhotoKit half (LLP 1133.019 stage 2): what the module
 // does outside the agent, or under it when a drive binds it (`--bind
 // photos`). Nothing of PhotoKit is touched before the module's first call
-//, and the change observer is registered only once reading is
+// (D19), and the change observer is registered only once reading is
 // granted, since a library call before that may raise the system's prompt.
 //
-// - The state is a fact: `authorizationStatus(for:)` at each level,
+// - The state is a fact (D5): `authorizationStatus(for:)` at each level,
 //   read again at each change, at a return to the foreground and after a
 //   prompt; a change announces the status and the list.
-// - A read while `notDetermined` asks read-write first; an add asks the
+// - A read while `notDetermined` asks read-write first (D7); an add asks the
 //   narrowest level the app declares: add-only where the build carries the
 //   add key (`device.photos-add`), else read-write. Only the app's own
 //   foreground code or a person asks: any other origin is `person-required`.
 // - A picture is `PHCachingImageManager`'s, delivered opportunistically: the
 //   quick picture answers the host's ask, and the final one is kept and the
-//   picture announced changed, so the host's next ask takes it.
+//   picture announced changed, so the host's next ask takes it (D3).
 // - A photo the app may no longer read (out of the selection, deleted, or
-//   reading withdrawn) has its pictures revoked.
+//   reading withdrawn) has its pictures revoked (D2).
 import ExactPackage
 import Foundation
 import ImageIO
@@ -49,7 +49,7 @@ final class PhotoKitLibrary: NSObject, PHPhotoLibraryChangeObserver {
 
     private func say(_ line: String) { context.log("photos: \(line)") }
 
-    // MARK: the fact
+    // MARK: the fact (D5)
 
     private func level(_ l: PHAccessLevel) -> PHAuthorizationStatus { PHPhotoLibrary.authorizationStatus(for: l) }
 
@@ -104,7 +104,7 @@ final class PhotoKitLibrary: NSObject, PHPhotoLibraryChangeObserver {
         observe()
     }
 
-    /// `then` with `l`'s answer: asked first while undetermined.
+    /// `then` with `l`'s answer: asked first while undetermined (D7).
     private func authorize(_ l: PHAccessLevel, _ then: @escaping (PHAuthorizationStatus) -> Void) {
         let now = level(l)
         guard now == .notDetermined else { return then(now) }
@@ -118,7 +118,7 @@ final class PhotoKitLibrary: NSObject, PHPhotoLibraryChangeObserver {
     }
 
     /// `then` while the app may read the library; asked first while
-    /// undetermined, by the app's own code or a person only.
+    /// undetermined, by the app's own code or a person only (D7).
     private func whenReadable(origin: String, _ reply: @escaping ([String: Any]) -> Void, _ then: @escaping () -> Void) {
         switch level(.readWrite) {
         case .authorized, .limited: then()
@@ -129,7 +129,7 @@ final class PhotoKitLibrary: NSObject, PHPhotoLibraryChangeObserver {
         }
     }
 
-    // MARK: changes
+    // MARK: changes (D6)
 
     private func observe() {
         guard !observing, readable else { return }
@@ -186,11 +186,11 @@ final class PhotoKitLibrary: NSObject, PHPhotoLibraryChangeObserver {
             options.sortDescriptors = sort
             options.fetchLimit = limit
             options.predicate = images
-            // The app adds predicates; the module keeps its own.
+            // The app adds predicates (D9); the module keeps its own.
             if let hatch = PhotosModule.fetchOptions {
                 hatch(options)
-                if options.sortDescriptors != sort { say("the fetchOptions hatch changed sortDescriptors, which the module owns"); options.sortDescriptors = sort }
-                if options.fetchLimit != limit { say("the fetchOptions hatch changed fetchLimit, which the module owns"); options.fetchLimit = limit }
+                if options.sortDescriptors != sort { say("the fetchOptions hatch changed sortDescriptors, which the module owns (LLP 1133.019 D9)"); options.sortDescriptors = sort }
+                if options.fetchLimit != limit { say("the fetchOptions hatch changed fetchLimit, which the module owns (LLP 1133.019 D9)"); options.fetchLimit = limit }
                 if let theirs = options.predicate, theirs != images {
                     options.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [images, theirs])
                 }
@@ -213,10 +213,10 @@ final class PhotoKitLibrary: NSObject, PHPhotoLibraryChangeObserver {
         }
     }
 
-    // MARK: pictures
+    // MARK: pictures (D2)
 
     func picture(_ id: String, width: Int, height: Int, fit: String, reply: @escaping (CGImage?, String?) -> Void) {
-        // A draw never asks.
+        // A draw never asks (D2).
         guard readable else { return reply(nil, "NotAllowedError") }
         let key = "\(id) \(width)x\(height) \(fit)"
         if let at = finals.firstIndex(where: { $0.key == key }) { return reply(finals.remove(at: at).image, nil) }
@@ -230,7 +230,7 @@ final class PhotoKitLibrary: NSObject, PHPhotoLibraryChangeObserver {
         if let hatch = PhotosModule.imageRequestOptions {
             hatch(options)
             if options.deliveryMode != .opportunistic || !options.isNetworkAccessAllowed || options.resizeMode != .fast {
-                say("the imageRequestOptions hatch changed deliveryMode, isNetworkAccessAllowed or resizeMode, which the module owns")
+                say("the imageRequestOptions hatch changed deliveryMode, isNetworkAccessAllowed or resizeMode, which the module owns (LLP 1133.019 D9)")
             }
         }
         let mode: PHImageContentMode = fit == "contain" || fit == "scale-down" ? .aspectFit : .aspectFill
@@ -265,7 +265,7 @@ final class PhotoKitLibrary: NSObject, PHPhotoLibraryChangeObserver {
     }
     #endif
 
-    // MARK: a copy
+    // MARK: a copy (D2 item 3)
 
     func copy(_ args: [String: Any], origin: String, reply: @escaping ([String: Any]) -> Void) {
         whenReadable(origin: origin, reply) { [self] in
@@ -273,7 +273,7 @@ final class PhotoKitLibrary: NSObject, PHPhotoLibraryChangeObserver {
                 return reply(["error": "NotFoundError"])
             }
             let resources = PHAssetResource.assetResources(for: asset)
-            // The version Photos shows: the edit's full-size photo where there is one.
+            // The version Photos shows: the edit's full-size photo where there is one (D3).
             let current = (args["version"] as? String ?? "current") == "current"
             guard let resource = (current ? resources.first { $0.type == .fullSizePhoto } : nil) ?? resources.first(where: { $0.type == .photo }) ?? resources.first else {
                 return reply(["error": "NotFoundError"])
@@ -305,10 +305,10 @@ final class PhotoKitLibrary: NSObject, PHPhotoLibraryChangeObserver {
         }
     }
 
-    // MARK: an add
+    // MARK: an add (D6)
 
     func add(_ args: [String: Any], origin: String, reply: @escaping ([String: Any]) -> Void) {
-        // Adding is the app's.
+        // Adding is the app's (D7).
         guard origin == "app" else { return reply(["error": "NotAllowedError", "message": "person-required"]) }
         guard let path = args["path"] as? String, let url = context.file(path), FileManager.default.fileExists(atPath: url.path) else {
             return reply(["error": "NotFoundError"])
@@ -334,20 +334,20 @@ final class PhotoKitLibrary: NSObject, PHPhotoLibraryChangeObserver {
                         return reply(["error": code])
                     }
                     say("added \(created ?? "a photo") from \(path)")
-                    // The new photo's id where the app may read it: not under add-only access.
+                    // The new photo's id where the app may read it (D6): not under add-only access.
                     reply(["asset": readable ? created as Any? ?? NSNull() : NSNull()])
                 }
             }
         }
         if readable { return write() }
-        // The narrowest level the app declares: the add key is `device.photos-add`'s alone.
+        // The narrowest level the app declares (D4): the add key is `device.photos-add`'s alone.
         let addOnly = Bundle.main.object(forInfoDictionaryKey: "NSPhotoLibraryAddUsageDescription") != nil
         authorize(addOnly ? .addOnly : .readWrite) { answer in
             answer == .authorized || answer == .limited ? write() : reply(["error": "NotAllowedError"])
         }
     }
 
-    // MARK: the selection
+    // MARK: the selection (D6)
 
     func manage(origin: String, reply: @escaping ([String: Any]) -> Void) {
         #if os(macOS)

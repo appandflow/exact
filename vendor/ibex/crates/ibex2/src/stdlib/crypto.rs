@@ -1,5 +1,6 @@
-//! Secure randomness, available without a host or JavaScript engine: OS
-//! entropy, ungated.
+//! Secure randomness, available without a host or JavaScript engine.
+//!
+//! @ref LLP 0059.000#39-crypto--ambient-partially-gated — OS entropy, ungated
 
 use crate::boundary::HostError;
 

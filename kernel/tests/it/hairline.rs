@@ -1,4 +1,4 @@
-//! `-exact-hairline` over a display scale the host sets:
+//! `-exact-hairline` over a display scale the host sets (LLP 1115.000 D10.3):
 //! one device pixel, 1 px over the scale, resolved at the end of each commit
 //! as `rem` is, so every reader sees pixels and layout follows the display.
 //!

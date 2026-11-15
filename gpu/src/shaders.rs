@@ -1,4 +1,4 @@
-//! The shader registry: the WGSL a surface compiles against,
+//! The shader registry (LLP 1030 D8): the WGSL a surface compiles against,
 //! by name, handed to the module at run time — never a string in the binary.
 //!
 //! A shader travels as an asset beside the plan: `<app>/gpu/shaders/<name>.wgsl`
@@ -21,8 +21,8 @@
 //! rebuilds it at its next frame, which is how a `.wgsl` edit in the dev
 //! loop becomes a new picture with no rebuild.
 //!
-//! The registry is process-global, as the module is (one module per
-//! process, `native.rs`); a host with several sessions shares it.
+//! The registry is global within each GPU artifact. A host with several
+//! sessions loading the same artifact shares its registry.
 //!
 //! On the web the digest is not computed: the browser compiles WGSL itself
 //! and naga would cost the GPU module 740 KiB; the wasm and its shader
@@ -127,8 +127,8 @@ pub fn shader_generation() -> u32 {
 /// before every shader it names is registered, so a host never gets here
 /// without text. A fixture that builds a surface itself can: it gets empty
 /// text, which the GPU reports only as a missing entry point at pipeline
-/// creation, so the first such call per name says which shader on stderr.
-/// A fixture registers first with [`load_dir`].
+/// creation, so the first such call per name says which shader on stderr
+/// (LLP 0382). A fixture registers first with [`load_dir`].
 pub fn shader_module(name: &'static str) -> wgpu::ShaderModuleDescriptor<'static> {
     let text = shader_source(name).unwrap_or_else(|| {
         let mut named = UNREGISTERED.lock().unwrap_or_else(|e| e.into_inner());
@@ -177,6 +177,7 @@ pub fn load_dir(dir: &std::path::Path, registry: &crate::Registry) -> Result<(),
 
 /// Compose flat, reusable shader inventories at compile time. Duplicate names
 /// are refused even when their digests match. No Registry ABI change is needed.
+/// @ref llp/1046.006.000-render-hooks.rfc.md#d5-shaders-that-live-with-the-game
 #[macro_export]
 macro_rules! shader_packs {
     ($($pack:expr),* $(,)?) => {{

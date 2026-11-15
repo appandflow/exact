@@ -4,7 +4,7 @@ import XCTest
 @testable import ExactKit
 
 /// The agent's mouse forms reach a view and an app's local monitor as a
-/// hand's do: a middle click, a right click, a triple click, a wheel
+/// hand's do (#107): a middle click, a right click, a triple click, a wheel
 /// at a point and a Shift-held drag, each with its button, click count,
 /// modifiers and the point the driver named.
 @MainActor
@@ -198,7 +198,7 @@ final class AgentMouseFormsMacTests: XCTestCase {
             ["op": "frame", "id": 2, "x": 16, "y": 16, "w": 200, "h": 120],
         ]))
         p.viewport.layoutSubtreeIfNeeded()
-        // A module's view in the node's box, as a `mouse-probe` module draws one.
+        // A module's view in the node's box, as `mouse-probe` is in #107's repro.
         let node = try XCTUnwrap(p.views[2])
         let view = Recorder(frame: node.bounds)
         node.addSubview(view)

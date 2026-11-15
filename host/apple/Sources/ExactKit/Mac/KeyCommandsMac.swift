@@ -1,4 +1,4 @@
-// The keys the system's key bindings name, at
+// @ref LLP 1115.000 D7.9, D8.5 — the keys the system's key bindings name, at
 // a focused node: Shift with an arrow extends the reader's text selection,
 // and an arrow, Space or a Page key scrolls the scroller the focus is in.
 #if os(macOS)
@@ -47,7 +47,7 @@ extension NodeView {
 }
 
 extension Presenter {
-    /// A key command that scrolls: the scroller the
+    /// A key command that scrolls (LLP 1115.000 D8.5): the scroller the
     /// focus is in moves, the nearest one around `view` that scrolls that
     /// way and has somewhere to go, a `scroll` node or the page.
     ///
@@ -76,6 +76,7 @@ extension Presenter {
         var vertical = true
         if case .line(let dx, _) = step, dx != 0 { vertical = false }
         guard let scroller = keyScroller(around: view, vertical: vertical) else { return false }
+        personScrolls += 1
         (scroller as? ChainingScrollView)?.collectionWillScroll?()
         let clip = scroller.contentView, document = scroller.documentView?.frame.size ?? .zero
         let limit = NSPoint(x: max(0, document.width - clip.bounds.width), y: max(0, document.height - clip.bounds.height))

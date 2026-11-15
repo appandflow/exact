@@ -1,8 +1,8 @@
 // linux: layout
 // agent: scale=2
-// The hairline: `-exact-hairline` is one device pixel
+// The hairline (LLP 1115.000 D10.3): `-exact-hairline` is one device pixel
 // of the display's scale, which is a layout input on every host. Both pages
-// and the Linux host are opened at 2x here (the line above), where a
+// and the Linux host are opened at 2x here (the line above; D14.2), where a
 // hairline is half a point: the wasm page's kernel is told the page's
 // `devicePixelRatio` and writes the pixels, the JS target writes the sheet's
 // `var(--exact-hairline)`, and the Linux host's presenter tells its kernel

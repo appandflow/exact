@@ -1,8 +1,8 @@
-//! A grouped section's `button` row of a title, a symbol
+//! LLP 1116.019 D6: a grouped section's `button` row of a title, a symbol
 //! before it at most and nothing after it, is an action cell, in the accent
 //! on the sheet and in the kernel's model, however its symbol is given: a
 //! literal, a template a prop names (a library row's) or an `if` that shows
-//! it. A row that says whether it is selected
+//! it (theme2 16:37, stage 13 C). A row that says whether it is selected
 //! is a choice, never one.
 
 use exact_kernel::{Accessory, ColorValue, GroupedRow, Kernel, Offer};
@@ -233,7 +233,7 @@ fn a_row_that_says_it_is_selected_is_a_choice_not_an_action() {
     assert!(row(&r, "action").action, "a row that says nothing is one");
     // A checkmark row that does not say `aria-selected`: unpicked it shows
     // a title alone, but its source can show a mark, so the sheet says no
-    // action, and the kernel takes its word.
+    // action, and the kernel takes its word (QUEUE, 2026-10-21).
     assert!(
         !row(&r, "unsaid").action,
         "an unpicked choice row is no action"
@@ -290,4 +290,47 @@ fn a_leading_symbols_slot_and_the_title_after_it_follow_the_text_size() {
             "{body}: the title's inset"
         );
     }
+}
+
+/// LLP 1116.019 D6: a link that ends in a disclosure chevron is a row that
+/// pushes, in the label's colour, when an `if` shows the chevron too.
+#[test]
+fn a_link_ending_in_a_chevron_an_if_shows_is_the_labels_colour() {
+    let r = boot(
+        r#"component App
+  state canOpen = true
+  view
+    column testId="root" width=402 height=874
+      list appearance="auto" testId="list" flex=1
+        section
+          row gap=8
+            link href="/x" flex=1 display="flex"
+              text "Direct" flex=1 testId="direct-title"
+              image "symbol:chevron.right"
+          row gap=8
+            link href="/x" flex=1 display="flex"
+              text "Optional" flex=1 testId="optional-title"
+              if canOpen
+                image "symbol:chevron.right" testId="optional-chevron"
+          row gap=8
+            link href="/x" flex=1 display="flex"
+              text "Plain" flex=1 testId="plain-title"
+"#,
+    );
+    let role = |name: &str| ColorValue::Role(exact_kernel::style::roles::role(name).unwrap());
+    assert_eq!(colour(&r, "direct-title"), role("-exact-label"));
+    assert_eq!(
+        colour(&r, "optional-title"),
+        role("-exact-label"),
+        "an `if` that shows the chevron"
+    );
+    assert_eq!(
+        colour(&r, "optional-chevron"),
+        role("-exact-tertiary-label")
+    );
+    assert_ne!(
+        colour(&r, "plain-title"),
+        role("-exact-label"),
+        "a link with no chevron keeps the link's colour"
+    );
 }

@@ -1,19 +1,22 @@
-// `prefer`, the ninth operation's facts: the device facts by their web names, grouped
+// `prefer`, the ninth operation's facts (LLP 1061 D5; LLP 1069.000 D6; LLP
+// 1069.007 D2; LLP 1078 D7): the device facts by their web names, grouped
 // on the wire as `media`, `page` and `fold`; and the web carrier's own path
 // for them — the browser's emulation through CDP where it has one, the
 // glue's substitute where it does not. agent.mjs re-exports the tables.
 import { MalformedOperation } from './agent-keys.mjs';
+/** A root font size as its help writes it (`53px`) or as a number; px is its only unit. */
+const px = (name, value) => name === 'root-font-size' ? String(value).replace(/px$/, '') : value;
 
-/** Every host's display preferences at launch under the agent. */
+/** Every host's display preferences at launch under the agent (LLP 1069.007 D2). */
 export const LAUNCH_MEDIA = { 'prefers-reduced-motion': 'no-preference', 'prefers-reduced-transparency': 'no-preference', 'prefers-color-scheme': 'light', 'prefers-contrast': 'no-preference', 'color-gamut': 'srgb', 'dynamic-range': 'standard' };
-export const PREFERENCES = { 'display-mode': ['standalone', 'browser', 'fullscreen', 'minimal-ui', 'window-controls-overlay', 'picture-in-picture', 'tabbed'], 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-contrast': ['more', 'less', 'custom', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'], 'color-gamut': ['srgb', 'p3', 'rec2020'], 'dynamic-range': ['standard', 'high'], pointer: ['coarse', 'fine', 'none'], hover: ['none', 'hover'] }; // `prefer`'s CSS media features and values (the display's two; the primary input's two, `exactViewport().pointer` and `.hover`)
-export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'], 'can-share-files': ['true', 'false'], 'can-share-pictures': ['true', 'false'], 'can-open-files': ['true', 'false'], 'iframe-partition': ['true', 'false'], 'has-focus': ['true', 'false'], 'keyboard-navigation': ['true', 'false'], 'bold-text': ['true', 'false'], 'root-font-size': ['<px>'], 'display-scale': ['<device pixels a px>'], 'gpu-tier': ['low', 'mid', 'high'] }; // `prefer`'s page group (`has-focus`; `keyboard-navigation`: the Mac's setting, whether Tab reaches every control, refused by name on the other hosts; `bold-text`: Apple's Bold Text, which the kernel weights the system font by, refused by name elsewhere; `display-scale`: what a hairline is one device pixel of; `gpu-tier`: `exactViewport().gpuTier`, `high` from launch, and the rung a world's renderer is made at; `iframe-partition`: `exactPage().iframePartition`)
-export const FOLD_FACTS = { posture: ['folded', 'continuous'], segments: ['<cols>x<rows>'], gap: ['<points>'] }; // `prefer`'s fold group: a host without a fold splits its viewport evenly; one with a fold refuses
-export const MIDI_FACTS = { 'midi.state': ['prompt', 'granted', 'denied', 'unavailable'], 'midi.inputs': ['<name,…>'], 'midi.outputs': ['<name,…>'] }; // `prefer`'s midi group: what a request finds under the agent — its state (granted unless named) and the ports, by name; a port named no longer is disconnected
-export const MODE_FACT = { mode: ['<axis>=<value>'] }; // `prefer`'s mode group: the app's own modes, `setMode` for each pin; `prefers-color-scheme` stays as it is
+export const PREFERENCES = { 'display-mode': ['standalone', 'browser', 'fullscreen', 'minimal-ui', 'window-controls-overlay', 'picture-in-picture', 'tabbed'], 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-contrast': ['more', 'less', 'custom', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'], 'color-gamut': ['srgb', 'p3', 'rec2020'], 'dynamic-range': ['standard', 'high'], pointer: ['coarse', 'fine', 'none'], hover: ['none', 'hover'] }; // `prefer`'s CSS media features and values (the display's two: LLP 1100 D9; the primary input's two, `exactViewport().pointer` and `.hover`: LLP 1132 D10)
+export const PAGE_FACTS = { frozen: ['true', 'false'], 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'], 'can-share-files': ['true', 'false'], 'can-share-pictures': ['true', 'false'], 'can-open-files': ['true', 'false'], 'iframe-partition': ['true', 'false'], 'has-focus': ['true', 'false'], 'keyboard-navigation': ['true', 'false'], 'bold-text': ['true', 'false'], 'root-font-size': ['<px>'], 'display-scale': ['<device pixels a px>'], 'gpu-tier': ['low', 'mid', 'high'] }; // `prefer`'s page group (LLP 1069.000 D2, D3, D6; LLP 1069.007 D2; `has-focus`: #114; `keyboard-navigation`: the Mac's setting, whether Tab reaches every control, LLP 1115.000 D7.2, refused by name on the other hosts; `bold-text`: Apple's Bold Text, which the kernel weights the system font by, LLP 1115.000 D12.3, refused by name elsewhere; `display-scale`: what a hairline is one device pixel of, LLP 1115.000 D10.3; `gpu-tier`: `exactViewport().gpuTier`, `high` from launch, and the rung a world's renderer is made at, LLP 1139.003 D2; `iframe-partition`: `exactPage().iframePartition`, LLP 1020.002 D1)
+export const FOLD_FACTS = { posture: ['folded', 'continuous'], segments: ['<cols>x<rows>'], gap: ['<points>'] }; // `prefer`'s fold group (LLP 1078 D7): a host without a fold splits its viewport evenly; one with a fold refuses
+export const MIDI_FACTS = { 'midi.state': ['prompt', 'granted', 'denied', 'unavailable'], 'midi.inputs': ['<name,…>'], 'midi.outputs': ['<name,…>'] }; // `prefer`'s midi group (LLP 1125 §4): what a request finds under the agent — its state (granted unless named) and the ports, by name; a port named no longer is disconnected
+export const MODE_FACT = { mode: ['<axis>=<value>'] }; // `prefer`'s mode group (LLP 1121 D5, D13): the app's own modes, `setMode` for each pin; `prefers-color-scheme` stays as it is
 
 /** The CLI's facts (`prefer <name> <value> …`) as the wire's three groups; an unknown fact or value is refused naming what is expected.
- * A fact answers to its near spellings (`color-scheme`, `colorScheme`, `reduced-motion` for the `prefers-` names). */
+ * A fact answers to its near spellings (`color-scheme`, `colorScheme`, `reduced-motion` for the `prefers-` names): round 9, three builds. */
 export function preferGroups(facts) {
   const media = {}, page = {}, fold = {}, mode = {}, midi = {}, extension = {};
   const all = { ...PREFERENCES, ...PAGE_FACTS, ...FOLD_FACTS, ...MODE_FACT, ...MIDI_FACTS };
@@ -21,14 +24,15 @@ export function preferGroups(facts) {
   const norm = n => String(n).toLowerCase().replace(/[^a-z]/g, '').replace(/^prefers?/, '');
   for (const [given, value] of Object.entries(facts ?? {})) {
     const name = Object.keys(all).find(k => k === given || norm(k) === norm(given)) ?? given;
-    // A module's permission: `permission.geolocation granted|denied|prompt`; one of a
+    // A module's permission (LLP 1133.002 §6): `permission.geolocation granted|denied|prompt`; one of a
     // family (`permission.health.steps`), or a fact of one whose answer the platform hides (`shared=false`,
-    // `since=2026-10-01`).
+    // `since=2026-10-01`, LLP 1133.026 D19 item 1).
     if (/^permission\.[\w-]+(\.[\w-]+)*$/.test(name) && (['granted', 'denied', 'prompt'].includes(String(value)) || /^(shared=(true|false)|since=\d{4}-\d{2}-\d{2})$/.test(String(value)))) { (extension.permission ??= {})[name.slice(11)] = String(value); continue; }
-    // A native module's source: `extension geolocation.watchPosition={…}`, `{"error":"CODE"}` or `clear`.
+    // A native module's source (LLP 1124 D7): `extension geolocation.watchPosition={…}`, `{"error":"CODE"}` or `clear`;
+    // an implementation's own source by its import path (`…#@exact/tracking-consent/apple`).
     if (name === 'extension') {
-      const m = /^([\w-]+\.\w+)=(.+)$/s.exec(String(value));
-      if (!m) throw new MalformedOperation(`prefer extension ${value}: expected <extension>.<source>=<JSON>|clear`);
+      const m = /^([\w-]+\.\w+(?:#@?[\w.-]+(?:\/[\w.-]+)*)?)=(.+)$/s.exec(String(value));
+      if (!m) throw new MalformedOperation(`prefer extension ${value}: expected <extension>.<source>[#<import path>]=<JSON>|clear`);
       try { (extension.extension ??= {})[m[1]] = m[2] === 'clear' ? 'clear' : JSON.parse(m[2]); } catch (e) { throw new MalformedOperation(`prefer extension ${m[1]}: ${e.message}`); }
       continue;
     }
@@ -36,7 +40,7 @@ export function preferGroups(facts) {
     if (name === 'midi.inputs' || name === 'midi.outputs') { midi[name.slice(5)] = (Array.isArray(value) ? value : String(value).split(',')).map(n => String(n).trim()).filter(Boolean); continue; }
     if ((Object.hasOwn(PREFERENCES, name) ? PREFERENCES[name] : []).includes(value)) media[name] = value;
     else if ((Object.hasOwn(PAGE_FACTS, name) ? PAGE_FACTS[name] : []).includes(String(value))) page[name] = PAGE_FACTS[name][0] === 'true' ? String(value) === 'true' : String(value);
-    else if ((name === 'root-font-size' || name === 'display-scale') && Number(value) > 0 && Number(value) <= 3.4028234663852886e38) page[name] = Number(value); // a size the kernel stores, as an f32
+    else if ((name === 'root-font-size' || name === 'display-scale') && Number(px(name, value)) > 0 && Number(px(name, value)) <= 3.4028234663852886e38) page[name] = Number(px(name, value)); // a size the kernel stores, as an f32
     else if (name === 'posture' && FOLD_FACTS.posture.includes(value)) fold.posture = value;
     else if (name === 'segments' && /^\d+x\d+$/.test(String(value))) {
       const [c, r] = String(value).split('x').map(Number);
@@ -70,9 +74,9 @@ export function displayFeatures(width, height, cols, rows, gap) {
   return features;
 }
 
-/** The web carrier's `prefer`. The browser's own emulation, which replaces its whole list: queries, CSS and the glue's listeners see it.
- * The page group is the glue's own value, told the runner as the page's observer tells it, not through CDP.
- * The fold group: Chromium's own posture and display-feature overrides, so `navigator.devicePosture`, `window.viewport.segments`
+/** The web carrier's `prefer`. The browser's own emulation (LLP 1061 D5), which replaces its whole list: queries, CSS and the glue's listeners see it.
+ * The page group is the glue's own value, told the runner as the page's observer tells it (LLP 1069.000 D6; LLP 1069.007 D5: not CDP).
+ * The fold group (LLP 1078 D7): Chromium's own posture and display-feature overrides, so `navigator.devicePosture`, `window.viewport.segments`
  * and CSS's `env(viewport-segment-*)` all change — the parity oracle; a browser whose CDP lacks them gets the glue's substitute (the facts and
  * `layout.env`, not CSS). `emulated` is the carrier's media list, replaced in place. */
 /** In the page, before the media changes: for each feature asked, every query of its values whose truth changes when
@@ -97,7 +101,7 @@ export function mediaHeard(features, preferences, token) {
 
 export async function preferWeb({ media, page, fold = {}, mode = {}, emulated, call, evaluate, frame, ask, scale = 0 }) {
   if (media['display-mode'] != null) throw new Error(`Chrome prefer cannot emulate display-mode ${media['display-mode']}: use the browser's fullscreen controls`);
-  // A browser's scale is fixed when it launches (`EXACT_SCALE=2 bun scripts/agent.mjs web …`: Chrome's own device scale factor). CDP's emulated one moves `devicePixelRatio` and the resolution queries but not the device pixel a border snaps to (Chrome 154: a 0.5px border stays 1px under it), so it is not offered as the scale.
+  // LLP 1115.000 D10.3: a browser's scale is fixed when it launches (`EXACT_SCALE=2 bun scripts/agent.mjs web …`: Chrome's own device scale factor). CDP's emulated one moves `devicePixelRatio` and the resolution queries but not the device pixel a border snaps to (Chrome 154: a 0.5px border stays 1px under it), so it is not offered as the scale.
   if (page['display-scale'] != null) { const now = await evaluate('devicePixelRatio'); if (Math.abs(now - page['display-scale']) > 0.01) throw new Error(`prefer: display-scale ${page['display-scale']}: a browser's scale is fixed when it launches, and this one's is ${now}; launch it at another with EXACT_SCALE=${page['display-scale']}`); }
   // Chrome's media emulation ignores `pointer` and `hover`; its touch emulation answers them, together: a touch screen is `coarse` with
   // `none`, the mouse it replaces `fine` with `hover` (Chrome 155), and nothing emulates `pointer: none`.

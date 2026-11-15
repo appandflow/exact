@@ -1,10 +1,11 @@
 //! The store directory: what this client has, what it boots, and the check
 //! that stages the next bundle.
 //!
-//! Selection happens at launch and falls back to entry zero; signing,
-//! anti-rollback, crash recovery and assets by digest keep the check off the
-//! boot path. Each stream has its own path on the origin. Check and activate
-//! are two acts. An unknown record codec selects entry zero and is left alone.
+//! @ref LLP 1026 D9 (the store; selection at launch; entry zero) / D11
+//! (signing, anti-rollback, crash recovery, assets by digest, the check off the
+//! boot path) / LLP 1030 D3a (the stream's own path on the origin) / D5 (the
+//! sunset card; check and activate are two acts) / D9 (an unknown record codec
+//! selects entry zero and is left alone)
 //!
 //! The shape on disk:
 //!
@@ -13,34 +14,42 @@
 //! blobs/<sha256>                            each file's bytes, once, verified before reuse
 //! entries/<canonical envelope sha256>/exact.json  the head, as it arrived
 //! entries/<envelope sha256>/app.plan        a hard link to its blob (a copy where refused)
+//! entries/<envelope sha256>/assets.json     the asset index, likewise
 //! entries/<envelope sha256>/assets/<name>   likewise
 //! entries/.tmp-<something>/                 an entry being built; never selected
 //! ```
 //! A Current head keeps only `exact.json` as its durable signed floor witness.
 //!
-//! Only the selected, pending, last-good and running entries and the head
-//! accepted at the floor are kept, and only the blobs they name.
+//! Only the selected, pending, last-good and running entries, the head
+//! accepted at the floor, and an entry another process runs are kept. A blob
+//! none of them names is kept until a check finishes: it may be part of a
+//! download that a launch did not finish.
+//! A witness names its asset index's blob, so the next check of an
+//! unchanged head reads the index from disk.
 //!
 //! Three rules hold the whole thing up:
 //!
 //! 1. **An entry is whole or absent.** Every file is written under a temporary
 //!    name and the directory is renamed into place, so a client that dies
-//!    mid-download leaves nothing selectable behind (an atomic swap, on disk).
+//!    mid-download leaves nothing selectable behind (LLP 1023 D3's atomic swap,
+//!    on disk).
 //! 2. **Entry zero is never in the store and never deleted.** `selected: null`
 //!    means the bundle the binary embeds; it is what a bad update falls back
-//!    to, and an unknown record codec selects it.
+//!    to, and it is the whole of LLP 1030 D9's promise.
 //! 3. **The counter must not share fate with what it recovers.** The failure
 //!    count is written before the boot it counts and cleared after first pixel,
 //!    so a bundle that never reaches first pixel is demoted at the launch after
-//!    next.
+//!    next (LLP 1026 D11; LLP 0421 invariant 11).
 
 mod disk;
+mod record;
 
 use crate::envelope::{resolve_url, safe_name, sha256_hex, Card, Envelope, FileCard};
 use disk::{
-    read_bounded, read_card, regular_file, sweep, sync_dir, temporary_name, write_atomic,
-    write_file, Blobs,
+    hold_entry, read_bounded, read_card, regular_file, remove_entry, sweep, sync_dir,
+    temporary_name, write_atomic, write_file, Blobs,
 };
+use record::{read_record, Record, RecordFile};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -48,7 +57,7 @@ use std::sync::{Arc, Mutex};
 type AssetResult = Result<Arc<[u8]>, String>;
 type AssetCache = Arc<Mutex<BTreeMap<String, AssetResult>>>;
 
-/// The trust policy explicitly baked into a host.
+/// The trust policy explicitly baked into a host (LLP 1026 D11/D12).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trust {
     /// Every head must verify against a baked public key.
@@ -58,19 +67,19 @@ pub enum Trust {
 }
 
 /// What the binary itself carries: entry zero's identity, the cohort it
-/// belongs to, and the keys it trusts. The bake
+/// belongs to, and the keys it trusts (LLP 1026 D9/D11; LLP 1030 D3a). The bake
 /// writes every field; nothing here is hand-declared.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Embedded {
-    /// The app id. A bundle for another app is refused.
+    /// The app id (LLP 1023 D5). A bundle for another app is refused.
     pub app_id: String,
-    /// The cohort this binary is. It names the stream's path on
+    /// The cohort this binary is (LLP 1030 D3a). It names the stream's path on
     /// the origin, and a bundle that names another one is refused.
     pub compatibility_id: String,
     /// The `seq` of the bundle the binary embeds: the anti-rollback floor for a
     /// client that has taken no update.
     pub seq: u64,
-    /// The channel this binary bakes in: the stream it
+    /// The channel this binary bakes in (LLP 1030.000 D4): the stream it
     /// checks is `(channel, compatibility id)`, and a head for another
     /// channel — signed for it, replayed here — is refused.
     pub channel: String,
@@ -80,8 +89,8 @@ pub struct Embedded {
     /// Whether unsigned development heads are permitted by this artifact.
     pub trust: Trust,
     /// The SHA-256 of the plan the binary embeds — what a binary can actually
-    /// know about entry zero (the client knows, by digest, what it already
-    /// has). The published head is a document the binary never
+    /// know about entry zero (LLP 1026 D9: "the client knows, by digest, what
+    /// it already has"). The published head is a document the binary never
     /// carried, so its digest could not say "current"; the plan's can. With
     /// it, a fresh install whose origin still serves the plan it shipped with
     /// — and assets it also embeds, by digest — answers [`Check::Current`] and
@@ -107,7 +116,18 @@ impl Embedded {
     }
 }
 
-/// What to boot. `plan` is `None` for entry zero — the bundle in
+/// An asset the binary carries under some name: the SHA-256 of its bytes,
+/// and the file that holds them, which the store reads again and checks
+/// against a card before keeping it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddedAsset {
+    /// The digest, lowercase hex, as the host hashed the file.
+    pub sha256: String,
+    /// The file that holds them.
+    pub path: PathBuf,
+}
+
+/// What to boot (LLP 1026 D9). `plan` is `None` for entry zero — the bundle in
 /// the binary — which is also what a client falls back to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Selection {
@@ -221,8 +241,8 @@ impl std::fmt::Display for SelectionRefusal {
 
 impl std::error::Error for SelectionRefusal {}
 
-/// A bundle selected for the next launch that is not the one running (check
-/// and activate are two acts).
+/// A bundle selected for the next launch that is not the one running (LLP 1030
+/// D5: check and activate are two acts).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Staged {
     /// The entry's name: its envelope digest.
@@ -241,7 +261,7 @@ pub enum Check {
     /// The payload is already selected. The signed head is retained as a
     /// rollback witness without downloading the payload again.
     Current {
-        /// The stream's retirement notice, when it has one.
+        /// The stream's retirement notice, when it has one (LLP 1030 D5).
         sunset: Option<Card>,
     },
     /// A new bundle is on disk, whole, and selected for the next launch.
@@ -250,12 +270,12 @@ pub enum Check {
         entry: String,
         /// The stream `seq` it carries.
         seq: u64,
-        /// The stream's retirement notice, when it has one.
+        /// The stream's retirement notice, when it has one (LLP 1030 D5).
         sunset: Option<Card>,
     },
 }
 
-/// What the app and the agent are told: the `delivery` resource's
+/// What the app and the agent are told (LLP 1030 D7): the `delivery` resource's
 /// content, and what `state.delivery` mirrors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
@@ -282,15 +302,21 @@ pub struct Status {
 /// The store: bundles on disk, the record that selects one, and the check.
 #[derive(Debug)]
 pub struct Store {
-    // Held for the owner's lifetime; dropping or process exit releases the OS lock.
+    // Locked for the owner's lifetime; dropping or process exit releases the
+    // OS lock. A reader's is open and unlocked.
     _owner: std::sync::Arc<std::fs::File>,
+    /// Another process owns the store: this one boots the selection it read
+    /// at open and writes nothing (LLP 1026 D9: selection is a stat and a read).
+    reader: bool,
+    // A reader's shared lock on the entry it runs, so the owner keeps it.
+    _running_lock: Option<std::sync::Arc<std::fs::File>>,
     dir: PathBuf,
     embedded: Embedded,
     record: Record,
     /// A record written by a binary with a newer store codec: this client
-    /// selects entry zero and **writes nothing at all**.
+    /// selects entry zero and **writes nothing at all** (LLP 1030 D9).
     frozen: bool,
-    /// `app-decides`: a checked bundle is held as
+    /// `app-decides` (LLP 1030.000 D4): a checked bundle is held as
     /// `pending` rather than selected, until [`Store::commit_activation`].
     hold: bool,
     /// The entry this process booted, remembered from the selection at open.
@@ -316,149 +342,12 @@ struct EntryView {
     assets: Vec<FileCard>,
 }
 
-/// The record, in memory. Its JSON is `{ "codec", "selected", "pending",
-/// "lastGood", "failures", "stream": { "channel", "compatibilityId",
-/// "seq" }, "bad" }`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Record {
-    selected: Option<String>,
-    /// An entry on disk whole that no launch boots until the app activates
-    /// it — the `app-decides` policy: `check` puts it
-    /// here instead of `selected`, and `activate` promotes it.
-    pending: Option<String>,
-    last_good: Option<String>,
-    failures: u64,
-    compatibility_id: String,
-    channel: String,
-    /// The highest stream sequence this client has admitted, including an
-    /// embedded generation or a head found current while entry zero ran.
-    seq: u64,
-    digest: Option<String>,
-    /// Entries that failed to reach first pixel twice. A head that names one is
-    /// refused rather than staged again, so a bad bundle cannot loop a client
-    /// through the same download every launch.
-    bad: Vec<String>,
-}
-
 /// How many bad entries to remember. Older ones fall off: the list exists to
 /// break a loop, not to keep history.
 const BAD_REMEMBERED: usize = 8;
 
-/// Two failed boots in a row demote a bundle.
+/// Two failed boots in a row demote a bundle (LLP 1026 D11).
 const FAILURES_ALLOWED: u64 = 2;
-
-impl Record {
-    fn fresh(embedded: &Embedded) -> Record {
-        Record {
-            selected: None,
-            pending: None,
-            last_good: None,
-            failures: 0,
-            compatibility_id: embedded.compatibility_id.clone(),
-            channel: embedded.channel.clone(),
-            seq: embedded.seq,
-            digest: embedded.entry_digest.clone(),
-            bad: Vec::new(),
-        }
-    }
-
-    fn to_json(&self) -> String {
-        let quoted = |v: &Option<String>| match v {
-            Some(s) => serde_json::Value::String(s.clone()),
-            None => serde_json::Value::Null,
-        };
-        let value = serde_json::json!({
-            "codec": crate::STORE_CODEC,
-            "selected": quoted(&self.selected),
-            "pending": quoted(&self.pending),
-            "lastGood": quoted(&self.last_good),
-            "failures": self.failures,
-            "stream": { "channel": self.channel, "compatibilityId": self.compatibility_id, "seq": self.seq, "digest": self.digest },
-            "bad": self.bad,
-        });
-        format!("{value}\n")
-    }
-}
-
-/// What was on disk where the record lives.
-enum RecordFile {
-    /// No record, or one that is not a record of any codec (unreadable, not
-    /// JSON, or with no integer codec): start fresh.
-    Fresh,
-    /// An older codec from this pre-1.0 crate. Its selections are not read;
-    /// open replaces it with this binary's clean entry-zero record.
-    Obsolete,
-    /// A record written by a binary with another store codec.
-    Foreign,
-    /// This codec's record.
-    Ours(Record),
-}
-
-const MAX_RECORD_BYTES: u64 = 1024 * 1024;
-
-fn read_record(path: &Path) -> RecordFile {
-    let Ok(raw) = read_bounded(path, MAX_RECORD_BYTES) else {
-        return RecordFile::Fresh;
-    };
-    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&raw) else {
-        return RecordFile::Fresh;
-    };
-    let Some(object) = value.as_object() else {
-        return RecordFile::Fresh;
-    };
-    // Only an integer codec above ours is another binary's. A
-    // record with no such codec is damaged, not foreign: freezing on it would
-    // stop this updater for good.
-    match object.get("codec").and_then(|v| v.as_u64()) {
-        Some(codec) if codec == crate::STORE_CODEC => {}
-        Some(codec) if codec < crate::STORE_CODEC => return RecordFile::Obsolete,
-        Some(_) => return RecordFile::Foreign,
-        None => return RecordFile::Fresh,
-    }
-    let stream = object.get("stream").and_then(|v| v.as_object());
-    RecordFile::Ours(Record {
-        selected: object
-            .get("selected")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        pending: object
-            .get("pending")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        last_good: object
-            .get("lastGood")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        failures: object.get("failures").and_then(|v| v.as_u64()).unwrap_or(0),
-        compatibility_id: stream
-            .and_then(|s| s.get("compatibilityId"))
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        channel: stream
-            .and_then(|s| s.get("channel"))
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        seq: stream
-            .and_then(|s| s.get("seq"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0),
-        digest: stream
-            .and_then(|s| s.get("digest"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        bad: object
-            .get("bad")
-            .and_then(|v| v.as_array())
-            .map(|list| {
-                list.iter()
-                    .filter_map(|v| v.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default(),
-    })
-}
 
 impl Store {
     /// Open the store at `dir`, creating it, and settle what this launch boots.
@@ -468,10 +357,14 @@ impl Store {
     /// cohort's is dropped; a selected entry that failed to reach first pixel
     /// twice in a row is demoted to the last good one and then to entry zero;
     /// a record from another cohort is reset to this one's;
-    /// a record from another store codec freezes the store and
+    /// a record from another store codec freezes the store (LLP 1030 D9) and
     /// nothing here writes.
+    /// When another process owns the store, this one opens as a reader: it
+    /// settles the same selection in memory, holds the entry it selects so
+    /// the owner's collection keeps it, and writes nothing — no sweep,
+    /// collection, boot mark, check or activation.
     /// Windows durable storage is not qualified: opening refuses before any
-    /// filesystem access or mutation.
+    /// filesystem access or mutation (LLP 1026 D11a).
     pub fn open(dir: &Path, embedded: Embedded) -> Result<Store, String> {
         disk::require_durable_store()?;
         std::fs::create_dir_all(dir).map_err(|e| format!("cannot make {}: {e}", dir.display()))?;
@@ -484,18 +377,21 @@ impl Store {
             .write(true)
             .open(dir.join("owner.lock"))
             .map_err(|e| format!("cannot open update store lock {}: {e}", dir.display()))?;
-        owner.try_lock().map_err(|e| {
-            format!(
-                "update store {} is unavailable (exclusive owner): {e}",
-                dir.display()
-            )
-        })?;
+        let reader = match owner.try_lock() {
+            Ok(()) => false,
+            Err(std::fs::TryLockError::WouldBlock) => true,
+            Err(std::fs::TryLockError::Error(e)) => {
+                return Err(format!("cannot lock update store {}: {e}", dir.display()))
+            }
+        };
         let entries = dir.join("entries");
         std::fs::create_dir_all(&entries)
             .map_err(|e| format!("cannot make {}: {e}", entries.display()))?;
         let record = Record::fresh(&embedded);
         let mut store = Store {
             _owner: std::sync::Arc::new(owner),
+            reader,
+            _running_lock: None,
             dir: dir.to_path_buf(),
             running_seq: embedded.seq,
             embedded,
@@ -523,24 +419,28 @@ impl Store {
             }
             RecordFile::Ours(record) => store.record = record,
         }
-        // A launch has no other client of this store: a stage or a record write
-        // that died left a temporary behind, and nothing points at it.
-        sweep(dir);
-        sweep(&entries);
-        sweep(store.blobs().dir());
+        // An owner's launch has no other writer of this store: a stage or a
+        // record write that died left a temporary behind, and nothing points at
+        // it. A reader's may be the owner's download in flight.
+        if !store.reader {
+            sweep(dir);
+            sweep(&entries);
+            sweep(store.blobs().dir());
+        }
         let before = store.record.clone();
         if store.record.compatibility_id != store.embedded.compatibility_id
             || store.record.channel != store.embedded.channel
         {
-            // A new binary over an old store: the old cohort's entries stay on
-            // disk (their files are still reusable by digest) but none of them
-            // is selectable here, so this cohort starts at entry zero.
+            // A new binary over an old store: none of the old cohort's entries
+            // is selectable here, so this cohort starts at entry zero. The
+            // entries go below; their files stay in `blobs/`, reusable by
+            // digest, until this cohort's first check finishes.
             store.record = Record::fresh(&store.embedded);
         }
         // The floor is the highest seq this client has admitted. A record lost
         // or damaged in a crash must not forget it: every entry on disk is a
         // head this client verified before writing it, so the highest signed
-        // one is a floor as well.
+        // one is a floor as well (LLP 1026 D11).
         if let Some((seq, digest)) = store.signed_floor() {
             if seq > store.record.seq || (seq == store.record.seq && store.record.digest.is_none())
             {
@@ -601,16 +501,36 @@ impl Store {
         {
             store.record.pending = None;
         }
+        if store.reader {
+            // The owner activates what it holds; a reader runs what it read.
+            store.record.pending = None;
+            if let Some(entry) = store.record.selected.clone() {
+                // Lock, then read again: the owner may have removed the entry
+                // since the record named it.
+                match hold_entry(&store.entry_dir(&entry))
+                    .and_then(|lock| Ok((lock, store.read_view(&entry)?)))
+                {
+                    Ok((lock, view)) => {
+                        store._running_lock = Some(Arc::new(lock));
+                        store.view = Some(view);
+                    }
+                    Err(_) => {
+                        store.record.selected = None;
+                        store.view = None;
+                    }
+                }
+            }
+        }
         store.running = store.record.selected.clone();
         store.running_seq = store.select().seq;
         if rewrite || store.record != before {
             store.write_record()?;
         }
-        store.collect();
+        store.collect_entries();
         Ok(store)
     }
 
-    /// What this launch boots: the record's selection when its
+    /// What this launch boots (LLP 1026 D9): the record's selection when its
     /// entry is whole and this cohort's, else entry zero. No network is
     /// touched, ever, on this path — selection is a stat and a read.
     ///
@@ -713,27 +633,30 @@ impl Store {
         self.refuse_running(entry, reason)
     }
 
-    /// Count this boot before it happens. A no-op when entry
+    /// Count this boot before it happens (LLP 1026 D11). A no-op when entry
     /// zero booted — the embedded bundle is the thing being recovered *to*, so
     /// counting its failures would have nothing to fall back on.
     pub fn boot_started(&mut self) -> Result<(), String> {
-        if self.frozen || self.running.is_none() {
+        if self.read_only().is_some() || self.running.is_none() {
             return Ok(());
         }
         self.record.failures += 1;
-        self.write_boot_mark()
+        self.write_boot_mark(&self.record)
     }
 
-    /// First pixel: the bundle that booted is good. Clears the
+    /// First pixel: the bundle that booted is good (LLP 1026 D11). Clears the
     /// counter and makes what is **running** — not what a check has since
     /// staged — the fallback for the next bad update.
     pub fn boot_succeeded(&mut self, generation: &Generation) -> Result<(), String> {
-        if self.frozen || *generation != self.generation() {
+        if self.read_only().is_some() || *generation != self.generation() {
             return Ok(());
         }
-        self.record.failures = 0;
-        self.record.last_good.clone_from(&self.running);
-        self.write_boot_mark()
+        let mut record = self.record.clone();
+        record.failures = 0;
+        record.last_good.clone_from(&self.running);
+        self.write_boot_mark(&record)?;
+        self.record = record;
+        Ok(())
     }
 
     /// The selected entry was refused before it could run and this process
@@ -747,16 +670,18 @@ impl Store {
 
     /// Ask the origin for this stream's head, and stage what it names.
     ///
-    /// `head_url` is the stream's own path on the origin — [`head_url`]
-    /// builds it:
+    /// `head_url` is the stream's own path on the origin (LLP 1030 D3a;
+    /// 1030.000 D4) — [`head_url`] builds it:
     /// `<origin>/.exact/<channel>/<compatibilityId>/exact.json`, so a static
     /// host serves each cohort of each channel its own manifest with no
     /// negotiation, and the head's file cards resolve against it. `fetch` is
     /// the host's network — this crate opens no socket — and is called once
     /// for the head, then once for each file the store does not already
-    /// have. `embedded_asset` says what the binary itself carries: the digest
-    /// of the embedded asset by that name, or `None`; it is asked only when
-    /// the head's plan is the embedded one, so a host may hash lazily.
+    /// have. `embedded_asset` says what the binary itself carries under an
+    /// asset's name, or `None`: it decides whether entry zero is the head,
+    /// and an embedded file whose bytes are what a card declares is kept
+    /// instead of fetched. It is asked only for what those need, so a host
+    /// may hash lazily.
     ///
     /// Refused, before anything is written: a head over
     /// [`MAX_ENVELOPE_BYTES`](crate::MAX_ENVELOPE_BYTES), an `exact` major this
@@ -769,15 +694,15 @@ impl Store {
     ///
     /// On success the entry is on disk whole and selected for the **next**
     /// launch; nothing about the running app changes until the host calls
-    /// [`Store::commit_activation`]: check and activate are two acts.
+    /// [`Store::commit_activation`] (LLP 1026 D11; LLP 1030 D5: two acts).
     pub fn check(
         &mut self,
         head_url: &str,
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
-        embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<Check, String> {
         let envelope = self.download(head_url, fetch, embedded_asset)?;
-        self.finish_check(envelope, head_url, embedded_asset)
+        self.finish_check(envelope, head_url, embedded_asset, true)
     }
 
     /// The immutable facts a download uses while its host releases the lock.
@@ -785,6 +710,8 @@ impl Store {
     pub(crate) fn check_snapshot(&self) -> Store {
         Store {
             _owner: self._owner.clone(),
+            reader: self.reader,
+            _running_lock: self._running_lock.clone(),
             dir: self.dir.clone(),
             embedded: self.embedded.clone(),
             record: self.record.clone(),
@@ -802,28 +729,35 @@ impl Store {
         &self,
         head_url: &str,
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
-        embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<Envelope, String> {
-        if self.frozen {
-            return Err(
-                "the update record was written by a newer binary; this one changes nothing".into(),
-            );
+        if let Some(why) = self.read_only() {
+            return Err(why.into());
         }
-        let envelope = Envelope::parse(&fetch(head_url)?)?;
+        let mut envelope = Envelope::parse(&fetch(head_url)?)?;
+        // The signature first: an unauthenticated head names nothing to fetch.
+        self.embedded.verify(&envelope)?;
+        // Its index from the blob store when an earlier check kept it.
+        if let Some(card) = envelope.index.as_ref().map(|index| index.card.clone()) {
+            self.obtain(&card, head_url, fetch, &mut |_| None)?;
+            envelope.read_index(&read_card(&self.blobs().dir().join(&card.sha256), &card)?)?;
+        }
         if !self.admit_check(&envelope, head_url, embedded_asset)? {
-            self.write_entry(&envelope, head_url, fetch)?;
+            self.write_entry(&envelope, head_url, fetch, embedded_asset)?;
         }
         Ok(envelope)
     }
 
     /// Recheck against the live record after downloading: activation, boot
     /// marks, and a newer accepted head must never be overwritten by a copy
-    /// of the record taken before network I/O.
+    /// of the record taken before network I/O. `collect` is false while
+    /// another download of this store is outstanding.
     pub(crate) fn finish_check(
         &mut self,
         envelope: Envelope,
         head_url: &str,
-        embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
+        collect: bool,
     ) -> Result<Check, String> {
         if self.admit_check(&envelope, head_url, embedded_asset)? {
             let witness = self.entry_dir(&envelope.digest);
@@ -836,12 +770,15 @@ impl Store {
             if self.record.seq != envelope.stream.seq
                 || self.record.digest.as_ref() != Some(&envelope.digest)
             {
-                self.record.seq = envelope.stream.seq;
-                self.record.digest = Some(envelope.digest.clone());
-                self.write_record()?;
+                let mut record = self.record.clone();
+                record.seq = envelope.stream.seq;
+                record.digest = Some(envelope.digest.clone());
+                self.adopt_record(record)?;
             }
             self.sunset = envelope.sunset.clone();
-            self.collect();
+            if collect {
+                self.collect();
+            }
             return Ok(Check::Current {
                 sunset: envelope.sunset,
             });
@@ -854,21 +791,26 @@ impl Store {
                     envelope.digest
                 )
             })?;
+        let mut record = self.record.clone();
         if self.hold {
             // `app-decides`: whole on disk and known, booted by no launch
             // until the app says so.
-            self.record.pending = Some(envelope.digest.clone());
+            record.pending = Some(envelope.digest.clone());
         } else {
-            self.record.selected = Some(envelope.digest.clone());
-            self.record.pending = None;
-            self.record.failures = 0;
+            record.selected = Some(envelope.digest.clone());
+            record.pending = None;
+            record.failures = 0;
+        }
+        record.seq = envelope.stream.seq;
+        record.digest = Some(envelope.digest.clone());
+        self.adopt_record(record)?;
+        if !self.hold {
             self.view = Some(view);
         }
-        self.record.seq = envelope.stream.seq;
-        self.record.digest = Some(envelope.digest.clone());
-        self.write_record()?;
         self.sunset = envelope.sunset.clone();
-        self.collect();
+        if collect {
+            self.collect();
+        }
         Ok(Check::Staged {
             entry: envelope.digest,
             seq: envelope.stream.seq,
@@ -880,12 +822,10 @@ impl Store {
         &self,
         envelope: &Envelope,
         head_url: &str,
-        embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<bool, String> {
-        if self.frozen {
-            return Err(
-                "the update record was written by a newer binary; this one changes nothing".into(),
-            );
+        if let Some(why) = self.read_only() {
+            return Err(why.into());
         }
         if envelope.app_id != self.embedded.app_id {
             return Err(format!(
@@ -945,8 +885,15 @@ impl Store {
         {
             return Err(format!("the head is seq {floor} but names another bundle; a used sequence cannot equivocate"));
         }
+        let roster = envelope.assets()?;
         let current = match &self.view {
-            _ if self.record.pending.as_deref() == Some(envelope.digest.as_str()) => true,
+            // A held entry's plan is first read by `prepare_activation`, so a
+            // plan damaged since staging is written again, not reported current.
+            _ if self.record.pending.as_deref() == Some(envelope.digest.as_str()) => self
+                .validate(Some(envelope.digest.clone()))
+                .is_some_and(|view| {
+                    read_card(&self.entry_dir(&view.sha).join("app.plan"), &view.plan).is_ok()
+                }),
             Some(view) => view.sha == envelope.digest,
             // Entry zero is current when the head names the plan the binary
             // embeds and exactly the same complete asset roster — removal
@@ -958,17 +905,16 @@ impl Store {
                         .embedded_assets
                         .as_ref()
                         .is_some_and(|assets| {
-                            assets.len() == envelope.assets.len()
-                                && envelope.assets.iter().all(|a| {
+                            assets.len() == roster.len()
+                                && roster.iter().all(|a| {
                                     assets.get(&a.name).is_some_and(|(sha, bytes)| {
                                         sha == &a.sha256 && *bytes == a.bytes
                                     })
                                 })
                         })
-                    && envelope
-                        .assets
+                    && roster
                         .iter()
-                        .all(|a| embedded_asset(&a.name).as_deref() == Some(a.sha256.as_str()))
+                        .all(|a| embedded_asset(&a.name).is_some_and(|e| e.sha256 == a.sha256))
             }
         };
         if current {
@@ -993,14 +939,14 @@ impl Store {
     }
 
     /// Hold what a check stages as pending — whole on disk, booted by no
-    /// launch — until [`Store::commit_activation`]: the `app-decides` policy.
-    /// Off, a staged bundle is selected for the next launch.
+    /// launch — until [`Store::commit_activation`]: the `app-decides` policy (LLP
+    /// 1030.000 D4). Off, a staged bundle is selected for the next launch.
     pub fn hold_staged(&mut self, hold: bool) {
         self.hold = hold;
     }
 
     /// The bundle waiting for this process: held pending, or selected for
-    /// the next launch and not the one this process booted.
+    /// the next launch and not the one this process booted (LLP 1030 D5/D7).
     pub fn staged(&self) -> Option<Staged> {
         let view = match self.validate(self.record.pending.clone()) {
             Some(pending) => pending,
@@ -1021,20 +967,32 @@ impl Store {
         })
     }
 
-    /// Verify and pin a staged candidate without changing the record or
-    /// running generation. Every clone shares its lazy, immutable asset bytes.
-    pub fn prepare_activation(&self) -> Result<Option<PreparedSelection>, String> {
+    /// Verify and pin a staged candidate without changing the running
+    /// generation. Every clone shares its lazy, immutable asset bytes. A
+    /// candidate whose plan does not match its card is no longer staged, so
+    /// the next check of its head writes it again.
+    pub fn prepare_activation(&mut self) -> Result<Option<PreparedSelection>, String> {
         let Some(staged) = self.staged() else {
             return Ok(None);
         };
         let view = self.read_view(&staged.entry)?;
+        let plan = match read_card(&staged.plan, &view.plan) {
+            Ok(plan) => plan,
+            Err(mut reason) => {
+                self.clear_entry_references(&staged.entry);
+                if let Err(write) = self.write_record() {
+                    reason.push_str(&format!("; could not persist the refusal: {write}"));
+                }
+                return Err(reason);
+            }
+        };
         let generation = Generation {
             entry: Some(view.sha.clone()),
             seq: view.seq,
         };
         Ok(Some(PreparedSelection {
             generation: generation.clone(),
-            plan: Arc::from(read_card(&staged.plan, &view.plan)?),
+            plan: Arc::from(plan),
             assets: AssetSet::stored(generation, staged.assets_dir, view.assets),
         }))
     }
@@ -1044,6 +1002,9 @@ impl Store {
     /// fails without overwriting that newer record. A write failure likewise
     /// changes neither the in-memory selection nor the running generation.
     pub fn commit_activation(&mut self, generation: &Generation) -> Result<(), String> {
+        if let Some(why) = self.read_only() {
+            return Err(why.into());
+        }
         let staged = self.staged().ok_or("nothing is staged")?;
         if generation.entry.as_deref() != Some(&staged.entry) || generation.seq != staged.seq {
             return Err("the staged generation changed during preparation".into());
@@ -1069,7 +1030,7 @@ impl Store {
         }
     }
 
-    /// What the app and the agent are told.
+    /// What the app and the agent are told (LLP 1030 D7).
     pub fn status(&self) -> Status {
         Status {
             // `view` is the durable selection for a future launch and may
@@ -1105,10 +1066,21 @@ impl Store {
         &self.embedded
     }
 
-    /// Whether an unknown store codec froze this store: the
+    /// Whether an unknown store codec froze this store (LLP 1030 D9): the
     /// client boots entry zero and writes nothing.
     pub fn frozen(&self) -> bool {
         self.frozen
+    }
+
+    /// Why this store writes nothing, or `None` for an owner that may.
+    fn read_only(&self) -> Option<&'static str> {
+        if self.frozen {
+            Some("the update record was written by a newer binary; this one changes nothing")
+        } else if self.reader {
+            Some("another process owns the update store; this one changes nothing")
+        } else {
+            None
+        }
     }
 
     fn record_path(&self) -> PathBuf {
@@ -1140,12 +1112,16 @@ impl Store {
                 plan_path.display()
             ));
         }
-        let envelope = self.read_envelope(sha)?;
+        let mut envelope = self.read_envelope(sha)?;
+        if let Some(index) = &envelope.index {
+            let raw = read_card(&self.entry_dir(sha).join("assets.json"), &index.card)?;
+            envelope.read_index(&raw)?;
+        }
         Ok(EntryView {
             sha: sha.to_string(),
             seq: envelope.stream.seq,
+            assets: envelope.assets()?.to_vec(),
             plan: envelope.plan,
-            assets: envelope.assets,
         })
     }
 
@@ -1244,10 +1220,21 @@ impl Store {
 
     /// Write the record durably: whatever moves the floor or the selection.
     fn write_record(&self) -> Result<(), String> {
-        if self.frozen {
+        if self.read_only().is_some() {
             return Ok(());
         }
         write_atomic(&self.record_path(), self.record.to_json().as_bytes(), true)
+    }
+
+    /// Write `record` durably, then make it this store's: a failed write
+    /// leaves memory agreeing with the disk, so `status` reports nothing
+    /// staged that the next launch would not boot.
+    fn adopt_record(&mut self, record: Record) -> Result<(), String> {
+        if self.read_only().is_none() {
+            write_atomic(&self.record_path(), record.to_json().as_bytes(), true)?;
+        }
+        self.record = record;
+        Ok(())
     }
 
     /// Write a boot mark — the failure count, the last-good bundle — whole
@@ -1255,12 +1242,13 @@ impl Store {
     /// syncs cost 12–16 ms (2026-09-23, this Mac at load 74–122). A process
     /// crash keeps the write (the page cache has it); a power loss that loses
     /// the record loses only the mark, since `open` recovers the floor from
-    /// the signed entries and the accepted head stages again.
-    fn write_boot_mark(&self) -> Result<(), String> {
-        if self.frozen {
+    /// the signed entries and the accepted head stages again. `boot_succeeded`
+    /// assigns memory only after it returns, so a retry can still write it.
+    fn write_boot_mark(&self, record: &Record) -> Result<(), String> {
+        if self.read_only().is_some() {
             return Ok(());
         }
-        write_atomic(&self.record_path(), self.record.to_json().as_bytes(), false)
+        write_atomic(&self.record_path(), record.to_json().as_bytes(), false)
     }
 
     /// Build one entry under a temporary name and rename it into place. Whole
@@ -1271,6 +1259,7 @@ impl Store {
         envelope: &Envelope,
         head_url: &str,
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<(), String> {
         let target = self.entry_dir(&envelope.digest);
         if let Some(view) = self.validate(Some(envelope.digest.clone())) {
@@ -1285,7 +1274,7 @@ impl Store {
                 .map_err(|e| format!("cannot clear {}: {e}", target.display()))?;
         }
         let tmp = self.entries_dir().join(temporary_name());
-        let filled = self.fill(&tmp, envelope, head_url, fetch);
+        let filled = self.fill(&tmp, envelope, head_url, fetch, embedded_asset);
         if filled.is_err() {
             let _ = std::fs::remove_dir_all(&tmp);
         }
@@ -1299,6 +1288,10 @@ impl Store {
             }
             if tmp.join("assets").exists() {
                 std::fs::rename(tmp.join("assets"), &assets).map_err(|e| e.to_string())?;
+            }
+            if tmp.join("assets.json").exists() {
+                std::fs::rename(tmp.join("assets.json"), target.join("assets.json"))
+                    .map_err(|e| e.to_string())?;
             }
             sync_dir(&target)?;
             std::fs::rename(tmp.join("app.plan"), target.join("app.plan"))
@@ -1329,15 +1322,22 @@ impl Store {
         envelope: &Envelope,
         head_url: &str,
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<(), String> {
         std::fs::create_dir_all(tmp).map_err(|e| format!("cannot make {}: {e}", tmp.display()))?;
         let blobs = self.blobs();
-        self.obtain(&envelope.plan, head_url, fetch)?;
+        // Only assets are taken from the binary, never a plan.
+        self.obtain(&envelope.plan, head_url, fetch, &mut |_| None)?;
         blobs.place(&envelope.plan.sha256, &tmp.join("app.plan"))?;
+        if let Some(index) = &envelope.index {
+            // Read already, so its blob is here and verified.
+            blobs.place(&index.card.sha256, &tmp.join("assets.json"))?;
+        }
         let mut directories = std::collections::BTreeSet::from([tmp.to_path_buf()]);
-        for asset in &envelope.assets {
+        let base = envelope.asset_base(head_url)?;
+        for asset in envelope.assets()? {
             safe_name(&asset.name)?;
-            self.obtain(asset, head_url, fetch)?;
+            self.obtain(asset, &base, fetch, embedded_asset)?;
             let path = tmp.join("assets").join(&asset.name);
             blobs.place(&asset.sha256, &path)?;
             directories.extend(
@@ -1356,18 +1356,27 @@ impl Store {
     }
 
     /// One file into the blob store: kept already under its digest, else
-    /// fetched. Either way the digest and the byte count are what the head
-    /// declared, or nothing is written (assets by digest).
+    /// copied from the binary's embedded file of that name, else fetched.
+    /// In each case the digest and the byte count are what the head declared,
+    /// or nothing is written (LLP 1026 D11, assets by digest).
     fn obtain(
         &self,
         card: &crate::envelope::FileCard,
-        head_url: &str,
+        base: &str,
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+        embedded_asset: &mut dyn FnMut(&str) -> Option<EmbeddedAsset>,
     ) -> Result<(), String> {
-        let url = resolve_url(head_url, &card.url)?;
+        let url = resolve_url(base, &card.url)?;
         let blobs = self.blobs();
         if blobs.holds(card) {
             return Ok(());
+        }
+        // The host's digest only rules a file out; its bytes are read again,
+        // since the file may have changed after the host hashed it.
+        if let Some(embedded) = embedded_asset(&card.name).filter(|e| e.sha256 == card.sha256) {
+            if let Ok(bytes) = read_card(&embedded.path, card) {
+                return blobs.put(&card.sha256, &bytes);
+            }
         }
         let bytes = fetch(&url)?;
         // The closure hands back a whole body, so the declared length is
@@ -1394,14 +1403,27 @@ impl Store {
         Blobs::at(&self.dir)
     }
 
-    /// Remove what no role keeps: every entry but the selected, pending,
-    /// last-good and running ones and the head accepted at the floor (its
-    /// signed witness), then every blob none of them names. Best effort.
-    /// It runs where no download of this store can be in flight — at open,
-    /// and as a check finishes — and never touches a temporary.
+    /// Remove what no role keeps: [`Store::collect_entries`], then every blob
+    /// none of the kept entries names. It runs as a check finishes, where the
+    /// store knows what the head names: until then a blob no entry names may
+    /// be part of a download an earlier launch did not finish, or a file
+    /// another cohort fetched that this cohort's head also names.
     fn collect(&self) {
-        if self.frozen {
-            return;
+        if let Some(digests) = self.collect_entries() {
+            self.blobs().collect(&digests);
+        }
+    }
+
+    /// Remove every entry but the selected, pending, last-good and running
+    /// ones, the head accepted at the floor (its signed witness) and one a
+    /// reader runs. Returns the digests the kept entries name, or `None`
+    /// when this store writes nothing or cannot list its entries. Best
+    /// effort. It runs where no download of this store can be in flight — at
+    /// open, and as the last outstanding check finishes — and never touches a
+    /// temporary.
+    fn collect_entries(&self) -> Option<std::collections::BTreeSet<String>> {
+        if self.read_only().is_some() {
+            return None;
         }
         let keep: std::collections::BTreeSet<&String> = [
             &self.record.selected,
@@ -1415,32 +1437,39 @@ impl Store {
         .collect();
         let mut digests = std::collections::BTreeSet::new();
         let Ok(read) = std::fs::read_dir(self.entries_dir()) else {
-            return;
+            return None;
         };
         for item in read.flatten() {
             let name = item.file_name().to_string_lossy().into_owned();
             if name.starts_with(".tmp-") {
                 continue;
             }
-            if !keep.contains(&name) {
-                let _ = std::fs::remove_dir_all(item.path());
+            if !keep.contains(&name) && remove_entry(&item.path()) {
                 continue;
             }
-            if let Ok(envelope) = read_bounded(
+            if let Ok(mut envelope) = read_bounded(
                 &item.path().join("exact.json"),
                 crate::MAX_ENVELOPE_BYTES as u64,
             )
             .and_then(|raw| Envelope::parse(&raw))
             {
-                digests.insert(envelope.plan.sha256);
-                digests.extend(envelope.assets.into_iter().map(|a| a.sha256));
+                digests.insert(envelope.plan.sha256.clone());
+                // A witness holds no index file, and so names no asset blobs.
+                if let Some(card) = envelope.index.as_ref().map(|index| index.card.clone()) {
+                    digests.insert(card.sha256.clone());
+                    let raw = read_card(&item.path().join("assets.json"), &card);
+                    if raw.and_then(|raw| envelope.read_index(&raw)).is_ok() {
+                        let assets = envelope.assets().unwrap_or_default();
+                        digests.extend(assets.iter().map(|a| a.sha256.clone()));
+                    }
+                }
             }
         }
-        self.blobs().collect(&digests);
+        Some(digests)
     }
 }
 
-/// The head's URL for a stream: the channel's
+/// The head's URL for a stream (LLP 1030 D3a; 1030.000 D4): the channel's
 /// directory under the origin's `.exact/`, then the cohort's, then the
 /// manifest — `<origin>/.exact/<channel>/<compatibilityId>/exact.json`.
 pub fn head_url(origin: &str, channel: &str, compatibility_id: &str) -> String {
@@ -1451,8 +1480,10 @@ pub fn head_url(origin: &str, channel: &str, compatibility_id: &str) -> String {
 }
 
 fn validate_card_urls(head_url: &str, envelope: &Envelope) -> Result<(), String> {
-    for card in std::iter::once(&envelope.plan).chain(envelope.assets.iter()) {
-        resolve_url(head_url, &card.url)?;
+    resolve_url(head_url, &envelope.plan.url)?;
+    let base = envelope.asset_base(head_url)?;
+    for card in envelope.assets()? {
+        resolve_url(&base, &card.url)?;
     }
     Ok(())
 }

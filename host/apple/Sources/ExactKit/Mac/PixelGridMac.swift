@@ -1,6 +1,6 @@
 // Boxes on the device's pixel grid on the Mac, as `IOS/PixelGridIOS.swift`
 // draws them on iOS and as a browser paints them. Layout's frames are
-// fractional. Drawn where they fall, a view's layer sits a
+// fractional (LLP 1001 §6). Drawn where they fall, a view's layer sits a
 // fraction of a device pixel off the grid and Core Animation blends it, its
 // edges and its text, across two device rows. Chromium rounds every painted
 // rectangle's edges to device pixels at their absolute positions

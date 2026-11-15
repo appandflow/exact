@@ -208,7 +208,7 @@ fn a_running_parse_releases_the_lane_for_the_newest_file() {
     assert!(source.done.lock().unwrap().is_empty());
 }
 
-/// The kept list is one storage request, asked again
+/// LLP 1069.010.000 D5: the kept list is one storage request, asked again
 /// when the list changes; a host that keeps nothing lists nothing.
 #[test]
 fn recent_documents_list_what_the_host_keeps_and_forget_one() {

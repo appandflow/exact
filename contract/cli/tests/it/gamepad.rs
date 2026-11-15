@@ -1,4 +1,4 @@
-//! `@exact/gamepad` under its declared substitute (D10
+//! `@exact/gamepad` under its declared substitute (LLP 1133.022 §9, D10
 //! items 2, 3 and 6). The interface is the package's own `exact.json`:
 //!
 //! - a preferred pad is filled in by its family's labels, and the pads that

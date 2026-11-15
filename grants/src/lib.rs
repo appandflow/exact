@@ -1,27 +1,28 @@
 //! The authority model: carried, not inferred.
 //!
-//! A capability grant is bound to the identity of the binding a module was
-//! handed at instantiation. Nothing here inspects a call stack, because
-//! nothing in Ibex 2 is permitted to.
+//! LLP 0067 R2 binds a capability grant to the identity of the binding a
+//! module was handed at instantiation. Nothing here inspects a call stack,
+//! because nothing in Ibex 2 is permitted to.
 //!
-//! The binary question — *may this module reach the network at all?* — is
-//! answered structurally: a module that was not injected `fetch` has no
-//! expression that evaluates to one. So what lives here is only the
-//! **parameterized** half: the per-family questions asked against a grant the
-//! caller already provably holds.
+//! Under D1 and D2 the binary question — *may this module reach the network at
+//! all?* — is answered structurally: a module that was not injected `fetch`
+//! has no expression that evaluates to one. So what lives here is only the
+//! **parameterized** half of LLP 0059.000 §4: the per-family questions asked
+//! against a grant the caller already provably holds (LLP 0067 §2 keeps the
+//! current list).
 //!
 //! This is pure Rust and needs no engine, which is why it is the first thing
 //! built.
 //!
-//! The parameterized questions the boundary asks are [`GrantSet::permits`];
-//! the capabilities and their granularity are [`Grant`]'s variants.
+//! @ref LLP 0067#3-the-check — the parameterized questions the boundary asks
+//! @ref LLP 0059.000#4-capability-summary — the six capabilities and their granularity
 
 use std::collections::BTreeSet;
 mod local;
 mod presence;
 pub mod process;
 mod windows_path;
-pub use local::{is_local_network, is_service_type, DEVELOPMENT, LOCAL_NETWORK};
+pub use local::{is_cloud_metadata, is_local_network, is_service_type, DEVELOPMENT, LOCAL_NETWORK};
 pub use presence::{
     line_presence, presence_words, Policy, Presence, PLATFORM_WORDS, PRESENCE_PREFIX,
 };
@@ -61,7 +62,7 @@ impl Origin {
 /// anybody wrote down.
 ///
 /// Paths reaching here are expected to be already resolved through the virtual
-/// filesystem namespace, so `..` has no meaning at this
+/// filesystem namespace (LLP 0059.000 §3.11), so `..` has no meaning at this
 /// layer and is rejected rather than interpreted.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PathPrefix(Vec<String>);
@@ -76,13 +77,21 @@ impl PathPrefix {
         if let Ok(native) = WindowsPath::parse(path, false) {
             return Some(Self(native.grant_components()));
         }
-        // `doc:/` names the documents a person chose, a namespace beside
-        // `app:/` resolved by the host.
+        // `doc:/` names the documents a person chose (Exact patch: LLP
+        // 1069.010 D1), a namespace beside `app:/` resolved by the host.
         // `home:/` and `bundle:/` name the person's home directory and the
-        // app's installed bundle, resolved by the host.
+        // app's installed bundle (LLP 1133.007 D6), resolved by the host.
         let namespace = ["app:", "doc:", "home:", "bundle:"]
             .into_iter()
             .find_map(|ns| Some((ns, path.strip_prefix(ns)?.strip_prefix('/')?)));
+        // A chosen document's path is the host's own, never normalized: an
+        // empty segment, a backslash or a NUL refuses it, as ibex2's parser,
+        // which the native hosts admit by, refuses it (LLP 1069.010 D1).
+        if namespace.is_some_and(|(ns, rest)| {
+            ns == "doc:" && (rest.contains(['\\', '\0']) || rest.contains("//"))
+        }) {
+            return None;
+        }
         let (namespace, path) = if let Some(found) = namespace {
             found
         } else if path.starts_with('/') {
@@ -120,7 +129,7 @@ impl PathPrefix {
     }
 }
 
-// One printable target.
+// @ref LLP 1027.001#proposed-windows-native-filesystem-grant-integration — one printable target.
 impl std::fmt::Display for PathPrefix {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let namespace = self.0[0].strip_prefix("win:").unwrap_or(&self.0[0]);
@@ -161,10 +170,10 @@ pub enum Operation {
     /// Open a database by path. Capability `sqlite.open`.
     SqliteOpen { path: String },
     /// Keep — read, replace, forget — one secret by name. Capability
-    /// `secret.keep`.
+    /// `secret.keep` (LLP 0069 §1).
     SecretKeep { name: String },
     /// Read, write, delete, and list durable state under one scope.
-    /// Capability `storage.kv`: keys are free within the
+    /// Capability `storage.kv` (LLP 0070 §1): keys are free within the
     /// scope, and the scope is the grant.
     StorageKv { scope: String },
 }
@@ -186,7 +195,7 @@ pub enum Grant {
     WebSocketSubdomains(Origin),
     /// `net.websocket ws:` or `net.websocket wss:`: every origin of the scheme.
     WebSocketScheme(String),
-    /// `net.fetch local-network`: an `http:` or `https:`
+    /// `net.fetch local-network` (LLP 1133.036 D5): an `http:` or `https:`
     /// origin whose host, as written, is on the local network
     /// ([`is_local_network`]), at any port; `loopback` in a development
     /// build (`net.fetch local-network development`, which the bake writes).
@@ -248,7 +257,7 @@ impl Grant {
 
 /// The authority a single binding carries.
 ///
-/// It is handed to a binding at module
+/// This is the value LLP 0060 D1 is about. It is handed to a binding at module
 /// instantiation and consulted at the boundary. It is never derived from a
 /// frame, a `Domain`, or a job queue, and there is deliberately no constructor
 /// that reads ambient state.
@@ -270,7 +279,7 @@ impl GrantSet {
 
     /// The environment variables this set may read, in a stable order.
     ///
-    /// `process.env` is a **snapshot**, not a live proxy,
+    /// `process.env` is a **snapshot**, not a live proxy (LLP 0059.000 §3.8),
     /// and the snapshot is built from exactly this list — so a module cannot
     /// see a variable it was not granted, with no check at read time. The
     /// capability is the object's contents.
@@ -304,7 +313,7 @@ impl GrantSet {
         }
     }
 
-    /// The kv scopes this set may use, in a stable order.
+    /// The kv scopes this set may use, in a stable order (LLP 0070 §1).
     pub fn kv_scopes(&self) -> Vec<&str> {
         self.grants
             .iter()
@@ -316,7 +325,7 @@ impl GrantSet {
     }
 
     /// The secrets this set may keep, in a stable order: the load list a
-    /// host reads into a snapshot before its consumer boots.
+    /// host reads into a snapshot before its consumer boots (LLP 0069 §1).
     pub fn kept_secrets(&self) -> Vec<&str> {
         self.grants
             .iter()
@@ -360,7 +369,7 @@ impl GrantSet {
     /// Parse a grant spec: one grant per line, `capability target`.
     ///
     /// Fixed at creation, because a grant set that can be added to after the
-    /// fact is ambient authority wearing a struct. Blank lines
+    /// fact is ambient authority wearing a struct (LLP 0067 §2). Blank lines
     /// and `#` comments are ignored.
     ///
     /// ```text
@@ -408,8 +417,8 @@ impl GrantSet {
                 ));
             }
             let grant = match capability {
-                // The local network, decided from a URL's host as written.
-                // Only a development build's bake writes
+                // The local network, decided from a URL's host as written
+                // (LLP 1133.036 D5). Only a development build's bake writes
                 // the word after it.
                 "net.fetch" | "net.websocket" if target == LOCAL_NETWORK => {
                     let loopback = match parts.next() {
@@ -473,6 +482,15 @@ impl GrantSet {
                     }
                     let origin = origin(target, false)
                         .map_err(|e| format!("line {}: bad origin `{target}`: {e}", index + 1))?;
+                    // A socket's origin is `ws` or `wss`: a line with another scheme would admit none.
+                    if capability == "net.websocket"
+                        && !matches!(origin.scheme.as_str(), "ws" | "wss")
+                    {
+                        return Err(format!(
+                            "line {}: `{target}`: a `net.websocket` line needs `ws` or `wss`",
+                            index + 1
+                        ));
+                    }
                     if capability == "net.fetch" {
                         Grant::Fetch(origin)
                     } else {
@@ -508,8 +526,8 @@ impl GrantSet {
                             index + 1
                         ));
                     }
-                    // The words after the name are its presence policy,
-                    // which this grammar checks and the
+                    // The words after the name are its presence policy
+                    // (LLP 1133.010 D4), which this grammar checks and the
                     // runner reads; the grant is the name's either way.
                     let rest: Vec<&str> = parts.by_ref().collect();
                     presence_words(&rest).map_err(|e| format!("line {}: {e}", index + 1))?;
@@ -544,7 +562,7 @@ impl GrantSet {
 #[cfg(test)]
 mod quoted_tests;
 
-/// Why a path line's namespace refuses it: a line naming
+/// Why a path line's namespace refuses it (LLP 1133.007 D6): a line naming
 /// the whole home directory would stop meaning anything
 /// (`home-grant-whole`), and the bundle is read only.
 pub fn namespace_refusal(capability: &str, prefix: &PathPrefix) -> Result<(), String> {
@@ -666,7 +684,7 @@ fn origin(target: &str, wildcard: bool) -> Result<Origin, String> {
     Ok(Origin::new(scheme, host, port))
 }
 
-/// Secret and storage scope names.
+/// Secret and storage scope names (ibex LLP 0069 / 0070).
 pub fn valid_name(name: &str) -> bool {
     (1..=64).contains(&name.len())
         && name.bytes().all(|b| {
@@ -835,6 +853,7 @@ mod tests {
             "169.254.169.254",
             "[::ffff:169.254.169.254]",
             "[::ffff:a9fe:a9fe]",
+            "[fd00:ec2::254]",
         ] {
             assert!(!fetch(Origin::new("http", host, 80)));
             assert!(!socket(Origin::new("ws", host, 80)));
@@ -924,7 +943,7 @@ mod tests {
         assert!(set.permits(&Operation::EnvRead {
             name: "NODE_ENV".into()
         }));
-        // The canonical supply-chain case: a credential in the environment.
+        // The canonical supply-chain case from LLP 0059.000 §3.8.
         assert!(!set.permits(&Operation::EnvRead {
             name: "AWS_SECRET_ACCESS_KEY".into()
         }));

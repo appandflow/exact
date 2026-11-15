@@ -1,5 +1,5 @@
 // A fake OAuth 2.0 / OpenID Connect authorization server for @exact/oauth's
-// conformance cases. One Bun process serves every provider
+// conformance cases (LLP 1146 D6). One Bun process serves every provider
 // profile under `/p/<profile>`; a profile reproduces one provider's
 // documented behaviour (PROVIDERS.md gives each one's source). The
 // authorization endpoint approves at once, as a person already signed in

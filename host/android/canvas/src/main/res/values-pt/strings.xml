@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="exact_clear">Limpar</string>
+    <string name="exact_default_channel">Notificações</string>
+    <string name="exact_silent_channel">Notificações silenciosas</string>
 </resources>

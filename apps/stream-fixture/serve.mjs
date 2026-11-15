@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// The stream fixture's server: it replays `record.swift`'s
+// The stream fixture's server (LLP 1133.003 §9): it replays `record.swift`'s
 // H.264 at 60 fps in a loop, as the T3 Code device player receives it.
 //
 //   bun apps/stream-fixture/serve.mjs [--port 4340]

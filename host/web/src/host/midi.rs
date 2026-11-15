@@ -1,4 +1,4 @@
-//! MIDI from the page: what midi-glue.js reports of the
+//! MIDI from the page (LLP 1125 D6–D8): what midi-glue.js reports of the
 //! ports and the inputs, and the agent's `prefer midi.*` and `tap midi`,
 //! each in one batch.
 
@@ -29,7 +29,7 @@ impl<D: DataSource> Host<D> {
     /// the old runner's last outputs go first, every voice ended and every
     /// note it turned on given its note-off now, clock out's Stop sent, so
     /// nothing is left sounding when the new boot's `midi` op lets go of what
-    /// the output held.
+    /// the output held (LLP 1125 D4).
     pub fn ending(old: Option<Self>, batch: String) -> String {
         let Some(mut old) = old else {
             return batch;

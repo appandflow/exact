@@ -1,4 +1,4 @@
-//! Upload budget is refunded only after the upload bytes are freed.
+//! @ref LLP 0068.000#3-ownership-callbacks-and-cancellation — refund only after upload bytes are freed
 
 use ibex2::stdlib::fetch_async::Upload;
 use std::alloc::{GlobalAlloc, Layout, System};

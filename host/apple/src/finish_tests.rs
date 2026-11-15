@@ -1,7 +1,7 @@
 //! A batch says whether the app must finish work an answer started when that
 //! changes, so the session keeps the app running from a request with
 //! effects' send until it lands and the storage its reply's turn started is
-//! persisted.
+//! persisted (LLP 1146 D2, LLP 1097 D10).
 use super::*;
 use exact_kernel::MonospaceMeasurer;
 use exact_plan::Value;

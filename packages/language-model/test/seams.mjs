@@ -1,4 +1,4 @@
-// The seam is public: two tests
+// The seam is public (LLP 1133.001 D8, LLP 1133.016 §13 stage 3): two tests
 // that need nothing an outside author lacks.
 //
 // - Out of the tree: the package, packed as a registry carries it (`bun pm
@@ -7,9 +7,9 @@
 //   `unavailable`, `not-supported`, and a create fails `NotSupportedError`.
 // - Replaced: a fixture implementation of `@exact/language-model` outside
 //   the tree, a direct dependency of the app, replaces the endorsed web
-//   implementation. It answers a
+//   implementation (LLP 1133.001 D4's second rule). It answers a
 //   constrained prompt with the shape's value and calls the app's
-//   `findNotes` handler through `invoke`, whose answer the
+//   `findNotes` handler through `invoke` (D15 item 1), whose answer the
 //   response shows.
 //
 // usage: bun packages/language-model/test/seams.mjs
@@ -81,7 +81,7 @@ writeFileSync(join(dir, 'index.js'), `export function implementation({ invoke })
     },
     async prompt({ session, responseConstraint }) {
       if (!sessions.has(session)) return { error: 'InvalidStateError' };
-      // A constraint from Contract is the named shape's schema as JSON text, and its answer the shape's value.
+      // A constraint from Contract is the named shape's schema as JSON text (D8), and its answer the shape's value.
       const schema = typeof responseConstraint === 'string' ? JSON.parse(responseConstraint) : responseConstraint;
       return schema?.properties?.title ? { title: 'Fixture title' } : { text: 'Fixture text', overflowed: false };
     },

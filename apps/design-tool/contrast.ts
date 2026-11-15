@@ -1,4 +1,4 @@
-// The contrast ratio the tool shows beside a pair of colours.
+// The contrast ratio the tool shows beside a pair of colours (LLP 1122).
 
 /** WCAG 2's contrast ratio of a text colour `fg` over a background `bg`,
  * each `#rrggbb[aa]`: the text composited over the background first. A

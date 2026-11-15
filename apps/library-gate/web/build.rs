@@ -5,7 +5,7 @@ use contract::DataSource;
 
 fn main() {
     contract::rerun_if_changed(std::path::Path::new("../app.contract"));
-    println!("cargo:rerun-if-changed=../app.tamber");
+    println!("cargo:rerun-if-changed=../app.forma");
     println!("cargo:rerun-if-changed=../app.json");
     println!("cargo:rerun-if-changed=../data");
     println!("cargo:rerun-if-changed=build.rs");
@@ -30,6 +30,7 @@ fn main() {
         "library_gate_data::Gate",
         "library_gate_data::Gate",
         contract::web_rust_mode(&compat.inputs),
+        &compat.inputs,
     )
     .unwrap();
     std::fs::write(

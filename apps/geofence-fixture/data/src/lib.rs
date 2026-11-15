@@ -1,4 +1,4 @@
-//! The geofencing fixture's data source (the geofencing drives 10 to 16):
+//! The geofencing fixture's data source (LLP 1133.021 §13 drives 10 to 16):
 //! no sources; the grant lines background location needs.
 
 #![deny(missing_docs)]

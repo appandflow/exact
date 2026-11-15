@@ -13,8 +13,9 @@ import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch
 import { resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild } from '../serve.mjs';
 import { need, notApplicable } from '../../../scripts/coverage.mjs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const app = resolveApp('caltrain');
 const wasmDist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
 

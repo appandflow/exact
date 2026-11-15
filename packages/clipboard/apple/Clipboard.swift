@@ -1,21 +1,21 @@
-// @exact/clipboard on Apple: the Async Clipboard API's
+// @exact/clipboard on Apple (LLP 1133.006): the Async Clipboard API's
 // `write` with a `ClipboardItem` of `image/png` and `text/plain`.
 //
 // - The image is sanitized, as the specification asks and Chrome does: the
 //   PNG is decoded and a new PNG of its pixels written, so nothing else in
-//   the file is carried. An animated PNG writes frame 0 of its
+//   the file is carried (D1). An animated PNG writes frame 0 of its
 //   animation, which this file cuts out itself: ImageIO's frame 0 of an APNG
 //   whose default image is not part of the animation is a later frame
 //   (macOS 27), where Chromium's is the first `fcTL`'s.
 // - macOS writes what a hand-built AppKit app writes when it copies an
-//   image, `writeObjects([NSImage])`, and `public.png` beside it; iOS
-//   one item of `public.png` and `public.utf8-plain-text`.
-// - Under the agent it is its own substitute: it writes a
+//   image, `writeObjects([NSImage])`, and `public.png` beside it (D5); iOS
+//   one item of `public.png` and `public.utf8-plain-text` (D5).
+// - Under the agent it is its own substitute (D8 item 4, §7): it writes a
 //   private pasteboard named for the session, by the rule and name the
 //   host's `copyText` uses (AgentPasteboard.swift), unless `--bind
 //   clipboard` or `EXACT_DEVICE=real` asks for the person's. Where the
 //   private pasteboard cannot be made the write refuses.
-// - A later write supersedes one still decoding, which fails `AbortError`.
+// - A later write supersedes one still decoding, which fails `AbortError` (D2).
 import CryptoKit
 import ExactPackage
 import Foundation
@@ -28,9 +28,9 @@ import UIKit
 #endif
 
 public final class ClipboardModule: ExactPackage {
-    /// The bounds: an image file by path, as bytes, its decoded pixels, and the text.
+    /// D2's bounds: an image file by path, as bytes, its decoded pixels, and the text.
     static let mostFile = 64 * 1024 * 1024, mostBytes = 2 * 1024 * 1024, mostPixels = 64_000_000, mostText = 1024 * 1024
-    /// The types this module writes.
+    /// The types this module writes (D1).
     static let types: Set<String> = ["text/plain", "image/png"]
 
     let context: ExactPackageContext
@@ -45,7 +45,7 @@ public final class ClipboardModule: ExactPackage {
 
     func say(_ line: String) { context.log("clipboard: \(line)") }
 
-    /// The pasteboard written: the person's, or under the agent the session's own.
+    /// The pasteboard written: the person's, or under the agent the session's own (§7).
     var substituting: Bool { context.agent && ProcessInfo.processInfo.environment["EXACT_DEVICE"] != "real" }
 
     public func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void) {
@@ -109,7 +109,7 @@ public final class ClipboardModule: ExactPackage {
         default:
             return reply(refused("TypeError", "image/png is an app:/ path or bytes"))
         }
-        // This write supersedes any still decoding.
+        // This write supersedes any still decoding (D2).
         latest += 1
         let number = latest
         if let w = inFlight { inFlight = nil; w.reply(refused("AbortError", "a later write superseded it")) }
@@ -153,12 +153,12 @@ public final class ClipboardModule: ExactPackage {
         } else {
             say("wrote text/plain (\(text?.utf8.count ?? 0) bytes)")
         }
-        // The agent's view of the module (`state.extensions.clipboard.implementation`).
+        // The agent's view of the module (`state.extensions.clipboard.implementation`, §7 item 3).
         context.state(["writes": writes, "lastWrite": shown])
         return [:]
     }
 
-    // MARK: the pasteboard
+    // MARK: the pasteboard (D5)
 
     /// The pasteboard's name under the agent: the session's, which the host's `copyText` writes too.
     var privateName: String { "exact.agent.clipboard.\(context.hostSession)" }
@@ -168,7 +168,7 @@ public final class ClipboardModule: ExactPackage {
         let board = substituting ? NSPasteboard(name: NSPasteboard.Name(privateName)) : NSPasteboard.general
         board.clearContents()
         if let image {
-            // As a hand-built AppKit app copies an image, then the PNG the web names.
+            // As a hand-built AppKit app copies an image, then the PNG the web names (D5).
             let picture = NSImage(cgImage: image.cgImage, size: NSSize(width: image.width, height: image.height))
             board.writeObjects([picture])
             board.addTypes([.png], owner: nil)
@@ -194,7 +194,7 @@ public final class ClipboardModule: ExactPackage {
     }
     #endif
 
-    // MARK: sanitizing
+    // MARK: sanitizing (D1, D2)
 
     struct Sanitized {
         let png: Data
@@ -230,7 +230,7 @@ public final class ClipboardModule: ExactPackage {
     /// A new PNG of `data`'s pixels, frame 0 of an animation, or why not.
     static func sanitized(_ data: Data) -> Result<Sanitized, Refusal> {
         guard let still = firstFrame(data) else { return .failure(Refusal(description: "not a PNG")) }
-        // The header's size is held to the bound before anything is decoded.
+        // The header's size is held to the bound before anything is decoded (D2).
         let side = { (at: Int) in still[still.startIndex + at..<still.startIndex + at + 4].reduce(0) { $0 << 8 | Int($1) } }
         guard still.count >= 24, String(decoding: still[still.startIndex + 12..<still.startIndex + 16], as: UTF8.self) == "IHDR" else {
             return .failure(Refusal(description: "not a PNG"))

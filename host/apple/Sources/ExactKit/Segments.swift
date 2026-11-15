@@ -1,5 +1,5 @@
-// The device's posture and the viewport segments a fold makes: the web's
-// vocabulary and nothing native — `device-posture`
+// The device's posture and the viewport segments a fold makes (LLP 1078
+// D4, D5, D7): the web's vocabulary and nothing native — `device-posture`
 // (`continuous` | `folded`) and the segment grid CSS-ENV-1 §2.3 names,
 // `cols × rows` rects in the viewport's points, row-major, none for one
 // segment. `exact_segments` is told this; `layout.env` reports it. The
@@ -15,15 +15,15 @@ struct ViewportFold: Equatable {
     var rects: [CGRect] = []
     static let flat = ViewportFold()
 
-    /// The fold under a keyboard that ends the viewport at `viewport`: the
-    /// posture, the count and each
+    /// The fold under a keyboard that ends the viewport at `viewport` (LLP
+    /// 1078, "As built (the keyboard)"): the posture, the count and each
     /// segment's top and left stay the window's, and each segment (with
     /// `lastRow`, each of the last row) ends where the viewport does if it
     /// ends first, never below zero, as Chrome ends its segments at the
     /// visible viewport. Under `resizes-content`
     /// `viewport` is the layout viewport and every segment ends there; Chrome
     /// also clips the band to it, moving the lower segment up to its end or
-    /// dropping the fold, where this keeps the band at the hinge.
+    /// dropping the fold, where this keeps the band at the hinge (LLP 1001).
     /// Under `resizes-visual` it is the visual viewport and, as in Chrome,
     /// only the last row ends there (`lastRow`).
     func ending(at viewport: CGSize, lastRow: Bool = false) -> ViewportFold {
@@ -36,7 +36,7 @@ struct ViewportFold: Equatable {
         return fold
     }
 
-    /// `layout.env`'s four names.
+    /// `layout.env`'s four names (LLP 1012 §1; LLP 1078 D7).
     var env: [String: Any] {
         ["device-posture": posture, "horizontal-viewport-segments": cols, "vertical-viewport-segments": rows,
          "viewport-segments": rects.map { [Agent.r2($0.minX), Agent.r2($0.minY), Agent.r2($0.width), Agent.r2($0.height)] }]
@@ -45,15 +45,15 @@ struct ViewportFold: Equatable {
 
 enum Segments {
     /// Split a viewport along its divider bands, each in the viewport's own
-    /// coordinates and including its margins (UIKit's division frame): a
-    /// band taller than wide cuts columns, a wider one rows; the
+    /// coordinates and including its margins (UIKit's division frame, LLP
+    /// 1078 Q5): a band taller than wide cuts columns, a wider one rows; the
     /// band belongs to no segment; a band outside the viewport, or one that
     /// leaves a segment no room, cuts nothing. `folded` while any band is
     /// present or the hinge itself says it is bent (`hingeBent`: UIKit's
     /// `partiallyOpen`, the Device Posture API's own definition of
     /// `folded`), `continuous` otherwise: the posture never waits for the
     /// regions, which can trail a hinge update by a frame or stop being
-    /// reported for a scene altogether (a deaf session).
+    /// reported for a scene altogether (LLP 1078 §As built, the deaf session).
     static func split(viewport: CGSize, dividers: [CGRect], hingeBent: Bool = false) -> ViewportFold {
         let bounds = CGRect(origin: .zero, size: viewport)
         var xCuts: [(CGFloat, CGFloat)] = [], yCuts: [(CGFloat, CGFloat)] = []

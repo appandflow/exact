@@ -1,4 +1,4 @@
-// A file another file uses: a shape, a style, and a
+// A file another file uses (LLP 1017 P8): a shape, a style, and a
 // component, and no root — every component here is a definition.
 shape Station
   id: string

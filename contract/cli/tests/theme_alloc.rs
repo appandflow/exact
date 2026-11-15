@@ -1,4 +1,4 @@
-//! A theme costs a themed list nothing per row: the
+//! @ref LLP 1095 D4 — a theme costs a themed list nothing per row: the
 //! plan's table is built once and bound by pointer, so mounting a 1,000-row
 //! list whose rows name theme entries allocates no more than the same list
 //! written in literal colours, within noise. Its own binary: it counts every

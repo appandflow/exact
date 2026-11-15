@@ -1,4 +1,4 @@
-//! Whether a page needs its presence module: a plan that names an
+//! Whether a page needs its presence module (LLP 1063): a plan that names an
 //! exit animation or a layout transition, literal or bound. The page loads
 //! `presence-glue.js` after first paint for one (`exact_presence`,
 //! navigation.js `presenceLoader`), so a view whose bound layout transition

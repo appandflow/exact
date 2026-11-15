@@ -1,4 +1,4 @@
-//! `frame` and `measure` on the web: the page answers
+//! `frame` and `measure` on the web (LLP 1051.000 D4): the page answers
 //! through one import, reached only through what this registers, so an app
 //! whose actions read no geometry carries neither the import nor its glue.
 

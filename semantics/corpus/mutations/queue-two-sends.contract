@@ -1,4 +1,4 @@
-// Two sends to a `queue` mutation in one action: the
+// Two sends to a `queue` mutation in one action (LLP 1092 D2, D3): the
 // first is asked in the tap's commit and its answer lands there; the
 // second waits with the arguments it was sent with and is asked by the
 // next advance, before any timer, in a commit of its own.

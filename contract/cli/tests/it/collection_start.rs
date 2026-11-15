@@ -1,5 +1,5 @@
-//! `scroll-start="end"` opens a virtualized list at its end — a transcript — on
-//! measured sizes, not the estimate's guess.
+//! LLP 1010 §6.5: `scroll-start="end"` opens a virtualized list at its end —
+//! a transcript — on measured sizes, not the estimate's guess.
 use exact_kernel::Kernel;
 use exact_plan::Value;
 use exact_runner::{

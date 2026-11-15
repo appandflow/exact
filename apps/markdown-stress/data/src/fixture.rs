@@ -1,7 +1,7 @@
 //! Reproducible Markdown inputs, generated from bounded, explicit controls.
 use std::fmt::Write;
 
-/// Same upper bound as the shipped reader's file ingress.
+/// Same upper bound as the shipped reader's file ingress (LLP 1033).
 pub const MAX_BYTES: usize = 4 * 1024 * 1024;
 /// Explicit source byte budgets; actual bytes are reported, never rounded up.
 pub const SIZES: [usize; 4] = [16 * 1024, 256 * 1024, 1024 * 1024, MAX_BYTES];
@@ -63,7 +63,7 @@ pub fn generate(profile: Profile, budget: usize) -> Result<String, &'static str>
         out.push_str("```rust\n");
     }
     if profile == Profile::Table {
-        out.push_str("| Sequence | State | Payload | Note |\n| --- | --- | --- | --- |\n");
+        out.push_str("| SequenceWithALongUnbreakableHeaderThatCannotWrap | State | PayloadWithAnEvenLongerUnbreakableHeaderThatCannotWrap | Note |\n| --- | --- | --- | --- |\n");
     }
     let suffix = if profile == Profile::Code {
         "```\n"

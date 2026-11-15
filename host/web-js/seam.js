@@ -4,7 +4,7 @@
 // from a Rust module's bytes (rust-data.js) or converted from a TypeScript
 // module's objects (ts-data.js), then shape-checked: a mutation answering the
 // heavy-list bench's 10,000-row feed costs a tap 80–96 ms, where a bounded
-// answer costs 16–24. An answer whose longest list has more
+// answer (LLP 1027.004) costs 16–24. An answer whose longest list has more
 // than ROWS rows is said once per resource or mutation, in the journal
 // (`agent.mjs web … logs`; `exact.journal` in a browser's console).
 //
@@ -44,7 +44,7 @@ export function watch(data, { types, say, owner = () => null, limit = ROWS }) {
     const n = rows(a.v, t);
     if (n <= limit) return;
     told.add(target);
-    say(`big answer: ${target} (source ${source}) carries ${n} list rows across the web seam (over ${limit}); each ask copies them all. Answer a window: docs/agent-pitfalls.md "A tap that changes one row of a long list"`);
+    say(`big answer: ${target} (source ${source}) carries ${n} list rows across the web seam (over ${limit}); each ask copies them all. Answer a window: LLP 1027.004, docs/agent-pitfalls.md "A tap that changes one row of a long list"`);
   };
   const wrap = {
     answer: f => (source, args, store, target, mutation) => {

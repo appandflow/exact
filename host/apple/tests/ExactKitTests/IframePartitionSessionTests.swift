@@ -8,7 +8,8 @@ import AppKit
 #if os(macOS)
 /// scripts/fixtures/iframe-partition.contract: a partitioned frame's
 /// `FrameNavigation` records reach its actions through the runner, its
-/// commands reach the frame, and `tree` shows what a person sees of it.
+/// commands reach the frame, and `tree` shows what a person sees of it
+/// (LLP 1020.002 D2, D3, §10).
 final class IframePartitionSessionTests: XCTestCase {
     nonisolated(unsafe) private static var server: FramePages?
 
@@ -30,10 +31,12 @@ final class IframePartitionSessionTests: XCTestCase {
             throw missing("module", "no WebKit arm: name a built one with EXACT_TEST_WEB_MODULE")
         }
         _ = NSApplication.shared
-        if Self.server == nil { Self.server = try FramePages(port: 16585) }
+        if Self.server == nil { Self.server = try FramePages() }
+        let origin = "http://127.0.0.1:\(Self.server!.port)"
         let session = ExactApp.shared.makeSession(label: "iframe-partition")
         session.webviews.moduleLocation = { module }
         defer { session.destroy() }
+        XCTAssertTrue(session.openIncoming("/?origin=\(origin)"))
         XCTAssertNil(session.boot(plan: try fixturePlan("IFRAME_PARTITION"), size: CGSize(width: 640, height: 500)).error)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -47,13 +50,13 @@ final class IframePartitionSessionTests: XCTestCase {
             let end = Date(timeIntervalSinceNow: seconds)
             while !done() && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
         }
-        deadline(20) { seen().hasPrefix("Page A|http://127.0.0.1:16585/a|") }
-        XCTAssert(seen().hasPrefix("Page A|http://127.0.0.1:16585/a|"), seen())
+        deadline(20) { seen().hasPrefix("Page A|\(origin)/a|") }
+        XCTAssert(seen().hasPrefix("Page A|\(origin)/a|"), seen())
 
         let toB = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "to-b" })
         session.presenter.press(toB.id)
-        deadline(20) { seen().hasPrefix("Page B|http://127.0.0.1:16585/b|") }
-        XCTAssert(seen().hasPrefix("Page B|http://127.0.0.1:16585/b|"), seen())
+        deadline(20) { seen().hasPrefix("Page B|\(origin)/b|") }
+        XCTAssert(seen().hasPrefix("Page B|\(origin)/b|"), seen())
 
         let never = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "never" })
         session.presenter.press(never.id)
@@ -64,7 +67,7 @@ final class IframePartitionSessionTests: XCTestCase {
         let frame = try XCTUnwrap((tree["nodes"] as? [[String: Any]])?.first { ($0["props"] as? [String: Any])?["testId"] as? String == "guest" })
         XCTAssertEqual(frame["partition"] as? String, "fixture")
         let navigation = try XCTUnwrap(frame["navigation"] as? [String: Any])
-        XCTAssertEqual(navigation["url"] as? String, "http://127.0.0.1:16585/b")
+        XCTAssertEqual(navigation["url"] as? String, "\(origin)/b")
         XCTAssertNil(navigation["icons"], "tree shows what a person sees, nothing more")
     }
 }
@@ -73,7 +76,7 @@ final class IframePartitionSessionTests: XCTestCase {
 #if os(macOS)
 /// scripts/fixtures/iframe-windows.contract: a guest's `newwindow` reaches
 /// its frame's action with a `FrameNewWindow`, and a frame that handles it
-/// is told so before its web view is made.
+/// is told so before its web view is made (LLP 1020.002 D5).
 final class IframeWindowsSessionTests: XCTestCase {
     nonisolated(unsafe) private static var server: WindowPages?
 
@@ -99,10 +102,12 @@ final class IframeWindowsSessionTests: XCTestCase {
             throw missing("module", "no WebKit arm: name a built one with EXACT_TEST_WEB_MODULE")
         }
         _ = NSApplication.shared
-        if Self.server == nil { Self.server = try WindowPages(port: 16621) }
+        if Self.server == nil { Self.server = try WindowPages() }
+        let origin = "http://127.0.0.1:\(Self.server!.port)"
         let session = ExactApp.shared.makeSession(label: "iframe-windows")
         session.webviews.moduleLocation = { module }
         defer { session.destroy() }
+        XCTAssertTrue(session.openIncoming("/?origin=\(origin)"))
         XCTAssertNil(session.boot(plan: try fixturePlan("IFRAME_WINDOWS"), size: CGSize(width: 640, height: 500)).error)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -115,11 +120,12 @@ final class IframeWindowsSessionTests: XCTestCase {
             while !done() && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
         }
         let guest = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "guest" })
-        until(20) { (guest.web as? WKWebView)?.url?.path == "/opener" && (guest.web as? WKWebView)?.isLoading == false }
+        until(20) { (guest.web as? WKWebView)?.url?.absoluteString == "\(origin)/opener" && (guest.web as? WKWebView)?.isLoading == false }
         let web = try XCTUnwrap(guest.web as? WKWebView)
+        XCTAssertEqual(web.url?.absoluteString, "\(origin)/opener")
         web.evaluateJavaScript("document.getElementById('blank').click()") { _, _ in }
         until(10) { seen().hasPrefix("foreground-tab ") }
-        XCTAssertEqual(seen(), "foreground-tab http://127.0.0.1:16621/b|")
+        XCTAssertEqual(seen(), "foreground-tab \(origin)/b|")
     }
 }
 #endif

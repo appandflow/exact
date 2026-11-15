@@ -1,4 +1,4 @@
-// The photo editor's print lab, a fixture: it keeps
+// The photo editor's print lab, a fixture (LLP 1133.034 §10, D6): it keeps
 // checkouts made before the sheet, with their prices fixed, quotes shipping
 // for the sheet's redacted address, and records each payment's attempt. It
 // never charges a card: a payment's token is checked for its method's shape,
@@ -18,7 +18,7 @@
 // - `POST /fixture/switches {…}` changes the switches while it runs;
 //   `GET /fixture/log` is what it saw; `POST /fixture/reset` forgets it all.
 //
-// Merchant validation (Apple Pay on the web): only Apple's listed gateway
+// Merchant validation (Apple Pay on the web, D8): only Apple's listed gateway
 // hosts, over HTTPS, are accepted, and no redirect is followed. With a
 // merchant identity certificate it posts to that URL; without one it answers 503.
 
@@ -76,7 +76,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** The checkout as the app's screen reads it. */
 const shown = (c: Checkout) => ({ id: c.id, size: c.size, price: c.price, shipping: c.shipping, state: c.state, orderId: c.orderId ?? '', attempts: c.attempts.length, charged: c.attempts.filter((a) => a.outcome === 'paid').length });
 
-/** The shipping options and total for a redacted address: a country, a region, a postal code. */
+/** The shipping options and total for a redacted address (D2): a country, a region, a postal code. */
 function quote(c: Checkout, address: Record<string, unknown> | null, option: string | null) {
   const country = String(address?.country ?? '');
   if (!SHIPS.includes(country)) {

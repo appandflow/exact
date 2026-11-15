@@ -1,4 +1,4 @@
-// The window's bar is presented again only by a batch
+// @ref LLP 1115.002 D2 — the window's bar is presented again only by a batch
 // that touches what it read. Each present records its reads (`BarReads`):
 // the routes it consulted and each one's direct children, the header it
 // read (shown, kept painted, or the declared toolbar), every node carrying
@@ -16,8 +16,8 @@
 // from routes the bar never read.
 //
 // A scrolling list's slice of rows touches none of it, so it no longer
-// presents the bar: that was a fifth of `Presenter.apply` while a chat app's
-// transcript filled rows.
+// presents the bar: a fifth of `Presenter.apply` while Excord's transcript
+// filled rows (QUEUE, 2026-10-25; x2-perf4's plan, theme2 2026-10-29 05:08).
 // An exclusion (skip a collection's rows) could not be made sound: a toolbar
 // can sit in a row, and a header's popover can live in one.
 //
@@ -41,7 +41,7 @@ struct BarInputs: Equatable {
     var selection: [UInt32] = []
     var barRoute = false, hasStack = false, backInToolbar = false
     var split: [UInt32] = []
-    var listOwnsWindow = true
+    var listOwnsWindow = false
     var modal: UInt32?
     var sheet = false, sidebar = false, sidebarItems = false
     /// The page is in the bar's window, and the window's toolbar is still the bar's.
@@ -81,7 +81,7 @@ extension WindowToolbarHost {
         var created: Set<UInt32>?
         // A node with no view, made by none of this batch's ops: nothing to place, so it may be the bar's.
         // Conservative: an op on a viewless node anywhere in the page presents the bar (rare: a viewless
-        // node changes through `Batch.controls`, not ops; a chat transcript's fill hits none).
+        // node changes through `Batch.controls`, not ops; Excord's fill hits none).
         func unplaced(_ id: UInt32) -> Bool {
             guard presenter.views[id] == nil, presenter.leaving[id] == nil else { return false }
             if created == nil { created = Set(batch.ops.lazy.filter { $0.op == .create }.map(\.id)) }
@@ -152,7 +152,7 @@ extension WindowToolbarHost {
         inputs.back = navigation.backFacts
         let split = navigation.split
         if split.active, let shown = split.shown { inputs.split = [shown.root.id, shown.list.id, shown.detail?.id ?? 0] }
-        inputs.listOwnsWindow = split.listOwnsWindow
+        inputs.listOwnsWindow = split.listOwns
         inputs.modal = presenter.dialogs.active?.id
         let routes = [navigation.headerRoute?.route, navigation.splitHeaderRoutes?.owner, navigation.splitHeaderRoutes?.beside].compactMap { $0 }
         inputs.routes = routes.map { route in route.id << 2 | (visible(route) ? 1 : 0) | (route.inert ? 2 : 0) }
@@ -297,7 +297,7 @@ extension WindowToolbarHost {
         lines.append("header \(header.map { "\($0.header.id) lead \($0.leading.map(\.id)) trail \($0.trailing.map(\.id)) backs \($0.backs.map(\.id))" } ?? "-")")
         lines.append("beside \(beside.map { "\($0.header.id) lead \($0.leading.map(\.id)) trail \($0.trailing.map(\.id))" } ?? "-") parts \(besideParts.map(\.node.id))")
         lines.append("order \(toolbar?.items.map(\.itemIdentifier.rawValue) ?? [])")
-        lines.append("back \(backItem.isEnabled) segments \(segments.summary(overflow: false).map { s in "\(s["tablist"] ?? "") \(s["label"] ?? "") \(s["selected"] ?? "") \((s["tabs"] as? [[String: Any]] ?? []).map { "\($0["id"] ?? "")/\($0["title"] ?? "")/\($0["enabled"] ?? "")" })" } ?? "-") \(segments.item?.isEnabled ?? false) \(segments.item?.subitems.map { "\($0.label)/\($0.isEnabled)" } ?? [])")
+        lines.append("back \(backItem.isEnabled) history \(historyItem.subitems.map(\.isEnabled)) segments \(segments.summary(overflow: false).map { s in "\(s["tablist"] ?? "") \(s["label"] ?? "") \(s["selected"] ?? "") \((s["tabs"] as? [[String: Any]] ?? []).map { "\($0["id"] ?? "")/\($0["title"] ?? "")/\($0["enabled"] ?? "")" })" } ?? "-") \(segments.item?.isEnabled ?? false) \(segments.item?.subitems.map { "\($0.label)/\($0.isEnabled)" } ?? [])")
         lines.append("search \(search.node?.id.description ?? "-") \(search.item.map { "\($0.label) | \($0.searchField.placeholderString ?? "") | \($0.isEnabled) | \($0.searchField.accessibilityLabel() ?? "")" } ?? "-")")
         for id in items.keys.sorted() {
             guard let item = items[id] else { continue }
@@ -324,7 +324,7 @@ extension WindowToolbarHost {
 }
 
 extension Presenter {
-    /// The accent or another system colour changed: every view applies its colours again.
+    /// The accent or another system colour changed (LLP 1095 D5): every view applies its colours again.
     func systemColorsChanged() {
         views.values.forEach { $0.systemColorsChanged() }
         // A prominent item's tint is resolved when the bar presents (`prominence`): no batch says it moved.

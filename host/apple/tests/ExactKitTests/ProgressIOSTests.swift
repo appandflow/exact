@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// On UIKit: an indeterminate `progress`
+/// LLP 1069.001, amended 2026-10-07, on UIKit: an indeterminate `progress`
 /// is a `UIActivityIndicatorView`, `.medium` in the default 20 × 20 box and
 /// `.large` from 37 points, centred, in the node's `color`, named by
 /// `aria-label`; it turns while it shows and stops when hidden or removed
@@ -22,7 +22,7 @@ final class ProgressIOSTests: XCTestCase {
         return p
     }
     /// A spinner whose style has the red `color` it computes; `written`, its
-    /// author wrote that on it, else it only inherits it.
+    /// author wrote that on it (LLP 1115.000 D2), else it only inherits it.
     private func progress(_ id: Int, _ props: [String: String] = [:], side: Double = 20, y: Double = 0, written: Bool = false) -> [[String: Any]] {
         [["op": "create", "id": id, "kind": "control",
           "props": ["type": "progress", "accessibilityRole": "progressbar", "accessibilityBusy": "true"].merging(props) { $1 },
@@ -34,9 +34,10 @@ final class ProgressIOSTests: XCTestCase {
          ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0]]
     }
 
-    /// A `color` the indicator only inherits is not its own;
+    /// LLP 1115 D4: a `color` the indicator only inherits is not its own;
     /// it keeps UIKit's. A colour its author wrote on it is its own, the
-    /// parent's colour written again and a platform colour included.
+    /// parent's colour written again and a platform colour included (LLP
+    /// 1115.000 D2).
     func testAnInheritedColourLeavesUIKitsIndicatorColour() throws {
         var ops = box(1) + progress(2) + progress(3, written: true) + progress(4, written: true)
         ops[0]["style"] = ["text_color": [255, 0, 0, 255], "written": ["text_color"]]
@@ -72,7 +73,8 @@ final class ProgressIOSTests: XCTestCase {
     }
 
     /// `accent-color: AccentColor` under an authored accent keeps that one,
-    /// as the web's `var(--exact-accent, AccentColor)` does; with none authored above, the role's own.
+    /// as the web's `var(--exact-accent, AccentColor)` does (LLP 1121 D9,
+    /// stage 9 F1); with none authored above, the role's own.
     func testTheAccentRoleUnderAnAuthoredAccentKeepsIt() throws {
         let tint: [String: Any] = ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]
         let green: [Double] = [0, 200, 0, 255]
@@ -171,7 +173,7 @@ final class ProgressIOSTests: XCTestCase {
         XCTAssertNotEqual(medium.accessibilityLabel, "Loading", "a cleared label is cleared")
     }
 
-    /// A drawn `role="progressbar"` box is one element whose
+    /// LLP 1116 D8: a drawn `role="progressbar"` box is one element whose
     /// value is the percentage UIKit's own progress view speaks, or its
     /// `aria-valuetext`; its fill is not a second element.
     func testADrawnProgressbarSpeaksItsValue() throws {
@@ -196,7 +198,7 @@ final class ProgressIOSTests: XCTestCase {
          ["op": "frame", "id": id, "x": 0.0, "y": y, "w": 160.0, "h": 16.0]]
     }
 
-    /// With a `value`, a `progress` is UIKit's progress view
+    /// LLP 1116 D8: with a `value`, a `progress` is UIKit's progress view
     /// (`.default`) across its content box at its own height, centred, at
     /// HTML's fraction (`max` 1 unsaid; past `max`, full), tinted by its
     /// `accent-color` and named by `aria-label`; VoiceOver hears the
@@ -215,7 +217,7 @@ final class ProgressIOSTests: XCTestCase {
         XCTAssertEqual(water.accessibilityLabel, "Water")
         XCTAssertEqual(water.accessibilityIdentifier, "water")
         XCTAssertEqual(water.accessibilityValue, "25%")
-        // Its accent is the tint it inherits, which UIKit draws and
+        // Its accent is the tint it inherits (LLP 1116.001 D2), which UIKit draws and
         // greys behind an alert
         XCTAssertNil(water.progressTintColor)
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0

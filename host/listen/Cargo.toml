@@ -1,8 +1,8 @@
-# The local listener: `unix:` sockets bound under the path
-# rules, their connections read as lines within the bounds, and each address
-# held by one listener of the process at a time. A loaded capability on Apple
+# The local listener (LLP 1133.005): `unix:` sockets bound under D4's rules,
+# their connections read as lines within D3's bounds, and each address held
+# by one listener of the process at a time (D2). A loaded capability on Apple
 # — `libexact_listen.dylib`, opened by the executor on the first listener and
-# carried only by a build whose grants can listen — and a plain
+# carried only by a build whose grants can listen (D13) — and a plain
 # dependency of the Linux host, as `exact-svg-raster` is.
 [package]
 name = "exact-listen"

@@ -1,5 +1,5 @@
 //! What a look frame reads back and what it knows of the frame it encoded
-//! The colour target, the particle counts, the
+//! (LLP 1127.000 D1, D4): the colour target, the particle counts, the
 //! occlusion queries, the cull's account of each item, and for culled frames
 //! the camera's, cascades' and local shadow layers' indirect arguments and the
 //! camera's compacted lists.

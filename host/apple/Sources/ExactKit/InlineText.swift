@@ -3,13 +3,14 @@ import Foundation
 import CoreText
 
 extension InlineText {
-    /// What it reads as: its text, or an image's `aria-label`.
+    /// What it reads as: its text, or an image's `aria-label` (LLP 1011.002 D4).
     var spoken: String { lightRun.box == nil ? text : boxShown ? props["accessibilityLabel"] ?? "" : "" }
-    /// Whether a colour here is the view's tint.
+    /// Whether a colour here is the view's tint (LLP 1095 D8).
     var namesTint: Bool { colorRef?.namesTint == true || backgroundRef?.namesTint == true || paint.namesTint }
     /// The run in its paragraph owner's traits: `contrast` and `elevated`
-    /// as `BatchValue.channels` takes them.
+    /// as `BatchValue.channels` takes them (LLP 1095 D5).
     func run(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> Run {
+        let opacity = self.opacity
         var value = lightRun
         if dark { value.color = darkColor; value.background = darkBackground }
         if let colorRef { value.color = colorRef.channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) }
@@ -17,6 +18,8 @@ extension InlineText {
         if let backgroundRef { value.background = backgroundRef.channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) }
         (value.shadow, value.stroke) = paint.resolve(dark: dark, contrast: contrast, elevated: elevated, tint: tint,
                                                      color: value.color ?? SystemColor.canvasTextChannels(dark: dark, contrast: contrast))
+        value.opacity = opacity < 1 ? [InlineOpacity(box: id, alpha: opacity)] : []
+        value.backgroundOpacity = value.opacity
         return value
     }
     static func run(_ text: String, style: NodeStyle, href: String = "", dark: Bool, contrast: Bool? = nil, elevated: Bool = false,
@@ -33,12 +36,12 @@ extension InlineText {
                       numeric: Int(number("font_variant_numeric")),
                       ligatures: Int(number("font_variant_ligatures")),
                       stretch: CGFloat(Float(number("font_stretch", 100))),
-                      variations: FontAxis.of(style),
+                      variations: FontAxis.of(style), features: FontFeature.of(style),
                       color: style["text_color"]?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint),
                       decoration: style["text_decoration_line"]?.string ?? "", href: href)
         (run.shadow, run.stroke) = RunPaintRows(style).resolve(dark: dark, contrast: contrast, elevated: elevated, tint: tint,
                                                                color: run.color ?? SystemColor.canvasTextChannels(dark: dark, contrast: contrast))
-        run.hidden = style["visibility"]?.string == "hidden"
+        run.hidden = (style["visibility"]?.string ?? "visible") != "visible"
         run.fixedInk = style["text_color"]?.fixesInk == true
         return run
     }
@@ -48,7 +51,7 @@ extension Run {
     /// Whether it is drawn underlined: written, or a link run with no
     /// decoration written where the platform underlines links. AppKit's
     /// `NSTextView.linkTextAttributes` does; UIKit's text links are the tint
-    /// alone, so iOS invents none.
+    /// alone (LLP 1115 §3), so iOS invents none.
     var underlined: Bool {
         decoration.contains("underline") || (Run.linksUnderlined && decoration.isEmpty && !href.isEmpty)
     }
@@ -139,11 +142,13 @@ extension NodeView {
         #if os(macOS)
         if let readerParagraph { return readerParagraph.offset(at: point, node: self) }
         #endif
-        // A fragmented paragraph's point, in its unfragmented box.
+        // A fragmented paragraph's point, in its unfragmented box (LLP 1093 D8).
         let box = paragraphBox()
+        let lines = columnRecord?.fragments.first(where: { $0.rect.contains(point) })?.lines
         guard let point = paragraphPoint(point), box.contains(point), let paragraph = paragraphLayout() else { return nil }
         let spec = paragraphSpec()
         guard let line = paragraph.lineIndex(at: CGPoint(x: point.x - box.minX, y: point.y - box.minY), align: spec.align, width: box.width) else { return nil }
+        guard lines?.contains(line) != false else { return nil }
         let x = box.minX + paragraph.origin(line, align: spec.align, width: box.width)
         let width = CGFloat(CTLineGetTypographicBounds(paragraph.lines[line], nil, nil, nil))
         guard point.x >= x, point.x <= x + width else { return nil }
@@ -151,7 +156,7 @@ extension NodeView {
         return offset == kCFNotFound ? nil : offset
     }
     func inlineTarget(at point: CGPoint, handler: String? = nil) -> InlineText? {
-        // Runs' ranges address the source; the hit, the shaped text.
+        // Runs' ranges address the source; the hit, the shaped text (LLP 1053 G5).
         guard let offset = textOffset(at: point).map(sourceOffset) else { return nil }
         // Leaf lookup is logarithmic even in a paragraph with thousands of runs.
         var lo = 0, hi = inlineText.count
@@ -207,7 +212,7 @@ extension NodeView {
     func activateLink(_ url: String, bubbled: Bool = false) -> Bool {
         if pressReaderAtom(url) { return true }
         guard let session = presenter?.session, !disabled, !(bubbled ? authoredInert : inert) else { return false }
-        if url.hasPrefix("/") && !url.hasPrefix("//") { return session.navigate(url) }
+        if url.hasPrefix("/") && !url.hasPrefix("//") { return session.navigate(url, target: props["target"]) }
         session.delegate?.exactSession(session, command: "openURL", args: [url]); return true
     }
     /// Whether `activateInline` acts on run `id`: it is enabled and has a
@@ -234,6 +239,6 @@ extension NodeView {
         // A route in the note navigates; anything else is the app's to open
         // (session.follow). A button's own `href` uses `activateLink`.
         guard let url = run.props["href"], let session = presenter.session else { return false }
-        return session.follow(url)
+        return session.follow(url, target: run.props["target"])
     }
 }

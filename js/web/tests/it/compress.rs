@@ -1,8 +1,8 @@
-//! `storage.fs.compressImage` in real Chrome: the
+//! `storage.fs.compressImage` in real Chrome (LLP 1069.002 A1.3, A1.7): the
 //! web host's `storage-fs.js` over `storage-image.js`, in the page and in a
 //! module worker, and a Rust source's request through `storage-request.js`;
-//! and `transformImage` and `compressImage`'s edit there (image
-//! conformance), with Firefox and WebKit where installed.
+//! and `transformImage` and `compressImage`'s edit there (LLP 1133.019 §11's
+//! image conformance), with Firefox and WebKit where installed.
 use std::path::Path;
 use std::process::Command;
 
@@ -159,7 +159,7 @@ fn check(engine: &str, report: &serde_json::Value) {
         assert_eq!(r["badType"], "TypeError", "{engine} {realm}");
         transformed(engine, realm, &r["transform"]);
     }
-    // A Rust source's transform: the TypeScript options beside the paths, its record back.
+    // A Rust source's transform: D14's options beside the paths, its record back.
     assert_eq!(
         report["rustTransform"],
         serde_json::json!({"path":"app:/data/rust-turned.jpg","type":"image/jpeg","width":64,"height":48,
@@ -187,7 +187,7 @@ fn check(engine: &str, report: &serde_json::Value) {
     );
 }
 
-/// Image conformance on the canvas codec.
+/// LLP 1133.019 §11's image conformance on the canvas codec.
 fn transformed(engine: &str, realm: &str, t: &serde_json::Value) {
     let rgb = |v: &serde_json::Value| -> Vec<u64> {
         v.as_array().unwrap()[..3]
@@ -261,6 +261,8 @@ import { chromium } from './scripts/agent-launch.mjs';
 const { executable: browserExecutable, unavailable: browserMissing } = chromium();
 if (browserMissing) { console.log(`missing chrome: ${browserMissing}`); process.exit(0); }
 import { webHostFiles } from './scripts/app.mjs';
+import { buildHostGlue } from './host/web-js/glue.mjs';
+await buildHostGlue(process.cwd());
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
@@ -332,7 +334,7 @@ const checks = async (origin, sets, app) => {
   await fs.writeFile('app:/tmp/noise.png', await (await noise.convertToBlob({ type: 'image/png' })).arrayBuffer());
   const shrunk = await fs.compressImage('app:/tmp/noise.png', 'app:/tmp/noise.jpg', { maxDimension: 1000, maxBytes: 120_000 });
   report.noise = { width: shrunk.width, height: shrunk.height, size: shrunk.size };
-  // A picked entry is the browser's File.
+  // A picked entry is the browser's File (LLP 1069.002 D5).
   await createFileStore(app).putBlob('app:/tmp/picked.jpg', new File([fixture], 'IMG_1.jpg', { type: 'image/jpeg' }));
   const picked = await fs.compressImage('app:/tmp/picked.jpg', 'app:/tmp/picked-out.jpg', { maxDimension: 4000, maxBytes: 2_000_000 });
   report.picked = [picked.width, picked.height];
@@ -364,7 +366,7 @@ const checks = async (origin, sets, app) => {
   const white = new OffscreenCanvas(8, 8).getContext('2d');
   white.drawImage(await createImageBitmap(new Blob([await fs.readFile('app:/tmp/clear.jpg')], { type: 'image/jpeg' })), 0, 0);
   report.clear = [...white.getImageData(0, 0, 1, 1).data].slice(0, 3);
-  // `type: "image/png"`: clear on the left half, red on the right, kept.
+  // `type: "image/png"` (A1.11): clear on the left half, red on the right, kept.
   const half = new OffscreenCanvas(16, 16), halfContext = half.getContext('2d');
   halfContext.fillStyle = '#f00'; halfContext.fillRect(8, 0, 8, 16);
   await fs.writeFile('app:/tmp/half.png', await (await half.convertToBlob({ type: 'image/png' })).arrayBuffer());
@@ -373,7 +375,7 @@ const checks = async (origin, sets, app) => {
   alpha.drawImage(await createImageBitmap(new Blob([await fs.readFile('app:/tmp/half-out.png')], { type: 'image/png' })), 0, 0);
   report.png = { type: png.type, size: [png.width, png.height], left: alpha.getImageData(0, 0, 1, 1).data[3], right: alpha.getImageData(7, 0, 1, 1).data[3] };
   report.badType = await code(fs.compressImage('app:/tmp/half.png', 'app:/tmp/x.webp', { maxDimension: 8, maxBytes: 100, type: 'image/webp' }));
-  // `transformImage` and `compressImage`'s edit: the
+  // `transformImage` and `compressImage`'s edit (LLP 1133.019 §11): the
   // fixture upright is 48×64, blue on the left.
   const at = async (path, type, points) => {
     const b = await createImageBitmap(new Blob([await fs.readFile(path)], { type }));
@@ -464,7 +466,7 @@ try {
   const playwright = await import('playwright-core');
   for (const name of ['firefox', 'webkit']) {
     // A persistent profile: an ephemeral Firefox context cannot keep a Blob
-    // in IndexedDB, which a picked entry is.
+    // in IndexedDB, which a picked entry is (LLP 1069.002 D5).
     const dir = mkdtempSync(resolve(tmpdir(), `exact-compress-${name}-`));
     let context;
     try { context = await playwright[name].launchPersistentContext(dir); }
@@ -481,8 +483,8 @@ try {
 console.log(JSON.stringify(reports));
 "#;
 
-/// A prerequisite this run lacks: skipped, and a failure under EXACT_REQUIRED=1
-/// (scripts/coverage.mjs).
+/// A prerequisite this run lacks: skipped, and a failure under EXACT_REQUIRED=1,
+/// which the async lane sets (scripts/coverage.mjs).
 fn missing(kind: &str, why: &str) {
     assert_ne!(
         std::env::var("EXACT_REQUIRED").as_deref(),

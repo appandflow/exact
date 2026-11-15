@@ -1,4 +1,4 @@
-# Tooling only: owned-directory reads, writes and publish locks.
+# Tooling only: owned-directory reads, writes and publish locks. LLP 1030.002.
 [package]
 name = "exact-filesystem"
 version.workspace = true

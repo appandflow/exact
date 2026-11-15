@@ -8,7 +8,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 /// Metadata-only C demand. `variant` is one of `exact_raster::variant`'s storage
-/// formats; every one is EXIF-transformed, first frame.
+/// formats (LLP 1100 D7); every one is EXIF-transformed, first frame.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 #[allow(missing_docs)]

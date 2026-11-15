@@ -442,6 +442,16 @@ impl RigidBodyActivation {
         self.time_since_can_sleep = self.time_until_sleep;
     }
 
+    /// Exact2: make an awake body sleep-eligible at `pose` without flagging it
+    /// asleep. Its island then sleeps as a whole in the next step if every other
+    /// member is eligible too; until then the body is simulated like any awake one.
+    /// The caller zeroes its velocities; `pose` is where the next step finds it.
+    #[inline]
+    pub fn request_sleep(&mut self, pose: Pose) {
+        self.time_since_can_sleep = self.time_until_sleep;
+        self.sleep_prev_pose = pose;
+    }
+
     /// Does this body have a sufficiently low kinetic energy for a long enough
     /// duration to be eligible for sleeping?
     pub fn is_eligible_for_sleep(&self) -> bool {

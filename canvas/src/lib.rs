@@ -1,4 +1,7 @@
-//! Canvas 2D for exact2: Core Graphics' model by the web's name.
+//! Canvas 2D for exact2 (LLP 1056): Core Graphics' model by the web's name.
+//!
+//! @ref LLP 1056 D1 (the data module draws), D3 (the recorder), D4 (the
+//! protocol's frame), D6 (coordinates)
 //!
 //! - [`context`]: the recorder, [`Context2d`], with web-sys's method names.
 //! - [`list`]: the bytes every host replays, and the structural check.
@@ -66,12 +69,12 @@ pub const COMPOSITE: [&str; 26] = [
 /// Whether operator `k` changes destination pixels outside the shape,
 /// within the clip (`source-in`, `source-out`, `destination-in`,
 /// `destination-atop`, `copy`): a replayer draws the shape into a layer and
-/// composites the layer over the whole clip.
+/// composites the layer over the whole clip (LLP 1056 §1, §3).
 pub fn composite_clips_extent(k: usize) -> bool {
     matches!(k, 1 | 2 | 5 | 7 | 9)
 }
 
-/// Why a draw was requested. Requests coalesce before they
+/// Why a draw was requested (LLP 1056 D4). Requests coalesce before they
 /// run, so one draw can have several.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Causes(pub u8);
@@ -85,9 +88,9 @@ impl Causes {
     pub const SIZE: Causes = Causes(4);
     /// It asked for another frame, and the host presented one.
     pub const FRAME: Causes = Causes(8);
-    /// An image it named decoded.
+    /// An image it named decoded (stage 2).
     pub const IMAGE: Causes = Causes(16);
-    /// A font it used became available.
+    /// A font it used became available (stage 2).
     pub const FONT: Causes = Causes(32);
     /// The colour or direction it draws in changed (`currentColor`,
     /// `direction = "inherit"`): its node's, or the scheme's it resolves in.
@@ -127,7 +130,7 @@ impl Causes {
     }
 }
 
-/// What one draw is told. Coordinates are CSS px
+/// What one draw is told (LLP 1056 D1, D4, D5, D6). Coordinates are CSS px
 /// of the content box by default; with an explicit bitmap size they are the
 /// bitmap's pixels and `scale` is 1.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -151,7 +154,7 @@ pub struct Frame {
 }
 
 /// A draw that failed: a thrown DOM exception, or the author's own error.
-/// Either way the calls made before it are kept (r3).
+/// Either way the calls made before it are kept (LLP 1056 D4, r3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DrawError {
     /// A canvas method threw.

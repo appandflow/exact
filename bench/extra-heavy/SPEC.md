@@ -1,10 +1,10 @@
 # Extra Heavy feed benchmark — spec
 
-A social feed whose rows hold "all sorts of crazy stuff": a live GPU
+A social feed whose rows hold "all sorts of crazy stuff" (Charlie, 2026-09-27): a live GPU
 shader over a photo, canvas drawings, SVGs, muted autoplay video, maps, Markdown, a wide variety
 of fonts, nested horizontal carousels, animated GIF/WebP and Lottie, glass over images, complex
 scripts, live counters and rings, rows that change height, skeleton shimmer, embedded web views
-and text inputs — and, as a deliberately extreme stress test, rows that hold
+and text inputs — and, as a deliberately extreme stress test (Charlie, 2026-09-27), rows that hold
 their own **nested virtualized list**: a horizontal strip of 2,000 thumbnails, and a 400 pt box
 holding a vertical list of 1,000 messages. Every app renders the same rows from the same data, driven by the same probe
 (`../heavy-list/probe`), on the M1 iPad Pro 12.9" (120 Hz), which stands in landscape
@@ -284,7 +284,7 @@ are listed under Decisions.
 Resolved by the builder, 2026-09-27; the most ordinary choice for each stack, and where a stack
 genuinely cannot do it the same way.
 
-- **Expo: LegendList 3.4.0 (`@legendapp/list`) instead of FlashList.** Every
+- **Expo: LegendList 3.4.0 (`@legendapp/list`) instead of FlashList, per Charlie 2026-09-27.** Every
   list in the app (the feed, the carousel, the filmstrip, the inbox) is a `LegendList` written as its
   README and performance guide say: `keyExtractor`, `recycleItems`, `getItemType` where rows differ,
   `getFixedItemSize` where item sizes are truly fixed, `estimatedItemSize` otherwise, the default
@@ -324,8 +324,8 @@ genuinely cannot do it the same way.
 |---|---|
 | list | one `list virtualized=true estimated-item-height=470` + keyed `for`; the row is a header and one body per kind, chosen by the row's one `some` kind field (`match r.photo …`) |
 | images | `image … object-fit="cover"` (the host's downsampled ImageIO decode off the main thread) |
-| shader | a GPU `canvas surface=wave(…)`: the module asks for the JPEG, decodes it off the main thread to ≤ 1,200 px, samples it through the wave + duotone in WGSL every frame |
-| canvas | Canvas 2D drawn by the Rust data source: `roundRect`, `createLinearGradient`, `bezierCurveTo`, `arc`, `globalAlpha`, `drawImage` under an `arc` clip, `fillText` |
+| shader | a GPU `canvas surface=wave(…)` (LLP 1009): the module asks for the JPEG, decodes it off the main thread to ≤ 1,200 px, samples it through the wave + duotone in WGSL every frame |
+| canvas | Canvas 2D (LLP 1056 stage 2) drawn by the Rust data source: `roundRect`, `createLinearGradient`, `bezierCurveTo`, `arc`, `globalAlpha`, `drawImage` under an `arc` clip, `fillText` |
 | svg | the SVG files as generated components (SVGR style, `gen-svgs.py`), inline `svg` |
 | video | `video autoplay muted loop playsinline controls=false paused=freeze object-fit="cover"` |
 | map | the app's copy of exact2's `native-map` module (MKMapView), `interactive="false"` |
@@ -333,19 +333,19 @@ genuinely cannot do it the same way.
 | code | `white-space: pre` runs, clipped by the card |
 | fonts | ten declared `font` families, the family chosen per row by a literal ternary |
 | carousel | a nested horizontal virtualized list (`display: flex; flex-direction: row`), `scroll-restoration="manual"` so a recycled row starts at its first card |
-| GIF / WebP | `image` (animated natively on Apple) |
-| Lottie | **declared difference: Lottie is refused by exact2.** Each of the four Bodymovin files is ported by hand to inline SVG + CSS `@keyframes` (`exact-xheavy/lottie.contract`): the ball on `cy` (ease-in-out halves), the square on `rotate`, the ring on `scale` + `opacity`, 2 s loops, the files' colours |
+| GIF / WebP | `image` (animated natively on Apple since LLP 1011.000) |
+| Lottie | **declared difference: Lottie is refused by exact2 (rules/DEFERRED.md, upheld by Charlie 2026-09-27).** Each of the four Bodymovin files is ported by hand to inline SVG + CSS `@keyframes` (`exact-xheavy/lottie.contract`): the ball on `cy` (ease-in-out halves), the square on `rotate`, the ring on `scale` + `opacity`, 2 s loops, the files' colours |
 | glass | `backgroundMaterial="ultra-thin"` (the system ultra-thin material, as SwiftUI's) |
 | live | a 1 Hz `every(1000, …)` for s; rings are `stroke-dashoffset` `@keyframes` (one generated rule per base value: keyframes take literals only) and the playhead a `steps(48)` translate window, all in Core Animation on iOS |
 | height change | `line-clamp` switch in a box whose `height` moves between `54px` and `auto` (`interpolate-size: allow-keywords`, `transition: height 250ms ease-in-out`); expansion in the data source keyed by row id |
 | shimmer | a `linear-gradient` band on a `translate` `@keyframes` (px: `translate` takes no percentages), `animation-delay` 1.2 s gates |
 | web view | `iframe src=` a bundled page per row (`gen-assets.py`; no `srcdoc`) |
 | text input | `input value change=` → the data source's draft map keyed by row id |
-| filmstrip, inbox | nested virtualized lists: a row list over 2,000 shared indices, a 400 pt vertical list over 1,000; the runner keeps each inner offset across its row's retirement (anchor key + offset, by default); the inbox finds message j in the pool by `filter` (no list indexing in Contract) |
-| `BENCH_START_INDEX` | `scrollIntoView("feed", key)` shortly after launch |
+| filmstrip, inbox | nested virtualized lists (LLP 1070 stage 4): a row list over 2,000 shared indices, a 400 pt vertical list over 1,000; the runner keeps each inner offset across its row's retirement (anchor key + offset, by default); the inbox finds message j in the pool by `filter` (no list indexing in Contract) |
+| `BENCH_START_INDEX` | `scrollIntoView("feed", key)` (LLP 1070.000) shortly after launch |
 | `BENCH_FREEZE` | GIF / WebP shown as first-frame stills (an animated image cannot be paused, as on the web); keyframes paused at the spec's phase with a negative delay |
 
-**UIKit** (`uikit/`, added 2026-09-29: a fourth competitor written as a strong iOS engineer writes
+**UIKit** (`uikit/`, added 2026-09-29, per Charlie: a fourth competitor written as a strong iOS engineer writes
 UIKit for performance; `uikit/README.md` has the build). Fairness rule: the same content and the same work as the
 other three; idiomatic UIKit optimizations (reuse, prefetch, off-main decode, layer-backed drawing) are the point.
 
@@ -378,7 +378,7 @@ other three; idiomatic UIKit optimizations (reuse, prefetch, off-main decode, la
 | `BENCH_START_INDEX` | `scrollToItem(at:, at: .top)` three times 250 ms apart (estimated heights, as the SwiftUI app's `scrollTo`) | same |
 | `BENCH_FREEZE` | shader drawn once at t = 1.25, rings at base, playhead q = 0.4, videos paused, GIF/WebP frame 0, Lottie at 0.5, no skeleton, web page `paused` | same as the SwiftUI app |
 
-**`BENCH_KINDS=17`** (all apps, the UIKit app too): leaves out the filmstrip and inbox rows (2,250 rows), so the three stacks render the same kinds. Unset: all 3,000 rows.
+**`BENCH_KINDS=17`** (all apps, 2026-09-27, per Charlie; the UIKit app too): leaves out the filmstrip and inbox rows (2,250 rows), so the three stacks render the same kinds. Unset: all 3,000 rows.
 
 **Where the stacks cannot match exactly**
 - *Markers*: SwiftUI's `Marker` is the balloon (`MKMarkerAnnotationView`); react-native-maps' default
@@ -439,14 +439,14 @@ other three; idiomatic UIKit optimizations (reuse, prefetch, off-main decode, la
     documents as Android-only).
   - The probe drives offsets directly and cannot test gestures, since this Mac cannot post touch events
     to the iPad. The behaviour above is UIKit's documented default and was not measured.
-- *exact2 has neither piece yet.*
+- *exact2 has neither piece, and a separate LLP will design it.*
   - A virtualized list inside another list's row template is refused at compile time
     (`contract/lower/src/collection.rs:72-74`, `lower-collection-nested`, "until bounded ancestor-row
     lifetime is supported").
   - A virtualized container cannot be horizontal: `flex-direction`, `flex-wrap` and grid templates are
     refused on it, and `overflow-x` must be `hidden` (`:119-131`).
   - The fallbacks are an eager `scroll` holding 2,000 or 1,000 laid-out children per row, or paging the
-    data.
+    data. `EXACT2-GAPS.md` has the evidence and costs.
 
 **Other**
 - Aspect-fill everywhere is the CSS `object-fit: cover`.

@@ -1,9 +1,9 @@
-//! A heading is the platform's text style for its level (1 `title1`, 2
-//! `title2`, 3 `title3`, 4 and on `headline`), read from the schema's ramp at
-//! the root font size (the platform's body size), so it follows Dynamic Type as
-//! Apple's own ramp does. Native hosts keep the text style's weight; web,
-//! neutral and terminal looks emphasize titles. An authored `font`, `font-size`
-//! or `font-weight` wins over its defaults.
+//! LLP 1115 D3: a heading is the platform's text style for its level (1
+//! `title1`, 2 `title2`, 3 `title3`, 4 and on `headline`), read from the
+//! schema's ramp at the root font size (the platform's body size), so it
+//! follows Dynamic Type as Apple's own ramp does. Native hosts keep the
+//! text style's weight; web, neutral and terminal looks emphasize titles.
+//! An authored `font`, `font-size` or `font-weight` wins over its defaults.
 use exact_kernel::{Kernel, RowValue, StyleId};
 use exact_runner::{DataError, DataSource, Runner, Value};
 
@@ -110,7 +110,7 @@ fn a_heading_is_its_levels_text_style_at_the_root_size_unless_written() {
     assert_eq!(size(&r, "h3"), 15.0);
 }
 
-// Builders write a text style's number after a hyphen too (`-exact-title-1`).
+// @ref LLP 1116.007 D3.2 — round 9's builders wrote the role's number after a hyphen.
 #[test]
 fn a_text_styles_number_may_follow_a_hyphen() {
     let mut src = String::from("component App\n  view\n    column\n");

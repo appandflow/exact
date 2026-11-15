@@ -1,4 +1,4 @@
-// A package's prebuilt dynamic library: the one the app's direct
+// A package's prebuilt dynamic library (LLP 1154 D3 "The library", LLP 1133.001 D9): the one the app's direct
 // dependencies declare in `exact.json` `native.library`, fetched for the target a native build compiles, by its
 // SHA-256, before Cargo runs, into `~/.cache/exact/package-libraries/<sha256>/`. Nothing fetches at compile time.
 //
@@ -17,7 +17,8 @@
 // executable) takes `-L <that directory> -l<link>` from the bake's build script (js/bake/src/library.rs); on an Apple
 // target `-l` finds `lib<link>.dylib`, a link to the framework's binary, so the link records the framework's install
 // name. An Apple app's Swift link takes the framework itself (`appleLinkArgs`).
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../host/apple/toolchain.mjs';
+import { dylibInstallNames } from '../host/apple/link.mjs';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -87,7 +88,7 @@ export function xcframeworkSlice(fw, { platform, variant, arch }) {
 
 /** What the app's build for `target` links of its package's library: the declaration's `{url, sha256}` for the
  * target, with the package and its link name; null when no one direct dependency declares `native.library`. A target
- * the declaration does not name is refused by name, as is a declaration exact2 cannot use. */
+ * the declaration does not name is refused by name (LLP 1154 D6), as is a declaration exact2 cannot use. */
 export function libraryFor(appDir, target) {
   const declaring = nativePackages(appDir);
   // Two are the bake's refusal, which Cargo meets before it links.
@@ -97,13 +98,13 @@ export function libraryFor(appDir, target) {
   if (typeof library !== 'object' || Array.isArray(library)) throw new Error(`${at}: native.library is an object of {url, sha256} by Rust target`);
   if (typeof link !== 'string' || !/^[A-Za-z0-9_][A-Za-z0-9_.+-]*$/.test(link)) throw new Error(`${at}: native.link names the library (\`lib<link>.so\`, \`<link>.framework\`), not ${JSON.stringify(link)}`);
   const entry = library[target];
-  if (!entry) throw new Error(`${pkg.name} has no native library for ${target}: its exact.json native.library names ${Object.keys(library).join(', ') || 'no target'}. An app that builds for ${target} waits for the package to publish one`);
+  if (!entry) throw new Error(`${pkg.name} has no native library for ${target}: its exact.json native.library names ${Object.keys(library).join(', ') || 'no target'}. An app that builds for ${target} waits for the package to publish one (LLP 1154 D6)`);
   if (typeof entry.url !== 'string' || !/^[0-9a-f]{64}$/.test(entry.sha256 ?? '')) throw new Error(`${at}: native.library.${target} is {"url": …, "sha256": <64 lowercase hex digits>}`);
   let url;
   try { url = new URL(entry.url); } catch { throw new Error(`${at}: native.library.${target}.url is not a URL: ${entry.url}`); }
   if (!['file:', 'https:'].includes(url.protocol)) throw new Error(`${at}: native.library.${target}.url is a file: or https: URL, not ${url.protocol}`);
   const kind = target.includes('-android') ? null : target.includes('-apple-') ? 'apple' : target.includes('-linux-') ? 'linux' : null;
-  if (!kind) throw new Error(`${pkg.name} declares a native library for ${target}, and exact2 links a package's library only for Apple and Linux targets; Android's APK carries none yet`);
+  if (!kind) throw new Error(`${pkg.name} declares a native library for ${target}, and exact2 links a package's library only for Apple and Linux targets; Android's APK carries none yet (LLP 1154 D6)`);
   const file = basename(decodeURIComponent(url.pathname));
   if (kind === 'apple' && !file.endsWith('.zip')) throw new Error(`${at}: native.library.${target} is a zip holding the .xcframework, not ${file}`);
   return { package: pkg.name, root: pkg.root, target, link, url: url.href, sha256: entry.sha256, file, kind };
@@ -241,9 +242,9 @@ function escapingLink(root, within = realpathSync(root)) {
 
 /** The target's framework from the zipped xcframework at `zip`, and the `lib<link>.dylib` the linker's `-l` finds. */
 function appleView(lib, zip, stage) {
-  if (process.platform !== 'darwin') throw new Error(`${lib.package}: its ${lib.target} library is an xcframework, which is read on a Mac`);
   const unzipped = join(stage, '.unzipped');
-  const r = spawnSync('ditto', ['-x', '-k', zip, unzipped], { encoding: 'utf8' });
+  const r = process.platform === 'darwin' ? spawnSync('ditto', ['-x', '-k', zip, unzipped], { encoding: 'utf8' })
+    : spawnSync('python3', ['-c', EXTRACT_FRAMEWORK_ZIP, zip, unzipped], { encoding: 'utf8' });
   if (r.status !== 0) throw new Error(`${lib.package}: its ${lib.target} library ${lib.file} is not a zip: ${(r.stderr || '').trim()}`);
   const escaped = escapingLink(unzipped);
   if (escaped) throw new Error(`${lib.package}: ${lib.file} holds a link that leaves it (${escaped})`);
@@ -265,12 +266,36 @@ function appleView(lib, zip, stage) {
   if (!real || !inside(source, real) || !lstatSync(real).isFile()) throw new Error(`${lib.package}: its ${lib.target} framework has no binary ${lib.link}.framework/${lib.link} inside it`);
   const framework = join(stage, `${lib.link}.framework`), binary = join(framework, lib.link), inner = relative(source, real);
   cpSync(source, framework, { recursive: true, verbatimSymlinks: true });
-  const id = spawnSync('otool', ['-D', binary], { encoding: 'utf8' }).stdout?.trim().split('\n').slice(1).join('').trim();
+  let ids = [];
+  try { ids = dylibInstallNames(binary); } catch { /* the package refusal below names its binary */ }
   const expected = `@rpath/${lib.link}.framework/${inner}`;
-  if (id !== expected) throw new Error(`${lib.package}: its ${lib.target} framework's install name is ${id || 'missing (not a dynamic library)'}; an embedded framework is named ${expected} (link it with -install_name ${expected})`);
+  if (!ids.length || ids.some(id => id !== expected)) throw new Error(`${lib.package}: its ${lib.target} framework's install name is ${ids.map(id => id || 'missing (not a dynamic library)').join(', ') || 'missing (not a dynamic library)'}; an embedded framework is named ${expected} (link it with -install_name ${expected})`);
   symlinkSync(`${lib.link}.framework/${lib.link}`, join(stage, `lib${lib.link}.dylib`));
   rmSync(unzipped, { recursive: true, force: true });
 }
+
+// Materialize regular files before symbolic links, so an archive cannot write through its own links.
+// The same escapingLink check used for ditto's output then validates every link, including chains.
+const EXTRACT_FRAMEWORK_ZIP = String.raw`
+import os, pathlib, shutil, stat, sys, zipfile
+root = pathlib.Path(sys.argv[2])
+root.mkdir(parents=True)
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    entries = []
+    for info in archive.infolist():
+        name = pathlib.PurePosixPath(info.filename)
+        if name.is_absolute() or '..' in name.parts or not name.parts: raise ValueError('archive path leaves the extraction directory')
+        path = root.joinpath(*name.parts)
+        entries.append((info, path, info.external_attr >> 16))
+        path.parent.mkdir(parents=True, exist_ok=True)
+    for info, path, mode in entries:
+        if info.is_dir(): path.mkdir(exist_ok=True)
+        elif not stat.S_ISLNK(mode):
+            with archive.open(info) as source, path.open('wb') as target: shutil.copyfileobj(source, target)
+            path.chmod(stat.S_IMODE(mode) or 0o644)
+    for info, path, mode in entries:
+        if stat.S_ISLNK(mode): os.symlink(os.fsdecode(archive.read(info)), path)
+`;
 
 /** The library for the app's build for `target`, fetched and checked; null when the app's dependencies declare
  * none, and for a web target, which links none. What every native build calls before Cargo (scripts/app.mjs
@@ -279,6 +304,16 @@ export function prepareLibrary(appDir, target, options) {
   if (target.startsWith('wasm32-')) return null;
   const lib = libraryFor(appDir, target);
   return lib && fetchLibrary(lib, options);
+}
+
+/** Refuse framework names that would overwrite another link input or the host runtime in Frameworks. */
+export function assertLibraryNames(libraries) {
+  const sources = new Map();
+  for (const { placed } of libraries) {
+    const name = basename(placed), previous = sources.get(name);
+    if (previous) throw new Error(`${previous} and ${placed} both place ${name} in Frameworks`);
+    sources.set(name, placed);
+  }
 }
 
 /** Put the fetched library into `dir`: the framework on Apple, the shared object on Linux, each as a new file, so a

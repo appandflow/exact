@@ -1,6 +1,6 @@
 // Inspect mode and the agent's private API are compiled out of a production
-// bake:
-// `bun test host/apple/inspect-gate.test.mjs`; an ignored test runs it
+// bake (LLP 1122 D5, T2c; theme2's ruling; LLP 1035.003 §3):
+// `bun test host/apple/inspect-gate.test.mjs`; the async lane runs it
 // (host/apple/tests/it/development.rs). Package.swift
 // defines `EXACT_INSPECT` for every trust policy but production, and every
 // Swift line naming inspect mode's types or the agent's private calls is
@@ -61,7 +61,7 @@ test('every agent private call is inside an #if on EXACT_INSPECT', () => {
 });
 
 // Undocumented defaults keys, notifications and string tables, which shipped
-// code does not read.
+// code does not read (LLP 1035.003 §3).
 const undocumented = /"Apple(InterfaceStyle|InterfaceThemeChangedNotification|ICUForce24HourTime|ICUForce12HourTime|Persistence)"|table: "Placeholders"|"WKJavaScriptException/;
 
 test('shipped code reads no undocumented defaults key, notification or string table', () => {

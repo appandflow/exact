@@ -1,7 +1,7 @@
-// The edit dock (a grid cell's editor opened below the grid would land about a screen down, after the icons): one
-// dock at the window's bottom holds the selected cell's editor and the edit's proposal; the selected cell is marked,
-// for a screen reader too (aria-current), and scrolled clear of the dock; a press moves the focus into the dock's
-// editor, and Escape (or Close) with nothing pending gives it back to the cell.
+// The edit dock (the design tool's third hands-on pass, #7; theme2's ruling): a grid cell's editor opened about a screen
+// below the grid, after the icons. Now one dock at the window's bottom holds the selected cell's editor and the edit's
+// proposal; the selected cell is marked, for a screen reader too (aria-current), and scrolled clear of the dock; a press
+// moves the focus into the dock's editor, and Escape (or Close) with nothing pending gives it back to the cell.
 import { expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,9 +14,9 @@ test('a cell pressed opens its editor in the dock, in the window, the cell marke
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-edit-dock-'));
   // A long token list, as the clone has: the editor's old place was below it all.
   const many = Array.from({ length: 120 }, (_, i) => `  filler.t${i} = #${String(i).padStart(6, '0')}`).join('\n');
-  writeFileSync(join(app, 'app.tamber'), `${readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8').trimEnd()}\n${many}\n`);
+  writeFileSync(join(app, 'app.forma'), `${readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.forma'), 'utf8').trimEnd()}\n${many}\n`);
   writeFileSync(join(app, 'app.contract'), STUB_APP);
-  // A shot of a 900 px window, kept where a run can look at it.
+  // The shot theme2 asked for (a 900 px window), kept where a run can look at it.
   const shots = process.env.EXACT_DOCK_SHOTS ?? mkdtempSync(join(tmpdir(), 'exact-design-tool-edit-dock-shots-'));
   mkdirSync(shots, { recursive: true });
   const tool = await proxied(app);

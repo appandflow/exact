@@ -6,7 +6,7 @@ import UIKit
 import AppKit
 #endif
 
-/// CSS `box-shadow`: the list's outer shadows
+/// CSS `box-shadow` (LLP 1064 D2, LLP 1077 D4): the list's outer shadows
 /// cast through contentless layers in one container at the bottom of the
 /// node's own, from the rounded border box (grown by a spread) and masked to
 /// outside it; inset ones in a container masked to the padding box. A node
@@ -114,6 +114,59 @@ class BoxShadowTests: XCTestCase {
         XCTAssertEqual(n.subviews.compactMap { ($0 as? NodeView)?.id }, [2, 3])
     }
 
+    /// `clip` beside `visible` clips one axis, square (CSS Overflow 3 §3.1):
+    /// the children's box spans the node on that axis and their overflow
+    /// on the other, in the node's coordinates.
+    func testAOneAxisClipClipsItsChildrenInABoxAcrossThatAxisOnly() throws {
+        var style = raised
+        style["box_shadow"] = nil
+        style["overflow_x"] = "clip"; style["overflow_y"] = "visible"
+        let n = node(style, children: 1)
+        let box = try XCTUnwrap(n.clipBox)
+        let child = try XCTUnwrap(box.subviews.first as? NodeView)
+        child.frame = CGRect(x: -20, y: -20, width: 220, height: 220)
+        XCTAssertFalse(n.clipsToBounds)
+        XCTAssertTrue(box.clipsToBounds)
+        XCTAssertEqual(box.subviews.compactMap { ($0 as? NodeView)?.id }, [2])
+        XCTAssertEqual(box.frame.minX, 0)
+        XCTAssertEqual(box.frame.width, 100)
+        XCTAssertLessThanOrEqual(box.frame.minY, -20)
+        XCTAssertGreaterThanOrEqual(box.frame.maxY, 200)
+        XCTAssertEqual(box.convert(CGPoint(x: 5, y: 7), to: n), CGPoint(x: 5, y: 7))
+        #if os(iOS)
+        XCTAssertEqual(box.layer.cornerRadius, 0)
+        XCTAssertNil(box.layer.mask)
+        #else
+        XCTAssertEqual(box.layer?.cornerRadius, 0)
+        XCTAssertNil(box.layer?.mask)
+        #endif
+        #if os(macOS)
+        // The child is hit below the node, where it shows, and not beside it.
+        let page = FlippedView(frame: CGRect(x: 0, y: 0, width: 300, height: 300))
+        page.addSubview(n)
+        XCTAssertTrue(n.hitTest(NSPoint(x: 50, y: 100)) === child)
+        XCTAssertFalse(n.hitTest(NSPoint(x: 150, y: 20)) === child)
+        #endif
+        // The box follows the node's size.
+        n.frame = CGRect(x: 0, y: 0, width: 150, height: 40)
+        XCTAssertEqual(box.frame.width, 150)
+        XCTAssertLessThanOrEqual(box.frame.minY, -20)
+        // The other axis.
+        style["overflow_x"] = "visible"; style["overflow_y"] = "clip"
+        n.applyStyle(style)
+        XCTAssertTrue(n.clipBox === box)
+        XCTAssertEqual(box.frame.minY, 0)
+        XCTAssertEqual(box.frame.height, 40)
+        XCTAssertLessThanOrEqual(box.frame.minX, -20)
+        XCTAssertEqual(box.convert(CGPoint(x: 5, y: 7), to: n), CGPoint(x: 5, y: 7))
+        // Both axes: the node clips itself again, children back home.
+        style["overflow_x"] = "clip"
+        n.applyStyle(style)
+        XCTAssertNil(n.clipBox)
+        XCTAssertTrue(n.clipsToBounds)
+        XCTAssertEqual(n.subviews.compactMap { ($0 as? NodeView)?.id }, [2])
+    }
+
     func testAListCastsEachShadowAndAnInsetOneInsideThePaddingBox() throws {
         var listed = raised
         listed["border_width"] = 2
@@ -139,8 +192,8 @@ class BoxShadowTests: XCTestCase {
     }
 
     #if os(iOS)
-    /// A colour token inside a shadow crosses as its light/dark pair (an
-    /// LED glow, `eu.labelglow`); the cast follows the view's
+    /// A colour token inside a shadow crosses as its light/dark pair (the
+    /// euxy port's LED glow, `eu.labelglow`); the cast follows the view's
     /// appearance.
     func testALightDarkShadowCastsTheAppearancesColour() throws {
         var glow = raised

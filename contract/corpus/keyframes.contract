@@ -1,5 +1,5 @@
 // Accept fixture: `keyframes` declarations and the `animation` shorthand that
-// names them: a checklist step that breathes while it runs, and
+// names them (LLP 1055 D5): a checklist step that breathes while it runs, and
 // an entry that fades in once when it appears.
 keyframes breathe
   from opacity=0.4 scale=0.9

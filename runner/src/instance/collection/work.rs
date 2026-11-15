@@ -1,5 +1,5 @@
 //! Measured virtual-row operations, attributed to the owning collection site.
-//! Physical work is counted even if its commit is refused.
+//! @ref LLP 1142 §13.4 — physical work is counted even if its commit is refused.
 use super::*;
 
 impl Collection {

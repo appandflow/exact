@@ -1,4 +1,4 @@
-// Inspect mode on the Mac (T2c): the platform half of
+// Inspect mode on the Mac (LLP 1122 D4, D5; T2c): the platform half of
 // Inspect.swift. While it is on, an event monitor takes every mouse, wheel,
 // gesture and key event (modifiers too) in every window of the app, its
 // sheets and later windows included, so none reaches the app; a menu closes
@@ -6,7 +6,7 @@
 // click selects the plan node the window's own hit test lands on (the real
 // click path), from the hit view up to the nearest view that stands for a
 // plan node, in the session that view is in; a walk that stops at the title
-// bar (the chrome rule: a plan node the bar hosts, the header's heading as
+// bar (D5's chrome rule: a plan node the bar hosts, the header's heading as
 // the window's title, a toolbar item, its search field or a tab of its
 // segments, is selectable; AppKit's own parts select nothing, and say so).
 // The mouse over a view outlines what a click would select.

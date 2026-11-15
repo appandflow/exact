@@ -1,4 +1,4 @@
-// What shows while a source hasn't answered: a
+// @ref LLP 1048.003 D6 — what shows while a source hasn't answered: a
 // declared placeholder, a source call over values, or a list's empty value.
 routes nav
   tab home "/"

@@ -1,4 +1,4 @@
-// Paint the same ordered inline runs the kernel measures.
+// @ref LLP 1033: paint the same ordered inline runs the kernel measures.
 import Foundation
 
 extension NodeView {
@@ -83,7 +83,7 @@ extension NodeView {
         return paragraph
     }
 
-    // Invalidate this view, including cached layer ink.
+    // @ref LLP 1043.000 §3 D4 — invalidate this view, including cached layer ink.
     func applyFlow(_ wire: [[String: Any]]) {
         // Worker surfaces encode ordinary lines only. Clear their key before
         // changing eligibility, including when an exclusion is removed.
@@ -123,6 +123,9 @@ extension NodeView {
     var textAlignmentCode: Int {
         TextStyle.alignment(style)
     }
+    /// The props a paragraph's spec reads (`paragraphSpec`): setting one
+    /// invalidates what was laid out from the old value, whoever asked first.
+    static let paragraphProps: Set<String> = ["text", "markup", "atoms", "atomFaces", "atomStyles", "href", "fitScale"]
     func paragraphSpec() -> Spec {
         if let spec = cachedTextSpec { return spec }
         #if os(macOS)
@@ -135,14 +138,14 @@ extension NodeView {
         // An inline run is not in the view hierarchy — its paragraph owns it
         // and it was removed from any superview — so it has no appearance of
         // its own to read. It inherits the paragraph's, which is the one
-        // actually on screen.
+        // actually on screen. @ref LLP 1034 D2
         let night = drawsDark, contrast = drawsHighContrast, elevated = drawsElevated
-        // The view's own tint, read once, where anything here names it.
+        // The view's own tint, read once, where anything here names it (LLP 1095 D8).
         let tint = style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) ? viewTint : nil
         let ink = textChannels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
         if props["markup"] == "markdown", let source = props["text"] {
             // Markdown source: the archive expands it into runs, the same
-            // expansion the measurer used.
+            // expansion the measurer used (LLP 1045 D3).
             // Every piece is in the node's ink, or a share of it: one kind.
             var base = textRun("")
             base.fixedInk = style["text_color"]?.fixesInk == true
@@ -150,7 +153,7 @@ extension NodeView {
                                       rtl: style["direction"]?.string == "rtl")
             runs = MarkdownLink.installed?.expand(source, base: base, color: textChannels("text_color", dark: night),
                                                   boldText: text?.boldTextSteps(base.family) == true, atoms: atoms) ?? [textRun(source)]
-            if style["visibility"]?.string == "hidden" { for i in runs.indices { runs[i].hidden = true } }
+            if cssVisibilityHidden { for i in runs.indices { runs[i].hidden = true } }
             // `currentcolor` in a shadow or stroke is each piece's own colour.
             let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
             for i in runs.indices { (runs[i].shadow, runs[i].stroke) = rows.resolve(dark: night, contrast: contrast, elevated: elevated, tint: tint, color: runs[i].color ?? own) }
@@ -160,7 +163,11 @@ extension NodeView {
             runs = inlineText.filter(\.paints).map { $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint) }
             let decorates = inlineText.contains(where: { !$0.paints && !$0.lightRun.decoration.isEmpty })
             let backs = inlineText.contains(where: { !$0.paints && $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint).background != nil })
-            let byId = decorates || backs ? Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) : [:]
+            let byId = Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            for (i, leaf) in inlineText.filter(\.paints).enumerated() {
+                runs[i].opacity = leaf.opacityGroups(in: byId)
+                runs[i].backgroundOpacity = runs[i].opacity
+            }
             // An inline container's lines reach its descendants' text, as the
             // paragraph's own do below, whatever the box's own visibility:
             // a hidden run paints neither its glyphs nor their lines.
@@ -177,33 +184,36 @@ extension NodeView {
             }
             // A container's background covers its descendants' fragments (CSS).
             if backs {
-                // A leaf paints one background, its nearest, and a box's ends
-                // are read from the characters that paint it: a box inside
-                // another visible background, and that outer box, keep square
-                // corners, which would otherwise show the page at their seams.
-                let visible = { (c: [Double]?) in c.map { $0.count < 4 || $0[3] > 0 } ?? false }
-                var square = Set<UInt32>()
+                // A leaf's nearest background is its own; each box around it
+                // with one paints under it, every box its own fragments,
+                // corners and padding (`OuterBackground`).
                 for (i, leaf) in inlineText.filter(\.paints).enumerated() {
-                    var nested: [UInt32] = visible(runs[i].background) ? [runs[i].backgroundBox] : []
                     var up = byId[leaf.parent]
                     while let run = up {
                         up = byId[run.parent]
                         let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint)
-                        guard !paint.hidden, paint.background != nil else { continue }
+                        guard !paint.hidden, let color = paint.background else { continue }
                         if runs[i].background == nil {
-                            runs[i].background = paint.background
+                            runs[i].background = color
                             (runs[i].backgroundBox, runs[i].backgroundRadii) = (paint.backgroundBox, paint.backgroundRadii)
+                            (runs[i].backgroundBefore, runs[i].backgroundAfter) = (paint.backgroundBefore, paint.backgroundAfter)
+                            runs[i].backgroundOpacity = run.opacityGroups(in: byId)
+                        } else if paint.backgroundBox != 0 {
+                            runs[i].outerBackgrounds.append(OuterBackground(color: color, box: paint.backgroundBox, radii: paint.backgroundRadii,
+                                                                            before: paint.backgroundBefore, after: paint.backgroundAfter, opacity: run.opacityGroups(in: byId)))
                         }
-                        if visible(paint.background), !nested.contains(paint.backgroundBox) { nested.append(paint.backgroundBox) }
                     }
-                    if nested.count > 1 { square.formUnion(nested) }
                 }
-                for i in runs.indices where square.contains(runs[i].backgroundBox) { runs[i].backgroundRadii = [] }
             }
             // A box's identity is paint only where a box is rounded: square
             // backgrounds keep sharing what they share (TextPaint's keys).
-            if !runs.contains(where: { $0.background != nil && $0.backgroundRadii.contains { !$0.isZero } }) {
-                for i in runs.indices { runs[i].backgroundBox = 0; runs[i].backgroundRadii = [] }
+            // So is one that reaches past its text (its padding), or stands in
+            // another's, or beside a box's room, which no background covers
+            // but its own boxes'.
+            if !runs.contains(where: { $0.background != nil && ($0.backgroundRadii.contains { !$0.isZero } || $0.backgroundBefore != 0 || $0.backgroundAfter != 0
+                                                                   || !$0.outerBackgrounds.isEmpty) })
+                && !runs.contains(where: { $0.inlineStart != 0 || $0.inlineEnd != 0 }) {
+                for i in runs.indices { runs[i].backgroundBox = 0; runs[i].backgroundRadii = []; runs[i].outerBackgrounds = [] }
             }
         }
         // The paragraph's own lines reach every run its children paint
@@ -220,14 +230,16 @@ extension NodeView {
         }
         var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: strut,
                                   color: ink,
-                                  language: presenter?.documentLanguage ?? "", flow: !flowShapes.isEmpty)
-        // One shadow over the paragraph when its runs agree.
+                                  language: presenter?.documentLanguage ?? "", flow: !flowShapes.isEmpty) { runs in
+            guard props["markup"] == "markdown", let text else { return runs }
+            return text.atomIcons(runs, node: self)
+        }
         spec.gatherShadows()
         cachedTextSpec = spec
         return spec
     }
 
-    /// A shaped-text offset in the node's source text, and back.
+    /// A shaped-text offset in the node's source text, and back (LLP 1053 G5).
     func sourceOffset(_ shaped: Int) -> Int { paragraphSpec().source.source(shaped) }
     func shapedOffset(_ source: Int) -> Int { paragraphSpec().source.collapsed(source) }
 }

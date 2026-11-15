@@ -1,4 +1,4 @@
-//! What one resolved scene may cost, the same
+//! What one resolved scene may cost (LLP 1011.001 D2's bounds), the same
 //! for an inline `svg` and an SVG file drawn as an image.
 //!
 //! A `use` copies its target, a marker is copied at each vertex of the
@@ -48,7 +48,7 @@ const SCALE: f64 = 3.0;
 /// `fx-huge-region`, a drop shadow and a mask whose regions are far larger
 /// than the drawing, is 2.35 GB at the islands' size on Linux, and is
 /// documented to draw; a few more of them, or islands nested in islands,
-/// are refused. Sizing an island to what shows would let this drop
+/// are refused. Sizing an island to what shows (QUEUE) would let this drop
 /// by an order of magnitude.
 pub const MAX_SURFACE: f64 = 2.5 * (1u64 << 30) as f64;
 

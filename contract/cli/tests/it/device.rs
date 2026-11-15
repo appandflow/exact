@@ -1,4 +1,4 @@
-//! `@exact/device` under its declared substitute. The
+//! `@exact/device` under its declared substitute (LLP 1133.031 §7). The
 //! interface is the package's own `exact.json`:
 //!
 //! - it loads with no `topic`, and each read answers the declaration's
@@ -145,7 +145,7 @@ fn the_interface_loads_and_answers_its_defaults() {
     )
     .unwrap();
     for name in interface["names"].as_array().unwrap() {
-        assert!(name["topic"].is_null(), "no topic is declared: {name}");
+        assert!(name["topic"].is_null(), "no topic is declared (D5): {name}");
         assert_eq!(name["live"], true, "{name}");
     }
     let (_app, r) = boot("defaults", "ios");
@@ -184,6 +184,8 @@ fn a_preferred_value_is_laid_over_the_default_and_clear_restores_it() {
     );
 }
 
+// The power reading it keeps is the build target's first, macOS's.
+#[cfg(target_os = "macos")]
 #[test]
 fn an_unsupported_target_fails_not_supported() {
     let (_app, r) = boot("web", "web");
@@ -191,7 +193,7 @@ fn an_unsupported_target_fails_not_supported() {
     assert_eq!(text(&r, "power-error"), "NotSupportedError");
     // The target is set after boot, whose first read had this Mac's answer,
     // and a failed read keeps the answer it had. A web build's first read
-    // fails, so it shows the placeholder (`test/drives.mjs`).
+    // fails, so it shows the placeholder (§10 drive 5, `test/drives.mjs`).
     assert_eq!(text(&r, "power"), "false nominal");
     assert_eq!(
         ["battery-error", "network-error"].map(|id| text(&r, id)),

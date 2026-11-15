@@ -3,7 +3,7 @@
 Complete crates.io archive, including upstream MIT/Apache licenses and
 `.cargo_vcs_info.json`. No feature or dependency change: exact2 builds it
 with default features off and `std` on (no `system`, no fontconfig, no
-`complex-scripts`).
+`complex-scripts`; LLP 1085.000 §3).
 
 - Upstream: https://github.com/linebender/parley
 - Exact release archive: https://static.crates.io/crates/parley/parley-0.11.1.crate
@@ -11,30 +11,30 @@ with default features off and `std` on (no `system`, no fontconfig, no
 - Upstream VCS revision: eea3503dd6cf17130cbb07348e0ff2c918300e94
 - Root `[patch.crates-io]` (and `game/`, `snapback4/`) selects this copy.
 
-The numbered patches below are upstream status **to send**.
+The numbered patches below are upstream status **to send** (LLP 1085.000 §8 Q3).
 The first seven were made and measured in the parity spike against Chrome 154
 (Mac Studio, `~/bench/dioxus/q5-spike`, `results-spike.md`; one commit and one
 diff per patch there); the rest were made on `text/parley`. Remove a patch
 when a pinned upstream release supplies the same behaviour and the tests
 named here pass.
 
-1. **Base direction.** `BaseDirection {Auto, Ltr, Rtl}` and
+1. **Base direction (G1).** `BaseDirection {Auto, Ltr, Rtl}` and
    `set_base_direction` on the ranged, style-run and tree builders; an RTL
    base is passed to the bidi resolver (`analyze_text` passed `None`). CSS
    `direction` sets a paragraph's base direction; the first-strong rule is
    `unicode-bidi: plaintext`. Tests: `sharing_tests.rs`
-   (`rtl_direction_sets_the_base_direction_and_start_alignment`); the
-   paragraphs it covers order as Chrome does.
-2. **Ligature continuation index.** `break_next`'s ligature loop called
+   (`rtl_direction_sets_the_base_direction_and_start_alignment`); spike: LLP
+   1053's cases order as Chrome does.
+2. **Ligature continuation index (G4).** `break_next`'s ligature loop called
    `Run::get` with a layout cluster index where it takes a run index, summing
    a later run's clusters (`क्षत्रिय श्रृंखला` measured 109.88 against 106.67 px).
-3. **South-East Asian scripts without dictionaries.** Without
+3. **South-East Asian scripts without dictionaries (G5).** Without
    `complex-scripts`, SA characters reach the line segmenter as UAX #14 LB1
    resolves them (AL, or CM for marks) by a same-length substitution: ICU4X
    otherwise ended every SA run with a break (before U+200B) and lost LB8's
    after it. Spike: per script, no more missing or extra opportunities than
    cosmic-text on the width-0 set.
-4. **RTL multi-character clusters.** Each character keeps its own
+4. **RTL multi-character clusters (G10).** Each character keeps its own
    `CharInfo`, the cluster start first in logical order; a break opportunity
    had moved between a Hebrew letter and its mark.
 5. **Content widths.** `calculate_content_widths` reads RTL clusters in
@@ -43,7 +43,7 @@ named here pass.
    starting an empty line; an overflowing NBSP is not hung and broken after.
 7. **UAX #9 L1.** A line's trailing whitespace takes the paragraph's level
    (the item is split when needed), so it no longer shifts visible text.
-8. **Soft hyphens.** `push_run` notes each U+00AD cluster with its run
+8. **Soft hyphens (G9).** `push_run` notes each U+00AD cluster with its run
    face's `-` glyph and advance (`LayoutData::soft_hyphens`). A break after
    one is open only if the hyphen fits too; a line that ends there shows the
    hyphen, its advance part of the line (`start_new_line`, recorded in
@@ -114,12 +114,25 @@ named here pass.
     `Glyph::style_index`. Neither is generic, so a build without LTO (the
     host's `host-dev` profile) called each once per glyph from the host's
     run, cluster and glyph walk: 21 ms of a 1 MiB paragraph's 992,721
-    glyphs, 7.5 ms inlined. No behaviour changes.
+    glyphs, 7.5 ms inlined (expo-build-1000). No behaviour changes.
 17. **Line items in order.** `Line::items_nonpositioned` and `LineItem` are
     public: the host walks a line's runs by cluster, as it always has, and
-    its inline boxes (an image in a paragraph's text) in the
+    its inline boxes (an image in a paragraph's text, LLP 1011.002) in the
     same visual order, so a glyph after a box is placed past it. No
     behaviour changes.
+18. **Inline box edges.** A `<span>`'s padding, border and margin take room
+    beside its text (expo/exact#389). `Layout::add_advance_after` adds
+    advance to the cluster holding a text index and its last glyph, as
+    letter spacing does, without splitting the shaping run.
+    `Layout::add_lead` adds advance to the cluster holding a text index and
+    none to its glyphs, which the host draws past it: line breaking and
+    `calculate_content_widths` then keep a span's start room with its first
+    cluster, so it goes to the next line with its text wherever the line
+    breaks before it, after a space or between two CJK characters, as in
+    Chrome. `RangedBuilder::push_shaping_break` starts a new shaping run at
+    a text index (`shape_text`), so a ligature or kerning pair never joins
+    characters a box's room separates. Nothing changes for a layout that
+    calls none of the three.
 
 `Cargo.toml` also carries the empty `[workspace]` boundary described below;
 retain it when updating. All remaining archive files are byte-for-byte upstream.

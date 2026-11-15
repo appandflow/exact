@@ -1,9 +1,9 @@
-//! Alarms through a module outside the tree (`tests/chime`, copied out of the
-//! checkout as an installed package is): a permission that requires another on
-//! one target, asked one ticket each, required first; an app's list whose
-//! entries come due on the agent clock, which every session reads; the person's
-//! choices on a delivered entry; pause and resume in place; and the declared
-//! checks every route holds a call to.
+//! LLP 1133.030 stage 0, through a module outside the tree (`tests/chime`,
+//! copied out of the checkout as an installed package is): a permission
+//! that requires another on one target, asked one ticket each, required
+//! first; an app's list whose entries come due on the agent clock, which
+//! every session reads; the person's choices on a delivered entry; pause
+//! and resume in place; and the declared checks every route holds a call to.
 
 use exact_runner::{agent, CallOrigin, Runner, Value};
 use serde_json::{json, Value as Json};
@@ -159,7 +159,7 @@ fn tickets(r: &Runner<Granted>) -> Vec<(u64, String)> {
         .collect()
 }
 
-/// An app's list is one list for every session; an entry
+/// D12 item 2: an app's list is one list for every session; an entry
 /// comes due when a session's agent clock passes it, once, and the other
 /// session reads it ringing and hears the change at its next clock step;
 /// the person's snooze makes it due again, their stop takes it away.
@@ -222,7 +222,7 @@ fn an_app_s_list_comes_due_once_for_every_session() {
     assert_eq!(chimes(&b), json!([]));
 }
 
-/// The schedule's checks, which hold on every route: one of `at` and `duration`, an
+/// D2's checks, which hold on every route: one of `at` and `duration`, an
 /// instant after now, at least a second, and a title.
 #[test]
 fn the_declared_checks_refuse_a_malformed_alarm() {
@@ -245,7 +245,7 @@ fn the_declared_checks_refuse_a_malformed_alarm() {
     assert_eq!(chimes(&r)[0]["state"], "scheduled", "{}", logs(&r));
 }
 
-/// `update`: pause keeps the time left and clears the due
+/// D12 item 2's `update`: pause keeps the time left and clears the due
 /// instant; resume makes it due that long from now; the wrong state, or a
 /// tag that names nothing, is `InvalidStateError`.
 #[test]
@@ -295,7 +295,7 @@ fn pause_and_resume_change_the_entry_in_place() {
     assert_eq!(chimes(&r), json!([]));
 }
 
-/// Only the person sets an alarm; a tool's schedule is refused
+/// D7: only the person sets an alarm; a tool's schedule is refused
 /// `person-required` while granted, and a stop is anyone's.
 #[test]
 fn a_tool_never_sets_an_alarm() {
@@ -317,7 +317,7 @@ fn a_tool_never_sets_an_alarm() {
     assert_eq!(chimes(&r), json!([]), "{}", logs(&r));
 }
 
-/// On an Android target the state is the lesser of the
+/// D12 item 1 on an Android target: the state is the lesser of the
 /// permission's own and the one it requires, so a denial of the required
 /// one refuses a schedule while its own is granted; with both `prompt`, a
 /// schedule holds the required one's ticket and then its own, and the
@@ -392,7 +392,7 @@ fn a_permission_that_requires_another_asks_both_required_first() {
     );
 }
 
-/// On a target the module marks absent, the substitute answers as
+/// D14: on a target the module marks absent, the substitute answers as
 /// production does, `available` false and `NotSupportedError`.
 #[test]
 fn an_absent_target_answers_absence() {

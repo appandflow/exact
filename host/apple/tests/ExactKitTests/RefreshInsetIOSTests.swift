@@ -4,7 +4,7 @@ import XCTest
 @testable import ExactKit
 
 /// A scroller's pull-to-refresh control sits below its `padding-top`
-/// (React Native's `progressViewOffset`): a padded list's
+/// (LLP 1010 §6.9, React Native's `progressViewOffset`): a padded list's
 /// spinner shows between a header laid over the padding and the first row.
 ///   bun host/apple/build.mjs --test --ios
 final class RefreshInsetIOSTests: XCTestCase {

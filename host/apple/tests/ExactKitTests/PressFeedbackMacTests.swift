@@ -3,11 +3,11 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// Press feedback on AppKit: the mouse button held down inside
+/// Press feedback on AppKit (LLP 1061 D2): the mouse button held down inside
 /// a pressable node shows its `press_scale`; dragging out releases the
 /// feedback and dragging back presses again, as UIKit's finger does; the
 /// click is decided as before. And every transform turns about the node's
-/// `transform-origin`.
+/// `transform-origin` (D6).
 final class PressFeedbackMacTests: XCTestCase {
     private var window: NSWindow!
 
@@ -107,7 +107,7 @@ final class PressFeedbackMacTests: XCTestCase {
     }
 
     /// A `text` with its own `press` is clicked, as a `<span onClick>` is,
-    /// rather than selected.
+    /// rather than selected (spreadsheet F12).
     func testATextWithAPressIsClicked() throws {
         let (p, v) = fixture(style: [:], kind: "text")
         var pressed: [UInt32] = []
@@ -145,7 +145,7 @@ final class PressFeedbackMacTests: XCTestCase {
         return CGFloat(pixel[3]) / 255
     }
 
-    /// On the Mac, a pressable that declares no feedback
+    /// LLP 1115.000 D6 on the Mac: a pressable that declares no feedback
     /// shows AppKit's pressed effect while the mouse is down inside it, as a
     /// borderless `NSButton` does: a wash over its own ink, darker in a light
     /// appearance and lighter in a dark one, on at once and off at once, and
@@ -215,7 +215,7 @@ final class PressFeedbackMacTests: XCTestCase {
         v.handlers = ["hover"]
         XCTAssertFalse(v.platformPressTints)
         v.handlers = ["press"]
-        // A row of a list, the list's child or a section's in it: its press is the cell's.
+        // A row of a list, the list's child or a section's in it: its press is the cell's (D16).
         let list = NodeView(id: 2, kind: "list", presenter: p), section = NodeView(id: 3, kind: "view", presenter: p)
         section.props["semanticTag"] = "section"
         list.frame = NSRect(x: 0, y: 200, width: 300, height: 150); section.frame = list.bounds
@@ -277,7 +277,7 @@ final class PressFeedbackMacTests: XCTestCase {
         XCTAssertEqual(v.alphaValue, 0.8, accuracy: 1e-9)
         v.handlers = ["press"]
         XCTAssertEqual(v.alphaValue, 0.4, accuracy: 1e-9, "a handler makes it one")
-        // A list's row keeps its look for the cell: dimmed nowhere here.
+        // A list's row keeps its look for the cell (D16): dimmed nowhere here.
         let list = NodeView(id: 2, kind: "list", presenter: p)
         list.frame = NSRect(x: 0, y: 200, width: 300, height: 150)
         p.root.addSubview(list); p.views[2] = list
@@ -286,7 +286,7 @@ final class PressFeedbackMacTests: XCTestCase {
     }
 
     /// One whose author styles its own disabled state (Contract's
-    /// `disabledStyled`) keeps the author's look, and still
+    /// `disabledStyled`, LLP 1115.000 D6) keeps the author's look, and still
     /// takes no press.
     func testADisabledPressableItsAuthorStylesIsNotDimmed() throws {
         let (p, v) = fixture(style: [:])

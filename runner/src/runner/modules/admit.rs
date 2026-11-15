@@ -1,15 +1,16 @@
-//! One admission for every call of a module's name, from every caller,
-//! before anything answers it: the substitute, a ticket,
+//! One admission for every call of a module's name, from every caller
+//! (LLP 1133.002 D14), before anything answers it: the substitute, a ticket,
 //! or a bound implementation, in production or under the agent.
 //!
-//! In order: the grant lines the name or its arguments list (the
-//! interface's own lines are the bake's, `grant-missing`), and those an
-//! argument's value must be the target of (`ceremony.rs`), which refuse with
-//! their own code; the name's `origin` (`"app"`: a tool invocation or a wake
-//! is refused, `person-required`; `{"whenAny", "is": "app"}`, only when the
-//! call gives one of the options named); its
+//! In order: the grant lines the name or its arguments list (LLP 1133.009
+//! D10 item 9; the interface's own lines are the bake's, `grant-missing`),
+//! and those an argument's value must be the target of (LLP 1133.011 D6,
+//! `ceremony.rs`), which refuse with their own code;
+//! the name's `origin` (`"app"`: a tool invocation or a wake is refused,
+//! `person-required`, item 8; `{"whenAny", "is": "app"}`, only when the call
+//! gives one of the options named, LLP 1133.012 D12 item 5); its
 //! `foreground` (refused while the page is
-//! hidden); each conditioned by its `when` where it has one; then the
+//! hidden, item 3); each conditioned by its `when` where it has one; then the
 //! permission. Every other refusal answers `NotAllowedError`, with the
 //! message `person-required` for the origin's.
 //!
@@ -17,12 +18,12 @@
 //! where the host bound it so (outside the agent, or `--bind`), and the
 //! platform decides its permission; by its implementation told it runs
 //! under the agent where the interface is its own substitute
-//! (`"substitute": "implementation"`), behind the runner's permission and
-//! its tickets, the agent's
+//! (`"substitute": "implementation"`, LLP 1133.006 D8, LLP 1133.008 D8 item
+//! 9), behind the runner's permission and its tickets, the agent's
 //! preferred value for the name laid over each answer; else by its
-//! declared substitute.
+//! declared substitute (§6).
 //!
-//! **Origin**. Each commit has one: a person's input or the app's own
+//! **Origin** (D12). Each commit has one: a person's input or the app's own
 //! code (`app`), a tool invocation, a wake. Each request carries its
 //! commit's, an answer's commit carries its request's, and a re-ask the
 //! device causes carries each reader's own last ask's. A data-code call
@@ -30,7 +31,7 @@
 //! privileged origin in flight. A permission ticket is never raised for a
 //! tool or a wake: the call fails `person-required` instead.
 //!
-//! **Invocations**. A wake's event and a tool call each
+//! **Invocations** (LLP 1133.023 D7). A wake's event and a tool call each
 //! run as an invocation with an id, which its dispatch commit stamps on
 //! every request, armed `then`, held call and queued send it makes; a
 //! commit that answers a stamped request, or runs a stamped `then` or
@@ -46,15 +47,22 @@ use exact_plan::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
 
-/// Who a call comes from, least privileged first.
+/// Who a call comes from (LLP 1133.002 D12), least privileged first.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CallOrigin {
-    /// The device: an event a package emitted.
+    /// The device: an event a package emitted (LLP 1133.004 D6).
     Device,
-    /// A background wake.
+    /// A background wake (LLP 1133.017 D5).
     Wake,
-    /// A tool invocation.
+    /// A tool invocation (LLP 1111).
     Tool,
+    /// A notification's background action the person chose (LLP 1133.004
+    /// stage 2, as amended 2026-11-12): the person's act for that one
+    /// declared action, run with no view. It may call a name held to the
+    /// app (`"origin": "app"`) that shows nothing; it opens no UI, so a
+    /// prompt, a presence check, a name only the foreground may call and
+    /// the host commands a wake may not run are refused, as for a wake.
+    Action,
     /// A person's input, or the app's own code in a foreground session.
     #[default]
     App,
@@ -67,13 +75,14 @@ impl CallOrigin {
             CallOrigin::Device => "device",
             CallOrigin::Wake => "wake",
             CallOrigin::Tool => "tool",
+            CallOrigin::Action => "action",
             CallOrigin::App => "app",
         }
     }
 }
 
-/// A set of origins: every cause a commit or a request has.
-/// A request that a later commit keeps with newer arguments
+/// A set of origins: every cause a commit or a request has (LLP 1133.035
+/// D16 item 6). A request that a later commit keeps with newer arguments
 /// takes that commit's causes too, and its answer's commit, its `then` and
 /// what they ask carry them all, so a rule that refuses a tool sees a
 /// tool's arguments however they arrived. The rest of admission reads one
@@ -135,7 +144,7 @@ pub(in crate::runner) struct Origins {
     /// its own last ask's origin, or its waiting ask's.
     reasking: bool,
     /// Each armed `then`, by mutation, whose answer's commit was not the
-    /// app's: the `then` runs under it.
+    /// app's: the `then` runs under it (LLP 1133.002 D12).
     thens: BTreeMap<usize, CallOrigin>,
     /// The invocation the commit being made is part of; 0 for none.
     id: u64,
@@ -177,7 +186,7 @@ pub(in crate::runner) enum Route {
 
 impl<D: DataSource> Runner<D> {
     /// [`Runner::act`] as a commit of `origin`: a tool invocation's door
-    /// or a wake's runs its action through this.
+    /// (LLP 1111) or a wake's (LLP 1114.001) runs its action through this.
     pub fn act_from(
         &mut self,
         origin: CallOrigin,
@@ -230,9 +239,15 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether invocation `id` owns work in flight: a request, an armed
-    /// `then`, a held call or a queued send stamped with it.
+    /// `then`, a native statement, a held call or a queued send stamped with it.
     pub(in crate::runner) fn invocation_owns(&self, id: u64) -> bool {
-        !self.invocation_tickets(id).is_empty()
+        self.extensions
+            .declared
+            .statements
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(&id)
+            || !self.invocation_tickets(id).is_empty()
             || (self.extensions.origins.then_ids.iter())
                 .any(|(m, i)| *i == id && self.then_due[*m].is_finite())
             || (self.extensions.held.iter()).any(|h| h.id == id)
@@ -272,7 +287,7 @@ impl<D: DataSource> Runner<D> {
             _ => o.id,
         };
         if owner != 0 && owner != by {
-            let send = matches!(target, Target::Mutation(_));
+            let send = target.mutation().is_some();
             self.extensions.origins.let_go.push((owner, send));
         }
     }
@@ -404,7 +419,7 @@ impl<D: DataSource> Runner<D> {
         out
     }
 
-    /// Run `f` as the device's re-ask of its readers.
+    /// Run `f` as the device's re-ask of its readers (D12).
     pub(in crate::runner) fn reasking<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         let before = std::mem::replace(&mut self.extensions.origins.reasking, true);
         let out = f(self);
@@ -428,8 +443,8 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// Resource `i`'s ask at `args` waits for the data source:
-    /// its origin is kept for `data_ready`'s ask, the least
+    /// Resource `i`'s ask at `args` waits for the data source (LLP 1027
+    /// D4): its origin is kept for `data_ready`'s ask (D12), the least
     /// privileged of the commits that asked these arguments; a commit that
     /// changes them asks under its own.
     pub(in crate::runner) fn note_deferred(&mut self, i: usize, args: &[Value]) {
@@ -452,7 +467,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Resource `i` is to be asked again for the commit being made, at a
     /// later commit (a send `data_ready` makes): that ask is no more
-    /// privileged than this commit.
+    /// privileged than this commit (D12).
     pub(in crate::runner) fn note_reasked(&mut self, i: usize) {
         let o = &mut self.extensions.origins;
         if o.now != CallOrigin::App {
@@ -520,7 +535,8 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Every input [`Self::data_origin`] folds, kept apart: the commit's
-    /// causes, each request in flight's, and each handler running.
+    /// causes, each request in flight's, and each handler running (LLP
+    /// 1133.035 D16 item 6).
     pub(in crate::runner) fn data_causes(&self) -> Causes {
         let tools = self.tool_origin().into_iter();
         (self.pending.iter())
@@ -586,9 +602,37 @@ impl<D: DataSource> Runner<D> {
         (o.ids).retain(|t, _| pending.iter().any(|p| p.ticket == *t));
     }
 
+    /// Resource row `i` is a new member's (`each.rs`): nothing an earlier
+    /// member asked through it stands: its asks' origins, the arguments a
+    /// child's start refused, its last poll answer.
+    pub(in crate::runner) fn forget_resource_row(&mut self, i: usize) {
+        let o = &mut self.extensions.origins;
+        o.asked.remove(&i);
+        o.asked_causes.remove(&i);
+        o.deferred.remove(&i);
+        for within in self.extensions.within.values_mut() {
+            within.remove(&i);
+        }
+        self.forget_refused_row(i);
+    }
+
+    pub(super) fn implementation_here(&self, row: &ModulesRow) -> bool {
+        let sub = self.substitute(row);
+        let target = self.host_target();
+        sub["implementationTargets"]
+            .as_array()
+            .is_none_or(|targets| targets.iter().any(|t| t == target))
+            && !sub["implementationOverrides"]
+                .as_array()
+                .is_some_and(|targets| targets.iter().any(|t| t == target))
+    }
+
     /// What answers `row` now (module doc).
     pub(in crate::runner) fn route(&self, row: &ModulesRow) -> Route {
         let extension = self.plan.str(row.extension);
+        if !self.implementation_here(row) {
+            return Route::Substitute;
+        }
         if self.extensions.bound.contains(extension) && !self.kept_by_runner(row) {
             Route::Real
         } else if self.extensions.bound.contains(extension) {
@@ -621,7 +665,7 @@ impl<D: DataSource> Runner<D> {
             );
             return Decision::Now(json!({ "error": "NotSupportedError", "message": why }));
         }
-        // Presence is not delegable: a person's check
+        // Presence is not delegable (LLP 1133.010 D12): a person's check
         // fails for a tool or a wake before anything is asked, in every state.
         if self.substitute(row)["origin"] == "person" && origin != CallOrigin::App {
             self.log(format!(
@@ -635,10 +679,13 @@ impl<D: DataSource> Runner<D> {
             );
         }
         // A grant matched by the argument's value fails with its own code
-        // (`SecurityError` for an RP ID).
+        // (`SecurityError` for an RP ID, LLP 1133.011 D6).
         if let Err((code, why)) = self.value_grants(row, args) {
             self.log(format!("{}: refused, {why}", self.key(row)));
             return Decision::Now(json!({ "error": code, "message": why }));
+        }
+        if let Some(refused) = self.undeclared(row, args) {
+            return Decision::Now(refused);
         }
         if let Err(why) = self.admit(row, args, origin) {
             self.log(format!("{}: refused, {why}", self.key(row)));
@@ -650,7 +697,7 @@ impl<D: DataSource> Runner<D> {
             }
             return Decision::Now(json!({ "error": "NotAllowedError" }));
         }
-        // A member's option on the call, by the member's rules.
+        // A member's option on the call, by the member's rules (LLP 1133.014 D10 item 1).
         if let Some(refused) = self.members_refused(row, args) {
             let why = refused["message"].as_str().unwrap_or_default();
             self.log(format!("{}: refused, {why}", self.key(row)));
@@ -658,14 +705,14 @@ impl<D: DataSource> Runner<D> {
         }
         let decision = match self.route(row) {
             Route::Real => return Decision::Forward,
-            // A target's own restriction holds under the agent too.
+            // A target's own restriction holds under the agent too (D14 step 2).
             Route::Agent if self.unsupported_here(row) => {
                 Decision::Now(json!({ "error": "NotSupportedError" }))
             }
             // No dialog: the implementation opens it as the app's own or fails.
             Route::Agent if self.owned_call(row) => Decision::Forward,
             // The permission's ticket, a sheet's, or the raise's on the
-            // runner's own status; else the implementation.
+            // runner's own status (LLP 1133.018 D13 item 4); else the implementation.
             Route::Agent => (self.decide_permission(row, send, args))
                 .or_else(|| self.decide_choose(row, send))
                 .or_else(|| self.decide_raise(row, send))
@@ -675,8 +722,8 @@ impl<D: DataSource> Runner<D> {
             {
                 Decision::Now(self.pin_shortcut(row, args))
             }
-            // A login item's registration and a global shortcut's
-            // (`declared/desktop.rs`).
+            // A login item's registration and a global shortcut's (LLP
+            // 1133.025 §11, `declared/desktop.rs`).
             Route::Substitute if self.desktop_form(row) => {
                 if !send && self.substitute(row)["shortcut"] == "register" {
                     self.note_registration_reader(row, args);
@@ -696,7 +743,8 @@ impl<D: DataSource> Runner<D> {
         };
         // A name whose grants are per argument asks permission only for an
         // argument it was given: `getUserMedia(audio=false)` asks for no
-        // device, and its implementation refuses it at once.
+        // device, and its implementation refuses it at once (LLP 1133.009
+        // D3).
         let asks = match &self.substitute(row)["nameGrants"] {
             Json::Object(by_argument) => (by_argument.keys()).any(|a| given(args, a)),
             _ => true,
@@ -709,7 +757,7 @@ impl<D: DataSource> Runner<D> {
             decision => decision,
         };
         let decision = match decision {
-            // Only a person answers a prompt.
+            // Only a person answers a prompt (D12).
             Decision::Hold(Waits::Permission) if origin != CallOrigin::App => {
                 self.call_person_required();
                 let code = self.permission_of(row, args)["denied"].clone();
@@ -726,11 +774,50 @@ impl<D: DataSource> Runner<D> {
         decision
     }
 
+    /// An option whose values are the app's declarations takes one of them
+    /// (LLP 1133.004 stage 2): the platform shows only what was registered
+    /// at launch, so data code cannot add to it. The refusal, journaled.
+    pub(super) fn undeclared(&mut self, row: &ModulesRow, args: &Json) -> Option<Json> {
+        let sub = self.substitute(row);
+        let declares = sub["declares"].as_object()?;
+        let source = &self.plan.sources[row.source.0 as usize];
+        let shape = self
+            .plan
+            .source_params
+            .get(source.params.start as usize)
+            .and_then(|p| exact_js_value::Shape::from_plan(&self.plan, p.ty).ok());
+        let option = declares.iter().find(|(option, _)| {
+            let field = match &shape {
+                Some(exact_js_value::Shape::Record(fields)) => fields
+                    .iter()
+                    .find(|(name, _)| name == *option)
+                    .map(|(_, field)| field),
+                _ => None,
+            };
+            let normalize = |value: &Json| {
+                let mut value = value.clone();
+                if let Some(field) = field {
+                    super::absent_is_none(&mut value, field);
+                }
+                value
+            };
+            let given = normalize(&args[option.as_str()]);
+            let declared = sub["declared"][option.as_str()].as_array();
+            !given.is_null() && !declared.is_some_and(|d| d.iter().any(|v| normalize(v) == given))
+        })?;
+        let why = format!(
+            "{} not declared: only a literal the app's Contract writes declares them",
+            option.0
+        );
+        self.log(format!("{}: refused, {why}", self.key(row)));
+        Some(json!({ "error": "TypeError", "message": why }))
+    }
+
     /// The permission a call of `row` with `args` asks: its declared one,
     /// or, where its interface declares several and the name's grants are a
     /// line per argument (`permissionBy`), the one of the arguments it was
     /// given that settles the call now: a denied one, else one still to ask,
-    /// else the first.
+    /// else the first (LLP 1133.008 D6, LLP 1133.009 D3).
     pub(in crate::runner) fn permission_of(&self, row: &ModulesRow, args: &Json) -> Json {
         // A permission chosen by an argument's value, or the first still to
         // ask of those a request asks together (`keyed.rs`).
@@ -744,7 +831,7 @@ impl<D: DataSource> Runner<D> {
         }
         let sub = self.substitute(row);
         // The first of the name's permissions whose grant line the app
-        // declares (`"narrowest"`).
+        // declares (`"narrowest"`, LLP 1133.019 D4).
         if let Some(any) = sub["permissionAny"].as_array() {
             let declares = |p: &&Json| {
                 (p["grants"].as_array().into_iter().flatten())
@@ -775,7 +862,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The permission a call of `row` asks of its own and those it requires
-    /// on this target: a denied one, its own
+    /// on this target (LLP 1133.030 D12 item 1): a denied one, its own
     /// first; else the first required one still `prompt`; else its own. A
     /// status source answers its own.
     fn unsettled(&self, row: &ModulesRow, sub: &Json) -> Json {
@@ -935,7 +1022,7 @@ impl<D: DataSource> Runner<D> {
                     }
                 }
             }
-            // An empty list needs no line (a picker's).
+            // An empty list needs no line (a picker's, LLP 1133.018 D4).
             line @ Json::Array(l) if !l.is_empty() && !granted(line) => {
                 return Err(format!("grant-missing ({})", named(line)));
             }
@@ -943,7 +1030,7 @@ impl<D: DataSource> Runner<D> {
         }
         // A name any of several lines admits asks the permission of one the
         // app declares, or is let through as a read of the app's own item
-        // (`owned`).
+        // (`owned`, LLP 1133.019 D11 item 4).
         if sub["nameGrants"].as_array().is_some_and(|l| l.len() > 1) && !self.owned_call(row) {
             let permission = self.permission_of(row, args);
             let lines: Vec<&Json> = permission["grants"]
@@ -959,9 +1046,10 @@ impl<D: DataSource> Runner<D> {
             }
         }
         // A path option is the app's own file, within the calling source's
-        // `fs.read` or `fs.write` lines; each of a
-        // list's; a keyed shape's path keys (`keys`),
-        // each item's, an item being the option or each of its list.
+        // `fs.read` or `fs.write` lines (LLP 1133.009 D10 item 4); each of a
+        // list's (LLP 1133.024 D16); a keyed shape's path keys (`keys`),
+        // each item's, an item being the option or each of its list (LLP
+        // 1133.006 D8 item 3).
         for (option, path) in sub["paths"].as_object().into_iter().flatten() {
             let given: Vec<&str> = match (&args[option], path["keys"].as_array()) {
                 (Json::Array(items), Some(keys)) => (items.iter())
@@ -985,9 +1073,8 @@ impl<D: DataSource> Runner<D> {
                 ));
             }
         }
-        // An option's records name URLs and app files (`"admit"`): each
-        // admitted as a fetch's URL or a path option is.
-        // A refusal names the URL without its query or fragment.
+        // An option's records name URLs and app files (`"admit"`, LLP
+        // 1133.017 D3): each admitted as a fetch's URL or a path option is.
         for (option, fields) in sub["admits"].as_object().into_iter().flatten() {
             let records: Vec<&Json> = match &args[option] {
                 Json::Array(list) => list.iter().collect(),
@@ -1002,19 +1089,15 @@ impl<D: DataSource> Runner<D> {
                         continue;
                     };
                     let grants = self.data.grants();
-                    let (ok, shown) = if capability == "net.fetch" {
-                        let web = given.starts_with("https://") || given.starts_with("http://");
-                        let ok = web && crate::grants::admitting(grants, None, given).is_some();
-                        (ok, given.split(['?', '#']).next().unwrap_or_default())
-                    } else {
-                        let ok = crate::save_file::plain_app_path(given)
-                            && crate::save_file::covered(grants, capability, given);
-                        (ok, given)
-                    };
-                    if !ok {
-                        return Err(format!(
-                            "grant-missing ({option}[{i}].{field}={shown} needs {capability})"
-                        ));
+                    let at = format!("{option}[{i}].{field}");
+                    if capability == "net.fetch" {
+                        if let Some(why) = fetch_refusal(grants, &at, given) {
+                            return Err(why);
+                        }
+                    } else if !crate::save_file::plain_app_path(given)
+                        || !crate::save_file::covered(grants, capability, given)
+                    {
+                        return Err(format!("grant-missing ({at}={given} needs {capability})"));
                     }
                 }
             }
@@ -1024,7 +1107,8 @@ impl<D: DataSource> Runner<D> {
             .is_none_or(|when| when.iter().all(|(k, v)| args.get(k) == Some(v)));
         let app_only = held_to_app(&sub, args);
         // `{"none": [origins]}`: refused while any of them is among the
-        // call's possible causes, read before they are folded to one.
+        // call's possible causes, read before they are folded to one (LLP
+        // 1133.035 D16 item 6).
         if let Some(none) = sub["origin"]["none"].as_array().filter(|_| applies) {
             let causes = (self.extensions.origins.calling).unwrap_or_else(|| self.commit_causes());
             let found = (none.iter().filter_map(Json::as_str))
@@ -1034,32 +1118,42 @@ impl<D: DataSource> Runner<D> {
             }
         }
         // A sampled source's tool or wake reader joins a stream the app's own
-        // consumers run, as it runs; one that would start it is refused.
-        // A reader of a `join` name joins a group the app's own readers run.
+        // consumers run, as it runs; one that would start it is refused
+        // (LLP 1133.013 D4, D11).
+        // A reader of a `join` name joins a group the app's own readers run
+        // (LLP 1133.036 D3).
         let joins = (sub["samples"]["stream"].as_str()).is_some_and(|s| self.app_rate(s).is_some())
             || self.joins_running(row, args);
-        if applies && app_only && origin != CallOrigin::App && !joins {
+        // A background action is the person's act: it may call a name held
+        // to the app, which shows nothing there (the foreground rule below
+        // refuses one that would).
+        let persons = matches!(origin, CallOrigin::App | CallOrigin::Action);
+        if applies && app_only && !persons && !joins {
             return Err(format!("person-required ({} origin)", origin.word()));
         }
         // A call the app holds admits a capture's start while hidden on iOS
-        // and Android, whose platforms keep a call's microphone;
-        // the origin rule above has refused a tool's and a wake's.
+        // and Android, whose platforms keep a call's microphone (LLP 1133.033
+        // D10); the origin rule above has refused a tool's and a wake's.
         let calling = || {
             sub["inCall"] == true
                 && matches!(super::ceremony::target(), "ios" | "android")
                 && origin == CallOrigin::App
                 && self.in_call()
         };
-        if applies && sub["foreground"] == true && self.page.in_background() && !calling() {
+        if applies
+            && sub["foreground"] == true
+            && (origin == CallOrigin::Action || (self.page.in_background() && !calling()))
+        {
             return Err("not in the foreground".into());
         }
         Ok(())
     }
 
     /// The implementation's answer for `row` under the agent, the agent's
-    /// preferred value laid over it field by field; any other answer as it is.
+    /// preferred value laid over it field by field (LLP 1133.009 D10 item
+    /// 11); any other answer as it is.
     pub(in crate::runner) fn overlaid(&self, row: &ModulesRow, mut answer: Json) -> Json {
-        // An implementation that lays it itself is told it.
+        // An implementation that lays it itself is told it (LLP 1133.016 §9).
         let laid = self.substitute(row)["overlays"] == "implementation";
         if self.route(row) != Route::Agent || laid || error_code(&answer).is_some() {
             return answer;
@@ -1074,17 +1168,35 @@ impl<D: DataSource> Runner<D> {
     }
 }
 
+/// Why a record's URL at `at` is refused under `grants`, naming it without
+/// its userinfo, query or fragment: it has a user name or password, which a
+/// browser's `Request` refuses too
+/// (<https://fetch.spec.whatwg.org/#dom-request>), or no `net.fetch` line
+/// admits it.
+fn fetch_refusal(grants: &str, at: &str, given: &str) -> Option<String> {
+    let (shown, userinfo) = crate::grants::redacted(given);
+    if userinfo {
+        return Some(format!(
+            "userinfo ({at}={shown} has a user name or password)"
+        ));
+    }
+    let web = given.starts_with("https://") || given.starts_with("http://");
+    let ok = web && crate::grants::admitting(grants, None, given).is_some();
+    (!ok).then(|| format!("grant-missing ({at}={shown} needs net.fetch)"))
+}
+
 /// Every origin, least privileged first.
-pub(in crate::runner) const ORIGINS: [CallOrigin; 4] = [
+pub(in crate::runner) const ORIGINS: [CallOrigin; 5] = [
     CallOrigin::Device,
     CallOrigin::Wake,
     CallOrigin::Tool,
+    CallOrigin::Action,
     CallOrigin::App,
 ];
 
 /// Whether a name declared `sub` holds a call giving `args` to the `app`
 /// origin: `"origin": "app"`, or `{"whenAny": [options], "is": "app"}` when
-/// the call gives one of them.
+/// the call gives one of them (LLP 1133.012 D12 item 5).
 pub(super) fn held_to_app(sub: &Json, args: &Json) -> bool {
     match &sub["origin"] {
         Json::Object(o) if o.contains_key("none") => false,
@@ -1114,5 +1226,35 @@ pub(in crate::runner) fn overlay(value: &mut Json, over: &Json) {
             }
         }
         (value, over) => *value = over.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fetch_refusal;
+
+    #[test]
+    fn a_record_url_with_a_password_is_refused_without_showing_it() {
+        let grants = "net.fetch https://example.com";
+        let at = "requests[0].url";
+        assert_eq!(
+            fetch_refusal(grants, at, "https://example.com/f?token=t"),
+            None
+        );
+        for url in [
+            "https://alice:secret@example.com/f",
+            "http://alice:secret@other.example/f?token=t",
+            "https:alice:secret@example.com/f",
+        ] {
+            let why = fetch_refusal(grants, at, url).unwrap_or_default();
+            assert!(
+                why.starts_with("userinfo (") && !why.contains("alice") && !why.contains("secret"),
+                "{why}"
+            );
+        }
+        assert_eq!(
+            fetch_refusal(grants, at, "https://other.example/f?token=t#x").as_deref(),
+            Some("grant-missing (requests[0].url=https://other.example/f needs net.fetch)")
+        );
     }
 }

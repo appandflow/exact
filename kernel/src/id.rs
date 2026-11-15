@@ -73,13 +73,15 @@ impl NodeFlags {
     /// The node was created in the batch that produced the current epoch.
     pub const CREATED: NodeFlags = NodeFlags(1 << 6);
     /// The node's own `display` was `none` when it was last laid out. A
-    /// geometry read answers the layout last shown, not a
+    /// geometry read answers the layout last shown (LLP 1051.000 D1), not a
     /// visibility a batch has changed since.
     pub const HIDDEN: NodeFlags = NodeFlags(1 << 7);
     /// The node took a new parent since the last layout publication: its
     /// whole subtree is published again (a moved subtree's descendants keep
     /// the frames and hidden bits of where they were).
     pub const ATTACHED: NodeFlags = NodeFlags(1 << 8);
+    /// Published text geometry depends on a host estimate (LLP 1051.000 D5).
+    pub const TEXT_PENDING: NodeFlags = NodeFlags(1 << 9);
 
     /// Whether every bit of `flag` is set.
     pub const fn has(self, flag: NodeFlags) -> bool {
@@ -173,20 +175,33 @@ impl Offer {
 
 /// A box's padding and border as its layout resolved them, each left, top,
 /// right, bottom: CSS's padding, and apart from it what a host cover added
-/// to the engine's for layout.
+/// to the engine's for layout (LLP 1075.003 §3.5), and its text item's placement.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) struct BoxInset {
     pub(crate) padding: [f32; 4],
     pub(crate) border: [f32; 4],
     pub(crate) cover: [f32; 4],
+    pub(crate) text_offset: f32,
+    pub(crate) text_item: Option<Frame>,
 }
 
 impl BoxInset {
+    pub(crate) fn is_zero(self) -> bool {
+        // Bitwise, so a -0 comes back as it went in.
+        let zero = |v: &[f32; 4]| v.iter().all(|x| x.to_bits() == 0);
+        zero(&self.padding)
+            && zero(&self.border)
+            && zero(&self.cover)
+            && self.text_offset.to_bits() == 0
+            && self.text_item.is_none()
+    }
+
     /// The padding and border Taffy laid the box `slot` out with.
     pub(crate) fn of(
         arena: &crate::arena::NodeArena,
         slot: u32,
         l: taffy::tree::Layout,
+        text_item: Option<Frame>,
     ) -> BoxInset {
         let ltrb = |r: taffy::geometry::Rect<f32>| [r.left, r.top, r.right, r.bottom];
         let [top, right, bottom, left] = crate::kernel::cover_padding(arena, slot);
@@ -196,6 +211,11 @@ impl BoxInset {
             padding: std::array::from_fn(|i| (engine[i] - cover[i]).max(0.0)),
             border: ltrb(l.border),
             cover,
+            text_offset: text_item.map_or_else(
+                || crate::layout::text_item::from_layout(arena, slot, l),
+                |item| item.y,
+            ),
+            text_item,
         }
     }
 }

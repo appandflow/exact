@@ -1,4 +1,4 @@
-// A popover that is not a menu is an `NSPopover`.
+// @ref LLP 1115.002 D7.3 — a popover that is not a menu is an `NSPopover`.
 // A popover whose rows are a menu's is the `NSMenu` it was (MenusMac.swift),
 // and one in the alert shape the alert (AlertsMac.swift). Any other is
 // AppKit's popover: a window of its own beside its invoker, with AppKit's
@@ -29,8 +29,8 @@
 // it, through the same door as before; what AppKit closes itself closes the
 // page's popover with it. The edge is the popover's `position-area`: above
 // for `top`, beside for `right`, below otherwise; one whose author wrote
-// `left` or `top` points at that point of the viewport instead, as a
-// hand-built app points one at a click. Its margin on the side
+// `left` or `top` points at that point of the viewport instead (LLP 1021
+// D2), as a hand-built app points one at a click. Its margin on the side
 // that faces its invoker stands between the two (AppKit's popover has none
 // of its own, so the rectangle it is anchored to is moved out by it); the
 // popover itself is the size of its border box.
@@ -73,7 +73,7 @@ final class NativePopover: NSObject, NSPopoverDelegate {
         self.margins = margins
         if let positioning, popover.isShown { popover.positioningRect = positioning.rect(margins) }
     }
-    /// Its insets moved while shown: it points at the new point.
+    /// Its insets moved while shown (LLP 1021 D2): it points at the new point.
     func repoint() {
         guard let positioning, popover.isShown else { return }
         let rect = positioning.rect(margins)
@@ -185,7 +185,7 @@ extension MenuHost {
     func present(_ entry: Entry, from source: NodeView, in window: NSWindow) -> Bool {
         guard let presenter else { return false }
         let pop = entry.popover
-        // At its authored `left`/`top`: a 1×1 rectangle at that
+        // At its authored `left`/`top` (LLP 1021 D2): a 1×1 rectangle at that
         // point of the viewport, as a hand-built app points a popover at a
         // click, read again as the insets change while it shows (`repoint`).
         // It is the window's, as the CSS box is the viewport's: not the
@@ -227,7 +227,7 @@ extension MenuHost {
         let screen = (window.screen ?? NSScreen.main)?.visibleFrame.size ?? window.frame.size
         let maximum = CGSize(width: max(1, screen.width - 2 * Self.popoverMargin), height: max(1, screen.height - 2 * Self.popoverMargin))
         let margins = PositionArea.margins(of: pop), edge = Self.edge(PositionArea.of(pop))
-        presenter.blocks.show(pop, in: native.content, block: .atMost(maximum)) { [weak native, weak pop] size in
+        presenter.blocks.show(pop, in: native.content, block: .atMost(maximum), owner: false) { [weak native, weak pop] size in
             // Its margins as they are now: a change while open resizes it too.
             let margins = pop.map(PositionArea.margins(of:)) ?? margins
             native?.fit(CGSize(width: size.width - margins.left - margins.right, height: size.height - margins.top - margins.bottom))

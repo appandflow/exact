@@ -1,4 +1,4 @@
-// @exact/nfc's conformance suite on the web: the
+// @exact/nfc's conformance suite on the web (LLP 1133.035 §12 stage 1): the
 // fixture app built for the web and driven in each engine with the web
 // implementation bound, as in production.
 //

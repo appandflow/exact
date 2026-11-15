@@ -1,8 +1,9 @@
-// no-tells and the root `theme` block: its entries' literals are the
+// no-tells and the root `theme` block (LLP 1095 D4): its entries' literals are the
 // app's palette, and only a declaration at the top level is one.
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { brokenWordsIn, fixedSizesIn, fixedSymbolsIn, tellsIn } from './no-tells.mjs';
+import { fileURLToPath } from 'node:url';
 
 test("a theme's literals are its palette and a row naming an entry is no tell", () => {
   const source = 'theme\n  brand="#c8102e"\n  background = "light-dark(#fff, #000)"\n\ncomponent A\n  view\n    text "x" color="brand" background-color="#fff"\n';
@@ -16,7 +17,7 @@ test('a `theme` word continuing an expression starts no theme', () => {
   assert.deepEqual(tellsIn(list).map(t => [t.line, t.property]), [[5, 'color']]);
 });
 
-// An app's design names its tokens, and an expression over tokens and
+// LLP 1121: an app's design names its tokens, and an expression over tokens and
 // roles is folded by the build, not a literal.
 test('a design token and an expression over tokens are no tells', () => {
   const tokens = new Set(['surface.card', 'accent.fill']);
@@ -28,7 +29,7 @@ test('a design token and an expression over tokens are no tells', () => {
 
 test("an app's design is read for its token names", async () => {
   const { designTokens } = await import('./no-tells.mjs');
-  const names = designTokens(new URL('../apps/theme-fixture/app.contract', import.meta.url).pathname);
+  const names = designTokens(fileURLToPath(new URL('../apps/theme-fixture/app.contract', import.meta.url)));
   for (const name of ['surface.page', 'text.primary', 'accent.soft', 'AccentColor']) assert.ok(names.has(name), name);
   assert.ok(!names.has('dark-style'));
 });
@@ -46,7 +47,7 @@ test("a design's entries are read at the block's own indent, with or without a k
   const { designTokens } = await import('./no-tells.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'no-tells-design-'));
   writeFileSync(join(dir, 'app.json'), '{}');
-  writeFileSync(join(dir, 'app.tamber'), 'tamber t\n\ntheme\n    surface.card: color = #ffffff\n      when x=y: #000000\n    brand = #c8102e\n');
+  writeFileSync(join(dir, 'app.forma'), 'forma t\n\ntheme\n    surface.card: color = #ffffff\n      when x=y: #000000\n    brand = #c8102e\n');
   assert.deepEqual([...designTokens(join(dir, 'app.contract'))], ['surface.card', 'brand']);
 });
 
@@ -61,7 +62,7 @@ test("an inline theme's entries are tokens as a design's are", () => {
   assert.deepEqual(tellsIn(source).map(t => [t.line, t.property]), [[6, 'background-color']]);
 });
 
-// What verify names as a size Dynamic Type does not move.
+// LLP 1116.020 D4: what verify names as a size Dynamic Type does not move.
 test('a fixed font size is a bare number, px or pt, whole or a branch; rem, a role, a control and a kept line are not', () => {
   const source = [
     'component A',
@@ -83,7 +84,7 @@ test('a fixed font size is a bare number, px or pt, whole or a branch; rem, a ro
   assert.deepEqual(fixedSizesIn(source).map((f) => [f.line, f.tag, f.size, f.testId]), [[4, 'text', 28, 'big'], [6, 'text', 48, null], [9, 'text', 20, 'ff'], [15, 'style', 30, null]]);
 });
 
-// Text that breaks inside words, and a symbol that stays small beside text that grows.
+// LLP 1116.021 D6: text that breaks inside words, and a symbol that stays small beside text that grows.
 test('overflow-wrap anywhere on prose is a tell; on a link, in a monospace face or kept, it is not', () => {
   const source = [
     'component A',

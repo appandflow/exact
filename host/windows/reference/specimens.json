@@ -1,5 +1,5 @@
 {
-  "about": "Each specimen is drawn by WinUI 3 at the pinned Windows App SDK (Specimens.cs) in light and dark, on Fluent's base background with a 16-pixel margin for its shadow. These are the controls an app's first screens commonly have. `size` fixes the specimen's layout box in effective pixels; without it the control takes its own size.",
+  "about": "LLP 1115.004 D13: each specimen is drawn by WinUI 3 at the pinned Windows App SDK (Specimens.cs) in light and dark, on Fluent's base background with a 16-pixel margin for its shadow. These are S1's controls, the ones Shelf's and Excord's first screens have (§3). `size` fixes the specimen's layout box in effective pixels; without it the control takes its own size.",
   "schemes": ["light", "dark"],
   "specimens": [
     { "id": "text-field-empty", "component": "TextBox", "size": [296, null] },

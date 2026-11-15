@@ -61,6 +61,86 @@ fn heightfield_mesh_and_cylinder_use_world_entities() {
         assert_eq!(w.hash(), restored.hash());
     }
 }
+// A fast body is swept against static colliders by default (the test below), but
+// against a thin dynamic one only with `ccd`, set at spawn or later.
+// `ccd` is encoded only when set, so a body without it reads and hashes as one
+// with only the other fields; a patch that omits it keeps it.
+#[test]
+fn ccd_is_written_only_when_set_and_kept_by_patches() {
+    use exact_game::{bin, json};
+    let on = Body {
+        ccd: true,
+        ..Body::default()
+    };
+    assert!(!json::to_string(&Body::default()).unwrap().contains("ccd"));
+    assert!(json::to_string(&on).unwrap().contains("\"ccd\":true"));
+    for patch in [r#"{"damping":0.1}"#, "{}"] {
+        let mut body = on.clone();
+        json::read_into(patch, &mut body).unwrap();
+        assert!(body.ccd, "{patch}");
+    }
+    let saved = json::to_string(&Body {
+        damping: 0.1,
+        ..Body::default()
+    })
+    .unwrap();
+    assert!(!json::from_str::<Body>(&saved).unwrap().ccd);
+    for body in [Body::default(), on] {
+        let mut w = World::new(60, 0);
+        physics::register(&mut w);
+        let e = w.spawn((Transform::default(), body.clone()));
+        let mut restored = World::new(60, 0);
+        physics::register(&mut restored);
+        restored.load(&w.save()).unwrap();
+        assert_eq!(*restored.get::<Body>(e).unwrap(), body);
+        assert_eq!(restored.hash(), w.hash());
+        assert_eq!(bin::from_slice::<Body>(&bin::to_vec(&body)).unwrap(), body);
+    }
+}
+#[test]
+fn ccd_stops_a_fast_body_tunnelling_through_a_thin_dynamic_one() {
+    for ccd in [None, Some(0), Some(1)] {
+        let mut w = World::new(60, 0);
+        physics::register(&mut w);
+        let wall = w.spawn((
+            Transform::at(5.0, 0.0, 0.0),
+            Body {
+                gravity: 0.0,
+                mass: 100.0,
+                ..Body::default()
+            },
+            Collider {
+                shape: Shape::Box {
+                    half: Vec3::new(0.01, 1.0, 1.0),
+                },
+                ..Collider::default()
+            },
+        ));
+        let bullet = w.spawn((
+            Transform::default(),
+            Body {
+                velocity: Vec3::X * 120.0,
+                gravity: 0.0,
+                ccd: ccd == Some(0),
+                ..Body::default()
+            },
+            Collider {
+                shape: Shape::Sphere { radius: 0.05 },
+                ..Collider::default()
+            },
+        ));
+        if ccd == Some(1) {
+            physics::step(&mut w);
+            let mut b = w.get_mut::<Body>(bullet).unwrap();
+            exact_game::Data::set_field(&mut *b, "ccd", "true").unwrap();
+        }
+        for _ in 0..5 {
+            physics::step(&mut w);
+        }
+        let x = |e| w.get::<Transform>(e).unwrap().position.x;
+        assert_eq!(x(bullet) > x(wall), ccd.is_none(), "{ccd:?}: {}", x(bullet));
+    }
+}
 #[test]
 fn fast_rigid_body_does_not_tunnel_and_queries_are_read_only() {
     let mut w = World::new(60, 0);

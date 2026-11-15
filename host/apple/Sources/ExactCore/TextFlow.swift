@@ -1,4 +1,4 @@
-// The shared walker breaks; CoreText shapes/draws.
+// @ref LLP 1043.000 §3 D4–D7 — the shared walker breaks; CoreText shapes/draws.
 import Foundation
 import CoreText
 import CExact
@@ -71,7 +71,7 @@ package final class TextFlowSource {
         var space = false
         for i in 0..<original.length {
             let ch = original.character(at: i)
-            // `pre-line` keeps a line feed, a forced break.
+            // `pre-line` keeps a line feed, a forced break (LLP 1053 G5).
             if !shape.spec.preserves && !(shape.spec.whiteSpace == 3 && ch == 10)
                 && [32, 9, 10, 13, 12, 0x85, 0x2028, 0x2029].contains(ch) {
                 if space { replacements.append((i, "\u{200b}")) }
@@ -103,7 +103,7 @@ package final class TextFlowSource {
         }
     }
     /// CoreFoundation's line-break units that start between two Thai, Lao, Khmer
-    /// or Myanmar letters: the walker has no dictionary.
+    /// or Myanmar letters: the walker has no dictionary (LLP 1043 §4 C).
     package static func complexWords(_ text: String) -> [UInt32] {
         let string = text as NSString, length = string.length
         func complex(_ i: Int) -> Bool {

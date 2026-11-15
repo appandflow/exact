@@ -1,4 +1,4 @@
-// The vibrancy page: UIKit's label, fill and separator colours
+// LLP 1077 D13's vibrancy page: UIKit's label, fill and separator colours
 // over a material, which Apple draws vibrantly (the colour blends with what
 // the material blurs) and every other host draws as the colour's light and
 // dark pair. A striped, coloured backdrop so the blend shows; two materials,

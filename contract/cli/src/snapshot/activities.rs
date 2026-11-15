@@ -1,4 +1,4 @@
-//! One state and one plan for all of an activity's placements.
+//! One state and one plan for all of an activity's placements (LLP 1126.001 WP8).
 use super::{entry::RenderEntry, refusal, Declaration, Entry, STATE_SLOT};
 use crate::{manifest::Activity, CompileError};
 use contract_syntax::{Attr, Expr, File, Node, Span};
@@ -183,6 +183,7 @@ pub(super) fn compile_file(
             preview: &activity.preview,
             families: &[],
             refresh: None,
+            configuration: None,
         },
         app,
     )?;

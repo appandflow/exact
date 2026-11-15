@@ -1,4 +1,4 @@
-// A box in space takes taps where it is drawn. `near` is moved
+// LLP 1077 D8: a box in space takes taps where it is drawn. `near` is moved
 // toward the viewer under a perspective whose vanishing point is the stage's
 // top left, so it is drawn half again as large and down and to the right of
 // its flat frame: the middle of what is seen lies outside that frame. `front`

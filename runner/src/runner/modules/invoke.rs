@@ -1,11 +1,11 @@
-//! A module calling the app back: an
+//! A module calling the app back (LLP 1133.016 D9, D15 item 1): an
 //! implementation's `invoke(handle, handler, args)` runs one of the data
 //! module's `tools` for the work a handle names. Only a handler the call
 //! that made the handle listed runs: that call's `handlers` path names them
 //! (`tools[].name`), or its `handlersFrom` option names the handle whose
 //! list it takes.
 //!
-//! A pending call is an anchor too: the handle
+//! A pending call is an anchor too (LLP 1133.034 D16 item 1): the handle
 //! `request:<n>` names the send numbered `n` while its implementation has
 //! not answered it, and admits the handlers its `callbacks` options named.
 //! One marked `final` holds the call while it runs: a let-go send is not
@@ -71,6 +71,9 @@ pub(super) enum To {
 
 /// A handler awaiting a request of its own.
 struct Running {
+    module: Option<crate::ModuleInstance>,
+    fetch: Option<u64>,
+    continuation: Option<u64>,
     at: String,
     source: String,
     args: Value,
@@ -126,6 +129,7 @@ impl<D: DataSource> Runner<D> {
             Some("device") => CallOrigin::Device,
             Some("wake") => CallOrigin::Wake,
             Some("tool") => CallOrigin::Tool,
+            Some("action") => CallOrigin::Action,
             _ => CallOrigin::App,
         };
         let extension = self.plan.str(row.extension).to_owned();
@@ -247,6 +251,12 @@ impl<D: DataSource> Runner<D> {
         final_of: Option<u64>,
     ) {
         let run = Running {
+            module: self
+                .data
+                .module_identity(&format!("tool:{handler}"))
+                .map(|m| m.instance()),
+            fetch: None,
+            continuation: None,
             at,
             source: format!("tool:{handler}"),
             args: Value::from(args.to_string()),
@@ -346,13 +356,19 @@ impl<D: DataSource> Runner<D> {
                 let ticket = self.next_ticket;
                 self.next_ticket += 1;
                 request.reach = self.reach_of(run.origin);
+                if request.module.is_some() {
+                    run.module = request.module.clone();
+                }
                 run.effects = request.has_effects();
-                // A program starts only from the app's origin:
-                // a handler's is refused before it reaches the host,
+                run.fetch = request.fetch;
+                run.continuation = request.continuation;
+                // A program starts only from the app's origin (LLP 1133.007
+                // D13): a handler's is refused before it reaches the host,
                 // so no ordered work waits on it.
                 match self.process_refusal(&request) {
                     Some(why) => self.refuse_tool(ticket, why, false),
                     None => self.requests.push(RequestOut {
+                        class: crate::RequestClass::Ordered,
                         ticket,
                         target: NAME.into(),
                         request,
@@ -395,6 +411,35 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    pub(in crate::runner) fn failed_tool_tickets(&self) -> Vec<(u64, String)> {
+        self.extensions
+            .invocations
+            .running
+            .iter()
+            .filter_map(|(ticket, run)| Some((*ticket, run.module.as_ref()?.failure()?.to_owned())))
+            .collect()
+    }
+
+    pub(in crate::runner) fn discard_failed_tools(&mut self) {
+        let tokens: Vec<_> = self
+            .extensions
+            .invocations
+            .running
+            .values()
+            .filter(|run| run.module.as_ref().and_then(|m| m.failure()).is_some())
+            .filter_map(|run| run.continuation)
+            .collect();
+        for token in tokens {
+            self.data.discard(token);
+        }
+    }
+
+    pub(in crate::runner) fn fail_tool(&mut self, ticket: u64, message: &str) {
+        if let Some(run) = self.extensions.invocations.running.remove(&ticket) {
+            self.tool_step(run, Err(DataError::Unavailable(message.into())));
+        }
+    }
+
     /// Whether `ticket` is a handler's request.
     pub(in crate::runner) fn is_tool(&self, ticket: u64) -> bool {
         self.extensions.invocations.running.contains_key(&ticket)
@@ -430,7 +475,14 @@ impl<D: DataSource> Runner<D> {
         let answer = self.as_invocation(run.origin, 0, |r| {
             let args = std::slice::from_ref(&run.args);
             r.store.set_clock_ms(r.now_ms);
-            (r.data).parse(&mut r.store, &run.source, args, outcome)
+            (r.data).parse_tool(
+                run.fetch,
+                run.continuation,
+                &mut r.store,
+                &run.source,
+                args,
+                outcome,
+            )
         });
         self.tool_step(run, answer);
     }
@@ -536,6 +588,9 @@ mod tests {
     /// Handler `h`'s run, answering `to`.
     fn running(to: Option<To>) -> Running {
         Running {
+            module: None,
+            fetch: None,
+            continuation: None,
             at: "test: h".into(),
             source: "tool:h".into(),
             args: Value::str("{}"),
@@ -566,7 +621,7 @@ mod tests {
 
     /// Two handlers' requests refused together each settle once, the second
     /// in its own pump; an ordered one waits behind the ordered fence until
-    /// earlier ordered work is done.
+    /// earlier ordered work is done (LLP 1133.016 D9, LLP 1041 §8.4).
     #[test]
     fn refused_handler_requests_settle_once_each_in_order() {
         let mut r = boot();
@@ -606,7 +661,7 @@ mod tests {
 
     /// A handler's POST is a request with effects until it lands, so the host
     /// keeps the app running for it; its GET is not one, nor a POST the host
-    /// refused at admission.
+    /// refused at admission (LLP 1146 D2).
     #[test]
     fn a_handler_s_post_has_effects_until_it_lands() {
         let mut r = boot();

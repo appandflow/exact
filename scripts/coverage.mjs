@@ -3,8 +3,8 @@
 // A test that cannot run is skipped for one of two reasons, and its name says
 // which. `missing`: a prerequisite this run should have had (a browser, a
 // toolchain, a built fixture). `n/a`: it does not apply here (another
-// platform). With EXACT_REQUIRED=1 (for a run that owns the coverage of its
-// checks) a missing prerequisite fails the test instead of skipping it, so
+// platform). With EXACT_REQUIRED=1 (the async lane, which owns the coverage of
+// its checks) a missing prerequisite fails the test instead of skipping it, so
 // a check cannot pass having tested nothing; `n/a` still skips. Without it, a
 // developer's machine skips both, naming the reason.
 //

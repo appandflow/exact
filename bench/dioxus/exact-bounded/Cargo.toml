@@ -1,4 +1,4 @@
-# The heavy list (bench/heavy-list/SPEC.md) on exact2 with a bounded answer, consumed by path
+# The heavy list (bench/heavy-list/SPEC.md) on exact2 with a bounded answer (LLP 1027.004), consumed by path
 # from the checkout this directory is in. `data/` answers a window of the feed, reactions and live mode;
 # `apple/` is the static library the Apple host links; `web/` is the web build's crate. Its own [workspace],
 # so the root workspace never adopts it. Cargo.lock is not committed: ../prepare.sh copies the checkout's.
@@ -14,6 +14,7 @@ license = "MIT"
 # exact2's vendored patches, the root Cargo.toml's [patch.crates-io] (scripts/app.mjs refuses a
 # workspace whose patches differ from the checkout's).
 [patch.crates-io]
+accesskit_windows = { path = "../../../vendor/accesskit-windows" }
 taffy = { path = "../../../vendor/taffy" }
 parley = { path = "../../../vendor/parley" }
 fontique = { path = "../../../vendor/fontique" }

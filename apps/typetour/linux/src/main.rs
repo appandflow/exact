@@ -6,7 +6,7 @@
 /// The baked plan, written by `build.rs`.
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 
-/// The compatibility id and its inputs, written by
+/// The compatibility id and its inputs (LLP 1030 D3a), written by
 /// `build.rs` beside the plan.
 const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 

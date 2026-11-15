@@ -1,4 +1,4 @@
-// @exact/background's conformance suite on the web:
+// @exact/background's conformance suite on the web (LLP 1133.017 stage 1):
 // the fixture app (`test/fixture`) made with `exact new` outside the repo,
 // depending on this package by `file:`, built for the web, and driven in
 // each engine with the web implementation bound. No agent: a substitute
@@ -6,7 +6,7 @@
 // is the network going and coming back (`navigator.onLine` and the page's
 // `online` event).
 //
-// - The status: available, `sync` true, `periodic` false, the
+// - The status: available, `sync` true, `periodic` false (D17's `later`), the
 //   state the Permissions API's word where the engine has `background-sync`
 //   (Chromium), else `unknown`.
 // - A tag registered offline is listed and fires at the page's `online`

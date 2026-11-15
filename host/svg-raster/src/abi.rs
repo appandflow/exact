@@ -1,7 +1,7 @@
-//! The module's C ABI: what the Apple host `dlsym`s from `libexact_svg.dylib`.
-//! Pixels cross as a pointer and a length, premultiplied RGBA8, tightly packed;
-//! nothing else crosses. The host checks `exact_svg_raster_abi` before any
-//! other call.
+//! The module's C ABI (LLP 1055.000 §8 ruling 4, after LLP 1009 D2): what
+//! the Apple host `dlsym`s from `libexact_svg.dylib`. Pixels cross as a
+//! pointer and a length, premultiplied RGBA8, tightly packed; nothing else
+//! crosses. The host checks `exact_svg_raster_abi` before any other call.
 //!
 //! This is the module's one `unsafe` boundary: the core hosts never
 //! dereference a pointer for it.

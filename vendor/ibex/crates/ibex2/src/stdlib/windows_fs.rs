@@ -1,4 +1,4 @@
-//! Admit names, then retain parents.
+//! @ref LLP 0068#proposed-windows-native-filesystem-grants — admit names, then retain parents.
 use super::{
     fs::{FsOp, FsResult, Stat},
     windows_directory::{identity, Directory},
@@ -211,7 +211,7 @@ pub(super) fn perform(
             }
         }
         FsOp::Mkdir => unreachable!("mkdir admission walks only authorized missing components"),
-        // Exact patch 24's operations are not yet implemented on Windows.
+        // Exact patch 24's operations wait for Windows (exact2 LLP 1133.007 stage 3).
         FsOp::Lstat
         | FsOp::Readlink
         | FsOp::Access

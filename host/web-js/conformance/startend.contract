@@ -1,10 +1,10 @@
 // data: carousel
-// Synthetic conformance plan: `scroll-start="end"` (list.js):
+// Synthetic conformance plan: `scroll-start="end"` (LLP 1010 §6.5, list.js):
 // a transcript of varied rows that opens at its last row, its estimate (48)
 // wrong for every row, and lands there on measured sizes; one that opens
 // empty and gets its rows later; then a reader who scrolls it up and a
 // line that comes without `scrollFollowEnd`, which leaves them there. The
-// long one's `ScrollEvent` says whether the reader is at its end.
+// long one's `ScrollEvent` says whether the reader is at its end (chat F4).
 shape Card
   id: string
   n: number

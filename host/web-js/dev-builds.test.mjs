@@ -5,13 +5,17 @@
 // carries it. EXACT_DEV_BUILD_HOLD_MS holds each build's end, as a slow one.
 import { afterEach, expect, test } from 'bun:test';
 import { spawnOwned, stopAll } from '../../scripts/test-children.mjs';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { suiteBrowser } from '../../scripts/agent-launch.mjs';
+import { appSources } from '../web/serve.mjs';
 
-const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const sha = text => createHash('sha256').update(text).digest('hex');
 
 // A dev loop a test started ends with the test, a timeout included.
@@ -43,12 +47,143 @@ async function devLoop(dir, env = {}) {
   return { base: `http://127.0.0.1:${port}`, stop, said: () => out, dist };
 }
 
+test('the JS loop carries a checkpoint literally across document probes and retries', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-checkpoint-dollars-'));
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Checkpoint', app: { id: 'test.checkpoint', name: 'Checkpoint' } }));
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  state body = "initial"\n  view\n    text body testId="body"\n');
+  const body = "$` $' $& $$ $5 $HOME </script><script>globalThis.__injected=true</script>";
+  let loop, browser;
+  try {
+    loop = await devLoop(dir);
+    browser = await suiteBrowser();
+    const page = await browser.newPage();
+    await page.goto(loop.base);
+    await page.waitForFunction(() => globalThis.exact?.ready);
+    const checkpoint = await page.evaluate(() => ({ time: 0, carryAnswers: false, answers: [],
+      slots: globalThis.exact.state[0].map(s => [s.n.devName, s.n.devType, s()]),
+    }));
+    checkpoint.slots.find(([name]) => name === 'body')[2] = body;
+    const post = () => fetch(`${loop.base}/__dev/checkpoint?id=1-2-3-4&seq=1`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(checkpoint),
+    });
+    expect((await post()).status).toBe(204);
+    expect((await fetch(`${loop.base}/?__exactDev=1-2-3-4`, { method: 'HEAD' })).status).toBe(200);
+    const abandoned = await fetch(`${loop.base}/?__exactDev=1-2-3-4`);
+    await abandoned.body.cancel();
+    const html = await (await fetch(`${loop.base}/?__exactDev=1-2-3-4`)).text();
+    const data = html.match(/<script type="application\/vnd\.exact\.dev-checkpoint"[^>]*>(.*?)<\/script>/s)?.[1];
+    expect(data).toBeDefined();
+    expect(JSON.parse(data)).toEqual(checkpoint);
+    expect(html.match(/<!doctype html>/gi)).toHaveLength(1);
+    await page.goto(`${loop.base}/?__exactDev=1-2-3-4`);
+    await page.waitForFunction(() => globalThis.exact?.ready);
+    expect(await page.getByTestId('body').textContent()).toBe(body);
+    expect(await page.evaluate(() => globalThis.__injected)).toBeUndefined();
+  } finally {
+    await browser?.close();
+    await loop?.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 180000);
+
+test.each([false, true])('a blurred autofocus field stays blurred after a carried reload (bound: %s)', async bound => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-blurred-carry-'));
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Blurred carry', app: { id: 'test.blurred.carry', name: 'Blurred carry' } }));
+  const contract = label => `component App
+  state wantsFocus = true
+  view
+    column
+      input autofocus=${bound ? 'wantsFocus' : 'true'} testId="draft"
+      text "${label}" testId="label"
+`;
+  writeFileSync(join(dir, 'app.contract'), contract('before'));
+  let loop, browser;
+  try {
+    loop = await devLoop(dir);
+    expect(loop.said()).not.toContain('does not build');
+    browser = await suiteBrowser();
+    const page = await browser.newPage();
+    await page.goto(loop.base);
+    await page.waitForFunction(() => document.activeElement === document.querySelector('[data-testid="draft"]'));
+    await page.getByTestId('draft').blur();
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+    writeFileSync(join(dir, 'app.contract'), contract('after'));
+    await page.waitForFunction(() => document.querySelector('[data-testid="label"]')?.textContent === 'after');
+    // Let the browser flush its own autofocus candidates as well as the runtime's mount work.
+    await page.evaluate(() => new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok))));
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  } finally {
+    await browser?.close();
+    await loop?.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 180000);
+
+test('the JS loop drops settled answers when a page module or its imported helper changes', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-native-carry-'));
+  const modules = join(dir, 'modules/web');
+  mkdirSync(modules, { recursive: true });
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Native carry', app: { id: 'test.native.carry', name: 'Native carry' } }));
+  const contract = label => `shape Sample
+  value: string
+component App
+  state draft = "initial"
+  resource sample = sample() as shape Sample
+  action edit(value)
+    draft = value
+  view
+    column
+      input value=draft input=edit testId="draft"
+      text sample.value testId="sample"
+      text "${label}" testId="label"
+`;
+  writeFileSync(join(dir, 'app.contract'), contract('before'));
+  writeFileSync(join(dir, 'app.ts'), `import type { Answer } from './app.contract.d.ts';
+export const grants = '';
+export const answer: Answer = (_source, _args, _store, _storage, native) => native!.later({}) as ReturnType<Answer>;
+`);
+  const helper = value => `export const value = () => '${value}:' + crypto.getRandomValues(new Uint32Array(2)).join('.');\n`;
+  const entry = suffix => `import { value } from './value.js';\nexport const later = () => ({ value: value() + '${suffix}' });\n`;
+  writeFileSync(join(modules, 'value.js'), helper('before'));
+  writeFileSync(join(modules, 'index.js'), entry('entry-before'));
+  let loop, browser;
+  try {
+    loop = await devLoop(dir);
+    expect(loop.said()).not.toContain('does not build');
+    browser = await suiteBrowser();
+    const page = await browser.newPage();
+    await page.goto(loop.base);
+    await page.waitForFunction(() => document.querySelector('[data-testid="sample"]')?.textContent.startsWith('before:'));
+    const before = await page.getByTestId('sample').textContent();
+    const revision = () => readFileSync(join(loop.dist, '.exact-dev-logic.json'), 'utf8');
+    const originalRevision = revision();
+    await page.getByTestId('draft').fill('carried');
+    writeFileSync(join(dir, 'app.contract'), contract('presentation'));
+    await page.waitForFunction(() => document.querySelector('[data-testid="label"]')?.textContent === 'presentation');
+    expect(revision()).toBe(originalRevision);
+    expect(await page.getByTestId('draft').inputValue()).toBe('carried');
+    expect(await page.getByTestId('sample').textContent()).toBe(before);
+    writeFileSync(join(modules, 'value.js'), helper('helper-after'));
+    await page.waitForFunction(() => document.querySelector('[data-testid="sample"]')?.textContent.startsWith('helper-after:'));
+    expect(revision()).not.toBe(originalRevision);
+    const helperRevision = revision();
+    writeFileSync(join(modules, 'index.js'), entry('entry-after'));
+    await page.waitForFunction(() => document.querySelector('[data-testid="sample"]')?.textContent.endsWith('entry-after'));
+    expect(revision()).not.toBe(helperRevision);
+    expect(await page.getByTestId('draft').inputValue()).toBe('carried');
+  } finally {
+    await browser?.close();
+    await loop?.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 180000);
+
 test('the JS loop: a build an edit lands during is set aside, never published, and the newer files build', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-superseded-'));
   writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Superseded', app: { id: 'com.exact.superseded', name: 'Superseded' } }));
   const view = (text) => `component App\n  view\n    column background-color="surface.card" min-height=40\n      text "${text}"\n`;
   writeFileSync(join(dir, 'app.contract'), view('qz-first'));
-  writeFileSync(join(dir, 'app.tamber'), 'tamber superseded\n\ntheme\n  surface.card = light-dark(#f1f3f5, #16181c)\n');
+  writeFileSync(join(dir, 'app.forma'), 'forma superseded\n\ntheme\n  surface.card = light-dark(#f1f3f5, #16181c)\n');
   let loop = null;
   try {
     // Each build's end comes 2 s after it: an edit lands as one ends.
@@ -73,7 +208,7 @@ test('the JS loop: a build an edit lands during is set aside, never published, a
     await new Promise(ok => setTimeout(ok, 500));
     clearInterval(sampler);
     expect(said()).toContain('edit → a build superseded');
-    // The input that moved, named.
+    // The input that moved, named (stage 15 D1.5).
     expect(said()).toMatch(/set aside: app\.contract moved while it built/);
     expect(stale).toBe(false);
   } finally {
@@ -86,9 +221,9 @@ test('the JS loop: an edit stops a young build, leaving dist as it was; a value 
   const dir = mkdtempSync(join(tmpdir(), 'exact-stopped-'));
   writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Stopped', app: { id: 'com.exact.stopped', name: 'Stopped' } }));
   const view = (text) => `component App\n  view\n    column background-color="surface.card" min-height=40\n      text "${text}"\n`;
-  const design = (dark) => `tamber stopped\n\ntheme\n  surface.card = light-dark(#f1f3f5, ${dark})\n`;
+  const design = (dark) => `forma stopped\n\ntheme\n  surface.card = light-dark(#f1f3f5, ${dark})\n`;
   writeFileSync(join(dir, 'app.contract'), view('qz-one'));
-  writeFileSync(join(dir, 'app.tamber'), design('#16181c'));
+  writeFileSync(join(dir, 'app.forma'), design('#16181c'));
   let loop = null;
   try {
     loop = await devLoop(dir, { EXACT_DEV_BUILD_HOLD_MS: '4000' });
@@ -144,11 +279,11 @@ test('the JS loop: an edit stops a young build, leaving dist as it was; a value 
     // behind its lock while another build holds it: a build's bound.)
     await until(() => count(/design reader ready/g) >= 3, 300_000);
     const supersededBefore = count(/edit → a build superseded/g);
-    writeFileSync(join(dir, 'app.tamber'), design('#202020'));
+    writeFileSync(join(dir, 'app.forma'), design('#202020'));
     await until(() => count(/edit → batch ready/g) >= 1, 60_000);
     await new Promise(ok => setTimeout(ok, 500));
     const held = Date.now();
-    writeFileSync(join(dir, 'app.tamber'), design('#303030'));
+    writeFileSync(join(dir, 'app.forma'), design('#303030'));
     // Its batch from the design read, not a build's, before the held
     // build could end.
     await until(() => count(/edit → batch ready .*no build/g) >= 2, 60_000);
@@ -178,7 +313,7 @@ test('the JS loop: an edit stops a young build, leaving dist as it was; a value 
       if (count(/edit → plan ready|edit → checked/g) === settled) break;
     }
     const full = Date.now();
-    writeFileSync(join(dir, 'app.tamber'), design('#404040'));
+    writeFileSync(join(dir, 'app.forma'), design('#404040'));
     await until(() => count(/edit → batch ready .*no build/g) > batches, 60_000);
     expect(Date.now() - full).toBeLessThan(3000);
     await until(() => count(/edit → plan ready|edit → checked/g) > settled, 300_000);
@@ -194,8 +329,8 @@ test('the JS loop: a value-only design edit while the design reader builds waits
   const dir = mkdtempSync(join(tmpdir(), 'exact-reader-wait-'));
   writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Reader wait', app: { id: 'com.exact.readerwait', name: 'Reader wait' } }));
   writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    column background-color="surface.card" min-height=40\n      text "qz-wait"\n');
-  const design = (light) => `tamber readerwait\n\ntheme\n  surface.card = light-dark(${light}, #16181c)\n`;
-  writeFileSync(join(dir, 'app.tamber'), design('#f1f3f5'));
+  const design = (light) => `forma readerwait\n\ntheme\n  surface.card = light-dark(${light}, #16181c)\n`;
+  writeFileSync(join(dir, 'app.forma'), design('#f1f3f5'));
   let loop = null;
   try {
     // The reader's first build is taken 3 minutes after cargo ends (a reader building again after any other edit, on
@@ -206,7 +341,7 @@ test('the JS loop: a value-only design edit while the design reader builds waits
     const until = async (pass, ms) => { const end = Date.now() + ms; while (!pass()) { if (Date.now() > end) throw new Error(`not seen in: ${said().slice(-2000)}`); await new Promise(ok => setTimeout(ok, 100)); } };
     await until(() => said().includes('plan ready'), 900_000);
     if (said().includes('design reader ready')) throw new Error(`the reader was ready before the first build; the hold is too short: ${said().slice(-1500)}`);
-    writeFileSync(join(dir, 'app.tamber'), design('#e0f7e9'));
+    writeFileSync(join(dir, 'app.forma'), design('#e0f7e9'));
     await until(() => said().includes('edit → waiting for the design reader'), 60_000);
     // Nothing builds while it waits.
     expect(count(/edit → building/g)).toBe(0);
@@ -229,10 +364,10 @@ test("the JS loop: an edit to theme-fixture's `when` token builds with setMode a
   const dir = mkdtempSync(join(tmpdir(), 'exact-axes-'));
   writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Axes', app: { id: 'com.exact.axes', name: 'Axes' } }));
   writeFileSync(join(dir, 'app.contract'), 'component App\n  action dim\n    setMode("dark-style", "dim")\n  view\n    column background-color="surface.page" min-height=40\n      button press=dim\n        text "dim"\n      column -exact-mode="dark-style=black" background-color="surface.page"\n        text "pinned"\n');
-  const design = readFileSync(resolve(ROOT, 'apps/theme-fixture/app.tamber'), 'utf8');
+  const design = readFileSync(resolve(ROOT, 'apps/theme-fixture/app.forma'), 'utf8');
   const page = '  surface.page = light-dark(#ffffff, #000000)\n    when dark-style=dim: light-dark(#ffffff, #15202b)\n';
   expect(design).toContain(page);
-  writeFileSync(join(dir, 'app.tamber'), design);
+  writeFileSync(join(dir, 'app.forma'), design);
   let loop = null;
   try {
     loop = await devLoop(dir);
@@ -243,15 +378,15 @@ test("the JS loop: an edit to theme-fixture's `when` token builds with setMode a
     // The `when` line's dark side: its batch, then its build, which checks
     // setMode and the pin against the design's axes.
     const checks = count(/edit → checked|edit → batch ready .*built in|edit → plan ready/g);
-    writeFileSync(join(dir, 'app.tamber'), design.replace(page, page.replace('#15202b', '#16212c')));
+    writeFileSync(join(dir, 'app.forma'), design.replace(page, page.replace('#15202b', '#16212c')));
     await until(() => count(/edit → checked|edit → batch ready .*built in|edit → plan ready/g) > checks || said().includes('build failed'), 300_000);
     expect(said()).not.toContain('build failed');
     expect(JSON.stringify(await (await fetch(`${base}/__dev/design`)).json())).toContain('#16212c');
     // The default's light side alone, which `under scheme=dark` refuses:
     // the build says so, and not that the design declares no axes.
-    writeFileSync(join(dir, 'app.tamber'), design.replace(page, page.replace('#ffffff, #000000', '#fefefe, #000000')));
-    await until(() => said().includes('build failed') && said().includes('[tamber-'), 300_000);
-    expect(said()).toContain('tamber-under-light');
+    writeFileSync(join(dir, 'app.forma'), design.replace(page, page.replace('#ffffff, #000000', '#fefefe, #000000')));
+    await until(() => said().includes('build failed') && said().includes('[forma-'), 300_000);
+    expect(said()).toContain('forma-under-light');
     expect(said()).not.toContain('declares no axes');
   } finally {
     await loop?.stop().catch(() => {});
@@ -264,7 +399,7 @@ test('the JS loop: two loops on two apps under one target/ build at once, each i
     const dir = mkdtempSync(join(tmpdir(), `exact-stage-${name}-`));
     writeFileSync(join(dir, 'app.json'), JSON.stringify({ name, app: { id: `com.exact.${name}`, name } }));
     writeFileSync(join(dir, 'app.contract'), `component App\n  view\n    text "${name}"\n`);
-    writeFileSync(join(dir, 'app.tamber'), `tamber ${name}\n\ntheme\n  ink = #000000\n`);
+    writeFileSync(join(dir, 'app.forma'), `forma ${name}\n\ntheme\n  ink = #000000\n`);
     return dir;
   };
   const dirs = [app('stagea'), app('stageb')];
@@ -277,10 +412,70 @@ test('the JS loop: two loops on two apps under one target/ build at once, each i
     loops = await Promise.all([devLoop(dirs[0], { EXACT_DEV_BUILD_HOLD_MS: '8000', CARGO_TARGET_DIR: target }), devLoop(dirs[1], { CARGO_TARGET_DIR: target })]);
     for (const [i, name] of ['stagea', 'stageb'].entries()) {
       expect(loops[i].said()).not.toContain('does not build');
-      expect(JSON.parse(readFileSync(join(loops[i].dist, '.exact-build.json'), 'utf8')).app.id).toBe(`com.exact.${name}`);
+      const receipt = JSON.parse(readFileSync(join(loops[i].dist, '.exact-build.json'), 'utf8'));
+      // Its sources as `serve` lists them, so `serve` on the loop's directory builds nothing again (expo/exact#415).
+      expect([receipt.app.id, receipt.sources]).toEqual([`com.exact.${name}`, appSources(dirs[i], resolve(loops[i].dist)).digest]);
     }
   } finally {
     await Promise.all(loops.map(l => l.stop()));
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  }
+}, 1_200_000);
+
+
+test('the JS loop rebuilds when a navigation source or grant admission changes', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-navigation-watch-'));
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Navigation watch', app: { id: 'test.navigation-watch', name: 'Navigation watch' } }));
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  view\n    text "Ready"\n');
+  const sources = ['host/web/navigation/routes.js', 'host/web/grant-admission.js'].map(file => resolve(ROOT, file));
+  const stamps = sources.map(path => statSync(path));
+  let loop;
+  try {
+    loop = await devLoop(dir);
+    for (const source of sources) {
+      const before = loop.said().length;
+      const now = new Date();
+      utimesSync(source, now, now);
+      const deadline = performance.now() + 30_000;
+      while (!loop.said().slice(before).includes('edit → plan ready')) {
+        if (performance.now() > deadline) throw new Error(`no rebuild after ${source}: ${loop.said().slice(before)}`);
+        await Bun.sleep(50);
+      }
+      expect(loop.said().slice(before)).toContain('edit → plan ready');
+    }
+  } finally {
+    await loop?.stop();
+    sources.forEach((path, i) => utimesSync(path, stamps[i].atime, stamps[i].mtime));
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 180_000);
+
+// A Contract library the app depends on as `file:./packages/ui` is a copy in node_modules; the loop's rebuild runs
+// host/web-js/build.mjs directly, which installs it again before it reads it (#115).
+test("the JS loop: an edit to a copied file: library rebuilds with the library's new text", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'exact-file-library-')));
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Library', app: { id: 'test.file-library', name: 'Library' } }));
+  writeFileSync(join(dir, 'app.contract'), 'use Badge from "@me/ui"\n\ncomponent App\n  view\n    Badge()\n');
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'library', private: true, dependencies: { '@me/ui': 'file:./packages/ui' } }));
+  mkdirSync(join(dir, 'packages/ui'), { recursive: true });
+  writeFileSync(join(dir, 'packages/ui/package.json'), '{"name":"@me/ui","version":"1.0.0"}');
+  const badge = (text) => `component Badge\n  view\n    text "${text}"\n`;
+  writeFileSync(join(dir, 'packages/ui/index.contract'), badge('qz-lib-first'));
+  const bun = spawnSync(process.execPath, ['install'], { cwd: dir, encoding: 'utf8' });
+  expect(bun.status).toBe(0);
+  let loop = null;
+  try {
+    loop = await devLoop(dir);
+    const { said, dist } = loop;
+    const until = async (pass, ms) => { const end = Date.now() + ms; while (!pass()) { if (Date.now() > end) throw new Error(`not seen in: ${said().slice(-2000)}`); await new Promise(ok => setTimeout(ok, 100)); } };
+    const holds = (text) => { const walk = (d) => readdirSync(d, { withFileTypes: true }).some(e => e.isDirectory() ? walk(join(d, e.name)) : readFileSync(join(d, e.name)).includes(text)); return walk(dist); };
+    await until(() => said().includes('plan ready') && said().includes('design reader ready') && holds('qz-lib-first'), 900_000);
+    writeFileSync(join(dir, 'packages/ui/index.contract'), badge('qz-lib-second'));
+    await until(() => holds('qz-lib-second'), 120_000);
+    expect(holds('qz-lib-first')).toBe(false);
+    expect(readFileSync(join(dir, 'node_modules/@me/ui/index.contract'), 'utf8')).toBe(badge('qz-lib-second'));
+  } finally {
+    await loop?.stop().catch(() => {});
+    rmSync(dir, { recursive: true, force: true });
   }
 }, 1_200_000);

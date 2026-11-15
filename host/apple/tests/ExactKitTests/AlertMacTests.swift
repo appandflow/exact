@@ -1,4 +1,4 @@
-// A confirmation in the alert shape is NSAlert, a
+// @ref LLP 1115.000 D7.6 — a confirmation in the alert shape is NSAlert, a
 // sheet on its window; a chooser stays the menu, anything else as it was.
 #if os(macOS)
 import AppKit
@@ -22,8 +22,8 @@ final class AlertMacTests: XCTestCase {
     /// a popover its opener invokes instead of a `dialog`; `extra` adds a
     /// row that is none of those (a checkbox, id 50), `field` a prompt's
     /// text field (id 51, "Untitled"). A dialog's `closedby` is
-    /// what lowering implies for the alert's shape, `closerequest`,
-    /// unless the test says another.
+    /// what lowering implies for the alert's shape, `closerequest` (LLP
+    /// 1115.000 D13.4), unless the test says another.
     private func fixture(label: String? = "Remove Book?", lines: [String] = ["“Piranesi” will be removed from your library."],
                          actions: [String] = ["Remove"], props: [Int: [String: String]] = [10: ["destructive": "true"]],
                          filled: Set<UInt32> = [], cancel: Bool = true, popover: Bool = false, extra: Bool = false,
@@ -80,6 +80,31 @@ final class AlertMacTests: XCTestCase {
     private func key(_ chars: String, _ code: UInt16, in window: NSWindow) -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
                          characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)!
+    }
+
+    func testCommandPeriodUsesTheCommandLayoutThroughAppKit() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        let p = fixture(field: true, session: session)
+        defer { p.alerts.reset() }
+        for (code, ignoring) in [(UInt16(14), "."), (UInt16(47), "v")] {
+            p.press(2)
+            let sheet = try XCTUnwrap(p.alerts.sheet)
+            let field = try XCTUnwrap(p.views[51]?.field)
+            XCTAssertTrue(sheet.makeFirstResponder(field))
+            func send(_ code: UInt16, _ characters: String, _ ignoring: String) {
+                NSApp.sendEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: sheet.windowNumber,
+                    context: nil, characters: characters, charactersIgnoringModifiers: ignoring,
+                    isARepeat: false, keyCode: code)!)
+                turn()
+            }
+            send(14, "e", ".")
+            XCTAssertTrue(p.alerts.sheet === sheet, "Dvorak - QWERTY Command-E leaves the alert open")
+            send(code, ".", ignoring)
+            XCTAssertNil(p.alerts.presented, "Command-period presses Cancel in either layout")
+        }
     }
 
     /// The rule itself is the kernel's, asked through the C ABI
@@ -308,7 +333,7 @@ final class AlertMacTests: XCTestCase {
         XCTAssertNil(p.alerts.plan(of: pop, popover: true), "its commandfor governs: it closes nothing")
     }
 
-    /// The default: exactly one `filled`, non-destructive
+    /// The default (LLP 1115.000 D7.3): exactly one `filled`, non-destructive
     /// button answers Return and is the one AppKit draws so; with several, or
     /// only a destructive one, nothing is.
     func testExactlyOneFilledNonDestructiveButtonIsTheDefault() throws {
@@ -555,10 +580,61 @@ final class AlertMacTests: XCTestCase {
         window.close()
     }
 
+    /// A prompt's input whose `type` becomes `password` while its field is
+    /// lent and focused: the accessory view holds a secure field, which
+    /// keeps the editing, its selection and the alert's sizing, and back.
+    func testAPromptsFieldTakesTheClassOfAChangedType() throws {
+        let p = fixture(label: "Rename", lines: [], actions: ["Save"], props: [:], field: true)
+        let node = try XCTUnwrap(p.views[51])
+        var events: [String] = []
+        p.onChange = { id, value in events.append("change \(id) \(value)") }
+        p.onFocus = { events.append("focus \($0)") }
+        p.onBlur = { events.append("blur \($0)") }
+        p.press(2)
+        let owner = try XCTUnwrap(p.alerts.presented)
+        let stack = try XCTUnwrap(owner.alert.accessoryView as? NSStackView)
+        let sheet = owner.alert.window
+        XCTAssertTrue(sheet.makeFirstResponder(try XCTUnwrap(node.field)))
+        XCTAssertNotNil(node.editingEditor)
+        events.removeAll()
+
+        let plain = try XCTUnwrap(node.field)
+        p.apply(wireBatch([["op": "props", "id": 51, "set": ["type": "password", "value": "secret"]]]))
+        p.alerts.sync()
+        let secure = try XCTUnwrap(node.field)
+        XCTAssertTrue(secure is NSSecureTextField, "a password's field is secure: \(type(of: secure))")
+        XCTAssertTrue(stack.arrangedSubviews == [secure], "the accessory view holds the new field alone")
+        XCTAssertNil(plain.superview)
+        XCTAssertTrue(secure.delegate === node)
+        XCTAssertEqual(secure.stringValue, "secret")
+        XCTAssertTrue(sheet.initialFirstResponder === secure, "\(String(describing: sheet.initialFirstResponder)) \(String(describing: secure))")
+        XCTAssertEqual(owner.widths.map { $0.firstItem as? NSTextField }, [secure], "the alert sizes the field it shows")
+        XCTAssertTrue(owner.widths.allSatisfy(\.isActive))
+        let editor = try XCTUnwrap(node.editingEditor, "the new field is being edited")
+        XCTAssertTrue(sheet.firstResponder === editor)
+        XCTAssertTrue(p.alerts.presented === owner, "the alert stays")
+        XCTAssertEqual(events, [], "the input keeps its focus: no blur, change or focus")
+
+        editor.setSelectedRange(NSRange(location: 2, length: 3))
+        p.apply(wireBatch([["op": "props", "id": 51, "set": ["type": "text"]]]))
+        p.alerts.sync()
+        let back = try XCTUnwrap(node.field)
+        XCTAssertFalse(back is NSSecureTextField)
+        XCTAssertTrue(stack.arrangedSubviews == [back])
+        let current = try XCTUnwrap(node.editingEditor)
+        XCTAssertEqual(current.selectedRange(), NSRange(location: 2, length: 3), "its selection kept")
+        XCTAssertEqual(events, [])
+        current.insertText("X", replacementRange: current.selectedRange())
+        p.alerts.reset()
+        XCTAssertEqual(events.first, "change 51 seXt", "typing goes on in the new field, and the alert's end is its change")
+        XCTAssertFalse(node.field === back, "the page has its field again")
+        window.close()
+    }
+
     /// Any other shape is no alert: more than three buttons or no cancel is
     /// the chooser's menu (ChooserMacTests), and a `dialog` holding anything
     /// but text and buttons, or with no text, is a sheet that holds the
-    /// dialog's own subtree (`DialogSheetMacTests`).
+    /// dialog's own subtree (LLP 1115.002 D7.2, `DialogSheetMacTests`).
     func testOtherShapesAreNotAlerts() throws {
         let form = fixture(extra: true)
         form.press(2)
@@ -590,7 +666,7 @@ final class AlertMacTests: XCTestCase {
         XCTAssertNil(open.alerts.plan(of: try XCTUnwrap(open.views[3]), popover: false))
     }
 
-    /// Text and its one closing button: AppKit's
+    /// Text and its one closing button (Charlie, 2026-10-18): AppKit's
     /// one-button alert. Its button is the default, on Return, and Escape
     /// does nothing, as a lone-button `NSAlert` does; it presses nothing.
     func testTextAndOneClosingButtonIsTheOneButtonAlert() throws {
@@ -624,12 +700,12 @@ final class AlertMacTests: XCTestCase {
         XCTAssertEqual(closed, [3])
     }
 
-    /// An alert has no outside, and `NSAlert` has none:
+    /// LLP 1115.000 D13.4: an alert has no outside, and `NSAlert` has none:
     /// its sheet takes a click on the window behind it and gives Escape to
     /// its cancel. So that is the alert shape under the `closedby` lowering
     /// implies for it, `closerequest`. A `dialog` of the same rows whose
     /// author wrote `closedby="any"` asks for the dismissible form, which on
-    /// the Mac is the dialog's own sheet: a click outside
+    /// the Mac is the dialog's own sheet (LLP 1115.002 D7.2): a click outside
     /// closes it. Under `closedby="none"` the alert's cancel has no Escape.
     func testAnAlertHasNoOutsideAndClosedbyAnyIsThePaintedDialog() throws {
         let alert = fixture()

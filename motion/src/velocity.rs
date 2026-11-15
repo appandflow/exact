@@ -1,6 +1,6 @@
 //! A pointer-velocity estimate for hosts whose platform does not supply one.
 //!
-//! Gestures: the platform recognizes; the engine follows.
+//! @ref LLP 1002 §2 (gestures: the platform recognizes; the engine follows)
 //!
 //! UIKit hands a pan its velocity; the DOM does not. A web host feeds pointer
 //! samples here and reads a velocity at release to seed the spring. Recency-

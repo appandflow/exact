@@ -1,10 +1,10 @@
-// Canvas 2D surfaces drawn by a TypeScript source on the JS runtime:
-// the app's own `draw`, with the TypeScript recorder the
+// Canvas 2D surfaces drawn by a TypeScript source on the JS runtime (LLP
+// 1056; LLP 1071 §7): the app's own `draw`, with the TypeScript recorder the
 // bake bundles into a drawing module (`canvas/recorder.js`, the Rust
 // recorder's rules and list bytes), one recorder per canvas generation as
 // its `canvasSeam` keeps them. The lists stay bytes: nothing crosses a seam,
 // so no base64. Text is measured and images sized on the page by the web
-// host's own glue (`exact.canvas2dHost`), as the wasm
+// host's own glue (`exact.canvas2dHost`, LLP 1056 D8, D9), as the wasm
 // host's module realm asks it. In `canvas2d.js`'s chunk: an app without a 2D
 // canvas never loads it.
 // The recorder installs its Path2D as the global, as a draw expects; in the

@@ -1,14 +1,14 @@
-//! Each session's role overrides: its own table, bound
+//! Each session's role overrides (LLP 1121 stage 5): its own table, bound
 //! by a host around the work it does for it, or installed as its thread's.
 
 use super::{reported_generation, role_of};
 use crate::style::ColorValue;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// A session's role overrides: the roles its design replaces,
+/// A session's role overrides (LLP 1095 D4): the roles its design replaces,
 /// and with what (an existing form), with the wide colours they hold kept
 /// from the table's sweep while the session holds them. Each session has
-/// its own: a runner builds one from the plan it boots,
+/// its own (LLP 1121 stage 5): a runner builds one from the plan it boots,
 /// and a live edit sets it in place ([`Roles::set`]), so every scope bound
 /// to the session reads the new one.
 #[derive(Default)]
@@ -60,7 +60,7 @@ impl Roles {
         self.generation.get()
     }
 
-    /// Set each of `changes` in place (a live edit): the
+    /// Set each of `changes` in place (a live edit, LLP 1121 stage 5): the
     /// session's table, wherever it is bound or installed, with a new
     /// generation for its host to re-present.
     pub fn set(&self, changes: &[(u8, ColorValue)]) {
@@ -141,7 +141,7 @@ fn unbound(at: &'static std::panic::Location<'static>) {
     });
     if first {
         crate::diagnostic(format_args!(
-            "exact: a role resolved at {at} with no session bound while several live on this thread: the newest installed one's"
+            "exact: a role resolved at {at} with no session bound while several live on this thread: the newest installed one's (LLP 1121 stage 5)"
         ));
     }
     debug_assert!(

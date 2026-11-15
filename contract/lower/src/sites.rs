@@ -1,5 +1,5 @@
-//! The development map's half that only lowering knows: which plan node
-//! each element became and, per style row a
+//! The development map's half that only lowering knows (LLP 1035.005 D3,
+//! 1035.002 D6): which plan node each element became and, per style row a
 //! node binds, whether the binding came from the node's own attribute, from
 //! a `class=` style, or from the tag itself. [`lower_all`](crate::lower_all)
 //! returns it beside the plan; the plan's bytes never carry any of it.
@@ -13,11 +13,14 @@ use exact_plan::{BindingKind, BindingsRow};
 pub struct Sites {
     /// Every component instantiation, the root first (`Expanded::instances`).
     pub instances: Vec<Instance>,
+    /// The declaring instance of each plan region.
+    pub regions: Vec<u32>,
+    region_tags: std::collections::BTreeMap<u32, u32>,
     /// One per plan node, in the `nodes` table's order.
     pub nodes: Vec<NodeSite>,
     /// The plan's slots: the declaring `state` or `mutation`.
     pub slots: Vec<Declared>,
-    /// The plan's derives (a child's never reach the plan).
+    /// The plan's settled derives and executable instance expressions.
     pub derives: Vec<Declared>,
     /// The plan's resources, including a placeholder's owner declaration.
     pub resources: Vec<Declared>,
@@ -33,26 +36,26 @@ pub struct NodeSite {
     /// The instantiation it was expanded in (`Sites::instances`).
     pub instance: u32,
     /// The plan node it is placed under (its parent in the plan's tree), none for a root: the walk a page makes
-    /// up from a selection, a slot's host on it.
+    /// up from a selection, a slot's host on it (stage 15 D3).
     pub parent: Option<u32>,
     /// Every style row the node binds, with where the binding came from —
     /// the winner when two bindings named one row.
     pub rows: Vec<(StyleId, Origin)>,
     /// Each host-known state's look rows (`hover`, `focus-visible`), each
-    /// an [`Origin::State`] at its part's row.
+    /// an [`Origin::State`] at its part's row (LLP 1122 queue item (1)).
     pub looks: Vec<(&'static str, Vec<(StyleId, Origin)>)>,
     /// The button's compile-time appearance decision, absent on other tags.
     pub button: Option<ButtonSite>,
-    /// The part its element is named as: what the
+    /// The part its element is named as (LLP 1139 D2, D5): what the
     /// selection report's `library` joins, since `part=` reaches no host.
     pub part: Option<String>,
     /// The declaring identity of the exported library component whose own
-    /// view the element is of; a slot fill's nodes are
+    /// view the element is of (LLP 1139 D0, D5); a slot fill's nodes are
     /// their caller's.
     pub library: Option<String>,
 }
 
-/// Development-only button admission and migration facts.
+/// Development-only button admission and migration facts (LLP 1104 D2, D9).
 #[derive(Debug, Clone)]
 pub struct ButtonSite {
     /// Whether lowering chose the platform's control.
@@ -60,8 +63,7 @@ pub struct ButtonSite {
     /// The first reason a default button became bare; explicit `none` has none.
     pub bare_reason: Option<String>,
     /// A default native button with authored rows beyond layout needs `none`
-    /// to preserve its previous appearance during the native-button source
-    /// migration.
+    /// to preserve its previous appearance during D9's source migration.
     pub migrate: bool,
 }
 
@@ -78,7 +80,7 @@ pub struct Declared {
     pub component: Option<String>,
 }
 
-/// The attribute an author wrote that a row came from: its
+/// The attribute an author wrote that a row came from (LLP 1122 D6): its
 /// span, and its name as written (a shorthand's for an expansion).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Written {
@@ -98,7 +100,7 @@ pub enum Origin {
     /// The tag's fixed row (`row` sets `flex_direction`).
     Tag,
     /// A state part's row: `:active`'s lowered onto the node as its press
-    /// paint, or a `:hover` or `:focus-visible` look's row;
+    /// paint (LLP 1121 D8), or a `:hover` or `:focus-visible` look's row;
     /// the node's or its class's, and where it is written.
     State {
         /// The node's or its class's.
@@ -109,7 +111,7 @@ pub enum Origin {
         span: Span,
     },
     /// A row a `:disabled` or `:checked` part folds into one value over
-    /// its base: the base's attribute where an
+    /// its base (LLP 1122's queue item (2)): the base's attribute where an
     /// author wrote it, none for one the node takes unwritten, and each
     /// part folded over it (each an [`Origin::State`]).
     Folded {
@@ -136,7 +138,7 @@ impl Origin {
     }
 
     /// The attribute the author wrote for it, where there is one: an own
-    /// row's or its class's. A state part's row says its own
+    /// row's or its class's (LLP 1122 D6). A state part's row says its own
     /// place (`State::span`).
     pub fn written(&self) -> Option<&Written> {
         match self {
@@ -148,6 +150,11 @@ impl Origin {
 }
 
 impl Sites {
+    pub(crate) fn region(&mut self, tag: u32) {
+        self.regions
+            .push(self.region_tags.get(&tag).copied().unwrap_or(0));
+    }
+
     /// The declarations' sites from the expansion; nodes are pushed as the
     /// lowering emits them.
     pub(crate) fn declared(ex: &Expanded) -> Sites {
@@ -168,6 +175,8 @@ impl Sites {
         };
         Sites {
             instances: ex.instances.clone(),
+            regions: Vec::new(),
+            region_tags: ex.region_instances.clone(),
             nodes: Vec::new(),
             slots: root
                 .states

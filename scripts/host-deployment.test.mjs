@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { HOST_MACOS, withHostDeployment } from './filesystem.mjs';
-import { cargoEnvironment } from './app.mjs';
+import { buildBake, cargoEnvironment, developmentBuildEnv, resolveApp } from './app.mjs';
 import { bakeTool } from './linked-plan.mjs';
 import { warmGameEnvironment } from '../host/web-js/module.mjs';
 import { spawnSync } from 'node:child_process';
@@ -10,6 +10,21 @@ import { resolve } from 'node:path';
 import process from 'node:process';
 import { appleCargo } from './cargo-check.mjs';
 import { keptCrates } from '../host/apple/crates.mjs';
+
+test('SQLite filesystem probes are disabled only for required-reason Apple destinations', () => {
+  const env = { LIBSQLITE3_FLAGS: '-DSQLITE_MAX_COLUMN=1234' };
+  const flags = '-DSQLITE_ENABLE_LOCKING_STYLE=0 -Dfstatfs=exact_sqlite_fstatfs';
+  for (const target of ['aarch64-apple-ios', 'aarch64-apple-ios-sim', 'x86_64-apple-ios', 'aarch64-apple-tvos', 'aarch64-apple-tvos-sim', 'arm64_32-apple-watchos', 'aarch64-apple-watchos-sim']) {
+    const args = ['build', `--target=${target}`];
+    const once = appleCargo('cargo', args, { env })[2];
+    expect(once.env.LIBSQLITE3_FLAGS).toBe(`${env.LIBSQLITE3_FLAGS} ${flags}`);
+    expect(appleCargo('cargo', args, once)[2].env.LIBSQLITE3_FLAGS).toBe(once.env.LIBSQLITE3_FLAGS);
+    for (const mac of ['aarch64-apple-darwin', 'x86_64-apple-darwin']) {
+      expect(appleCargo('cargo', ['build', '--target', mac], once)[2].env.LIBSQLITE3_FLAGS).toBe(env.LIBSQLITE3_FLAGS);
+    }
+  }
+  expect(env.LIBSQLITE3_FLAGS).toBe('-DSQLITE_MAX_COLUMN=1234');
+});
 
 // One macOS deployment target for every cargo call's host side: two calls sharing a target directory
 // that differ in it rebuild every build script recording it (ring's), each build (the lead's 20:40Z).
@@ -113,6 +128,30 @@ test.skipIf(process.platform !== 'darwin')('Apple deployment hashing preserves t
     }
   } finally { fixture.dispose(); }
 }, 120_000);
+
+// An inherited SDKROOT (a shell's, or Xcode's) never reaches an Apple Cargo call. rustc and cc-rs ask xcrun for each
+// target's SDK; one in the environment reaches the build scripts' C and C++ compiles for the Mac too, and a simulator
+// SDK there fails `-Werror` on -Wincompatible-sysroot (aws-lc-sys under an app's data crate, #162). This runs the iOS
+// bake as host/apple/build.mjs does, with a `cargo` first on PATH that records the environment of the compile.
+test.skipIf(process.platform !== 'darwin')('the iOS bake\'s Cargo process gets no SDKROOT, though the build inherits one', () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'exact-bake-sdkroot-'));
+  const recorded = resolve(directory, 'env.json'), real = Bun.which('cargo');
+  const before = { PATH: process.env.PATH, SDKROOT: process.env.SDKROOT };
+  try {
+    // The compile records and fails; any other call (metadata, the failure's diagnosis) is Cargo's own.
+    writeFileSync(resolve(directory, 'cargo'), `#!/bin/sh\ncase "$1" in rustc|build) exec ${JSON.stringify(process.execPath)} -e 'require("fs").writeFileSync(${JSON.stringify(recorded)}, JSON.stringify(process.env)); process.exit(1)';; esac\nexec ${JSON.stringify(real)} "$@"\n`, { mode: 0o755 });
+    process.env.PATH = `${directory}:${process.env.PATH}`;
+    process.env.SDKROOT = spawnSync('xcrun', ['--sdk', 'iphonesimulator', '--show-sdk-path'], { encoding: 'utf8' }).stdout.trim();
+    const target = process.arch === 'arm64' ? 'aarch64-apple-ios-sim' : 'x86_64-apple-ios';
+    expect(() => buildBake(resolveApp('hello'), 'ios', target, { env: { ...developmentBuildEnv(), IPHONEOS_DEPLOYMENT_TARGET: '17.0' } })).toThrow();
+    const env = JSON.parse(readFileSync(recorded, 'utf8'));
+    expect(env.IPHONEOS_DEPLOYMENT_TARGET).toBe('17.0');
+    expect(env.SDKROOT).toBeUndefined();
+  } finally {
+    for (const [key, value] of Object.entries(before)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    rmSync(directory, { recursive: true, force: true });
+  }
+}, 300_000);
 
 function appleFixture() {
   const directory = mkdtempSync(resolve(tmpdir(), 'exact-apple-deployment-'));

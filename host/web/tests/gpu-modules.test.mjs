@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-// The router over recording stand-ins for gpu-glue.js
+// The router (LLP 1009 D6) over recording stand-ins for gpu-glue.js
 // instances: which artifact each call reaches, and what it joins.
 async function fixture(pending = []) {
   const calls = [], frames = [], imported = [];
@@ -58,7 +58,7 @@ test('replies join across artifacts and process-wide signals reach every one', a
   assert.deepEqual(f.gpu.clock(true), { pending: true, settleAt: 9, reply: { world: [{ stem: 'gpu' }, { stem: 'gpu/world' }] } });
   f.gpu.deviceLost();
   assert.deepEqual(f.calls.filter(c => c[1] === 'deviceLost').map(c => c[0]), ['gpu', 'gpu/world']);
-  f.gpu.retier('low'); // `prefer gpu-tier` reaches every loaded artifact
+  f.gpu.retier('low'); // LLP 1139.003 D2: `prefer gpu-tier` reaches every loaded artifact
   assert.deepEqual(f.calls.filter(c => c[1] === 'retier'), [['gpu', 'retier', 'low'], ['gpu/world', 'retier', 'low']]);
   f.gpu.swap(3, 'world'); f.gpu.swap(4);
   assert.deepEqual(f.calls.filter(c => c[1] === 'swap'), [['gpu/world', 'swap', 3], ['gpu', 'swap', 4]]);

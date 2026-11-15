@@ -1,5 +1,5 @@
-// UIKit moves the scrollport; row construction follows outside its layout pass:
-// a rescue of only what is visible, and a bounded lead.
+// UIKit moves the scrollport; row construction follows outside its layout pass.
+// @ref LLP 1044.000 §6 S5; LLP 1010 §6 — visible-only rescue, bounded lead.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -13,6 +13,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     /// Seconds a glimpse took per row it built, per list.
     private var glimpseCosts: [UInt32: TimeInterval] = [:]
     private var textPending = false
+    private var refreshingText = false
+    private var textQueued = false
     private var refreshInterval = 1.0 / 60
     private var lastScroll = -Double.infinity
     private var lastSlice = -Double.infinity
@@ -39,7 +41,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         RasterWorkers.shared.travelling(self, false)
         if let turnObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), turnObserver, .commonModes) }
     }
-    /// A pass is queued or frames are asked of the app's clock.
+    /// A scroll pass is queued or frames are asked of the app's clock.
     var asksForFrames: Bool { queued || FrameClock.shared.wants(self) }
     var sliceBudget: TimeInterval { min(0.004, max(0.001, refreshInterval * 0.24)) }
     /// Seconds a list must be still before what it cached for travel is
@@ -76,8 +78,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     }
     /// Ports a frame at or past which a list outruns its slices.
     static let outrun = 1.0
-    /// Whether `id` travels a port or more each frame: every frame then
-    /// shows rows none before it showed, and a
+    /// Whether `id` travels a port or more each frame (LLP 1050.000 D2 as
+    /// built): every frame then shows rows none before it showed, and a
     /// slice, which lands a frame or more after it is posted and reaches
     /// three ports ahead at most, builds rows the list has passed by the
     /// time they could show. Such a list posts none: the rescue in its
@@ -132,7 +134,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     }
     private func sample(_ node: NodeView, now: TimeInterval) {
         guard let scroll = node.scrollView else { return }
-        // Along the list's own axis: a row list travels on x.
+        // Along the list's own axis (LLP 1070 H3): a row list travels on x.
         let horizontal = presenter?.collections.entries[node.id]?.snapshot.horizontal == true
         let top = horizontal ? scroll.contentOffset.x : scroll.contentOffset.y
         let inset = scroll.adjustedContentInset
@@ -142,7 +144,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         // An offset that moved with the port, the extent or the insets is
         // layout's, which keeps it in range, unless a finger or a fling
         // moves the list: no travel. A list opening at its end moved 350
-        // points as the bars' insets reached it, which the
+        // points as the bars' insets reached it (r25's photos), which the
         // runner took for the reader leaving the end (`leave_end_if_moved`),
         // and the tab bar's inset then left its last row under the bar.
         if t.layout != layout, !scroll.isTracking, !scroll.isDecelerating {
@@ -175,18 +177,19 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     /// A scroller moved: sample a collection's travel and schedule its text.
     func scrolled(_ node: NodeView?) {
         guard let p = presenter, !p.applying, !inScroll else { return }
+        p.refreshPixelatedImages()
         inScroll = true
         defer { inScroll = false }
         lastScroll = CACurrentMediaTime()
         // The frame sampler measures a scroll's frames, UIKit's deceleration's included
         p.session?.sampler?.activity()
         armRest(after: Self.restDelay)
-        // A correction's move is not the reader's travel.
+        // A correction's move is not the reader's travel (LLP 1070.000 §2.5).
         // Nor is a smooth correction's frame (`OffsetDriver`).
         if let node, p.collections.owns(node.id), !p.collections.correcting, !p.collections.animating.contains(node.id) {
             sample(node, now: lastScroll)
-            // The reader moving the port cancels a request admitted before it:
-            // a finger down when it landed drags on from
+            // The reader moving the port cancels a request admitted before it
+            // (LLP 1070.000 §2.5): a finger down when it landed drags on from
             // there, and its sampled travel alone would be lost to each jump.
             if p.collections.entries[node.id]?.snapshot.seeking == true, let scroll = node.scrollView,
                scroll.isTracking || scroll.isDecelerating { p.collections.gestureBegan(node.id) }
@@ -204,6 +207,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     }
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         presenter?.onScrolled?(nil, Double(scrollView.contentOffset.x), Double(scrollView.contentOffset.y))
+        presenter?.tipsScrolled()
         FrameSampler.scrolled(scrollView, in: presenter?.session, person: false)
         presenter?.session?.frameHealth.trackScrolled(scrollView)
         if let p = presenter, p.documentFixed {
@@ -216,6 +220,12 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         presenter?.stickies.scrolled(nil); scrolled(nil)
     }
     // The page's element reveals (`IntoView.swift`).
+    #if os(iOS)
+    func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+        presenter?.elementScrolls.userScrolled(scrollView)
+        return true
+    }
+    #endif
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         presenter?.elementScrolls.userScrolled(scrollView)
         if let session = presenter?.session { session.frameHealth.beginScroll(scrollView, session: session) }
@@ -233,7 +243,31 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         start()
     }
     func requestText() { textPending = true; start() }
-    /// A collection owes a report: the next slice builds it.
+    /// A completion already has a main-queue turn; only work left for lack
+    /// of time needs a frame. Collection slices keep their frame throttle.
+    func textSlotFreed() {
+        textPending = true
+        resumeText()
+    }
+    private func resumeText() {
+        guard textPending, let p = presenter, !p.applying else { return }
+        // Publication can also happen inside an urgent paint or a refresh.
+        // Let that walk finish before another one takes its clip geometry.
+        guard !refreshingText, !inScroll, p.textClips == nil else {
+            guard !textQueued else { return }
+            textQueued = true
+            let generation = epoch
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.epoch == generation else { return }
+                self.textQueued = false
+                self.resumeText()
+            }
+            return
+        }
+        refreshText(deadline: CACurrentMediaTime() + sliceBudget)
+        if textPending && p.textRasters.hasRoom { start() }
+    }
+    /// A collection owes a report (LLP 1050.000): the next slice builds it.
     func requestFill() { scheduleAfterScroll(); start() }
     /// Build each owed collection's rows for this slice: as many as its
     /// measured per-row cost fits, at least one, and at least what the next
@@ -330,13 +364,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
             let rows = HostPhases.shared.measure(.rows) { fillCollections(deadline: deadline) }
             Presenter.signposts.endInterval("pump-collection", post, "rows=\(rows)")
         }
-        if textPending {
-            let post = Presenter.signposts.beginInterval("pump-text")
-            // Lead the fastest list's travel.
-            let fastest = p.listViews.keys.map { velocity($0) }.max { abs($0) < abs($1) } ?? 0
-            textPending = HostPhases.shared.measure(.text) { p.refreshVisibleText(deadline: deadline, velocity: CGFloat(fastest), interval: refreshInterval) }
-            Presenter.signposts.endInterval("pump-text", post)
-        }
+        refreshText(deadline: deadline)
         // One image decode at a time while a list travels fast.
         RasterWorkers.shared.travelling(self, p.listViews.keys.contains { abs(velocity($0)) > Self.fastTravel })
         // Frames stay asked for until the scroll has been still for two of
@@ -345,6 +373,16 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         // that frees asks for the next pass (`TextRasterizer.slotFreed`).
         let textNeedsFrames = textPending && p.textRasters.hasRoom
         if !textNeedsFrames && p.collections.fillPending.isEmpty && now - lastScroll >= refreshInterval * 2 { stop() }
+    }
+    private func refreshText(deadline: TimeInterval) {
+        guard textPending, let p = presenter, !refreshingText else { return }
+        refreshingText = true
+        defer { refreshingText = false }
+        let post = Presenter.signposts.beginInterval("pump-text")
+        // Lead the fastest list's travel.
+        let fastest = p.listViews.keys.map { velocity($0) }.max { abs($0) < abs($1) } ?? 0
+        textPending = HostPhases.shared.measure(.text) { p.refreshVisibleText(deadline: deadline, velocity: CGFloat(fastest), interval: refreshInterval) }
+        Presenter.signposts.endInterval("pump-text", post)
     }
     /// Agent reads keep their settled contract, outside the scroll callback.
     func settle() {
@@ -362,7 +400,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         stop(); epoch += 1; queued = false
         restTimer?.invalidate(); restTimer = nil
         travel.removeAll(); costs.removeAll(); glimpseCosts.removeAll()
-        textPending = false
+        textPending = false; textQueued = false
         lastScroll = -.infinity; lastSlice = -.infinity
     }
     func forget(_ id: UInt32) {

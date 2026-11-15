@@ -139,7 +139,7 @@ fn parent_visibility_pixels_remove_mesh_model_shadow_and_light_without_a_tick() 
     assert_eq!(surface.sim().unwrap().world().tick(), 0);
 }
 
-/// `state world:<entity> visible` for model states.
+/// `state world:<entity> visible` for model states (LLP 1127.000 D4).
 struct ModelStates;
 impl Game for ModelStates {
     const ID: &'static str = "visible-model-states";
@@ -208,7 +208,7 @@ fn visible_names_a_pending_model_and_a_hidden_level() {
     assert_eq!(word("lodded"), "lod-hidden 30 m");
 }
 
-/// `visible` for sprites: what the quads decided, by the
+/// `visible` for sprites (LLP 1127.000 D4): what the quads decided, by the
 /// texture's residency and the quad's own extent about its anchor.
 struct SpriteStates;
 impl Game for SpriteStates {
@@ -282,7 +282,7 @@ fn visible_reads_a_sprites_residency_and_its_anchored_extent() {
     assert_eq!(word("away"), "frustum");
 }
 
-/// The cull's own spheres: a skinned cube whose joint
+/// The cull's own spheres (LLP 1127.000 D3, D4): a skinned cube whose joint
 /// holds it 20 m from its rest box is drawn where the joint holds it, and a
 /// plan view frames it there.
 struct Deformed;

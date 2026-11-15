@@ -1,4 +1,4 @@
-# The Canvas gallery on the Linux host: one executable with the
+# The Canvas gallery on the Linux host (LLP 1056 §4): one executable with the
 # runner, the kernel, the baked plan and its TypeScript data module.
 [package]
 name = "canvas-gallery-linux"
@@ -15,9 +15,13 @@ test = false
 bench = false
 
 [dependencies]
+canvas-gallery-data = { path = "../data" }
+ibex2-sqlite = { path = "../../../vendor/ibex/crates/ibex2-sqlite" }
 exact-logic = { path = "../../../logic" }
 exact-linux = { path = "../../../host/linux" }
+exact-painted = { path = "../../../host/painted" }
 exact-js = { path = "../../../js" }
 
 [build-dependencies]
+canvas-gallery-data = { path = "../data" }
 exact-js-bake = { path = "../../../js/bake" }

@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// The agent's tap and a sticky box (as the design tool's edit dock is; tests/fixtures/sticky-tap.contract):
+/// The agent's tap and a sticky box (theme2's 14:49 ruling, the design tool's edit dock; tests/fixtures/sticky-tap.contract):
 /// a row whose middle the scroller's sticky dock or header covers is scrolled into the band the box leaves before the
 /// tap, and pressed; a row in the clear scrolls nothing; a dock taller than the band it would leave scrolls nothing,
 /// and the tap refuses there.
@@ -56,7 +56,7 @@ final class AgentStickyRevealMacTests: XCTestCase {
         XCTAssertNil(agent.tap(["id": Int(headed.id)])["error"])
         session.presenter.settlePump()
         XCTAssertEqual(pressed(), headed.props["testId"] as? String)
-        // A dock that lets the pointer through: a click at a row under it lands on the row, so the
+        // A dock that lets the pointer through (theme2's condition): a click at a row under it lands on the row, so the
         // cover rule finds none there, as the window's hit test does: nothing moves, and the tap presses the row.
         XCTAssertNil(agent.tap(["id": Int(try XCTUnwrap(node("ghost")).id)])["error"])
         session.presenter.settlePump(); window.layoutIfNeeded()

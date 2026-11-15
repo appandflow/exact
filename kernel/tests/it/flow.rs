@@ -1,4 +1,4 @@
-//! Resolved geometry, not paragraph revisions.
+//! @ref LLP 1043.000 §3 D1–D4 — resolved geometry, not paragraph revisions.
 use exact_kernel::*;
 
 fn patch(id: u32, rows: &[(StyleId, StyleValue)]) -> Op {
@@ -199,7 +199,7 @@ fn auto_height_hidden_unsupported_and_nonabsolute_exclusions() {
         ],
     )
     .unwrap();
-    // A block context admits auto height (tests/it/flow_auto.rs).
+    // A block context admits auto height (LLP 1043.000 §8; tests/it/flow_auto.rs).
     let r = layout(&mut k);
     assert_eq!(shape(&k, 2).len(), 1);
     assert!(r.flow_skipped.is_empty());

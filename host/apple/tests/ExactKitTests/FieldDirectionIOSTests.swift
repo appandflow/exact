@@ -4,9 +4,9 @@ import XCTest
 @testable import ExactKit
 @testable import ExactMarkdown
 
-/// On UIKit, CSS `direction` is a plain field's paragraph base
-/// direction, as it is Apple text's and the Markdown editor's:
-/// an `input` (plain, password, search), a `textarea` of either
+/// LLP 1001 §1 on UIKit: CSS `direction` is a plain field's paragraph base
+/// direction, as it is Apple text's and the Markdown editor's (LLP 1045
+/// D11): an `input` (plain, password, search), a `textarea` of either
 /// appearance, and a Markdown editor's text once its `markup` goes. No
 /// first strong character picks it. An unsaid `text-align` is `start`,
 /// which UIKit's fields already took (the guard here).

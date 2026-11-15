@@ -1,12 +1,12 @@
 //! CSS `background-image`: `none`, or up to four layers of
 //! `linear-gradient()`, `radial-gradient()` and `conic-gradient()` (CSS
-//! Images 3 §3, Images 4 §3.3).
+//! Images 3 §3, Images 4 §3.3). @ref LLP 1066, LLP 1077 D5
 //!
 //! Percentage stops are fixed up when parsed; length stops at paint time, so the row
 //! holds what every host paints and `css()` is canonical. Geometry depends on
 //! the box, so it is resolved by the host at paint time through
 //! [`Gradient::geometry`]; a colour may be a `light-dark()` pair, resolved per
-//! appearance like any colour row.
+//! appearance like any colour row (LLP 1034).
 
 pub use crate::style::wide::Lookup;
 use crate::style::{Color, ColorValue};
@@ -20,7 +20,7 @@ pub const MAX_STOPS: usize = 64;
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BackgroundImage(Vec<Gradient>);
 
-/// Most layers one `background-image` takes.
+/// Most layers one `background-image` takes (LLP 1077 D5).
 pub const MAX_LAYERS: usize = 4;
 
 /// One gradient.
@@ -32,7 +32,7 @@ pub struct Gradient {
     pub kind: GradientKind,
     /// At least two; percentage-only lists are fixed up, lengths await the box.
     pub stops: Vec<Stop>,
-    /// `in <space> [<method> hue]`, as written.
+    /// `in <space> [<method> hue]`, as written (LLP 1100 D2).
     pub interpolation: Option<exact_color::Interpolation>,
 }
 
@@ -64,7 +64,7 @@ pub enum GradientKind {
     /// `linear-gradient()`: CSS degrees (0 is up, clockwise), or the magic
     /// corner of `to <corner>`, whose angle depends on the box.
     Linear(Direction),
-    /// `conic-gradient()`: stops around a centre, from an
+    /// `conic-gradient()` (LLP 1077 D5): stops around a centre, from an
     /// angle (CSS degrees: 0 is up, clockwise); stop positions are
     /// fractions of the turn.
     Conic {
@@ -74,12 +74,12 @@ pub enum GradientKind {
         at: [Length; 2],
     },
     /// `radial-gradient()`: a circle or an ellipse sized by an extent
-    /// keyword, centred at a position in the box.
+    /// keyword or explicit radii, centred at a position in the box.
     Radial {
         /// `circle`, else `ellipse`.
         circle: bool,
         /// How far the ending shape reaches.
-        extent: Extent,
+        size: RadialSize,
         /// Its centre: horizontal, vertical.
         at: [Length; 2],
     },
@@ -112,7 +112,16 @@ pub enum Extent {
     FarthestCorner,
 }
 
-/// A `<length-percentage>` of a position.
+/// CSS `<radial-size>` (CSS Images 3 §3.2.1).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RadialSize {
+    /// An extent keyword, measured from the centre to the box.
+    Extent(Extent),
+    /// Horizontal and vertical radii; a circle's are one px length twice.
+    Radii([Length; 2]),
+}
+
+/// A `<length-percentage>` of a position or a radius.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Length {
     /// CSS pixels.
@@ -163,10 +172,10 @@ pub enum Geometry {
 static LINKED: std::sync::OnceLock<fn(&str) -> Option<BackgroundImage>> =
     std::sync::OnceLock::new();
 
-/// Link `background-image`'s gradient grammar (linked by use):
+/// Link `background-image`'s gradient grammar (LLP 1047 D2, linked by use):
 /// ~3 KiB of a web core that none of Caltrain, RealWorld or the video player
 /// paints with. A web artifact links it when its plan binds the row, and a
-/// plan that binds it unlinked is refused at boot, so an unlinked
+/// plan that binds it unlinked is refused at boot (D6), so an unlinked
 /// artifact never parses one. Native artifacts and the compiler parse
 /// without it.
 pub fn link() {
@@ -213,7 +222,7 @@ impl BackgroundImage {
             .map(Self)
     }
 
-    /// The parse for `mask-image`: one layer only.
+    /// The parse for `mask-image` (LLP 1077 D2): one layer only.
     pub fn check_mask(css: &str) -> Result<Self, &'static str> {
         let image = Self::check(css)?;
         if image.0.len() > 1 {
@@ -238,7 +247,7 @@ impl BackgroundImage {
         self.text(ColorText::Css)
     }
 
-    /// The wire form: [`Self::css`], with every reference kept.
+    /// The wire form: [`Self::css`], with every reference kept (LLP 1095 D1).
     pub fn wire(&self) -> String {
         self.text(ColorText::Wire)
     }
@@ -341,11 +350,11 @@ impl Gradient {
 
     fn text(&self, mode: ColorText) -> String {
         let mut out = String::new();
-        let position = |out: &mut String, at: [Length; 2]| {
+        let position = |out: &mut String, at: &[Length]| {
             for length in at {
                 let _ = match length {
-                    Length::Px(n) => write!(out, " {}px", exact_num::Shortest32(n)),
-                    Length::Percent(n) => write!(out, " {}%", exact_num::Shortest32(n)),
+                    Length::Px(n) => write!(out, " {}px", exact_num::Shortest32(*n)),
+                    Length::Percent(n) => write!(out, " {}%", exact_num::Shortest32(*n)),
                 };
             }
         };
@@ -364,14 +373,20 @@ impl Gradient {
                     if right { "right" } else { "left" }
                 );
             }
-            GradientKind::Radial { circle, extent, at } => {
-                let _ = write!(
-                    out,
-                    "radial-gradient({} {} at",
-                    if circle { "circle" } else { "ellipse" },
-                    EXTENTS[extent as usize].0
-                );
-                position(&mut out, at);
+            GradientKind::Radial { circle, size, at } => {
+                out.push_str("radial-gradient(");
+                out.push_str(if circle { "circle" } else { "ellipse" });
+                match size {
+                    RadialSize::Extent(extent) => {
+                        out.push(' ');
+                        out.push_str(EXTENTS[extent as usize].0);
+                    }
+                    RadialSize::Radii(radii) => {
+                        position(&mut out, if circle { &radii[..1] } else { &radii })
+                    }
+                }
+                out.push_str(" at");
+                position(&mut out, &at);
             }
             GradientKind::Conic { from, at } => {
                 let _ = write!(
@@ -379,7 +394,7 @@ impl Gradient {
                     "conic-gradient(from {}deg at",
                     exact_num::Shortest32(from)
                 );
-                position(&mut out, at);
+                position(&mut out, &at);
             }
         }
         if let Some(how) = self.interpolation {
@@ -418,7 +433,7 @@ impl Gradient {
     }
 
     /// [`resolved`](Self::resolved), each wide stop's colour read through
-    /// `wide` (a retained gradient's captured values);
+    /// `wide` (a retained gradient's captured values, LLP 1121 stage 4);
     /// any other colour as ever.
     pub fn resolved_with(&self, dark: bool, wide: Lookup<'_>) -> Vec<(f32, Color)> {
         if let Some(ramp) = self.interpolated_with(dark, wide) {
@@ -449,8 +464,9 @@ impl Gradient {
         out
     }
 
-    /// As written; else Oklab when a stop is a modern colour; `None` is
-    /// legacy sRGB, as CSS says.
+    /// As written; else Oklab when a stop is a modern colour; else sRGB, as
+    /// legacy colours interpolate, sampled here when a stop has a missing
+    /// component; else `None`, the host's own legacy sRGB ramp.
     pub fn interpolation(&self, dark: bool) -> Option<exact_color::Interpolation> {
         self.interpolation_with(dark, &crate::style::wide::wide)
     }
@@ -461,15 +477,25 @@ impl Gradient {
         wide: Lookup<'_>,
     ) -> Option<exact_color::Interpolation> {
         self.interpolation.or_else(|| {
-            self.stops
-                .iter()
-                .any(|s| match s.color {
-                    ColorValue::Wide(id) => {
-                        wide(id).is_some_and(|w| w.modern[usize::from(dark && w.dark.is_some())])
-                    }
-                    _ => false,
-                })
-                .then_some(exact_color::Interpolation::OKLAB)
+            let half = |c: ColorValue| match c {
+                ColorValue::Wide(id) => wide(id).map(|w| {
+                    let dark = dark && w.dark.is_some();
+                    (w.modern[usize::from(dark)], w.half(dark))
+                }),
+                _ => None,
+            };
+            let halves: Vec<_> = self.stops.iter().filter_map(|s| half(s.color)).collect();
+            if halves.iter().any(|(modern, _)| *modern) {
+                Some(exact_color::Interpolation::OKLAB)
+            } else {
+                halves
+                    .iter()
+                    .any(|(_, w)| w.missing.contains(&true))
+                    .then_some(exact_color::Interpolation {
+                        space: exact_color::MixSpace::Srgb,
+                        hue: exact_color::HueMethod::Shorter,
+                    })
+            }
         })
     }
 
@@ -493,24 +519,37 @@ impl Gradient {
                     space: exact_color::Space::Srgb,
                     c: [c.r(), c.g(), c.b()].map(|v| f64::from(v) / 255.0),
                     alpha: f64::from(c.a()) / 255.0,
+                    missing: [false; 4],
                 })
             }
         };
-        let mut stops: Vec<(f32, exact_color::Wide)> = self
+        let stops: Vec<(f32, exact_color::Wide)> = self
             .stops
             .iter()
             .filter_map(|s| Some((s.at / 100.0, wide(s.color)?)))
             .collect();
-        if let Some(&(_, c)) = stops.first().filter(|s| s.0 > 0.0) {
-            stops.insert(0, (0.0, c));
-        }
-        if let Some(&(_, c)) = stops.last().filter(|s| s.0 < 1.0) {
-            stops.push((1.0, c));
-        }
         const STEPS: usize = 16;
-        let mut out = Vec::with_capacity(stops.len() * STEPS);
+        let mut out = Vec::with_capacity(stops.len() * STEPS + 2);
+        // Each segment takes its ends as an interpolation does: a component
+        // missing at one end is the other end's (CSS Color 4 §12.4). So a stop
+        // with one is two colours, the end of the segment before it and the
+        // start of the one after.
+        let missing = |w: &exact_color::Wide| w.missing.contains(&true);
         for (i, &(at, c)) in stops.iter().enumerate() {
-            out.push((at, c.linear_srgb(), c.alpha));
+            let previous = i.checked_sub(1).map(|p| stops[p].1);
+            let next = stops.get(i + 1).map(|s| s.1);
+            if let Some(p) = previous.filter(|_| missing(&c)) {
+                let (v, a) = exact_color::mix(&p, &c, 1.0, how);
+                out.push((at, v, a));
+            }
+            match next {
+                Some(n) if missing(&c) => {
+                    let (v, a) = exact_color::mix(&c, &n, 0.0, how);
+                    out.push((at, v, a));
+                }
+                None if previous.is_some() && missing(&c) => {}
+                _ => out.push((at, c.linear_srgb(), c.alpha)),
+            }
             let Some(&(end, n)) = stops.get(i + 1) else {
                 continue;
             };
@@ -522,6 +561,15 @@ impl Gradient {
                 let (v, a) = exact_color::mix(&c, &n, t, how);
                 out.push((at + (end - at) * t as f32, v, a));
             }
+        }
+        // Before the first stop and after the last, the line is that stop's
+        // colour (CSS Images 4 §3.5.2): its colour in the segment it ends,
+        // a missing component already the other end's.
+        if let Some(&first) = out.first().filter(|s| s.0 > 0.0) {
+            out.insert(0, (0.0, first.1, first.2));
+        }
+        if let Some(&last) = out.last().filter(|s| s.0 < 1.0) {
+            out.push((1.0, last.1, last.2));
         }
         Some(out)
     }
@@ -559,8 +607,17 @@ impl Gradient {
                 center: (at[0].resolve(w), at[1].resolve(h)),
                 from,
             },
-            GradientKind::Radial { circle, extent, at } => {
+            GradientKind::Radial { circle, size, at } => {
                 let (cx, cy) = (at[0].resolve(w), at[1].resolve(h));
+                let extent = match size {
+                    RadialSize::Extent(extent) => extent,
+                    RadialSize::Radii([x, y]) => {
+                        return Geometry::Radial {
+                            center: (cx, cy),
+                            radii: (x.resolve(w), y.resolve(h)),
+                        }
+                    }
+                };
                 let (dx, dy) = ((cx.abs(), (w - cx).abs()), (cy.abs(), (h - cy).abs()));
                 let near = (dx.0.min(dx.1), dy.0.min(dy.1));
                 let far = (dx.0.max(dx.1), dy.0.max(dy.1));
@@ -639,7 +696,7 @@ const EXPECTED: &str =
 /// The CSS image functions no host paints, by the text a value opens one
 /// with, and why: a browser would paint each, so every build refuses them
 /// where it can see them and the web target drops them at run time, as the
-/// native hosts do.
+/// native hosts do (studio diary R15).
 pub const REFUSED: [(&str, &str); 5] = [
     (
         "repeating-radial-gradient(",
@@ -694,7 +751,7 @@ fn hex(out: &mut String, c: Color) {
 
 /// Where a value's text goes: the browser, or the wire, which keeps a
 /// `-exact-platform-color()` as written so the reader interns the same reference
-///; the browser gets its web colour, else its fallback.
+/// (LLP 1095 D1); the browser gets its web colour, else its fallback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorText {
     /// CSS a browser reads.
@@ -729,7 +786,7 @@ pub fn color_text(out: &mut String, color: ColorValue, mode: ColorText) {
         },
         ColorValue::Moving(..) => {
             let ([r, g, b], a) = color.moving_linear().unwrap_or_default();
-            let n = exact_color::number_text;
+            let n = exact_num::js;
             let _ = write!(out, "color(srgb-linear {} {} {}", n(r), n(g), n(b));
             if a < 1.0 {
                 let _ = write!(out, " / {}", n(a));
@@ -862,44 +919,89 @@ fn conic_prelude(first: &str) -> Result<(GradientKind, bool), &'static str> {
     Ok((GradientKind::Conic { from, at }, true))
 }
 
-/// A radial gradient's shape, extent and centre, and whether the first
-/// argument was them.
+/// A radial gradient's shape, size and centre, and whether the first
+/// argument was them: `[<ending-shape> || <radial-size>] [at <position>]`
+/// (CSS Images 3 §3.2.1).
 fn radial_prelude(first: &str) -> Result<(GradientKind, bool), &'static str> {
+    const WHY: &str = "a radial gradient starts with circle or ellipse, an extent keyword or radii, and `at` a position";
     let words = split_top(first, ' ');
+    // A number starts a radius: a sign, then a digit or a `.` and a digit. A
+    // colour may start with `-` (`-exact-system-blue`), never with a number.
+    let radius = |w: &str| {
+        let w = w.strip_prefix(['+', '-']).unwrap_or(w);
+        let w = w.strip_prefix('.').unwrap_or(w);
+        w.starts_with(|c: char| c.is_ascii_digit())
+    };
     let keyword = |w: &str| {
         let w = w.to_ascii_lowercase();
         matches!(w.as_str(), "circle" | "ellipse" | "at") || EXTENTS.iter().any(|(k, _)| *k == w)
     };
     let (mut circle, mut extent, mut at) = (None, None, [Length::Percent(50.0); 2]);
-    if !words.first().is_some_and(|w| keyword(w)) {
+    if !words.first().is_some_and(|w| keyword(w) || radius(w)) {
         let kind = GradientKind::Radial {
             circle: false,
-            extent: Extent::FarthestCorner,
+            size: RadialSize::Extent(Extent::FarthestCorner),
             at,
         };
         return Ok((kind, false));
     }
-    let mut rest = words.iter();
-    while let Some(w) = rest.next() {
+    let mut radii: Vec<Length> = Vec::new();
+    let mut last_radius = None;
+    for (i, w) in words.iter().enumerate() {
         let w = w.to_ascii_lowercase();
         match w.as_str() {
             "circle" | "ellipse" if circle.is_none() => circle = Some(w == "circle"),
             "at" => {
-                at = position(rest.as_slice())?;
+                at = position(&words[i + 1..])?;
                 break;
+            }
+            _ if radius(&w) => {
+                if last_radius.is_some_and(|j| j + 1 != i) {
+                    return Err(WHY);
+                }
+                last_radius = Some(i);
+                radii.push(match position(&[w.as_str(), "center"]) {
+                    Ok([Length::Px(n) | Length::Percent(n), _]) if n < 0.0 => {
+                        return Err("a radial gradient's radius is not negative")
+                    }
+                    Ok([length, _]) => length,
+                    Err(_) => return Err("a radial gradient's radius is px or % (or unitless zero); other lengths are not implemented"),
+                });
             }
             _ => match EXTENTS.iter().find(|(k, _)| *k == w) {
                 Some((_, e)) if extent.is_none() => extent = Some(*e),
-                _ if w.ends_with("px") || w.ends_with('%') => {
-                    return Err("an explicit radial size is not implemented; use circle/ellipse with closest-side, closest-corner, farthest-side or farthest-corner")
-                }
-                _ => return Err("a radial gradient starts with circle or ellipse, an extent keyword, and `at` a position"),
+                _ => return Err(WHY),
             },
         }
     }
+    let size =
+        match (radii.as_slice(), extent, circle) {
+            ([], extent, _) => RadialSize::Extent(extent.unwrap_or(Extent::FarthestCorner)),
+            (_, Some(_), _) => {
+                return Err("a radial gradient's size is an extent keyword or radii, not both")
+            }
+            (&[r @ Length::Px(_)], None, None | Some(true)) => {
+                circle = Some(true);
+                RadialSize::Radii([r, r])
+            }
+            ([Length::Percent(_)], None, None | Some(true)) => {
+                return Err("a circle's radius is a px length, not a percentage")
+            }
+            (&[x, y], None, None | Some(false)) => {
+                circle = Some(false);
+                RadialSize::Radii([x, y])
+            }
+            ([_], None, Some(false)) => return Err(
+                "an ellipse's size is two radii, horizontal then vertical, as `ellipse 120% 90%`",
+            ),
+            ([_, _], None, Some(true)) => {
+                return Err("a circle's size is one radius, as `circle 40px`")
+            }
+            _ => return Err(WHY),
+        };
     let kind = GradientKind::Radial {
         circle: circle.unwrap_or(false),
-        extent: extent.unwrap_or(Extent::FarthestCorner),
+        size,
         at,
     };
     Ok((kind, true))
@@ -977,10 +1079,13 @@ fn stops(args: &[&str], conic: bool) -> Result<Vec<Stop>, &'static str> {
             return Err("colour hints (a lone position between stops) are not implemented");
         }
         let color = words[..split].join(" ");
-        let color = ColorValue::parse_light_dark(&color)
+        // As written first: `parse_light_dark` would take a `light-dark()`
+        // of legacy colours as their bytes, losing a `none` or a hue.
+        let color = crate::style::wide::parse_written(&color)
+            .or_else(|| ColorValue::parse_light_dark(&color))
             .or_else(|| Color::parse(&color).map(ColorValue::Fixed))
             .ok_or("a stop's colour is a CSS colour (hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `transparent`) or `light-dark(a, b)`")?;
-        // Nothing converts a profile's colour, so nothing mixes it.
+        // LLP 1100 D3: nothing converts a profile's colour, so nothing mixes it.
         if matches!(color, ColorValue::Profiled(_)) {
             return Err("a color in a profile's space (`color(--name …)`) is drawn by the platform and never mixed: not in a gradient");
         }

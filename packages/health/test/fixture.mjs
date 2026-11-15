@@ -1,15 +1,16 @@
-// The conformance fixture, as every platform's suite makes
+// The conformance fixture (LLP 1133.001 D7), as every platform's suite makes
 // it: an app `exact new` made outside the repo, its files replaced by
 // `fixture/`'s, depending on @exact/health, @exact/pedometer and
 // @exact/altimeter packed as a registry would carry them (`bun pm pack`) and
-// installed, so each build is an out-of-tree one. It names a privacy policy, which
-// Health on Android requires, and carries the agent's Health stores as
+// installed, so each build is LLP 1133.001 D8's out-of-tree one. It names a privacy policy, which
+// Health on Android requires (D4), and carries the agent's Health stores as
 // its assets under `health-fixture/`, where the Android implementation reads
 // them.
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { ensureShells } from '../../../scripts/app-shells.mjs';
 
 export const here = import.meta.dir, pkg = resolve(here, '..'), root = resolve(pkg, '../..');
 
@@ -22,7 +23,7 @@ export const run = (cmd, args, cwd, env = process.env) => {
 /** The fixture app's directory and its bundle id. */
 export function makeFixture() {
   const dir = mkdtempSync(join(tmpdir(), 'exact-health-')), app = join(dir, 'healthfixture');
-  run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app], root);
+  run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app, '--with', 'mac,linux,android'], root);
   for (const f of ['app.contract', 'app.ts', 'strings']) cpSync(join(here, 'fixture', f), join(app, f), { recursive: true });
   rmSync(join(app, 'app.test.contract'), { force: true });
   const json = JSON.parse(readFileSync(join(app, 'app.json'), 'utf8'));
@@ -45,6 +46,9 @@ export function makeFixture() {
   };
   writeFileSync(join(app, 'package.json'), JSON.stringify(manifest, null, 2));
   run('bun', ['install'], app);
+  // The native workspace written before the build starts: one the build wrote
+  // is newer than the build, and the driver refuses the build as stale.
+  ensureShells(app);
   return { app, id: json.app.id };
 }
 

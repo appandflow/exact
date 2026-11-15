@@ -1,8 +1,8 @@
-// toFixed (decided (c)): JavaScript's Number.prototype.toFixed
+// toFixed (LLP 1102 §3.2, decided (c)): JavaScript's Number.prototype.toFixed
 // on the binary value (1.005 at 2 is "1.00", 8.345 at 2 is "8.35"), a tie
 // away from zero on the exact value, the sign of any negative (-0.001 at 2
 // is "-0.00", -0 is "0.00"), 1e21 and up as toString prints them, and "" for
-// a non-finite number, where JavaScript prints NaN or Infinity.
+// a non-finite number (D7), where JavaScript prints NaN or Infinity.
 component App
   state x = 1.005
   state zero = 0

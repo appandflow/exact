@@ -1,23 +1,23 @@
-// @exact/contacts on Apple: the person's contacts, picked
+// @exact/contacts on Apple (LLP 1133.018): the person's contacts, picked
 // through the system's picker or read from the store under access. Under the
 // agent it asks the Contacts framework for nothing and answers from the
-// agent's address book (AgentContacts.swift); the runner holds the
+// agent's address book (AgentContacts.swift, §10); the runner holds the
 // permission and sheet tickets and answers the status. Otherwise the
 // Contacts framework answers (ContactStore.swift).
 //
-// - A pick is a copy: no `id`, icons written to
+// - A pick is a copy (D4): no `id`, icons written to
 //   `app:/tmp/picked/contacts/` for the app to keep.
-// - A store read answers a bounded page whose cursor is the last
+// - A store read answers a bounded page (D6) whose cursor is the last
 //   contact's id: a page after a contact the store no longer shows fails
 //   `InvalidStateError`, `cursor-stale`. Its icons are the store's, written
 //   to `app:/tmp/contacts/` and deleted with their answer: when the reader is
 //   released, when its page is answered again, at the first call of a
 //   launch, and when access narrows to none.
-// - A change is announced, coalesced: while the re-asks one
+// - A change is announced, coalesced (D7): while the re-asks one
 //   announcement caused are in flight, further changes set a mark, and one
 //   more announcement follows them landing.
 // - `showContactAccessPicker` is iOS's alone; macOS has no limited access.
-// - Tier 3: the hatches below, called on the main thread, never under
+// - Tier 3 (D10): the hatches below, called on the main thread, never under
 //   the agent.
 import Contacts
 import ContactsUI
@@ -49,7 +49,7 @@ public final class ContactsModule: ExactPackage {
     private var readers: Set<String> = []
     /// Each store reader's icon directory, by its arguments.
     private var iconDirectories: [String: String] = [:]
-    /// Coalescing: an announcement's re-asks in flight; a change since.
+    /// Coalescing (D7): an announcement's re-asks in flight; a change since.
     private var awaiting = false, dirty = false, rounds = 0
     /// The agent's words last seen, so each new value acts once.
     private var store = "contacts.json", notify: Int?
@@ -136,7 +136,7 @@ public final class ContactsModule: ExactPackage {
 
     public func foreground(_ shown: Bool) {
         guard shown else { return }
-        // Access may have changed in Settings meanwhile.
+        // Access may have changed in Settings meanwhile (D5).
         if !context.agent {
             let access = real.access
             if access != lastAccess, !["full", "limited"].contains(access) { real.emptyIcons() }
@@ -145,7 +145,7 @@ public final class ContactsModule: ExactPackage {
         changedStore()
     }
 
-    // MARK: announcing
+    // MARK: announcing (D7)
 
     /// The store changed: announced, or marked while an announcement's re-asks are in flight.
     private func changedStore() {
@@ -176,7 +176,7 @@ public final class ContactsModule: ExactPackage {
         }
     }
 
-    // MARK: the agent's answers
+    // MARK: the agent's answers (§10)
 
     private func status() -> [String: Any] {
         ["available": true, "state": "prompt", "access": book.access, "apple": NSNull(), "android": NSNull()]

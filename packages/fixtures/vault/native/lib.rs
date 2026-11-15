@@ -1,4 +1,4 @@
-//! @fixture/vault's shim on the data module's native slot. It
+//! @fixture/vault's shim on the data module's native slot (LLP 1154 D3). It
 //! names `exact_js` and the standard library only, and calls the package's
 //! prebuilt library (`library/`) through its C ABI: the host admits its
 //! storage, so it reads no grants.

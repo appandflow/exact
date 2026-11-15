@@ -1,4 +1,4 @@
-// The site pattern at an API port of its own, set in .env.local: its tests pass there, a fault
+// The site pattern (LLP 1153 D8, 1153.001 D5) at an API port of its own, set in .env.local: its tests pass there, a fault
 // on `/planets` following the port; its list page is built ahead; and `serve` renders a planet's page for each request
 // with the API's answer then, a change made after the build included. Its API is server.ts, run as `test` runs it
 // (scripts/verify.mjs `startServer`), under this runner's NODE_ENV=test, with which Bun alone would skip .env.local.

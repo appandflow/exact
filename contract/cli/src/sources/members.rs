@@ -1,4 +1,4 @@
-//! A component's members files: each is loaded as a `use`d
+//! A component's members files (LLP 1091.002): each is loaded as a `use`d
 //! file is, scoped through its own `use` lines with every member of the
 //! component bound, and spliced into the component at its line.
 
@@ -47,28 +47,44 @@ impl Loader<'_> {
             .collect();
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
         let from = self.sources.origins[index].clone();
-        for (component, line, written, span) in lines {
-            let described = format!("`members \"{written}\"`");
-            let relative = written.starts_with("./") || written.starts_with("../");
-            if !relative || !written.ends_with(".contract") {
-                let message = format!(
-                    "{described}: a members file is a `.contract` file named by a relative path, \
-                     `./` or `../`"
-                );
-                return Err(vec![name_error("contract-use-path", message, span)]);
-            }
-            let consulted = &mut self.sources.consulted;
-            let resolved = resolve(&written, &dir, &from, self.app_root, consulted).map_err(
-                |(id, message)| vec![name_error(id, format!("{described}: {message}"), span)],
-            )?;
-            let unit = self.load_resolved(resolved, &described, span)?;
-            let part = Part {
-                component,
-                line,
-                unit,
-            };
-            self.units[index].parts.push(part);
+        for line in lines {
+            let depth = self.active.len();
+            let linked = self.link_part(&dir, &from, index, line);
+            self.kept(depth, linked)?;
         }
+        Ok(())
+    }
+
+    /// Load the file a `members` line of unit `index` names: the listing
+    /// component's index, the line's index among its, its path and span.
+    fn link_part(
+        &mut self,
+        dir: &Path,
+        from: &crate::resolve::Origin,
+        index: usize,
+        (component, line, written, span): (usize, usize, String, Span),
+    ) -> Result<(), Vec<CompileError>> {
+        let described = format!("`members \"{written}\"`");
+        let relative = written.starts_with("./") || written.starts_with("../");
+        if !relative || !written.ends_with(".contract") {
+            let message = format!(
+                "{described}: a members file is a `.contract` file named by a relative path, \
+                 `./` or `../`"
+            );
+            return Err(vec![name_error("contract-use-path", message, span)]);
+        }
+        let consulted = &mut self.sources.consulted;
+        let resolved =
+            resolve(&written, dir, from, self.app_root, consulted).map_err(|(id, message)| {
+                vec![name_error(id, format!("{described}: {message}"), span)]
+            })?;
+        let unit = self.load_resolved(resolved, &described, span)?;
+        let part = Part {
+            component,
+            line,
+            unit,
+        };
+        self.units[index].parts.push(part);
         Ok(())
     }
 

@@ -1,6 +1,6 @@
-// What the main thread did, by named host phase: a late frame
-// is charged each phase's overlap with its interval, as its hatch calls are.
-// A join by window, not a causal trace: no
+// What the main thread did, by named host phase (LLP 1142 D1): a late frame
+// is charged each phase's overlap with its interval, as its hatch calls are
+// (LLP 1075.003.000.001 §3.1). A join by window, not a causal trace: no
 // stacks, no attribution to app code, and the rest stated as unattributed.
 import Foundation
 import QuartzCore
@@ -38,8 +38,8 @@ package final class HostPhases: @unchecked Sendable {
         case scroll
         /// A region reader drawing.
         case draw
-        /// Decoded pictures put on their layers, and animated images' frames.
-        /// Core Animation's upload of new contents happens at
+        /// Decoded pictures put on their layers, and animated images' frames
+        /// (LLP 1144 D2). Core Animation's upload of new contents happens at
         /// its commit, outside every phase: in `unattributed`.
         case image
     }

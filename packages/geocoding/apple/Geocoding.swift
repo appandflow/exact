@@ -1,7 +1,7 @@
-// @exact/geocoding on Apple: MapKit's geocoding
+// @exact/geocoding on Apple (LLP 1133.021 D6-D9): MapKit's geocoding
 // requests from 26 (`MKGeocodingRequest`, `MKReverseGeocodingRequest`),
 // Core Location's `CLGeocoder` before, chosen by `#available`. No match
-// answers `[]`; failures are DOMException's names: `NetworkError`,
+// answers `[]`; failures are DOMException's names (D8): `NetworkError`,
 // `QuotaExceededError` for the platform's throttling, `AbortError` for a
 // request let go.
 import CoreLocation
@@ -23,7 +23,7 @@ public final class GeocodingModule: NSObject, ExactPackage {
         let request = context.request
         let answer = { [weak self] (places: [[String: Any]]?, error: Error?) in
             if let request { self?.inFlight[request] = nil }
-            // No match is an empty answer, not a failure.
+            // No match is an empty answer, not a failure (D8).
             if let error, case let code = Self.code(error), code != "exact:none" { return reply(["error": code]) }
             reply(["exact:answer": places ?? []])
         }
@@ -74,7 +74,7 @@ public final class GeocodingModule: NSObject, ExactPackage {
         return { g.cancelGeocode() }
     }
 
-    /// The `Place` from MapKit's item (26 and later).
+    /// D6's `Place` from MapKit's item (26 and later).
     @available(iOS 26, macOS 26, tvOS 26, *)
     private static func place(_ item: MKMapItem) -> [String: Any] {
         let r = item.addressRepresentations

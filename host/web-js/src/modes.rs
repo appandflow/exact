@@ -1,4 +1,4 @@
-//! The app's modes on the JS target, which keeps no kernel
+//! @ref LLP 1121 D7 — the app's modes on the JS target, which keeps no kernel
 //! at run time, so the browser picks each token's slice:
 //!
 //! - a token that varies by an app axis is an unregistered custom property,
@@ -22,7 +22,7 @@
 //! first projection writes (a colour, a length or a number, by its kind:
 //! `measures.rs`), which is then each token's `var()`.
 //!
-//! A development build (`--dev-reload`) makes every token
+//! A development build (`--dev-reload`, LLP 1121 stage 4) makes every token
 //! that overrides no role a property, varying or not, so the live table can
 //! set any of them in place ([`every`], [`design`]); a release build folds
 //! the others inline, as before, byte for byte.
@@ -52,7 +52,7 @@ thread_local! {
 }
 
 /// Make every token that overrides no role a property while the returned
-/// guard lives (a development build); restored after.
+/// guard lives (a development build, LLP 1121 stage 4); restored after.
 pub fn every(on: bool) -> impl Drop {
     struct Restore(bool);
     impl Drop for Restore {
@@ -90,8 +90,8 @@ pub fn active(plan: &Plan) -> bool {
 /// custom property: its name with each character no identifier takes as
 /// `-`, or `s<n>` for a synthetic token, `-<n>` added until it is unique.
 /// In a development build every token, and a role override (not the tint's,
-/// which rows keep as the role) as its role's sheet property,
-/// so a row naming the role reads the property a live edit sets.
+/// which rows keep as the role) as its role's sheet property (LLP 1121
+/// stage 5), so a row naming the role reads the property a live edit sets.
 pub fn properties(plan: &Plan) -> Vec<(String, String)> {
     use exact_kernel::style::roles;
     let mut out: Vec<(String, String)> = Vec::new();
@@ -229,7 +229,7 @@ impl Modes {
             }
             self.kinds = kinds;
             let projected = crate::style::project(plan, sites, &mut Vec::new());
-            // The plan's own tokens again (an edit is the runner's).
+            // The plan's own tokens again (an edit is the runner's, D13).
             let _ = bridge::role_overrides(plan);
             parts = projected?;
             for p in parts.iter_mut().flatten() {
@@ -258,7 +258,7 @@ impl Modes {
     /// part (a style is `normal` or `italic`, a weight a whole number, a
     /// family a stack the plan declares), so the declaration a row writes
     /// is found by its property: a token reaches a text with no element
-    /// children only (`tamber-inherited-axis`), whose own rows these are.
+    /// children only (`forma-inherited-axis`), whose own rows these are.
     fn type_rows(&self, plan: &Plan, node: &exact_plan::NodesRow, p: &mut Parts) {
         if self.types.is_empty() {
             return;
@@ -501,7 +501,7 @@ impl Modes {
                 channels.push(format!("c{}:{{{}}}", i + 1, each.join(",")));
             }
             // A development build's role overrides read their sheet
-            // property too: a page rendered ahead drops
+            // property too (LLP 1121 stage 5): a page rendered ahead drops
             // its baked value for it, as for a token's.
             let named: Vec<&str> = declarations(c)
                 .into_iter()
@@ -600,7 +600,7 @@ fn rules(plan: &Plan, props: &[(String, String)]) -> (String, Vec<String>) {
                 css,
                 "{selector}[data-x-accent=\"{prop}\"]{{--exact-accent:{text}}}"
             );
-            // A mode's own accent is authored, read through
+            // A mode's own accent is authored (LLP 1121 D9), read through
             // --exact-accent so a live edit reaches it; the platform's is not.
             if text.trim() != "AccentColor" {
                 let _ = write!(
@@ -638,7 +638,7 @@ fn css_of(entry: &exact_kernel::style::theme::Entry) -> String {
     text
 }
 
-/// A development build's design for the live table: the
+/// A development build's design for the live table (LLP 1121 stage 4): the
 /// plan's structure and design digests and each token's wire text, and for
 /// each token the page declares, its property and its CSS per full tuple, as
 /// [`rules`] writes them. The dev loop sends the changed ones as a batch.
@@ -656,8 +656,8 @@ pub fn design(plan: &Plan) -> serde_json::Value {
 /// The plan's structure as the dev loop keeps a build by it: the plan's,
 /// and the base names the sheet declares (`base_scale::named`), so an edit
 /// that comes to name one the sheet lacks (`card.pad: space.md` to
-/// `space.lg`) rebuilds, never batches a `var()` nothing declares. A plan
-/// that names none keeps the plan's alone.
+/// `space.lg`) rebuilds, never batches a `var()` nothing declares (B2 round
+/// 1, Astra 2). A plan that names none keeps the plan's alone.
 pub fn structure(plan: &Plan) -> String {
     structure_of(plan, plan)
 }
@@ -727,8 +727,8 @@ pub fn rows(plan: &Plan, declared: &Declared, only: Option<&[String]>) -> Vec<se
                 })
                 .collect();
             if !parts.is_empty() {
-                // A type token's rows, each its property: the page sets each
-                // in every tuple's rule.
+                // A type token's rows, each its property (stage 6 C's
+                // follow-up): the page sets each in every tuple's rule.
                 row["parts"] = parts.into();
             } else if let Some((_, prop)) = props.iter().find(|(n, _)| *n == t.name) {
                 let css: Vec<String> = tables
@@ -755,8 +755,8 @@ pub fn rows(plan: &Plan, declared: &Declared, only: Option<&[String]>) -> Vec<se
             } else if let Some(prop) = tint_property(plan, &t.name) {
                 // The tint's override: its property in the theme's own
                 // `:root` rule (`root`), which rows read as the role and an
-                // authored `accent-color` redeclares below; a tuple's rule
-                // would mask an authored one above it.
+                // authored `accent-color` redeclares below (LLP 1121 stage
+                // 5); a tuple's rule would mask an authored one above it.
                 row["prop"] = prop.into();
                 row["css"] = vec![css_of(&exact_kernel::style::theme::Entry {
                     name: t.name.as_str().into(),
@@ -825,7 +825,7 @@ fn written(parts: &[Option<Parts>]) -> String {
 }
 
 /// The value of `css`'s top-level declaration of `prop`, the last one.
-fn declaration<'a>(css: &'a str, prop: &str) -> Option<&'a str> {
+pub(crate) fn declaration<'a>(css: &'a str, prop: &str) -> Option<&'a str> {
     declarations(css)
         .into_iter()
         .rev()
@@ -834,7 +834,7 @@ fn declaration<'a>(css: &'a str, prop: &str) -> Option<&'a str> {
 }
 
 /// `css`'s top-level declarations, `(property, value)`, in order.
-fn declarations(css: &str) -> Vec<(&str, &str)> {
+pub(crate) fn declarations(css: &str) -> Vec<(&str, &str)> {
     spans(css)
         .into_iter()
         .map(|(name, value, _)| (name, value))

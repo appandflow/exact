@@ -3,7 +3,7 @@ name = "exact-color"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "CSS colour values in their own spaces, with CSS's arithmetic"
+description = "CSS colour values in their own spaces, with CSS's arithmetic (LLP 1100)"
 publish = false
 
 [lib]

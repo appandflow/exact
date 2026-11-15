@@ -1,5 +1,5 @@
 // data: svg-gallery
-// Synthetic conformance plan: press feedback: a node's
+// Synthetic conformance plan: press feedback (LLP 1061): a node's
 // -exact-press-scale shows while a finger holds it, on the web host's input piece;
 // the press runs at the lift, and a node without -exact-press-scale shows none.
 component Press

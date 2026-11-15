@@ -2,6 +2,7 @@
 // face and mip, each mip a GGX roughness. The source is the procedural sky of
 // frame.wgsl's environment(), or an authored equirectangular map (ibl.rs); the
 // `sh` entry projects the same source onto SH9 irradiance for authored maps.
+// @ref llp/1046.003-game-engine-as-built.explainer.md#culling-and-environment-lighting-2026-09-23
 struct Prefilter {
     // .w: an authored map's intensity; zero selects the procedural sky.
     zenith: vec4<f32>,

@@ -5,10 +5,11 @@ import {mkdirSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {platform} from 'node:os';
 import {open} from '../../scripts/agent.mjs';
+import { fileURLToPath } from 'node:url';
 const args=process.argv.slice(2);
 const outputIndex=args.indexOf('--out');
 assert.ok(outputIndex<0 || args[outputIndex+1],'--out needs a writable directory');
-const output=outputIndex<0?new URL('./target/',import.meta.url).pathname:resolve(args[outputIndex+1]);
+const output=outputIndex<0?fileURLToPath(new URL('./target/',import.meta.url)):resolve(args[outputIndex+1]);
 const positional=outputIndex<0?args:args.filter((_,i)=>i!==outputIndex && i!==outputIndex+1);
 const host=positional[0] ?? 'web';
 const lanes=Number(positional[1] ?? (host==='web'?128:6));
@@ -60,7 +61,7 @@ try {
   // Navigation forgot the old tickets, and every host lets go of their
   // work: the held reads are aborted and the queued ones never sent, so a
   // full-capacity cohort is admitted again with nothing released, and
-  // `clock settle` is not held by them.
+  // `clock settle` is not held by them (LLP 1016 D5).
   let oldRelease=null;
   {
     const deadline=Date.now()+20000;
@@ -89,8 +90,9 @@ try {
     assert.equal(complete.resources['r'+lane].ok,true);
   }
   const logs=await app.logs();
-  const dropped=logs.lines.filter(line=>String(line).includes('dropped: no such request')).length;
-  // A native host drops forgotten work before it replies; the browser answers an aborted read, which the runner drops.
+  // A native host drops forgotten work before it replies. On the web, the wasm target's browser answers an aborted
+  // read, which the runner drops; the JS target closes the read as it aborts it, so its reply lands nowhere.
+  const dropped=logs.lines.filter(line=>/close stream \d+: its ticket was let go|reply \d+ dropped: no such request in flight/.test(String(line))).length;
   if(host==='web') assert.ok(dropped>0,'old replies should be logged as dropped');
   await app.tap('errors-50');
   await app.tap('start-wave');

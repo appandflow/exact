@@ -7,6 +7,53 @@ fn u(s: &str) -> Vec<u16> {
     s.encode_utf16().collect()
 }
 
+#[test]
+fn a_drag_moves_source_through_cleanup_as_one_undo_step() {
+    for (source, from, to, at, dropped, expected) in [
+        ("alpha beta gamma", 6, 10, 16, "beta", "alpha  gammabeta"),
+        ("alpha beta gamma", 6, 10, 0, "beta", "betaalpha  gamma"),
+        (
+            "alpha **beta** gamma",
+            8,
+            12,
+            20,
+            "beta",
+            "alpha  gammabeta",
+        ),
+        (
+            "[beta](url) **gamma**",
+            1,
+            5,
+            19,
+            "beta",
+            "[](url) **gammabeta**",
+        ),
+        ("😀 beta\ngamma", 3, 7, 13, "beta", "😀 \ngammabeta"),
+        ("beta beta beta", 0, 4, 14, "beta", " beta betabeta"),
+    ] {
+        let mut e = Editor::new();
+        e.load(&u(source));
+        e.set_words(&u("directions"));
+        assert!(e.move_text(from, to, at, &u(dropped), 0.0).source);
+        assert_eq!(e.source(), u(expected), "{source}");
+        let selection = e.selection();
+        e.command("undo", "", 1.0);
+        assert_eq!(e.source(), u(source));
+        assert_eq!(e.selection(), (from, to));
+        assert_eq!(e.words_back(), Some(u("directions").as_slice()));
+        e.command("redo", "", 2.0);
+        assert_eq!(e.source(), u(expected));
+        assert_eq!(e.selection(), selection);
+        e.command("undo", "", 3.0);
+        assert!(!e.command("undo", "", 4.0).source);
+    }
+    let mut e = Editor::new();
+    e.load(&u("alpha beta gamma"));
+    assert!(!e.move_text(6, 10, 8, &u("beta"), 0.0).source);
+    assert_eq!(e.source(), u("alpha beta gamma"));
+    assert!(!e.command("undo", "", 1.0).source);
+}
+
 struct Page {
     e: Editor,
     now: f64,
@@ -104,12 +151,240 @@ fn bold_input_event_toggles_pending_bold() {
 }
 
 #[test]
-fn a_space_at_the_end_of_bold_goes_outside() {
+fn emphasis_continues_across_spaces() {
     let mut p = Page::open("");
     p.tool("bold");
     p.type_("bold");
-    p.type_(" plain");
-    assert_eq!(p.source(), "**bold** plain");
+    p.type_(" words");
+    assert_eq!(p.source(), "**bold words**");
+}
+
+#[test]
+fn continued_emphasis_keeps_valid_source_and_toolbar_state() {
+    for marker in ["**", "*", "__", "_", "~~", "***"] {
+        for gap in [" ", "  ", "\t", "\u{a0}"] {
+            let mut p = Page::open(&format!("{marker}hello{marker}"));
+            p.caret((marker.len() + 5) as u32);
+            let formats = p.e.facts().formats;
+            p.type_(gap);
+            assert_eq!(p.source(), format!("{marker}hello{marker}{gap}"));
+            assert_eq!(p.e.facts().formats, formats);
+            p.type_("world");
+            assert_eq!(p.source(), format!("{marker}hello{gap}world{marker}"));
+            assert_eq!(p.e.visible_text(), format!("hello{gap}world"));
+            p.tool("undo");
+            assert_eq!(p.source(), format!("{marker}hello{marker}"));
+            p.tool("redo");
+            assert_eq!(p.source(), format!("{marker}hello{gap}world{marker}"));
+        }
+    }
+}
+
+#[test]
+fn continued_emphasis_ends_on_toggle_move_return_or_external_edit() {
+    for end in ["toggle", "move", "return", "value", "range"] {
+        let mut p = Page::open("");
+        p.tool("bold");
+        p.type_("hello ");
+        match end {
+            "toggle" => p.tool("bold"),
+            "move" => {
+                p.caret(2);
+                p.caret(10);
+            }
+            "return" => p.type_("\n"),
+            "value" => {
+                p.e.set_value(&u("**hello**  "));
+            }
+            "range" => {
+                p.e.replace(10, 10, &u(" "), SelectionMode::End, 200.0);
+            }
+            _ => unreachable!(),
+        }
+        p.type_("world");
+        let gap = match end {
+            "return" => " \n",
+            "range" => "  ",
+            _ => " ",
+        };
+        let suffix = if end == "value" { " " } else { "" };
+        assert_eq!(p.source(), format!("**hello**{gap}world{suffix}"), "{end}");
+    }
+}
+
+#[test]
+fn pending_emphasis_skips_leading_and_trailing_whitespace() {
+    for format in ["bold", "italic", "strike"] {
+        let mut p = Page::open("");
+        p.tool(format);
+        p.type_("  ");
+        assert_eq!(p.source(), "  ");
+        assert!(p.e.facts().formats.contains(format));
+        p.input(Input::Paste, "hello world  ");
+        let marker = match format {
+            "bold" => "**",
+            "italic" => "*",
+            _ => "~~",
+        };
+        assert_eq!(p.source(), format!("  {marker}hello world{marker}  "));
+        p.type_("again");
+        assert_eq!(p.source(), format!("  {marker}hello world  again{marker}"));
+    }
+}
+
+#[test]
+fn continued_emphasis_handles_paste_nested_toggles_and_selection_echoes() {
+    let mut p = Page::open("***hello***");
+    p.caret(8);
+    p.input(Input::Paste, " world  ");
+    assert_eq!(p.source(), "***hello world***  ");
+    let sel = p.e.selection();
+    assert_eq!(p.e.select(sel.0, sel.1, Some(sel)), Selected::Ignore);
+    assert!(!p.e.set_value(&u(&p.source())).source);
+    p.tool("italic");
+    p.type_("bold");
+    assert_eq!(p.source(), "***hello world***  **bold**");
+    p.type_(" again");
+    assert_eq!(p.source(), "***hello world***  **bold again**");
+
+    let mut p = Page::open("_hello_ suffix");
+    p.caret(6);
+    p.type_(" ");
+    p.input(Input::Paste, "world");
+    assert_eq!(p.source(), "_hello world_ suffix");
+
+    let mut p = Page::open("**hello**suffix");
+    p.caret(7);
+    p.type_(" ");
+    // A closer between punctuation and a letter is not right-flanking.
+    p.input(Input::Paste, ".");
+    assert_eq!(p.source(), "**hello** .suffix");
+    assert_eq!(p.e.visible_text(), "hello .suffix");
+}
+
+#[test]
+fn continuation_preserves_original_delimiter_pairs() {
+    let mut p = Page::open("**hello**");
+    p.caret(7);
+    p.type_(" ");
+    p.input(Input::Paste, "**world");
+    assert_eq!(p.source(), "**hello** **world");
+    assert_eq!(p.e.visible_text(), "hello **world");
+}
+
+#[test]
+fn continuation_can_toggle_an_inherited_outer_format_off() {
+    for source in ["*a **b** c*", "*a **b**c*", "_a **b** c_"] {
+        let mut p = Page::open(source);
+        p.caret(6);
+        p.type_(" ");
+        assert!(p.e.facts().formats.contains("italic"));
+        p.tool("italic");
+        assert_eq!(p.e.facts().formats, "bold");
+        p.type_("word");
+        assert_eq!(p.e.facts().formats, "bold", "{}", p.source());
+        assert_eq!(
+            p.e.visible_text(),
+            if source.contains("**c") {
+                "a b wordc"
+            } else {
+                "a b word c"
+            }
+        );
+        p.tool("undo");
+        assert_eq!(p.source(), source);
+    }
+}
+
+#[test]
+fn pending_whitespace_preserves_existing_emphasis() {
+    for (marker, format) in [
+        ("**", "italic"),
+        ("**", "strike"),
+        ("_", "bold"),
+        ("~~", "bold"),
+    ] {
+        let source = format!("{marker}hello{marker}");
+        let mut p = Page::open(&source);
+        p.caret(marker.len() as u32 + 5);
+        p.tool(format);
+        p.type_(" ");
+        assert_eq!(p.source(), format!("{source} "));
+        assert!(p.e.facts().formats.contains(format));
+        p.type_("x");
+        assert!(p.source().starts_with(&source));
+        assert_eq!(p.e.visible_text(), "hello x");
+        assert!(p.e.facts().formats.contains(format));
+    }
+}
+
+#[test]
+fn composition_continues_emphasis_after_whitespace() {
+    for word in ["日本", "é", "😀"] {
+        for partial in [false, true] {
+            let mut p = Page::open("before\n**hello**");
+            p.caret(14);
+            p.type_(" ");
+            let before = p.source();
+            let caret = p.e.selection();
+            p.e.compose(100.0);
+            // A cancelled composition leaves continuation available.
+            p.e.reconcile(&u(&before), Some(caret), 110.0);
+            if partial {
+                let line = format!("**hello** {word}");
+                let end = 7 + u(&line).len() as u32;
+                p.e.reconcile_range(
+                    7,
+                    p.e.source().len() as u32,
+                    &u(&line),
+                    Some((end, end)),
+                    120.0,
+                );
+            } else {
+                p.platform_types(word);
+            }
+            assert_eq!(p.source(), format!("before\n**hello {word}**"));
+            assert_eq!(p.e.facts().formats, "bold");
+            p.type_(" next");
+            assert_eq!(p.source(), format!("before\n**hello {word} next**"));
+            p.tool("undo");
+            assert_eq!(p.source(), "before\n**hello**");
+        }
+    }
+}
+
+#[test]
+fn continuation_paste_formats_only_the_first_line() {
+    for (paste, expected) in [
+        ("world\nmore", "**hello world**\nmore"),
+        ("world  \r\nmore", "**hello world**  \nmore"),
+        ("\nmore", "**hello** \nmore"),
+    ] {
+        let mut p = Page::open("**hello**");
+        p.caret(7);
+        p.type_(" ");
+        p.input(Input::Paste, paste);
+        assert_eq!(p.source(), expected);
+        assert!(!p.e.facts().formats.contains("bold"));
+        p.type_(" plain");
+        assert_eq!(p.source(), format!("{expected} plain"));
+        p.tool("undo");
+        assert_eq!(p.source(), "**hello**");
+    }
+}
+
+#[test]
+fn continuation_keeps_link_syntax_outside_emphasis() {
+    for marker in ["**", "_", "~~", "***"] {
+        let mut p = Page::open(&format!("[{marker}hello{marker}](url)"));
+        p.caret(marker.len() as u32 + 6);
+        p.type_(" ");
+        assert_eq!(p.source(), format!("[{marker}hello{marker} ](url)"));
+        p.type_("world");
+        assert_eq!(p.source(), format!("[{marker}hello world{marker}](url)"));
+        assert_eq!(p.e.visible_text(), "hello world");
+        assert_eq!(p.e.facts().link, "url");
+    }
 }
 
 #[test]
@@ -146,12 +421,349 @@ fn backspace_deletes_letters_never_markers() {
 }
 
 #[test]
+fn return_in_formatted_items_preserves_text_formats_and_caret() {
+    for (source, caret, after, visible, expected_caret) in [
+        (
+            "- [docs](https://example.com) here",
+            3,
+            "- \n- [docs](https://example.com) here",
+            "\ndocs here",
+            5,
+        ),
+        (
+            "- **Note:** details",
+            4,
+            "- \n- **Note:** details",
+            "\nNote: details",
+            5,
+        ),
+        ("- **bold**", 6, "- **bo**\n- **ld**", "bo\nld", 13),
+        ("- **a😀b**", 5, "- **a**\n- **😀b**", "a\n😀b", 12),
+        (
+            "# [link](https://example.com) title",
+            5,
+            "# [li](https://example.com)\n[nk](https://example.com) title",
+            "li\nnk title",
+            29,
+        ),
+    ] {
+        let mut p = Page::open(source);
+        p.caret(caret);
+        let before_sel = p.e.selection();
+        p.input(Input::Paragraph, "");
+        assert_eq!(p.source(), after, "{source}");
+        assert_eq!(p.e.visible_text(), visible, "{source}");
+        assert_eq!(
+            p.e.selection(),
+            (expected_caret, expected_caret),
+            "{source}"
+        );
+        p.tool("undo");
+        assert_eq!(p.source(), source);
+        assert_eq!(p.e.selection(), before_sel);
+        p.tool("redo");
+        assert_eq!(p.source(), after);
+        assert_eq!(p.e.selection(), (expected_caret, expected_caret));
+        p.type_("X");
+        let mut typed = u(after);
+        typed.insert(expected_caret as usize, b'X' as u16);
+        assert_eq!(p.e.source(), typed, "{source}");
+        p.tool("undo");
+        assert_eq!(p.source(), after);
+    }
+}
+
+#[test]
+fn return_and_code_beside_a_backtick_pad_the_span_and_undo_in_one_step() {
+    // Return after a literal backtick: the left half's padding is hidden
+    // syntax, and the caret starts the right half's text.
+    let source = "- ``a`b``";
+    let after = "- `` a` ``\n- ``b``";
+    let mut p = Page::open(source);
+    p.caret(6);
+    let before = p.e.selection();
+    p.input(Input::Paragraph, "");
+    assert_eq!(p.source(), after);
+    assert_eq!(p.e.visible_text(), "a`\nb");
+    assert_eq!(p.e.selection(), (15, 15));
+    p.tool("undo");
+    assert_eq!(p.source(), source);
+    assert_eq!(p.e.selection(), before);
+    p.tool("redo");
+    assert_eq!(p.source(), after);
+    assert_eq!(p.e.selection(), (15, 15));
+    p.type_("X");
+    assert_eq!(p.source(), "- `` a` ``\n- ``Xb``");
+
+    // Code on text that begins with a backtick pads it; one undo takes it back.
+    let mut p = Page::open("say `a");
+    p.e.select(4, 6, None);
+    p.tool("code");
+    assert_eq!(p.source(), "say `` `a ``");
+    assert_eq!(p.e.visible_text(), "say `a");
+    assert_eq!(p.e.selection(), (4, 9));
+    p.tool("undo");
+    assert_eq!(p.source(), "say `a");
+    assert_eq!(p.e.selection(), (4, 6));
+
+    // A caret the app puts in the hidden padding is drawn at a visible edge.
+    let mut p = Page::open("x ` a ` y");
+    p.e.set_selection(3, 3);
+    let (s, e) = p.e.selection();
+    assert_eq!(s, e);
+    assert!(s == 2 || s == 4, "{s}");
+}
+
+#[test]
+fn a_return_caret_survives_orphan_cleanup() {
+    let mut p = Page::open("**ab** cd");
+    p.e.select(3, 8, None);
+    p.input(Input::Paragraph, "");
+    assert_eq!(p.source(), "a\nd");
+    assert_eq!(p.e.selection(), (2, 2));
+}
+
+#[test]
+fn backspace_after_return_removes_only_the_block_prefix() {
+    for (source, caret, after, visible) in [
+        ("- **bold**", 6, "- **bo**\n**ld**", "bo\nld"),
+        ("- [docs](u)", 5, "- [do](u)\n[cs](u)", "do\ncs"),
+        ("- **`a b`**", 7, "- **`a `**\n**`b`**", "a \nb"),
+        ("- **a😀b**", 5, "- **a**\n**😀b**", "a\n😀b"),
+        ("> - [x] **bold**", 12, "> - [x] **bo**\n**ld**", "bo\nld"),
+    ] {
+        let mut p = Page::open(source);
+        p.caret(caret);
+        p.input(Input::Paragraph, "");
+        let split = p.source();
+        p.backspace();
+        assert_eq!(p.source(), after, "{source}");
+        assert_eq!(p.e.visible_text(), visible, "{source}");
+        p.tool("undo");
+        assert_eq!(p.source(), split);
+        p.tool("redo");
+        assert_eq!(p.source(), after);
+    }
+}
+
+#[test]
+fn backspace_at_formatted_block_starts_keeps_inline_syntax() {
+    for prefix in ["# ", "- ", "1. ", "> ", "> - [x] ", "  - "] {
+        for content in ["**text**", "`code`", "[label](target)", "\\*literal"] {
+            let source = format!("{prefix}{content}");
+            let mut p = Page::open(&source);
+            p.caret(prefix.len() as u32);
+            p.backspace();
+            assert_eq!(p.source(), content, "{source}");
+        }
+    }
+}
+
+#[test]
+fn return_in_link_labels_keeps_destinations_and_selected_edges() {
+    for (source, start, end, after, visible, caret) in [
+        ("- [docs](u)", 5, 7, "- [do](u)\n- ", "do\n", 12),
+        ("- [docs](u)", 3, 5, "- \n- [cs](u)", "\ncs", 6),
+        ("- [docs](u)", 3, 7, "- \n- ", "\n", 5),
+        ("- [**bold**](u)", 7, 9, "- [**bo**](u)\n- ", "bo\n", 16),
+        (
+            "- <https://example.com>",
+            14,
+            14,
+            "- [https\\://exa](https://example.com)\n- [mple.com](https://example.com)",
+            "https://exa\nmple.com",
+            41,
+        ),
+    ] {
+        let mut p = Page::open(source);
+        p.e.set_selection(start, end);
+        p.input(Input::Paragraph, "");
+        assert_eq!(p.source(), after, "{source}");
+        assert_eq!(p.e.visible_text(), visible, "{source}");
+        assert_eq!(p.e.selection(), (caret, caret), "{source}");
+        p.type_("X");
+        let mut typed = u(after);
+        typed.insert(caret as usize, b'X' as u16);
+        assert_eq!(p.e.source(), typed, "{source}");
+        p.tool("undo");
+        p.tool("undo");
+        assert_eq!(p.source(), source);
+    }
+}
+
+#[test]
+fn formatting_selected_lines_preserves_their_blocks() {
+    for command in ["bold", "italic", "code", "strike"] {
+        let mut p = Page::open("# Title\n\n- one\n- two");
+        p.e.select_all();
+        p.tool(command);
+        assert_eq!(p.e.visible_text(), "Title\n\none\ntwo");
+        assert_eq!(p.e.lines()[2].deco, Some(Deco::Bullet));
+        assert_eq!(p.e.lines()[3].deco, Some(Deco::Bullet));
+        p.tool("undo");
+        assert_eq!(p.source(), "# Title\n\n- one\n- two");
+    }
+}
+
+#[test]
 fn emptying_a_bold_word_removes_its_markers() {
     let mut p = Page::open("a **b** c");
     for _ in 0..3 {
         p.backspace();
     }
     assert_eq!(p.source(), "a ");
+}
+
+#[test]
+fn emptying_inline_text_removes_its_markers_without_changing_other_blocks() {
+    let before = "intro😀\n\n";
+    let after = "\n\n**next paragraph**\n\n---\n\n```rs\ncode\n```";
+    for (open, close) in [
+        ("**", "**"),
+        ("__", "__"),
+        ("***", "***"),
+        ("~~", "~~"),
+        ("``", "``"),
+        ("*", "*"),
+        ("_", "_"),
+        ("`", "`"),
+        ("~~**_`", "`_**~~"),
+        ("**~~_`", "`_~~**"),
+    ] {
+        for (prefix, remaining) in [
+            ("", ""),
+            ("> ", ""),
+            ("- ", "- "),
+            ("# ", "# "),
+            ("a ", "a "),
+        ] {
+            for input in [Input::Backward, Input::Forward, Input::OtherBackward] {
+                let word = if input == Input::OtherBackward {
+                    "word"
+                } else {
+                    "x"
+                };
+                let source = format!("{before}{prefix}{open}{word}{close}{after}");
+                let mut p = Page::open(&source);
+                let caret = u(&format!("{before}{prefix}")).len() as u32;
+                let start = caret + open.len() as u32;
+                let end = start + word.len() as u32;
+                match input {
+                    Input::Backward => p.caret(end),
+                    Input::Forward => p.caret(start),
+                    _ => {
+                        p.e.set_selection(start, end);
+                    }
+                }
+                let selection = p.e.selection();
+                assert!(matches!(p.input(input, ""), Outcome::Handled(_)));
+                let expected = format!("{before}{remaining}{after}");
+                let caret = u(&format!("{before}{remaining}")).len() as u32;
+                assert_eq!(p.source(), expected, "{input:?}: {source}");
+                assert_eq!(p.e.selection(), (caret, caret));
+                assert_ne!(p.e.lines()[2].deco, Some(Deco::Rule));
+                assert_eq!(p.e.lines()[4].flags, 0);
+                p.tool("undo");
+                assert_eq!(p.source(), source);
+                assert_eq!(p.e.selection(), selection);
+                p.tool("redo");
+                assert_eq!(p.source(), expected);
+                assert_eq!(p.e.selection(), (caret, caret));
+                p.type_("z");
+                assert_eq!(p.source(), format!("{before}{remaining}z{after}"));
+            }
+        }
+    }
+}
+
+#[test]
+fn emptying_inline_text_preserves_following_formatting_on_the_same_line() {
+    for (open, close) in [
+        ("~~", "~~"),
+        ("``", "``"),
+        ("~~**_`", "`_**~~"),
+        ("**~~_`", "`_~~**"),
+    ] {
+        for prefix in ["", " ", "   "] {
+            for later in ["**later**", "[later](https://example.com)", "~~later~~"] {
+                for input in [Input::Backward, Input::Forward, Input::OtherBackward] {
+                    let source = format!("{prefix}{open}x{close} {later}");
+                    let expected = format!("{prefix} {later}");
+                    let mut p = Page::open(&source);
+                    let start = (prefix.len() + open.len()) as u32;
+                    match input {
+                        Input::Backward => p.caret(start + 1),
+                        Input::Forward => p.caret(start),
+                        _ => {
+                            p.e.set_selection(start, start + 1);
+                        }
+                    }
+                    let selection = p.e.selection();
+                    assert!(matches!(p.input(input, ""), Outcome::Handled(_)));
+                    let caret = prefix.len() as u32;
+                    assert_eq!(p.source(), expected, "{input:?}: {source}");
+                    assert_eq!(p.e.selection(), (caret, caret));
+                    p.tool("undo");
+                    assert_eq!(p.source(), source);
+                    assert_eq!(p.e.selection(), selection);
+                    p.tool("redo");
+                    assert_eq!(p.source(), expected);
+                    p.type_("z");
+                    assert_eq!(p.source(), format!("{prefix}z {later}"));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn emptying_a_line_preserves_syntax_on_the_next_line() {
+    for (source, expected, visible) in [
+        ("> x\n> keep", "\n> keep", "\nkeep"),
+        ("> **x**\n> keep", "\n> keep", "\nkeep"),
+        ("`x`\n``\nnext", "\n``\nnext", "\n``\nnext"),
+        ("**`x`**\n``\nnext", "\n``\nnext", "\n``\nnext"),
+    ] {
+        for input in [Input::Backward, Input::Forward, Input::OtherBackward] {
+            let mut p = Page::open(source);
+            let start = source.find('x').unwrap() as u32;
+            match input {
+                Input::Backward => p.caret(start + 1),
+                Input::Forward => p.caret(start),
+                _ => {
+                    p.e.set_selection(start, start + 1);
+                }
+            }
+            let selection = p.e.selection();
+            assert!(matches!(p.input(input, ""), Outcome::Handled(_)));
+            assert_eq!(p.source(), expected, "{input:?}: {source}");
+            assert_eq!(p.e.visible_text(), visible);
+            assert_eq!(p.e.selection(), (0, 0));
+            p.tool("undo");
+            assert_eq!(p.source(), source);
+            assert_eq!(p.e.selection(), selection);
+            p.tool("redo");
+            assert_eq!(p.source(), expected);
+            p.type_("z");
+            assert_eq!(p.source(), format!("z{expected}"));
+        }
+    }
+}
+
+#[test]
+fn emptying_a_line_typed_in_bold_leaves_a_plain_line() {
+    let mut p = Page::open("");
+    p.tool("bold");
+    p.type_("hi");
+    assert_eq!(p.source(), "**hi**");
+    p.backspace();
+    assert_eq!(p.source(), "**h**");
+    p.backspace();
+    assert_eq!(p.source(), "");
+    assert_eq!(p.e.selection(), (0, 0));
+    assert_eq!(p.e.lines()[0].deco, None);
+    p.type_("x");
+    assert_eq!(p.source(), "x");
 }
 
 #[test]
@@ -585,7 +1197,7 @@ fn link_destinations_are_each_links_own_syntax() {
     }
 }
 
-/// Each undo step keeps the host's words for the state it
+/// LLP 1045 D11: each undo step keeps the host's words for the state it
 /// returns to, however many keystrokes it holds; the app's new words forget
 /// them all.
 #[test]

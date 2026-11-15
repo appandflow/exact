@@ -4,8 +4,8 @@
 // arrays' `toReversed`/`toSorted`/`with`). Hermes only: a browser realm has
 // its own. `AbortController` is Ibex's (vendor/ibex/crates/ibex2/src/bindings/abort.js),
 // evaluated before this file. The list of what every executor has is in
-// docs/reference.md ("What a data module can use").
-// What the module can use
+// docs/reference.md ("What a data module can use"; pomodoro F4, calc F2).
+// @ref LLP 1027 D10 — what the module can use
 (function (global) {
   'use strict';
   var toString = Object.prototype.toString, defineProperty = Object.defineProperty, keysOf = Object.keys;
@@ -102,11 +102,13 @@
   });
 
   // A microtask: a callback's throw is reported, as the web reports it, and
-  // never rejects anything the module awaits.
+  // never rejects anything the module awaits. The report is the runtime's
+  // line (js/src/console.js), not the app's.
+  var runtimeLine = global.__exact_runtime_line;
   method(global, 'queueMicrotask', function queueMicrotask(callback) {
     if (typeof callback !== 'function') throw new TypeError('queueMicrotask requires a function');
     Promise.resolve().then(function () {
-      try { callback(); } catch (e) { global.console.error('Uncaught ' + (e && e.stack ? e.stack : String(e))); }
+      try { callback(); } catch (e) { runtimeLine('Uncaught ' + (e && e.stack ? e.stack : String(e))); }
     });
   });
 
@@ -153,9 +155,8 @@
   // other `get…()` lists (docs/reference.md).
   if (global.Intl && typeof global.Intl.Locale !== 'function') (function () {
     // CLDR's tables are built at the first getWeekInfo(), not at boot: splitting
-    // them is about 90 KB of heap, half of it garbage, in every runtime. Built
-    // after hardening, they have no prototype: a property bootstrap planted on
-    // Object.prototype is frozen by then and would refuse a write of its name.
+    // them is about 90 KB of heap, half of it garbage, in every runtime. They
+    // have no prototype so a locale lookup cannot see bootstrap's properties.
     var week;
     function weekData() {
       if (week) return week;
@@ -333,7 +334,7 @@
   })();
 
   // `AbortSignal.timeout` is an answer's timer, on the runner's clock: the
-  // prelude installs it (binary.js `timers`). Ibex's internal hooks
+  // prelude installs it (time.js `timers`). Ibex's internal hooks
   // (`__ibex2_abort`) stay for the prelude's `fetch`, which takes and
   // deletes them before any module runs.
 })(globalThis);

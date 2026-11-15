@@ -404,7 +404,7 @@ fn viewer_dimensions_match_each_immutable_png_and_its_provenance_record() {
     }
 }
 
-/// A pinch's release adopts its scale, within Fit and 4×,
+/// LLP 1057.001 §4: a pinch's release adopts its scale, within Fit and 4×,
 /// and pan is clamped against that new zoom in the same transaction.
 #[test]
 fn a_pinch_release_adopts_its_scale_within_fit_and_four_times() {
@@ -442,7 +442,7 @@ fn fling(r: &mut Runner<CountedGallery>, y: f64, scale: f64, vy: f64) -> CommitR
     )
 }
 
-/// The backdrop follows the photo's `--dismiss` timeline at
+/// LLP 1057.003 C1: the backdrop follows the photo's `--dismiss` timeline at
 /// Fit; a release there dismisses when far or fast enough and springs back
 /// otherwise; zoomed, a release pans and the backdrop follows nothing.
 #[test]
@@ -480,7 +480,7 @@ fn a_release_at_fit_dismisses_or_springs_back_and_the_backdrop_follows_only_at_f
         .css();
     assert_eq!(source, "--dismiss y");
     // The backdrop and the photo are siblings: the clip scopes `--dismiss`
-    // for both.
+    // for both (LLP 1057.003 D4).
     assert_eq!(
         r.kernel().timeline_of(key(&r, "viewer-backdrop")),
         Some(exact_kernel::timeline::NamedTimeline::Source(motion_node(
@@ -507,7 +507,7 @@ fn a_release_at_fit_dismisses_or_springs_back_and_the_backdrop_follows_only_at_f
     assert_eq!(backdrop(&r), bound(Some("viewerFade")));
 }
 
-// Four rows drive one name, and each row's label resolves
+// LLP 1057.003 D4: four rows drive one name, and each row's label resolves
 // it to its own card: each row's `timeline-scope` captures the card below it.
 #[test]
 fn each_swipe_row_label_follows_its_own_card() {
@@ -523,7 +523,7 @@ fn each_swipe_row_label_follows_its_own_card() {
     }
 }
 
-// The deck's face resolves `--fling` to the top card, its
+// LLP 1057.003 C6: the deck's face resolves `--fling` to the top card, its
 // ancestor, and the card beneath, the top card's sibling, finds it through
 // the clip's `timeline-scope`.
 #[test]

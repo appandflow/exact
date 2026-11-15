@@ -14,8 +14,8 @@ impl Module {
         mode
     }
 
-    /// The `index`th direct child of a canvas, painted by the host:
-    /// `frame` in the canvas's points, `width`×`height` premultiplied
+    /// The `index`th direct child of a canvas, painted by the host (LLP 1014
+    /// D5): `frame` in the canvas's points, `width`×`height` premultiplied
     /// RGBA pixels. Creates or replaces the texture at a new size, writes
     /// the pixels, tells the surface, and marks the canvas dirty.
     pub fn child(
@@ -128,7 +128,7 @@ impl Module {
         true
     }
 
-    /// How many direct children a canvas has now: the textures
+    /// How many direct children a canvas has now (LLP 1014 D5): the textures
     /// past it are dropped and the surface told.
     pub fn children_count(&mut self, id: u32, count: usize) -> bool {
         self.settle(id);
@@ -147,14 +147,14 @@ impl Module {
         true
     }
 
-    /// Where a canvas's surface put its `index`th child.
+    /// Where a canvas's surface put its `index`th child (LLP 1014 D5).
     pub fn placement(&self, id: u32, index: usize) -> Option<Placement> {
         self.instances
             .get(&id)
             .and_then(|i| i.surface.placement(index))
     }
 
-    /// The canvas's children, painted by the host: `width`×`height`
+    /// The canvas's children, painted by the host (LLP 1014 D3): `width`×`height`
     /// premultiplied RGBA, rows top-down, tightly packed. Creates or
     /// replaces the texture at a new size, writes the pixels, and marks the
     /// canvas dirty.

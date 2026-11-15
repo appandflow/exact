@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
 
-/// A `scroll` node's scroll view. AppKit scrolls it: its
+/// A `scroll` node's scroll view. AppKit scrolls it (LLP 1115.000 D8.2): its
 /// momentum, its wheel step, its rubber band. What is decided here is whose
 /// a wheel event is. One this view cannot take in its dominant direction —
 /// nothing to scroll, or a gesture that begins at that edge — goes to the
@@ -10,7 +10,22 @@ import AppKit
 package final class ChainingScrollView: NSScrollView {
     /// Empty document and clip hits take this view. The node owns their
     /// mouse contact, even if a handler removes the scroll view mid-press.
-    weak var pointerOwner: NodeView? { didSet { followScrollerStyle() } }
+    weak var pointerOwner: NodeView? {
+        didSet {
+            followScrollerStyle()
+            if pointerOwner?.kind == "list" { lineScroll = Self.tableLine }
+        }
+    }
+    /// A `list` scrolls a line as AppKit's table does (LLP 1115.000 D8.2):
+    /// `NSTableView` sets its scroll view's line to its row height (`tile()`),
+    /// and a SwiftUI `List` keeps an untouched table's, whatever its rows'
+    /// heights; 24 points on macOS 27. Any other scroller keeps
+    /// `NSScrollView`'s 10, as a SwiftUI `ScrollView` and an `NSTextView` do.
+    private static let tableLine: CGFloat = {
+        let scroll = NSScrollView()
+        scroll.documentView = NSTableView()
+        return scroll.verticalLineScroll
+    }()
     package override func accessibilityChildrenInNavigationOrder() -> [any NSAccessibilityElementProtocol]? { treeNavigationOrder }
     // A Markdown field's atoms follow it among the scrolled children (`NodeView.withAtoms`).
     package override func accessibilityChildren() -> [Any]? {
@@ -24,7 +39,7 @@ package final class ChainingScrollView: NSScrollView {
     /// (`MouseChainMac`): one already out hears no up, and AppKit also asks
     /// here when it frees the parent (`-[NSView _finalize]`). A view that
     /// stayed would reach its own dealloc still a subview, which AppKit
-    /// raises (an app aborted on a thread change).
+    /// raises (the T3 Code clone's abort on a thread change, X87).
     package override func removeFromSuperview() {
         if mouseHeld, window != nil {
             removeAfterMouseUp = true
@@ -61,7 +76,7 @@ package final class ChainingScrollView: NSScrollView {
     /// The override below only *routes*: a gesture it keeps goes to `super`
     /// whole, which is the contract AppKit asks for. Compatible, so a
     /// contained scroller moves on AppKit's scrolling thread and the main
-    /// thread follows it.
+    /// thread follows it (LLP 1002 D4; LLP 1044 F3).
     package override class var isCompatibleWithResponsiveScrolling: Bool { true }
 
     private var styleObserver: NSObjectProtocol?
@@ -88,12 +103,50 @@ package final class ChainingScrollView: NSScrollView {
             userInterfaceLayoutDirection = owner.userInterfaceLayoutDirection
         }
         super.tile()
+        insetScrollersFromChrome()
         guard let owner = pointerOwner else { return }
         // Clip geometry can differ through rounding or insets even without
-        // a scrollbar. Only a visible legacy scroller occupies a gutter.
-        let right = scrollerStyle == .legacy && verticalScroller?.isHidden == false ? verticalScroller?.frame.width ?? 0 : 0
-        let bottom = scrollerStyle == .legacy && horizontalScroller?.isHidden == false ? horizontalScroller?.frame.height ?? 0 : 0
-        owner.presenter?.covers.report("scroller-\(owner.id)", [owner.id: .gutter(right: right, bottom: bottom)])
+        // a scrollbar. Only a visible legacy scroller occupies a gutter, and
+        // only on an axis that overflows with the other scroller hidden: the
+        // vertical one narrows the clip, which shows the horizontal one until
+        // the kernel lays the content out narrower.
+        let legacy = scrollerStyle == .legacy
+        let vertical = legacy && verticalScroller?.isHidden == false ? verticalScroller?.frame.width ?? 0 : 0
+        let horizontal = legacy && horizontalScroller?.isHidden == false ? horizontalScroller?.frame.height ?? 0 : 0
+        let document = documentView?.frame.size ?? .zero, clip = contentView.frame.size
+        var gutter = (right: document.height > clip.height + horizontal ? vertical : 0,
+                      bottom: document.width > clip.width + vertical ? horizontal : 0)
+        if legacy { keepGutter(&gutter, content: owner.content) } else { kept = nil }
+        if gutter != reported { claimed = (reported, owner.content) }
+        reported = gutter
+        owner.presenter?.covers.report("scroller-\(owner.id)", [owner.id: .gutter(right: gutter.right, bottom: gutter.bottom)])
+    }
+
+    /// The gutter last reported.
+    private var reported: (right: CGFloat, bottom: CGFloat) = (0, 0)
+    /// The gutter before the last change and the content it was laid out with.
+    private var claimed: (gutter: (right: CGFloat, bottom: CGFloat), content: CGSize)?
+    /// Content and frame for which a gutter is kept although its scroller hid.
+    private var kept: (content: CGSize, frame: CGSize)?
+
+    /// A gutter whose own layout made the content fit is kept, as a browser
+    /// keeps a scrollbar through the relayout that adding it caused: the
+    /// content, laid out without it again, would overflow again, and the
+    /// gutter would never settle. A layout for any other reason (other
+    /// content, another frame) decides again.
+    private func keepGutter(_ gutter: inout (right: CGFloat, bottom: CGFloat), content: CGSize) {
+        if let kept, kept.content != content || kept.frame != frame.size { self.kept = nil }
+        // The kernel answered a claim: the content narrowed or shortened by the gutter it was given.
+        if let claimed, claimed.content != content {
+            let narrowed = abs(claimed.content.width - content.width - (reported.right - claimed.gutter.right)) < 0.5
+            let shortened = abs(claimed.content.height - content.height - (reported.bottom - claimed.gutter.bottom)) < 0.5
+            if (gutter.right < reported.right && reported.right > claimed.gutter.right && narrowed)
+                || (gutter.bottom < reported.bottom && reported.bottom > claimed.gutter.bottom && shortened) {
+                kept = (content, frame.size)
+            }
+            self.claimed = nil
+        }
+        if kept != nil { gutter = (max(gutter.right, reported.right), max(gutter.bottom, reported.bottom)) }
     }
 
     /// Taffy reserves an RTL vertical gutter on the left. AppKit keeps
@@ -110,13 +163,13 @@ package final class ChainingScrollView: NSScrollView {
     /// and animates a notch; and a gesture the agent hands over whole from
     /// one call is not tracked as the event queue's is: measured on macOS
     /// 27.0, AppKit applies one event of it). For a person a `scroll` node
-    /// is scrolled by AppKit, as the page is, and so it
+    /// is scrolled by AppKit (LLP 1115.000 D8.2), as the page is, and so it
     /// is while a drive holds the frames for a person's own flings (`perf
-    /// frames hold` under platform timing): momentum and rubber
+    /// frames hold` under platform timing, LLP 1144 D1): momentum and rubber
     /// band included.
     static var appliesAtOnce = ExactEnv.agentFreezes
-    /// The driver's trackpad gesture (`tap … wheel … fling|hold|release`)
-    /// comes through the window server, whose gesture AppKit
+    /// The driver's trackpad gesture (`tap … wheel … fling|hold|release`,
+    /// LLP 1142 D3) comes through the window server, whose gesture AppKit
     /// tracks as a person's, marked with this in `kCGEventSourceUserData`.
     /// It is AppKit's to run under the agent too.
     static let driverMark: Int64 = 0x4558_4143_5444
@@ -150,7 +203,7 @@ package final class ChainingScrollView: NSScrollView {
     enum Routing: Equatable {
         /// Hand it to `NSScrollView`: this view scrolls, and its scrolling,
         /// its momentum, its wheel step and its rubber band are AppKit's to
-        /// run.
+        /// run (LLP 1115.000 D8.2).
         case appKit
         /// Scroll this view by hand, at once: the agent's wheel
         /// (`appliesAtOnce`).
@@ -196,8 +249,8 @@ package final class ChainingScrollView: NSScrollView {
         if dx == 0 && dy == 0 {
             return (containX || containY) && phased ? .appKit : .drop
         }
-        // A wheel with no phases is its own gesture and is not split
-        // (Chrome's rule, as measured): the deepest scroller
+        // A wheel with no phases is its own gesture and is not split (LLP
+        // 1070 G2, Chrome's rule, measured in its §2): the deepest scroller
         // that can take any of its components takes it; one that can take
         // none chains, unless the tick's axis is contained here. A mouse
         // wheel does not rubber-band on this platform, whoever scrolls it.
@@ -237,7 +290,7 @@ package final class ChainingScrollView: NSScrollView {
         scrolls && delta != 0 && limit > 0 && ((delta < 0 && origin < limit) || (delta > 0 && origin > 0))
     }
 
-    /// Chrome's wheel scroll latching for a trackpad gesture:
+    /// Chrome's wheel scroll latching for a trackpad gesture (LLP 1070 G1):
     /// the gesture belongs to one scroller from its first moving event to
     /// its end, momentum included, and is never handed on mid-gesture. The
     /// owner is the first scroller, innermost out, whose routing of that
@@ -286,16 +339,39 @@ package final class ChainingScrollView: NSScrollView {
     /// `d` momentum, `t` a finger's phased scroll, `-` a plain wheel or a phase's end. The clip's bounds change is
     /// posted inside the handler, so it is set for that move alone and is `-` for any other (a layout's).
     var trackPhase: Character = "-"
+    /// The trackpad drag this scroller took, until its lift (`ScrollDragMac.swift`).
+    var dragTrack: ScrollDragTrack?
+    /// Easing to a snap position (`ScrollSnapMac.swift`).
+    var snapSettling = false
+    /// A lift snapped: the momentum AppKit sends after it is not the
+    /// scroll's, until that momentum ends or another gesture begins.
+    var snapDropsMomentum = false
+    /// Where it last came to rest along x and y, and on which snap area (`ScrollSnapMac.swift`).
+    var snapRested = [ScrollSnap.Rested(), ScrollSnap.Rested()]
+    /// When it last saw a wheel event (system uptime): a re-snap waits for its gesture.
+    var wheelAt: TimeInterval = 0
+    /// Mouse-wheel notches waiting to snap: where the first found it, and the snap.
+    var snapWheel: (origin: CGPoint, work: DispatchWorkItem)?
 
     package override func scrollWheel(with event: NSEvent) {
         let moving: NSEvent.Phase = [.began, .changed]
         trackPhase = !event.momentumPhase.intersection(moving).isEmpty ? "d" : !event.phase.intersection(moving).isEmpty ? "t" : "-"
         defer { trackPhase = "-" }
-        (superview as? NodeView)?.cancelElementScroll()
+        wheelAt = ProcessInfo.processInfo.systemUptime
+        // The momentum after a lift that snapped is not the scroll's, however
+        // long it lasts; its end goes on to AppKit, which ends the live
+        // scroll with it, and leaves the snap's ease running.
+        if !event.momentumPhase.isEmpty && snapDropsMomentum {
+            if event.momentumPhase.isDisjoint(with: [.ended, .cancelled]) { return }
+            snapDropsMomentum = false
+        } else {
+            if event.momentumPhase.isEmpty { snapDropsMomentum = false }
+            snapSettling = false; (superview as? NodeView)?.cancelElementScroll()
+        }
         (superview as? NodeView)?.presenter?.personScrolls += 1 // a wheel's notch is no live scroll (Fragment.swift)
         // Precise deltas (a trackpad) are in points; a wheel's are in lines,
-        // of the height AppKit scrolls a line by (10 points unless set; it
-        // was 40 here, a browser's tick).
+        // of the height AppKit scrolls a line by (10 points, or a list's
+        // `tableLine`; it was 40 here, a browser's tick).
         let precise = event.hasPreciseScrollingDeltas
         var dx = precise ? event.scrollingDeltaX : event.deltaX * horizontalLineScroll
         var dy = precise ? event.scrollingDeltaY : event.deltaY * verticalLineScroll
@@ -326,6 +402,9 @@ package final class ChainingScrollView: NSScrollView {
             }
             if over { Self.unsentBegan = nil }
         }
+        noteDrag(event, delta: CGPoint(x: dx, y: dy), taken: route == .appKit || route == .here)
+        let unphased = event.phase.isEmpty && event.momentumPhase.isEmpty, before = contentView.bounds.origin
+        defer { if unphased, route == .appKit || route == .here { (superview as? NodeView)?.snapAfterWheel(from: before, now: route == .here) } }
         switch route {
         case .drop:
             return
@@ -381,6 +460,15 @@ final class RangeClipView: NSClipView {
         }
         super.scroll(to: NSPoint(x: clamp(newOrigin.x, document.minX - inset.left, document.maxX + inset.right - size.width),
                                  y: clamp(newOrigin.y, document.minY - inset.top, document.maxY + inset.bottom - size.height)))
+    }
+}
+extension Presenter {
+    /// Every scroller's insets from the window's chrome again, after the
+    /// title bar or a scroll view's place in the window changed (a batch's
+    /// frames, the toolbar, full screen) without the scroll view tiling.
+    func insetScrollersFromChrome() {
+        viewport.insetScrollersFromChrome()
+        for id in scrollers { views[id]?.scroll?.insetScrollersFromChrome() }
     }
 }
 #endif

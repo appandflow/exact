@@ -5,7 +5,7 @@
 //! process at all. This is that surface. It is not a second implementation:
 //! every function here is the one the JavaScript bindings call, behind the
 //! same `boundary::admit`, and the grants are the same `GrantSet` a manifest
-//! section parses to. The model, stated in Rust: a consumer
+//! section parses to. What is stated in Rust is LLP 0067's model: a consumer
 //! is *endowed* with bindings that carry their grant — the module parameter
 //! list, as a struct — and a request is checked against the grant the binding
 //! carries, never against who is calling.
@@ -13,6 +13,9 @@
 //! Blocking primitives and callback networking leave execution to the consumer.
 //! Tracked image jobs reserve bounded work before dispatch; owned handles expose
 //! cancellation separately from native retirement and completion collection.
+//!
+//! @ref LLP 0068#1-the-shape — bindings that carry their grant
+//! @ref LLP 0067#3-the-check — one chokepoint, the grant the binding carries
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -70,14 +73,14 @@ impl Host {
     }
 
     /// This host over another secret store — the memory store for a consumer
-    /// that must leave no trace, a test's own.
+    /// that must leave no trace, a test's own (LLP 0069 §3).
     pub fn with_secret_store(mut self, store: Box<dyn SecretStore>) -> Self {
         self.secrets = Arc::from(store);
         self
     }
 
     /// This host over another kv store — the memory store, or a directory the
-    /// consumer chose.
+    /// consumer chose (LLP 0070 §3).
     pub fn with_kv_store(mut self, store: Box<dyn KvStore>) -> Self {
         self.kv = Arc::from(store);
         self
@@ -236,7 +239,7 @@ impl Bindings {
 }
 
 /// A listening WebSocket, carrying its grant (`net.websocket <origin>`,
-/// Every open is admitted, a reconnect included.
+/// LLP 0059.000 §3.12). Every open is admitted, a reconnect included.
 #[derive(Clone)]
 pub struct WebSocket {
     transport: Arc<dyn SocketTransport>,
@@ -246,7 +249,7 @@ pub struct WebSocket {
 
 impl WebSocket {
     /// This binding with the host's `gate` checked at every [`Self::open`]
-    /// (Exact patch).
+    /// (Exact patch, LLP 1133.036 D6).
     pub fn with_gate(mut self, gate: Arc<dyn crate::boundary::HopGate>) -> Self {
         self.gate = Some(gate);
         self
@@ -260,6 +263,17 @@ impl WebSocket {
         max_message: usize,
         signal: &crate::stdlib::abort::AbortSignal,
     ) -> Result<Box<dyn MessageSource>, HostError> {
+        self.open_with_protocols(url, max_message, signal, &[])
+    }
+
+    /// Open with ordered subprotocols, retaining the host's network gate.
+    pub fn open_with_protocols(
+        &self,
+        url: &str,
+        max_message: usize,
+        signal: &crate::stdlib::abort::AbortSignal,
+        protocols: &[String],
+    ) -> Result<Box<dyn MessageSource>, HostError> {
         websocket::open_gated(
             self.transport.as_ref(),
             &self.grants,
@@ -267,10 +281,11 @@ impl WebSocket {
             url,
             max_message,
             signal,
+            protocols,
         )
     }
 
-    /// Start a socket as an event subscription. Admission failures are
+    /// Start a socket as an L3 event subscription. Admission failures are
     /// reported as `Error`, then `Close { code: 1006, .. }` on the receiver;
     /// the platform transport is never called for a denial.
     pub fn watch(
@@ -294,8 +309,7 @@ impl WebSocket {
 
     /// Build a module-scoped watch over this host's transport and the grant
     /// carried by that module's lexical `WebSocket` constructor.
-    // Capability-bearing WebSocket authority is a module parameter, never
-    // runtime ambient state.
+    // @ref LLP 0067#1-five-properties — capability-bearing WebSocket authority is a module parameter, never runtime ambient state
     #[cfg(feature = "bindings")]
     pub(crate) fn watch_with_grants(
         &self,
@@ -317,7 +331,7 @@ impl WebSocket {
 }
 
 /// The secrets a consumer keeps across launches, carrying their grant
-/// (`secret.keep <name>`). Every call admits the name first; a
+/// (`secret.keep <name>`, LLP 0069). Every call admits the name first; a
 /// denial never reaches the platform's store.
 #[derive(Clone)]
 pub struct Secrets {
@@ -361,7 +375,7 @@ impl Secrets {
 }
 
 /// Durable state a consumer keeps that is not a secret, carrying its grant
-/// (`storage.kv <scope>`). Every call admits the scope first; a
+/// (`storage.kv <scope>`, LLP 0070). Every call admits the scope first; a
 /// denial never reaches the store.
 #[derive(Clone)]
 pub struct Kv {
@@ -445,10 +459,20 @@ pub struct Fetch {
 
 impl Fetch {
     /// This binding with the host's `gate` checked beside the grant at every
-    /// hop (Exact patch).
+    /// hop (Exact patch, LLP 1133.036 D6).
     pub fn with_gate(mut self, gate: Arc<dyn crate::boundary::HopGate>) -> Self {
         self.gate = Some(gate);
         self
+    }
+
+    /// This binding's transport and gate under `grants` instead (Exact
+    /// patch 36): a narrower scope rides the connections the transport keeps.
+    pub fn with_grants(&self, grants: GrantSet) -> Self {
+        Self {
+            transport: Arc::clone(&self.transport),
+            grants: Arc::new(grants),
+            gate: self.gate.clone(),
+        }
     }
 
     /// Adapt this binding's configured blocking transport to caller-supplied
@@ -463,7 +487,7 @@ impl Fetch {
 
     /// Start a bounded asynchronous fetch endowed with this binding's grants.
     /// The consumer chooses the transport scope, dispatcher, and deadline.
-    // The grants are retained for the whole fetch.
+    // @ref LLP 0068.000#2-the-proposed-boundary — retain authority for the whole fetch
     #[allow(clippy::too_many_arguments)]
     pub fn start_async(
         &self,
@@ -652,7 +676,7 @@ fn unexpected(result: FsResult) -> HostError {
 
 /// `process.env`, carrying its grant: a snapshot of exactly the variables the
 /// grant names. An ungranted variable is absent — not refused, absent — which
-/// is the whole capability model in one object.
+/// is the whole capability model in one object (LLP 0059.000 §3.8).
 #[derive(Clone)]
 pub struct Env {
     grants: Arc<GrantSet>,
@@ -693,7 +717,7 @@ impl Sqlite {
         let provider = self
             .provider
             .as_ref()
-            .ok_or_else(|| HostError::Failed("SQLite provider is not installed".into()))?;
+            .ok_or_else(|| HostError::Failed("Unlinked(\"sqlite\")".into()))?;
         Ok(crate::stdlib::sqlite::Database::new(
             provider.open(crate::stdlib::sqlite::Location { path })?,
         ))

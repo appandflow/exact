@@ -1,4 +1,4 @@
-//! The recorded list: what crosses from the executor to
+//! The recorded list (LLP 1056 D3, D7): what crosses from the executor to
 //! the replayer, on every host the same bytes.
 //!
 //! Little-endian and 8-byte aligned. A header, then records:
@@ -28,7 +28,7 @@ pub const VERSION: u32 = 1;
 /// Bytes before the first record.
 pub const HEADER: usize = 8;
 /// A list is sealed at this size and the draw continues in the next, applied
-/// in order (as Chrome flushes its recording).
+/// in order (LLP 1056 D4, as Chrome flushes its recording).
 pub const SEAL_BYTES: usize = 1 << 20;
 
 macro_rules! ops {
@@ -298,7 +298,7 @@ impl std::fmt::Display for Malformed {
 }
 
 /// Decode `bytes` into records, refusing a bad header, an unknown opcode, a
-/// wrong operand count or a truncated record. Structural only:
+/// wrong operand count or a truncated record. Structural only (LLP 1056 D3):
 /// the recorder settled semantics at the call.
 pub fn records(bytes: &[u8]) -> Result<Vec<Record<'_>>, Malformed> {
     let mut out = Vec::new();
@@ -452,7 +452,7 @@ pub fn check(bytes: &[u8], ids: &mut Vec<u32>) -> Result<usize, Malformed> {
     })
 }
 
-/// A readable form for the agent's `layout`: one call a line,
+/// A readable form for the agent's `layout` (LLP 1056 §5): one call a line,
 /// at most `max_lines` lines and `max_bytes` bytes.
 pub fn describe(bytes: &[u8], max_lines: usize, max_bytes: usize) -> Vec<String> {
     let Ok(recs) = records(bytes) else {

@@ -1,4 +1,4 @@
-// `toLowerCase`: each expected value is what the same TypeScript evaluates to under Bun (Unicode default case conversion).
+// LLP 1116.016 D3. `toLowerCase`: each expected value is what the same TypeScript evaluates to under Bun (Unicode default case conversion).
 component App
   derive c149 = "ABC".toLowerCase()
   derive c150 = "İ".toLowerCase()

@@ -1,4 +1,4 @@
-# The cases of budget.contract, in its order; each refusal
+# The cases of budget.contract, in its order (LLP 1090 D7); each refusal
 # leaves the next step's state as it was, on every target (case 19).
 tap case-1
 tap case-2

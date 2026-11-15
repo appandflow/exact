@@ -1,14 +1,14 @@
-//! The app's native-module roster: the tags its module
+//! The app's native-module roster (LLP 1024 D1): the tags its module
 //! artifact serves, declared in `app.json` as `"modules": ["tag", …]`, and
 //! the views its packages serve (`package_views`). A module tag neither
 //! names is `bake-unknown-module`, so a typo
 //! is a named diagnostic in the dev loop and in every build, never an empty
-//! box at runtime. Beside it, the app's `data-*` words:
+//! box at runtime. Beside it, the app's `data-*` words (LLP 1075.003 Q2):
 //! `"data": ["word", …]`, from which the Apple build also writes the Swift
 //! module's typed keys; a word the list lacks is `bake-undeclared-data`.
-//! And its `hatch` words: `"hatches": ["word", …]`, the
+//! And its `hatch` words (LLP 1075.003.000 Q1): `"hatches": ["word", …]`, the
 //! same way, `bake-undeclared-hatch`; or `{"word": ["ios", …]}`, each word
-//! with the platforms that handle it.
+//! with the platforms that handle it (LLP 1075.003.000.001 §5).
 
 use super::{CompileError, Manifest};
 use crate::package_views::PackageView;
@@ -17,6 +17,7 @@ use std::path::Path;
 
 mod packages;
 mod slot;
+pub(crate) use packages::implementation_imports;
 pub use packages::{bound, plan_packages, rust_packages, write_desktop_packages, Bound};
 pub use slot::{native_slot, NativeSelection, NativeSlot};
 
@@ -33,7 +34,7 @@ pub fn roster(manifest: &Manifest) -> Result<Vec<String>, String> {
         .map(|name| match name.as_str() {
             Some(tag) if contract_lower::is_module_tag(tag) => Ok(tag.to_owned()),
             _ => Err(format!(
-                "app.json `modules`: {name} is not a lowercase custom-element name"
+                "app.json `modules`: {name} is not a lowercase custom-element name (LLP 1024 D1)"
             )),
         })
         .collect()
@@ -45,18 +46,18 @@ pub fn data_words(manifest: &Manifest) -> Result<Vec<String>, String> {
     words(manifest, &Words::DATA)
 }
 
-/// The `hatch` words in `manifest`: the nodes the
+/// The `hatch` words in `manifest` (LLP 1075.003.000 Q1): the nodes the
 /// app's native code receives, each a word as `data-*`'s are. Either form
 /// of the declaration, every platform's words.
 pub fn hatch_words(manifest: &Manifest) -> Result<Vec<String>, String> {
     Ok(hatch_table(manifest)?.into_iter().map(|(w, _)| w).collect())
 }
 
-/// The platforms a hatch word may name.
+/// The platforms a hatch word may name (LLP 1075.003.000.001 §5).
 pub const HATCH_PLATFORMS: [&str; 7] =
     ["ios", "tvos", "macos", "web", "linux", "windows", "android"];
 
-/// The words `platform`'s module handles,
+/// The words `platform`'s module handles (LLP 1075.003.000.001 §4.3, §5),
 /// sorted: every word of a plain list, and of the object form the words
 /// that name the platform. The bake reads this for the plan's requirement
 /// and the cohort's capability; nothing is scanned or run.
@@ -73,7 +74,7 @@ pub fn hatches_on(manifest: &Manifest, platform: &str) -> Result<Vec<String>, St
     Ok(words)
 }
 
-/// The plan's `hatches` rows: each declared
+/// The plan's `hatches` rows (LLP 1075.003.000.001 §4.3): each declared
 /// word with the mask of the platforms that handle it.
 pub fn hatch_rows(manifest: &Manifest) -> Result<Vec<(String, u16)>, String> {
     let mut rows: Vec<(String, u16)> = hatch_table(manifest)?
@@ -95,7 +96,7 @@ pub fn hatch_rows(manifest: &Manifest) -> Result<Vec<(String, u16)>, String> {
 }
 
 /// What an app's Linux crate adds to its generated entry for its hatches,
-/// and the host call its `main` makes: the text of
+/// and the host call its `main` makes (LLP 1075.003.000.001 §5): the text of
 /// [`rust_hatches`] and `run_with_hatches`, or nothing and plain `run` when
 /// the app has no hatch files. The platform is the build target's own, so
 /// an Android or Windows build of the crate handles that platform's words.
@@ -104,31 +105,77 @@ pub fn rust_hatch_entry(
     manifest: &Manifest,
     target: &str,
 ) -> Result<(String, &'static str), String> {
-    let platform = if target.contains("android") {
+    let hatches = watched_rust_hatches(app_root, manifest, hatch_platform(target))?;
+    Ok(match hatches {
+        Some(text) => (
+            text,
+            "run_with_hatches::<AppData, hatches::ExactHatches>(PLAN, COMPAT, HatchKey::WORDS)",
+        ),
+        None => (String::new(), "run::<AppData>(PLAN, COMPAT)"),
+    })
+}
+
+/// What the Linux and Windows crates `exact new` generates include beside
+/// their plan (`scripts/app-shells.mjs`): `hatches.rs`, which defines
+/// `exact_hatches()`, the app's Rust hatches for the host's `Composed`, as
+/// [`rust_hatch_entry`] gives an authored crate's; `None` when the app has
+/// no hatch files.
+pub fn write_desktop_hatches(
+    platform: &str,
+    app_root: &Path,
+    target: &str,
+    out: &Path,
+) -> Result<(), String> {
+    if !matches!(platform, "linux" | "windows") {
+        return Ok(());
+    }
+    // Absolute, since `include!` resolves a relative path against OUT_DIR.
+    let app_root =
+        std::fs::canonicalize(app_root).map_err(|e| format!("{}: {e}", app_root.display()))?;
+    let manifest = Manifest::read(&app_root)?;
+    let install = "Option<::exact_painted::hatches::Install>";
+    let text = match watched_rust_hatches(&app_root, &manifest, hatch_platform(target))? {
+        Some(rust) => format!(
+            "{rust}fn exact_hatches() -> {install} {{\n    Some(::exact_painted::hatches::install::<hatches::ExactHatches>(HatchKey::WORDS))\n}}\n"
+        ),
+        None => format!("fn exact_hatches() -> {install} {{\n    None\n}}\n"),
+    };
+    let path = out.join("hatches.rs");
+    if std::fs::read(&path).ok().as_deref() == Some(text.as_bytes()) {
+        return Ok(());
+    }
+    std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The platform whose hatch words a painting host's build for `target`
+/// handles.
+fn hatch_platform(target: &str) -> &'static str {
+    if target.contains("android") {
         "android"
     } else if target.contains("windows") {
         "windows"
     } else {
         "linux"
-    };
-    Ok(match rust_hatches(app_root, manifest, platform)? {
-        Some(text) => (
-            text,
-            "run_with_hatches::<AppData, hatches::ExactHatches>(PLAN, COMPAT, HatchKey::WORDS)",
-        ),
-        None => {
-            // A first hatch file is a new one under `modules`: build again then.
-            let modules = app_root.join("modules");
-            if modules.is_dir() {
-                println!("cargo:rerun-if-changed={}", modules.display());
-            }
-            (String::new(), "run::<AppData>(PLAN, COMPAT)")
-        }
-    })
+    }
+}
+
+/// [`rust_hatches`], and when the app has none, a watch on `modules`, so
+/// that a first hatch file builds again.
+fn watched_rust_hatches(
+    app_root: &Path,
+    manifest: &Manifest,
+    platform: &str,
+) -> Result<Option<String>, String> {
+    let text = rust_hatches(app_root, manifest, platform)?;
+    let modules = app_root.join("modules");
+    if text.is_none() && modules.is_dir() {
+        println!("cargo:rerun-if-changed={}", modules.display());
+    }
+    Ok(text)
 }
 
 /// What an app's Android crate (the Canvas host's library) writes beside
-/// its plan: `hatches.rs`, which defines
+/// its plan (LLP 1115.001.000 D2, D4): `hatches.rs`, which defines
 /// `exact_hatches()`, the install `canvas_jni!` hands the host (the app's
 /// Rust hatches, `modules/android/*.rs` or `modules/linux/*.rs`, with the
 /// reader's Kotlin ones told beside them; the reader's alone when the app
@@ -140,22 +187,18 @@ pub fn android_entry(
     plan: &exact_plan::Plan,
     out_dir: &Path,
 ) -> Result<(), String> {
-    let install = "Option<::exact_linux::hatches::Install>";
-    let text = match rust_hatches(app_root, manifest, "android")? {
+    let install = "Option<::exact_painted::hatches::Install>";
+    let text = match watched_rust_hatches(app_root, manifest, "android")? {
         Some(rust) => format!(
-            "{rust}fn exact_hatches() -> {install} {{\n    Some(::exact_linux::hatches::install_with_reader::<hatches::ExactHatches>(HatchKey::WORDS))\n}}\n"
+            "{rust}fn exact_hatches() -> {install} {{\n    Some(::exact_painted::hatches::install_with_reader::<hatches::ExactHatches>(HatchKey::WORDS))\n}}\n"
         ),
         None => {
-            let modules = app_root.join("modules");
-            if modules.is_dir() {
-                println!("cargo:rerun-if-changed={}", modules.display());
-            }
             let words = hatches_on(manifest, "android")?;
             if words.is_empty() {
                 format!("fn exact_hatches() -> {install} {{\n    None\n}}\n")
             } else {
                 format!(
-                    "fn exact_hatches() -> {install} {{\n    Some(::exact_linux::hatches::install_with_reader::<()>(&{words:?}))\n}}\n"
+                    "fn exact_hatches() -> {install} {{\n    Some(::exact_painted::hatches::install_with_reader::<()>(&{words:?}))\n}}\n"
                 )
             }
         }
@@ -182,33 +225,46 @@ pub fn android_reach(
     let ceiling = compat
         .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
         .and_then(|c| c["inputs"]["grantCeiling"].as_str().map(str::to_owned));
-    let text = app_text(app_root);
-    let used = |name: &str| names(&text, name);
-    let mut permissions: Vec<String> = android_write_permissions(plan, ceiling.as_deref(), used)
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
-    for (line, permission) in derived(plan, &text, "android") {
-        let granted = |g: &str| {
-            (line.strip_prefix("device.")).is_none_or(|n| exact_runner::device::granted(g, n))
-        };
-        if ceiling.as_deref().is_none_or(granted) && !permissions.contains(&permission) {
-            permissions.push(permission);
-        }
-    }
-    permissions.sort_unstable();
+    let permissions = android_permissions(plan, ceiling.as_deref(), &app_text(app_root));
     std::fs::write(out_dir.join("permissions.txt"), permissions.join("\n"))
         .map_err(|e| e.to_string())
 }
 
+/// The Android permissions the module names `text` (the app's source) uses
+/// derive beside the grant lines' own, each where `ceiling` (the app's
+/// grant lines, when known) grants the line it is under: a writing name's
+/// ([`android_write_permissions`]) and a name's `derives` ([`derived`]).
+pub fn android_permissions(
+    plan: &exact_plan::Plan,
+    ceiling: Option<&str>,
+    text: &str,
+) -> Vec<String> {
+    let used = |name: &str| names(text, name);
+    let mut permissions: Vec<String> = android_write_permissions(plan, ceiling, used)
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    for (line, permission) in derived(plan, text, "android") {
+        let granted = |g: &str| {
+            (line.strip_prefix("device.")).is_none_or(|n| exact_runner::device::granted(g, n))
+        };
+        if ceiling.is_none_or(granted) && !permissions.contains(&permission) {
+            permissions.push(permission);
+        }
+    }
+    permissions.sort_unstable();
+    permissions
+}
+
 /// What the app's use of its module names declares to `target`'s platform
-/// beside its grant lines (`derives`: `ios` usage
+/// beside its grant lines (`derives`, LLP 1133.026 D19 item 4: `ios` usage
 /// keys, `android` permissions), each with the grant line whose purpose a
 /// usage key takes: a name's own list where the app's source names it; per
 /// option, the permission of each value the source writes as a string
-/// literal, or of a flag it names. A computed value of such an option is
-/// refused at bake (`contract-module-literal`), so a Contract caller's
-/// values are in its text; data code's are its own literals.
+/// literal, or of a flag it names; per grant line (a `device.` key), its
+/// permission under that line wherever the name is used. A computed value of
+/// an option is refused at bake (`contract-module-literal`), so a Contract
+/// caller's values are in its text; data code's are its own literals.
 pub fn derived(plan: &exact_plan::Plan, text: &str, target: &str) -> Vec<(String, String)> {
     use serde_json::Value;
     // A package's specifier (`"@exact/pedometer"`) names no module name.
@@ -241,21 +297,32 @@ pub fn derived(plan: &exact_plan::Plan, text: &str, target: &str) -> Vec<(String
             Value::Array(own) => own.clone(),
             _ => sub["grants"].as_array().cloned().unwrap_or_default(),
         };
-        let line = (lines.first().and_then(Value::as_str))
+        let first = (lines.first().and_then(Value::as_str))
             .unwrap_or_default()
             .to_owned();
-        let mut keys: Vec<&str> = Vec::new();
+        let mut keys: Vec<(String, &str)> = Vec::new();
         match declares {
-            Value::Array(list) => keys.extend(list.iter().filter_map(Value::as_str)),
+            Value::Array(list) => keys.extend(
+                list.iter()
+                    .filter_map(Value::as_str)
+                    .map(|k| (first.clone(), k)),
+            ),
             Value::Object(by) => {
                 for (option, d) in by {
                     let flag = option.rsplit('.').next().unwrap_or(option);
                     match d {
-                        Value::String(k) if names(text, flag) => keys.push(k),
+                        // A grant line in place of an option: any use of the
+                        // name, under that line, since data code may compute
+                        // the options (`getUserMedia(JSON.parse(saved))`), and
+                        // the line is what admits the capability at all.
+                        Value::String(k) if option.starts_with("device.") => {
+                            keys.push((option.clone(), k))
+                        }
+                        Value::String(k) if names(text, flag) => keys.push((first.clone(), k)),
                         Value::Object(values) => keys.extend(
                             (values.iter())
                                 .filter(|(v, _)| quoted(v))
-                                .filter_map(|(_, k)| k.as_str()),
+                                .filter_map(|(_, k)| Some((first.clone(), k.as_str()?))),
                         ),
                         _ => {}
                     }
@@ -263,8 +330,8 @@ pub fn derived(plan: &exact_plan::Plan, text: &str, target: &str) -> Vec<(String
             }
             _ => {}
         }
-        for key in keys {
-            let pair = (line.clone(), key.to_owned());
+        for (line, key) in keys {
+            let pair = (line, key.to_owned());
             if !out.contains(&pair) {
                 out.push(pair);
             }
@@ -274,13 +341,13 @@ pub fn derived(plan: &exact_plan::Plan, text: &str, target: &str) -> Vec<(String
 }
 
 /// The Android permissions the plan's module names derive beside what
-/// their grant lines do: a name that writes the person's
+/// their grant lines do (LLP 1133.018 D11): a name that writes the person's
 /// store (`"writes": true`) and that the app `uses` derives each of its
 /// lines' `android_writes` where `grants` grants that line (every line, with
 /// no `grants`). So an app that only reads its calendar declares no
 /// `WRITE_CALENDAR`. The plan holds every name of a module the app uses, so
 /// which the app calls is read from its source, as the Apple build finds the
-/// strings keys an option names.
+/// strings keys an option names (LLP 1133.002 D10).
 pub fn android_write_permissions(
     plan: &exact_plan::Plan,
     grants: Option<&str>,
@@ -361,7 +428,8 @@ fn names(text: &str, name: &str) -> bool {
     word(name) || word(&snake)
 }
 
-/// A painting host's hatches for an app's own crate: Rust for its generated entry, or `None` when the app has no
+/// A painting host's hatches for an app's own crate (LLP 1075.003.000.001
+/// §5): Rust for its generated entry, or `None` when the app has no
 /// `modules/linux/*.rs`. The text is the typed `HatchKey`, with only the
 /// words `platform` (`linux`, `windows` or `android`) handles, so module code that
 /// names another platform's word does not compile; then a module `hatches`
@@ -375,7 +443,7 @@ pub fn rust_hatches(
 ) -> Result<Option<String>, String> {
     // A painting host's own Rust when the app has some (`modules/android`,
     // `modules/windows`), else the presenter's, `modules/linux`. Android's
-    // directory may hold only the reader's Kotlin.
+    // directory may hold only the reader's Kotlin (LLP 1115.001.000 D4).
     let rust = |directory: &Path| {
         std::fs::read_dir(directory)
             .into_iter()
@@ -449,7 +517,7 @@ fn hatch_table(manifest: &Manifest) -> Result<Vec<HatchRow>, String> {
         .map(|(word, on)| {
             if !contract_lower::dataset::is_word(word) {
                 return Err(format!(
-                    "app.json `hatches`: \"{word}\" is not a word: lowercase words of letters and digits joined by `-`"
+                    "app.json `hatches`: \"{word}\" is not a word: lowercase words of letters and digits joined by `-` (LLP 1075.003 Q2)"
                 ));
             }
             let listed = on.as_array().ok_or_else(|| {
@@ -525,10 +593,10 @@ fn words(manifest: &Manifest, kind: &Words) -> Result<Vec<String>, String> {
                 Ok(w.to_owned())
             }
             Some(w) if contract_lower::dataset::is_word(w) => Err(format!(
-                "app.json `{key}`: `{w}` is written by the web host on its own elements"
+                "app.json `{key}`: `{w}` is written by the web host on its own elements (LLP 1075.003 §3.3)"
             )),
             _ => Err(format!(
-                "app.json `{key}`: {word} is not a word: lowercase words of letters and digits joined by `-`"
+                "app.json `{key}`: {word} is not a word: lowercase words of letters and digits joined by `-` (LLP 1075.003 Q2)"
             )),
         })
         .collect()
@@ -556,6 +624,15 @@ pub(super) fn check(file: &File, app_root: &Path) -> Result<Vec<PackageView>, Ve
         Ok(views)
     } else {
         Err(errors)
+    }
+}
+
+fn stale_manifest_hint(app_root: &Path) -> &'static str {
+    if Manifest::generated_stale(app_root) {
+        "; .shells/app.json is stale, generated from an earlier app.json: \
+         `bun exact.mjs shells` regenerates it, as the web and test builds do"
+    } else {
+        ""
     }
 }
 
@@ -600,12 +677,7 @@ fn check_words(used: Vec<(String, Span)>, app_root: &Path, kind: &Words) -> Vec<
             } else {
                 format!("the app's words are {}", declared.join(", "))
             };
-            let stale = if Manifest::generated_stale(app_root) {
-                "; .shells/app.json is stale, generated from an earlier app.json: \
-                 `bun exact.mjs shells` regenerates it, as the web and test builds do"
-            } else {
-                ""
-            };
+            let stale = stale_manifest_hint(app_root);
             refusal(
                 kind.refusal,
                 format!(
@@ -637,7 +709,7 @@ fn check_modules(file: &File, app_root: &Path) -> Result<Vec<PackageView>, Vec<C
         .and_then(|m| roster(&m))
         .map_err(|message| vec![refusal("app-manifest", message, Span::default())])?;
     let packages = crate::package_views::declared(app_root)
-        .map_err(|message| vec![refusal("bake-view-twice", message, Span::default())])?;
+        .map_err(|e| vec![refusal(e.id, e.message, Span::default())])?;
     if let Some(view) = packages.values().find(|v| roster.contains(&v.tag)) {
         return Err(vec![refusal(
             "bake-view-twice",
@@ -672,11 +744,12 @@ fn check_modules(file: &File, app_root: &Path) -> Result<Vec<PackageView>, Vec<C
                 format!("the app's modules and its packages' views are {}", known.join(", "))
             };
             let add = crate::package_views::standard_with(&tag)
-                .map(|m| format!("; exact2's `{m}` module serves it: `exact add {m}` adds it to the app's package.json"))
+                .map(|m| format!("; exact2's `{m}` module serves it: `bun exact.mjs add {m}` adds it to the app's package.json"))
                 .unwrap_or_default();
+            let stale = stale_manifest_hint(app_root);
             refusal(
                 "bake-unknown-module",
-                format!("`{tag}` is not a native module of this app: {listed}{hint}{add}"),
+                format!("`{tag}` is not a native module of this app: {listed}{hint}{add}{stale}"),
                 span,
             )
         })

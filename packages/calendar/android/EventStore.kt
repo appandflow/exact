@@ -1,15 +1,15 @@
-// @exact/calendar's production path on Android: the person's calendars through the Calendar
+// @exact/calendar's production path on Android (LLP 1133.018 stage 3): the person's calendars through the Calendar
 // Provider, and the calendar app's insert screen.
 //
 // - A read asks `READ_CALENDAR` while `prompt`; a write asks it with `WRITE_CALENDAR`, in one request, since an
-//   insert names a calendar row only a read finds. The status is `READ_CALENDAR`'s, `full` once granted.
-// - A read runs on the module's thread: `Instances` for the range ("a blocking function and should not be done
+//   insert names a calendar row only a read finds (D11). The status is `READ_CALENDAR`'s, `full` once granted.
+// - A read runs on the module's thread (D6): `Instances` for the range ("a blocking function and should not be done
 //   on the UI thread"), in the order of every target, with the same cursor as the agent's path. An all-day
-//   occurrence, which the provider keeps at UTC midnights, is read back as local dates in the device's zone.
-// - A floating timed event is written in the device's zone, which the answer names: the provider requires
+//   occurrence, which the provider keeps at UTC midnights, is read back as local dates in the device's zone (D2).
+// - A floating timed event is written in the device's zone, which the answer names (D2): the provider requires
 //   `EVENT_TIMEZONE` on every insert.
 // - The calendar `saveEvent` writes without `calendar=` is the first visible, writable calendar whose `IS_PRIMARY` is
-//   set, by the provider's order.
+//   set, by the provider's order (D3).
 // - The editor is `Intent.ACTION_INSERT` on `Events.CONTENT_URI`, which needs no permission: `saved` if the calendar
 //   app returns `RESULT_OK`, else `unknown`.
 // - A content observer on `Events` and `Calendars`, with descendants, is a change of the store.
@@ -84,11 +84,11 @@ internal class EventStore(private val context: ExtensionContext, private val say
         main.post { reply(out) }
     }
 
-    // Access
+    // Access (D11)
 
     fun status(): JSONObject {
         val granted = has(READ)
-        // Not granted: the state is the host's history of the request.
+        // Not granted: the state is the host's history of the request (LLP 1133.008 D8 item 7).
         val history = if (READ in declared) context.permission(READ) else null
         val out = JSONObject()
             .put("available", true)
@@ -116,10 +116,10 @@ internal class EventStore(private val context: ExtensionContext, private val say
         if (missing.isNotEmpty()) return reply(CalendarModule.error("NotAllowedError", "the manifest declares no ${missing.joinToString(", ")}"))
         if (permissions.all(::has)) return then()
         if (permissions.any { context.permission(it).state == "denied" }) return reply(CalendarModule.error("NotAllowedError"))
-        context.requestPermissions(permissions.toTypedArray()) {
+        context.requestPermissions(permissions.toTypedArray()) { answered ->
             // A refusal with no rationale owed after it is permanent: the history `permission` reads.
             val activity = context.activity
-            for (p in permissions) if (!has(p) && activity != null && !activity.shouldShowRequestPermissionRationale(p)) {
+            for (p in permissions) if (p in answered && !has(p) && activity != null && !activity.shouldShowRequestPermissionRationale(p)) {
                 app.getSharedPreferences("exact.permissions", android.content.Context.MODE_PRIVATE).edit().putBoolean(p, true).apply()
             }
             say("asked ${permissions.joinToString(",") { it.substringAfterLast('.') }}: ${if (permissions.all(::has)) "granted" else "not granted"}")
@@ -156,7 +156,7 @@ internal class EventStore(private val context: ExtensionContext, private val say
         return out
     }
 
-    /** No single default on Android: the first visible, writable, primary calendar by the provider's order. */
+    /** No single default on Android (D3): the first visible, writable, primary calendar by the provider's order. */
     private fun fallback(rows: List<Calendar>) = rows.firstOrNull { it.visible && it.writable && it.primary }
 
     private fun calendars(): List<JSONObject> {
@@ -168,9 +168,12 @@ internal class EventStore(private val context: ExtensionContext, private val say
         }
     }
 
-    // Occurrences
+    // Occurrences (D2, D6)
 
     private val zone: ZoneId get() = ZoneId.systemDefault()
+
+    /** An all-day occurrence's UTC midnight, read as the local date it names. */
+    private fun localDay(ms: Long) = Instant.ofEpochMilli(ms).atZone(ZoneOffset.UTC).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
 
     private fun page(args: JSONObject, reply: (JSONObject) -> Unit) {
         if (!args.has("start") || !args.has("end") || args.getDouble("end") < args.getDouble("start")) {
@@ -186,7 +189,8 @@ internal class EventStore(private val context: ExtensionContext, private val say
             answer(reply) {
                 // From the cursor's start: what follows it in the order starts no earlier.
                 val from = maxOf(start, after?.start ?: start)
-                val list = occurrences(from.toLong(), end.toLong(), only).filter { (k, _) ->
+                // Include all-day rows stored at UTC midnights; trim their converted local spans below.
+                val list = occurrences((from - 86_400_000).toLong(), (end + 86_400_000).toLong(), only).filter { (k, _) ->
                     k.start < end && (k.end > start || (k.start == k.end && k.start >= start)) && (after == null || k > after)
                 }.sortedBy { it.first }
                 val shown = list.take(limit)
@@ -199,7 +203,7 @@ internal class EventStore(private val context: ExtensionContext, private val say
 
     private val instanceColumns = arrayOf(Instances.EVENT_ID, Instances.BEGIN, Instances.END, Instances.ALL_DAY, Instances.TITLE, Instances.DESCRIPTION,
         Instances.EVENT_LOCATION, Instances.EVENT_TIMEZONE, Instances.CALENDAR_ID, Instances.STATUS, Instances.AVAILABILITY, Instances.UID_2445,
-        Instances.RRULE, Instances.ORIGINAL_ID, Instances.ORIGINAL_INSTANCE_TIME)
+        Instances.RRULE, Instances.ORIGINAL_ID, Instances.ORIGINAL_INSTANCE_TIME, Instances.ORIGINAL_ALL_DAY, Instances.RDATE)
 
     private fun occurrences(from: Long, to: Long, only: List<Long>?): List<Pair<AgentCalendar.Key, JSONObject>> {
         val uri = Instances.CONTENT_URI.buildUpon().also { ContentUris.appendId(it, from); ContentUris.appendId(it, to) }.build()
@@ -213,15 +217,20 @@ internal class EventStore(private val context: ExtensionContext, private val say
         val allDay = c.getInt(3) == 1
         val named = c.string(7)?.let { try { ZoneId.of(it) } catch (e: java.time.DateTimeException) { null } }
         val shown = if (allDay) zone else named ?: zone
-        // An all-day occurrence's UTC midnights, read as the local dates they name.
         val (s, t) = if (allDay) {
-            val day = { ms: Long -> Instant.ofEpochMilli(ms).atZone(ZoneOffset.UTC).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli() }
-            day(c.getLong(1)) to day(c.getLong(2))
+            localDay(c.getLong(1)) to localDay(c.getLong(2))
         } else c.getLong(1) to c.getLong(2)
         val series = c.string(13)?.toLongOrNull()
-        val recurring = c.string(12) != null || series != null
-        val original = if (series != null && !c.isNull(14)) c.getLong(14) else c.getLong(1)
-        val recurrence = if (recurring) AgentCalendar.local(Instant.ofEpochMilli(original).atZone(shown).toLocalDateTime()) else null
+        val recurring = c.string(12) != null || c.string(16) != null || series != null
+        val exception = series != null && !c.isNull(14)
+        val original = if (exception) c.getLong(14) else c.getLong(1)
+        // An exception may change whether the occurrence is all day without changing its original start.
+        val originalAllDay = if (exception) c.getInt(15) == 1 else allDay
+        val recurrence = if (recurring) {
+            val start = if (originalAllDay) localDay(original) else original
+            val recurrenceZone = if (originalAllDay) zone else shown
+            AgentCalendar.local(Instant.ofEpochMilli(start).atZone(recurrenceZone).toLocalDateTime())
+        } else null
         val id = (series ?: c.getLong(0)).toString()
         val event = JSONObject()
             .put("id", id).put("uid", c.string(11) ?: JSONObject.NULL).put("calendarId", c.getLong(8).toString())
@@ -246,7 +255,7 @@ internal class EventStore(private val context: ExtensionContext, private val say
         val start = AgentCalendar.parts(event.optString("start")) ?: return null
         val (days, seconds) = AgentCalendar.duration(event.text("duration") ?: "PT0S") ?: return null
         val allDay = event.optBoolean("showWithoutTime")
-        // Floating time is written in the device's zone, and the answer says so.
+        // Floating time is written in the device's zone, and the answer says so (D2).
         val written = if (allDay) null else event.text("timeZone") ?: zone.id
         val placed = try {
             if (allDay) start.toLocalDate().atStartOfDay(ZoneOffset.UTC) else start.atZone(ZoneId.of(written))
@@ -267,11 +276,14 @@ internal class EventStore(private val context: ExtensionContext, private val say
         } to written
     }
 
-    /** The event row [id]: its calendar and whether it is a series or an occurrence of one; null where there is none. */
-    private fun row(id: Long): Pair<Long, Boolean>? =
-        resolver.query(ContentUris.withAppendedId(Events.CONTENT_URI, id), arrayOf(Events.CALENDAR_ID, Events.RRULE, Events.ORIGINAL_ID), null, null, null)?.use { c ->
-            if (!c.moveToFirst()) null else c.getLong(0) to (!c.isNull(1) || !c.isNull(2))
+    /** The event row [id]: its calendar and whether it is a series (a rule, or a list of dates alone, RFC 5545
+     * §3.8.5.2) or an occurrence of one; null where there is none. */
+    private fun row(id: Long): Pair<Long, Boolean>? {
+        val columns = arrayOf(Events.CALENDAR_ID, Events.RRULE, Events.RDATE, Events.ORIGINAL_ID)
+        return resolver.query(ContentUris.withAppendedId(Events.CONTENT_URI, id), columns, null, null, null)?.use { c ->
+            if (!c.moveToFirst()) null else c.getLong(0) to (1..3).any { !c.isNull(it) }
         }
+    }
 
     private fun save(args: JSONObject): JSONObject {
         val event = args.optJSONObject("event") ?: return CalendarModule.malformed
@@ -300,10 +312,8 @@ internal class EventStore(private val context: ExtensionContext, private val say
             .put("id", saved.toString()).put("calendarId", calendar.id.toString()).put("uid", event.text("uid") ?: JSONObject.NULL)
             .put("timeZone", written ?: JSONObject.NULL).put("recurrenceId", JSONObject.NULL).put("apple", JSONObject.NULL)
             .put("status", event.text("status") ?: "confirmed").put("freeBusyStatus", event.text("freeBusyStatus") ?: "busy")
-        // An all-day event's local dates, in the device's zone, as a read answers them.
         val (s, t) = if (written == null) {
-            val day = { ms: Long -> Instant.ofEpochMilli(ms).atZone(ZoneOffset.UTC).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli() }
-            day(begin) to day(finish)
+            localDay(begin) to localDay(finish)
         } else begin to finish
         for (field in listOf("description", "location", "url")) if (!out.has(field)) out.put(field, JSONObject.NULL)
         return out.put("utcStart", s.toDouble()).put("utcEnd", t.toDouble())
@@ -318,7 +328,7 @@ internal class EventStore(private val context: ExtensionContext, private val say
         return JSONObject().put("id", id.toString())
     }
 
-    // The editor
+    // The editor (D15)
 
     private fun editor(args: JSONObject, reply: (JSONObject) -> Unit) {
         val event = args.optJSONObject("event") ?: return reply(CalendarModule.malformed)
@@ -340,7 +350,12 @@ internal class EventStore(private val context: ExtensionContext, private val say
         CalendarModule.insertIntentHatch?.invoke(intent)
         editing = true
         say("editor shown")
-        context.startActivityForResult(intent) { code, _ ->
+        context.startActivityForResult(intent, { refusal ->
+            // Nothing started: no calendar app (`NotFoundError`), the app left first, or the platform refused.
+            editing = false
+            say("editor not shown: $refusal")
+            reply(CalendarModule.error(refusal))
+        }) { code, _ ->
             editing = false
             val action = if (code == Activity.RESULT_OK) "saved" else "unknown"
             say("editor $action")

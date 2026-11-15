@@ -5,10 +5,10 @@ import XCTest
 @testable import ExactKit
 @testable import ExactDrag
 
-/// On UIKit, the web's `dblclick` order. Recognizer phases are set
+/// LLP 1057.001 on UIKit: the web's `dblclick` order. Recognizer phases are set
 /// by the test (UIKit synthesizes no touches for a unit test), as elsewhere.
 final class GesturePrecedenceIOSTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactDrag.install() }
+    override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     private var window: UIWindow!
 
     /// A pan whose movement the test sets.
@@ -45,7 +45,7 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         wait(for: [turn], timeout: 1)
     }
 
-    /// A node hearing `pointerdown`/`pointerup` carries an
+    /// LLP 1005 §3: a node hearing `pointerdown`/`pointerup` carries an
     /// observer that never recognizes, so it takes nothing from a press or a
     /// scroll; its touch down and up are the two events.
     /// An iPad pointer's buttons as DOM counts them (review b5-b 1): the
@@ -107,7 +107,7 @@ final class GesturePrecedenceIOSTests: XCTestCase {
 
     /// Nested pointer nodes: the innermost enabled one takes the touch, as
     /// on the web and macOS, and sends the down and the up to every node from
-    /// it up that hears them, innermost first; a
+    /// it up that hears them, innermost first (Charlie, 2026-10-15); a
     /// disabled inner one passes it out.
     func testTheInnermostEnabledPointerNodeTakesTheTouch() throws {
         let p = host([
@@ -135,9 +135,10 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         XCTAssertFalse(outer.nearer(touched), "a disabled inner node passes it out")
     }
 
-    /// `stopPropagation()` ends one dispatch and nothing else: a down stopped
-    /// at the inner node never reaches the outer one, yet its up does and the
-    /// inner node keeps the touch's moves.
+    /// `stopPropagation()` ends one dispatch and nothing else (decided under
+    /// Charlie's delegation, 2026-10-15): a down stopped at the inner node
+    /// never reaches the outer one, yet its up does and the inner node keeps
+    /// the touch's moves.
     func testAStoppedDownStillSendsItsUpAndKeepsTheTouch() throws {
         let p = host([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup"]],
@@ -202,7 +203,7 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         return (p, p.views[3]!)
     }
 
-    /// The binding's pan takes two fingers and a pinch rides
+    /// LLP 1057.001 §4: the binding's pan takes two fingers and a pinch rides
     /// with it — the one simultaneity, and only that pair's.
     func testThePhotoHandleHasATwoFingerPanAndASimultaneousPinch() throws {
         let (p, handle) = photo(handle: "none")
@@ -224,7 +225,7 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         XCTAssertFalse(handle.gestureRecognizers?.contains(pinch) == true)
     }
 
-    /// `pinch-zoom` is the platform's zoom: where every node up allows it,
+    /// `pinch-zoom` is the platform's zoom (§2): where every node up allows it,
     /// the app's pinch stands aside, as a browser takes the pinch.
     func testTheAppPinchNeedsTouchActionToExcludePinchZoom() throws {
         for (handleAction, clipAction, app) in [("none", "auto", true), ("pan-x pan-y", "auto", true),
@@ -411,7 +412,7 @@ final class GesturePrecedenceIOSTests: XCTestCase {
     }
 
     /// Rule 6: a pan joining the binding's pinch is admitted whatever its
-    /// direction, so the pair's continuation after one finger lifts
+    /// direction, so the pair's continuation after one finger lifts (§4)
     /// survives a sideways pinch on a pager's photo.
     func testAPanJoiningThePinchIsAdmitted() throws {
         let (p, handle) = pagedPhoto(handle: "pan-x")
@@ -448,7 +449,7 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         XCTAssertFalse(outer.stopsAtPress(UITapGestureRecognizer()))
     }
 
-    /// A swipe waits for the navigation's screen-edge pop,
+    /// LLP 1057.001 §7: a swipe waits for the navigation's screen-edge pop,
     /// and for nothing else of its class: iOS 26's content pop waits on the
     /// swipe, so waiting on it too would leave neither able to begin.
     func testASwipeWaitsForTheEdgePopOnly() throws {

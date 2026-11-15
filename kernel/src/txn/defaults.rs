@@ -24,6 +24,7 @@ pub(super) fn before_prop(
             .collect(),
         PropId::AccessibilityRole
         | PropId::AccessibilityControls
+        | PropId::AccessibilityOrientation
         | PropId::Type
         | PropId::ButtonStyle
         | PropId::Popover
@@ -90,7 +91,7 @@ pub(super) fn changed(
     receipt: &mut CommitReceipt,
 ) {
     let after = arena.default_context(slot);
-    // Whether a symbol image draws in its colour can
+    // Whether a symbol image draws in its colour (LLP 1121 stage 9 B) can
     // change with the colour equal: its images are sent again.
     if before.ink_said != after.ink_said {
         for s in arena.subtree(slot) {
@@ -124,12 +125,15 @@ pub(super) fn changed(
     if before.tab_bar != after.tab_bar {
         rows = rows.union(NodeArena::tab_bar_rows());
     }
+    if before.segmented != after.segmented {
+        rows = rows.union(NodeArena::segmented_rows());
+    }
     if !rows.is_empty() {
         style_changed(arena, layout, slot, rows, receipt);
         propagate_inherited(arena, layout, slot, rows, touched, receipt);
     }
     // What is said above changed, if no value here did: a bare text style
-    // below fills what is not.
+    // below fills what is not (LLP 1115.000 D12.2).
     let said = before
         .said_style
         .minus(after.said_style)

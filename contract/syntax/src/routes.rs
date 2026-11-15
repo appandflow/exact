@@ -1,4 +1,4 @@
-//! Indentation is parentage; the slot exists before lifting.
+//! @ref LLP 1038 D2/D3 — indentation is parentage; the slot exists before lifting.
 
 use super::*;
 
@@ -25,7 +25,7 @@ impl Parser {
         } else {
             self.str_lit("a route pattern")?
         };
-        // `name=value` policy fields, as attributes.
+        // @ref LLP 1048.003 D5 — `name=value` policy fields, as attributes.
         let mut fields = Vec::new();
         self.attr_line(&mut Vec::new(), &mut fields, true)?;
         self.newline()?;

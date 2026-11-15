@@ -59,7 +59,7 @@ fn fallback_then_metadata_then_viewport_resize() {
     assert_eq!(kernel.node(2).unwrap().frame.width, 300.0);
 }
 
-// Keep Patch 5 on the 0.14 adapter.
+// @ref LLP 1042 §2; LLP 1043.000 §6.3 — keep Patch 5 on the 0.14 adapter.
 #[test]
 fn high_resolution_video_keeps_ratio_constraints_and_only_used_box_overflow() {
     use exact_kernel::{StyleValue, ViewId};

@@ -1,4 +1,4 @@
-// Writes the color fixtures into this directory (or the
+// Writes the color fixtures of LLP 1100 §10 into this directory (or the
 // argument's), each with a `<name>.json` of what it should decode to.
 //
 //   swift host/apple/tests/ExactKitTests/ColorFixtures/make.swift
@@ -108,7 +108,7 @@ let d50to65: Mat = [[0.955473421488075, -0.02309845494876471, 0.0632592432005707
 let srgbXYZ = toXYZ([(0.64, 0.33), (0.30, 0.60), (0.15, 0.06)], white: d65)
 
 struct Space {
-    let name: String            // the space's CSS name
+    let name: String            // LLP 1100 D1's name
     let cg: CFString
     let toXYZ65: Mat
     let decode: (Double) -> Double   // encoded → linear
@@ -135,7 +135,7 @@ let spaces: [String: Space] = [
             let a = 1.09929682680944, b = 0.018053968510807, x = abs(v)
             let l = x < b * 4.5 ? x / 4.5 : pow((x + a - 1) / a, 1 / 0.45); return v < 0 ? -l : l }),
 ]
-/// Encoded components in `space` → extended linear sRGB, rounded.
+/// Encoded components in `space` → extended linear sRGB (D65), rounded.
 func linearSRGB(_ c: Vec, in space: Space) -> Vec {
     mul(inv(srgbXYZ), mul(space.toXYZ65, c.map(space.decode))).map { ($0 * 1e6).rounded() / 1e6 }
 }
@@ -154,8 +154,8 @@ struct Expectation: Encodable {
     let file: String
     let id: String
     let `class`: String         // standard | wide | deep | hdr
-    let variant: String         // what an SDR display stores
-    let space: String           // the stored space, by its CSS name
+    let variant: String         // what an SDR display stores (LLP 1100 D7)
+    let space: String           // the stored space, by D1's name
     let bitsPerComponent: Int
     let note: String
     let patches: [Patch]
@@ -314,7 +314,7 @@ for (file, type, cg, id) in [("pq.heic", "public.heic", CGColorSpace.itur_2100_P
     write(pq ? CGImageCreateCopyWithContentHeadroom(Float(nits.max()! / 203), image) ?? image : image, file, type)
     let deep = type == "public.png"   // ImageIO's SDR rendition of a 16-bit PNG stays 16-bit; HEIC's is 8-bit
     expect(Expectation(file: file, id: id, class: "hdr", variant: "deep", space: "display-p3", bitsPerComponent: deep ? 16 : 8,
-        note: (deep ? "16-bit PNG: SDR rendition 16-bit. " : "10-bit: SDR rendition 8-bit, kept in a deep plan reserved from the header's depth. ") + (pq ? "PQ neutrals at \(nits.map { Int($0) }) cd/m²; HDR display: linear = nits / 203. SDR: ImageIO's tone map"
+        note: (deep ? "16-bit PNG: SDR rendition 16-bit. " : "10-bit: SDR rendition 8-bit, kept in a deep plan reserved from the header's depth. ") + (pq ? "PQ neutrals at \(nits.map { Int($0) }) cd/m²; HDR display (stage 3): linear = nits / 203. SDR: ImageIO's tone map"
                  : "HLG neutrals at 0, 25, 50, 75, 100% signal (75% is reference white); SDR: ImageIO's tone map"),
         patches: zip(cells, nits).map { cell, n in
             Patch(x: Int(cell.0.minX), y: 0, w: Int(cell.0.width), h: H, source: cell.1,
@@ -336,8 +336,8 @@ for (file, type, id, size, orientation) in [("gainmap-iso.jpg", "public.jpeg", "
     write(tagged, file, type, properties: [kCGImagePropertyOrientation: orientation, kCGImageDestinationLossyCompressionQuality: 0.95,
                                            kCGImageDestinationEncodeRequest: kCGImageDestinationEncodeToISOGainmap])
     expect(Expectation(file: file, id: id, class: "hdr", variant: "own8", space: "display-p3", bitsPerComponent: 8,
-        note: "ISO 21496-1 gain map, headroom 4; SDR base shown on an SDR display; HDR linear values as the patches say"
-            + (orientation == 6 ? "; EXIF orientation 6" : "") + (size > W ? "; 4096² so a 16-bit HDR plan exceeds the 32 MiB ceiling" : ""),
+        note: "ISO 21496-1 gain map, headroom 4; SDR base shown on an SDR display; HDR (stage 3) linear values as the patches say"
+            + (orientation == 6 ? "; EXIF orientation 6" : "") + (size > W ? "; 4096² so a 16-bit HDR plan exceeds the 192 MiB viewport ceiling" : ""),
         patches: cells.map { r, c in Patch(x: Int(r.minX), y: 0, w: Int(r.width), h: Int(r.height), source: c, linearSRGB: linearSRGB(c, in: spaces["display-p3-linear"]!), nits: nil) }))
 }
 // F14 — OpenEXR, linear float: HDR.

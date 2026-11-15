@@ -24,7 +24,9 @@ fn main() {
         _ => "macos",
     };
     let manifest = contract::Manifest::read(&app_dir).unwrap_or_else(|e| panic!("app.json: {e}"));
-    let grants = sparkline_data::Spark.grants();
+    // Bound first: a copy whose source is `Type::default()` or `Type::new(…)` would borrow a temporary (E0716).
+    let source = sparkline_data::Spark;
+    let grants = source.grants();
     let compat = exact_bake::compatibility_id(&app_dir, platform, &target, &manifest, Some(grants))
         .unwrap_or_else(|e| panic!("compatibility id: {e}"));
     let host = if compat.inputs["store"]["L"] == "0" {
@@ -32,7 +34,7 @@ fn main() {
     } else {
         "exact_apple_update"
     };
-    // What the archive links, as its compatibility inputs name it.
+    // What the archive links, as its compatibility inputs name it (LLP 1047.001 D2).
     let linked = exact_bake::apple_link(&compat, host);
     std::fs::write(out_dir.join("compat.json"), compat.to_json()).unwrap();
     std::fs::write(
@@ -42,7 +44,8 @@ fn main() {
             contract::rust_entry(
                 "sparkline_data::Spark",
                 "sparkline_data::Spark",
-                compat.inputs["rustMode"].as_str().unwrap()
+                compat.inputs["rustMode"].as_str().unwrap(),
+                &compat.inputs,
             )
             .unwrap(),
             linked

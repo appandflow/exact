@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// An input counts against the request under
+/// LLP 1070.000 §2.5 under UIKit: an input counts against the request under
 /// way when it began, by its own timestamp against the time the request
 /// reached the host. And §2.6's selected tab tapped again: its scroll to the
 /// top gives way to a request the tab's press made, told by the list's latest
@@ -62,8 +62,8 @@ final class CollectionInputIOSTests: XCTestCase {
     }
 
     /// A finger coming down on a list while its request is under way is the
-    /// reader's gesture against it, heard by the host's contact recognizer;
-    /// one beside the list is not.
+    /// reader's gesture against it, heard by the host's contact recognizer
+    /// (LLP 1070.000 §2.6); one beside the list is not.
     func testAFingerComingDownOnTheListIsTheReadersGesture() throws {
         let p = list()
         defer { p.collections.reset() }

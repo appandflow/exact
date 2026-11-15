@@ -1,4 +1,4 @@
-//! Native resize observations exclude host chrome.
+//! Native resize observations exclude host chrome. @ref LLP 1104 D5.
 use exact_kernel::*;
 use exact_plan::{asm::Asm, builder::PlanBuilder, EventKind, Value};
 use exact_runner::{DataError, DataSource, ResizeRect, Runner};

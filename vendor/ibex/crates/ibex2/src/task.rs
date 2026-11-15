@@ -1,8 +1,8 @@
 //! Off-thread work, and the completion queue the engine drains.
 //!
-//! This is the Rust half of how a Rust future completing off the JavaScript
-//! thread resolves into the engine's job queue without reordering relative to
-//! JavaScript-enqueued jobs.
+//! This is the Rust half of LLP 0058 OQ1 — how a Rust future completing off
+//! the JavaScript thread resolves into the engine's job queue without
+//! reordering relative to JavaScript-enqueued jobs.
 //!
 //! The shape, which is the part that matters:
 //!
@@ -15,8 +15,10 @@
 //!    their promises, then drain microtasks.
 //!
 //! Step 4 is where the ordering guarantee lives, and it is stated in
-//! `Pump::CONTRACT` rather than left implicit. Delegating ops are async,
-//! without exception.
+//! `Pump::CONTRACT` rather than left implicit.
+//!
+//! @ref LLP 0058#3-the-part-that-cannot-move — the job queue this interleaves with
+//! @ref LLP 0059.000#11-which-ops-are-synchronous — delegating ops are async, without exception
 
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -34,7 +36,7 @@ pub struct Completion {
     pub result: Result<HostValue, HostError>,
 }
 
-/// Where a runtime's time comes from.
+/// Where a runtime's time comes from (LLP 0071 D3).
 enum ClockSource {
     /// Milliseconds since the runtime started.
     Instant,
@@ -47,7 +49,7 @@ enum ClockSource {
 const MAX_CLOCK_MS: f64 = 9_007_199_254_740_992.0;
 
 /// `set_clock` was refused: something had already read this runtime's time,
-/// or a clock was already set.
+/// or a clock was already set (LLP 0071 D3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClockSealed;
 
@@ -63,7 +65,7 @@ impl std::error::Error for ClockSealed {}
 
 /// One admitted host task.
 ///
-/// Rust owns **one** sequence-numbered FIFO of admitted
+/// LLP 0058.000.000 §8: Rust owns **one** sequence-numbered FIFO of admitted
 /// host tasks, *including timer deliveries and async settlements*. Two queues
 /// drained by different rules cannot state a single order between a timer and a
 /// settlement, which is what an application observes.
@@ -118,7 +120,7 @@ struct WakeState {
     closed: bool,
 }
 
-// Re-entrant shutdown recognizes the queue's sole wake invoker.
+// @ref LLP 0068#3-no-engine-in-the-process — re-entrant shutdown recognizes the queue's sole wake invoker
 thread_local! {
     /// Queue identities whose wake callbacks this thread is invoking. A wake
     /// may synchronously admit work on another queue, so this remains a stack.
@@ -239,7 +241,7 @@ impl CompletionQueue {
         let mut ready = self.ready.lock().expect("completion queue poisoned");
         // Queue closure and insertion share this lock. A result offered
         // after closure is dropped here, including any owned payload.
-        // Late worker results cannot publish after Closing.
+        // @ref LLP 0058.000.000#9-teardown-and-lifecycle — late worker results cannot publish after Closing
         if ready.closed {
             return false;
         }
@@ -380,19 +382,25 @@ impl CompletionQueue {
 ///
 /// Per-runtime for the reason C5 exists, and it holds the response registry as
 /// well as the completion queue: a `Response` cannot cross the boundary as a
-/// value, because nothing is serialized at the boundary and a `Response` is
+/// value, because §1.1 forbids serializing at the boundary and a `Response` is
 /// a status, a header list, and a body. It crosses as a **handle** — the other
 /// half of "primitives and handles" — and these are the objects the handle
 /// refers to.
 pub struct RuntimeState {
     pub queue: CompletionQueue,
-    #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
+    #[cfg(all(
+        feature = "intl",
+        any(target_os = "linux", ibex2_android_intl, windows)
+    ))]
     pub(crate) intl: crate::stdlib::intl::Registry,
-    #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
+    #[cfg(all(
+        feature = "intl",
+        any(target_os = "linux", ibex2_android_intl, windows)
+    ))]
     pub(crate) intl_datetime: crate::stdlib::intl_datetime::Registry,
     pub(crate) sqlite: crate::sqlite_abi::Registry,
-    /// The advisory locks this runtime's code holds, by handle (Exact
-    /// patch 24): only this runtime's `unlock` releases one, and its
+    /// The advisory locks this runtime's code holds, by handle (exact2 LLP
+    /// 1133.007 D6a): only this runtime's `unlock` releases one, and its
     /// shutdown releases them all.
     pub(crate) file_locks: Mutex<(u64, HashMap<u64, std::fs::File>)>,
     app_directories: std::sync::OnceLock<crate::stdlib::app_fs::AppDirectories>,
@@ -407,18 +415,18 @@ pub struct RuntimeState {
     /// runtime open. Only Contexts and owning engine handles increment this.
     owners: std::sync::atomic::AtomicUsize,
     /// Header lists JavaScript holds by handle, for the same reason responses
-    /// are: a header list is not a primitive and nothing is serialized.
+    /// are: a header list is not a primitive and §1.1 forbids serializing.
     headers: Mutex<std::collections::HashMap<u64, crate::stdlib::fetch::Headers>>,
     /// Secret keys held by JavaScript `CryptoKey` objects. Material stays in
     /// Rust and leaves only through an allowed `exportKey` operation.
     crypto_keys: Mutex<std::collections::HashMap<u64, crate::stdlib::subtle::CryptoKey>>,
-    /// The timer wheel. Rust owns *when*; the engine keeps
+    /// The timer wheel (LLP 0059.000 §3.2). Rust owns *when*; the engine keeps
     /// the closures and owns *what*.
     timers: Mutex<crate::stdlib::timers::Timers>,
     /// The runtime's monotonic origin, so `now()` is milliseconds since boot —
-    /// the same base `performance.now` will read.
+    /// the same base `performance.now` will read (§2).
     started: std::time::Instant,
-    /// Where time comes from: `Instant` since `started`, or the
+    /// Where time comes from (LLP 0071 D3): `Instant` since `started`, or the
     /// caller's clock. The first read fixes it, so `set_clock` is refused once
     /// anything has read time and no deadline is computed in two domains.
     clock: std::sync::OnceLock<ClockSource>,
@@ -563,9 +571,15 @@ impl RuntimeState {
         }
         let state = Self {
             queue: CompletionQueue::new(),
-            #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
+            #[cfg(all(
+                feature = "intl",
+                any(target_os = "linux", ibex2_android_intl, windows)
+            ))]
             intl: crate::stdlib::intl::Registry::new(),
-            #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
+            #[cfg(all(
+                feature = "intl",
+                any(target_os = "linux", ibex2_android_intl, windows)
+            ))]
             intl_datetime: crate::stdlib::intl_datetime::Registry::new(),
             sqlite: crate::sqlite_abi::Registry::default(),
             file_locks: Mutex::new((0, HashMap::new())),
@@ -756,7 +770,7 @@ impl RuntimeState {
     /// Start a WebSocket source whose callback identity already belongs to
     /// this runtime. The platform worker publishes compact byte payloads into
     /// the same FIFO as settlements and timers; JSI is touched only by pump.
-    // WebSocket uses the event subscription FIFO.
+    // @ref LLP 0057.000#l4--websocket--completed-2026-10-04 — WebSocket is the first user of L3's subscription FIFO
     pub(crate) fn open_websocket(
         self: &Arc<Self>,
         subscription: u64,
@@ -837,7 +851,7 @@ impl RuntimeState {
 
     /// Snapshot the source endowment together with configuration applied
     /// directly to this state after the Context was constructed.
-    // Owning Hermes adopts the configured Context without sharing its runtime identity.
+    // @ref LLP 0068#3-no-engine-in-the-process — owning Hermes adopts the configured Context without sharing its runtime identity
     #[cfg(feature = "bindings")]
     pub(crate) fn bindings_snapshot(&self, bindings: &host::Bindings) -> host::Bindings {
         bindings.with_runtime_configuration(
@@ -853,7 +867,7 @@ impl RuntimeState {
     /// replacing its queue, handle registries, loader, or integrity snapshot.
     /// Explicit configuration already installed directly on the runtime wins
     /// when the endowment omits that optional component.
-    // Owning engines copy the endowed mechanisms without sharing runtime identity.
+    // @ref LLP 0057.000#50-three-doors-one-implementation — owning engines copy the endowed mechanisms without sharing runtime identity
     #[cfg(feature = "bindings")]
     pub(crate) fn adopt_bindings(&self, bindings: &host::Bindings) -> Result<(), HostError> {
         if self.adopted_endowment.get().is_some() {
@@ -1006,7 +1020,7 @@ impl RuntimeState {
         {
             hook();
         }
-        // Closing and event reservation serialize on the subscription registry.
+        // @ref LLP 0058.000.000#9-teardown-and-lifecycle — Closing and event reservation serialize on the subscription registry
         let subscription_states = std::mem::take(&mut *subscriptions);
         for subscription in subscription_states.into_values() {
             subscription.close();
@@ -1166,7 +1180,8 @@ impl RuntimeState {
     /// Is the driver already running a cycle?
     ///
     /// A drive request made while not `Idle` records a wakeup rather than
-    /// nesting a second host task inside project JavaScript.
+    /// nesting a second host task inside project JavaScript
+    /// (LLP 0058.000.000 §8).
     pub fn begin_drive(&self) -> bool {
         !self.driving.swap(true, std::sync::atomic::Ordering::SeqCst)
     }
@@ -1183,7 +1198,7 @@ impl RuntimeState {
             && self.millis_until_next_timer().is_none()
     }
 
-    /// Make `clock` this runtime's time source: milliseconds,
+    /// Make `clock` this runtime's time source (LLP 0071 D3): milliseconds,
     /// read by the timer wheel and `performance.now`. Refused once anything
     /// has read time.
     pub fn set_clock(&self, clock: Arc<dyn Fn() -> f64 + Send + Sync>) -> Result<(), ClockSealed> {
@@ -1215,7 +1230,7 @@ impl RuntimeState {
         }
     }
 
-    /// Milliseconds on this runtime's clock: since it started,
+    /// Milliseconds on this runtime's clock (LLP 0071 D3): since it started,
     /// unless the caller supplied the clock.
     pub fn now(&self) -> f64 {
         self.now_micros() as f64 / 1000.0
@@ -1242,8 +1257,8 @@ impl RuntimeState {
     /// Move every timer due now into the host-task FIFO, and report how many.
     ///
     /// Admission, not delivery: the driver still takes at most one task per
-    /// cycle. An interval reschedules when its task is
-    /// taken (`take_task`) — before its callback runs — so clearing
+    /// cycle (LLP 0058.000.000 §8). An interval reschedules when its task is
+    /// taken (`take_task`, LLP 0071 D6) — before its callback runs — so clearing
     /// it from within its own callback removes the next occurrence.
     pub fn admit_due_timers(&self) -> usize {
         let now = self.now_micros();
@@ -1267,7 +1282,7 @@ impl RuntimeState {
     /// Milliseconds until the next timer, for an embedder that wants to sleep
     /// exactly long enough rather than poll.
     /// Measured on this runtime's clock, from the same integer sample
-    /// admission compares: `0` exactly when a timer is due.
+    /// admission compares: `0` exactly when a timer is due (LLP 0071 D3).
     pub fn millis_until_next_timer(&self) -> Option<f64> {
         let now = self.now_micros();
         self.timers
@@ -1278,7 +1293,7 @@ impl RuntimeState {
     }
 
     /// A timer task is being taken for delivery: an interval is rescheduled
-    /// now.
+    /// now (LLP 0071 D6).
     fn timer_taken(&self, handle: u64) {
         let now = self.now_micros();
         self.timers
@@ -1329,7 +1344,7 @@ impl RuntimeState {
         if let Some(subscription) = subscription {
             subscription.close();
         }
-        // Unsubscribe cancels admitted but unreserved delivery.
+        // @ref LLP 0057.000#l3--events-abort-and-the-second-direction — unsubscribe cancels admitted but unreserved delivery
         self.queue.cancel_events(id);
     }
 
@@ -1359,7 +1374,7 @@ impl RuntimeState {
         if !state.reserve(bytes) {
             return false;
         }
-        // Subscription liveness and FIFO insertion are atomic, but wake is outside the registry lock.
+        // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — subscription liveness and FIFO insertion are atomic, but wake is outside the registry lock
         let admitted = {
             let subscriptions = self
                 .subscriptions
@@ -1413,7 +1428,7 @@ impl RuntimeState {
                 }
                 return Some(task);
             };
-            // Reservation revalidates Running and subscription liveness at one serialized commit point.
+            // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — reservation revalidates Running and subscription liveness at one serialized commit point
             let state = subscriptions.get(subscription).cloned();
             if let Some(state) = state {
                 if let HostTask::Event { payload, .. } = &task {
@@ -1477,7 +1492,7 @@ impl Drop for RuntimeState {
 
 /// A runtime owner. Worker Arcs deliberately do not contain one, so the last
 /// embedder owner initiates shutdown even while blocked work retains storage.
-// Worker storage references do not postpone owner-initiated Closing.
+// @ref LLP 0058.000.000#9-teardown-and-lifecycle — worker storage references do not postpone owner-initiated Closing
 #[cfg(any(test, feature = "bindings"))]
 pub(crate) struct OwnerLease {
     state: Arc<RuntimeState>,
@@ -2003,7 +2018,8 @@ pub(crate) unsafe fn clone_queue(queue: *const RuntimeState) -> Option<Arc<Runti
 
 /// The ordering contract an engine adapter must satisfy.
 ///
-/// These are the clauses the tests hold this implementation to.
+/// **Normative source: LLP 0058.000.000 §8.** This restates the clauses the
+/// tests hold this implementation to; where the two differ, the spec governs.
 ///
 /// **C1.** Resolving a promise from a completion enqueues a microtask; it does
 /// not run the continuation inline. A host call must never re-enter JavaScript

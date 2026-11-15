@@ -6,7 +6,7 @@ import XCTest
 /// A `dialog` on the Mac, in both of its presentations: this class paints it
 /// in the page over its backdrop, the driver's own chrome (`--chrome agent`);
 /// `DialogSheetMacTests` runs every case again with it in AppKit's sheet, what
-/// a person gets. A case says so where the two differ.
+/// a person gets (LLP 1115.002 D7.2). A case says so where the two differ.
 class DialogMacTests: XCTestCase {
     private var window: NSWindow!
     private weak var presenter: Presenter?
@@ -15,7 +15,7 @@ class DialogMacTests: XCTestCase {
     /// The window the keyboard is in: the open dialog's sheet, else the page's.
     private var front: NSWindow { presenter?.dialogs.active?.window ?? window }
     override func tearDown() { presenter?.dialogs.reset(); window?.close(); window = nil }
-    /// These cases walk a dialog's Tab through its buttons: Keyboard Navigation on.
+    /// These cases walk a dialog's Tab through its buttons: Keyboard Navigation on (LLP 1115.000 D7.2).
     override func setUp() { super.setUp(); keyboardNavigation(true) }
 
     private func fixture(session: ExactSession? = nil) -> Presenter {
@@ -45,9 +45,9 @@ class DialogMacTests: XCTestCase {
         ]))
         return p
     }
-    private func key(_ code: UInt16, modifiers: NSEvent.ModifierFlags = [], character: String = "", up: Bool = false) -> NSEvent {
+    private func key(_ code: UInt16, modifiers: NSEvent.ModifierFlags = [], character: String = "", ignoring: String? = nil, up: Bool = false) -> NSEvent {
         NSEvent.keyEvent(with: up ? .keyUp : .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
-            windowNumber: front.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)!
+            windowNumber: front.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: ignoring ?? character, isARepeat: false, keyCode: code)!
     }
     private func click(_ node: NodeView, clicks: Int = 1) {
         let point = node.convert(NSPoint(x: node.bounds.midX, y: node.bounds.midY), to: nil)
@@ -183,7 +183,7 @@ class DialogMacTests: XCTestCase {
         XCTAssertEqual(heard, ["4 Escape", "4 Tab", "4 Tab", "4 Escape"])
         XCTAssertNil(p.dialogs.active, "an unprevented Escape closes it")
     }
-    /// `stopPropagation()`: a field's handler that calls it
+    /// `stopPropagation()` (files diary F8): a field's handler that calls it
     /// is the last to hear the key, and the key's default still happens.
     func testAStoppedKeyReachesNoAncestorAndKeepsItsDefault() throws {
         let p = fixture()
@@ -352,6 +352,33 @@ class DialogMacTests: XCTestCase {
         XCTAssertFalse(tracked)
         XCTAssertFalse(p.menus.isOpen(try XCTUnwrap(p.views[6])))
     }
+    func testCommandPeriodUsesTheLayoutsCharacter() throws {
+        let p = fixture(), dialog = try XCTUnwrap(p.views[3]), field = try XCTUnwrap(p.views[4]?.field)
+        let cases: [(String, UInt16, String, String, Bool)] = [
+            ("ANSI Command-V", 9, "v", "v", false),
+            ("ANSI Command-period", 47, ".", ".", true),
+            ("Dvorak Command-V", 47, "v", "v", false),
+            ("Dvorak Command-period", 14, ".", ".", true),
+            ("Dvorak - QWERTY Command-period", 47, ".", "v", true),
+            ("Dvorak - QWERTY Command-E", 14, "e", ".", false),
+            ("French Command-colon", 47, ":", ":", false),
+            ("Turkish Q Command-ç", 47, "ç", "ç", false),
+            ("Turkish Q Command-period", 44, ".", ".", true),
+        ]
+        var cancelled: [UInt32] = []
+        dialog.handlers.insert("cancel")
+        p.dialogs.onCancel = { cancelled.append($0) }
+        for (layout, code, character, ignoring, dismisses) in cases {
+            cancelled.removeAll()
+            p.press(2)
+            XCTAssertTrue(p.dialogs.active === dialog, layout)
+            XCTAssertTrue(field.currentEditor() === front.firstResponder, layout)
+            XCTAssertEqual(p.routeKey(key(code, modifiers: .command, character: character, ignoring: ignoring), focused: true), dismisses, layout)
+            XCTAssertEqual(p.dialogs.active == nil, dismisses, layout)
+            XCTAssertEqual(cancelled, dismisses ? [dialog.id] : [], layout)
+            p.dialogs.close(dialog)
+        }
+    }
     func testDismissalPoliciesAndBackgroundPointerBlocking() {
         let p = fixture()
         let modal = p.views[3]!
@@ -362,6 +389,10 @@ class DialogMacTests: XCTestCase {
             XCTAssertEqual(p.dialogs.active == nil, policy == "any")
             if policy == "any" { p.press(2) }
             XCTAssertTrue(p.dialogs.key(key(53)))
+            XCTAssertEqual(p.dialogs.active == nil, policy != "none")
+            p.dialogs.close(modal)
+            p.press(2)
+            XCTAssertTrue(p.dialogs.key(key(14, modifiers: .command, character: ".")))
             XCTAssertEqual(p.dialogs.active == nil, policy != "none")
             p.dialogs.close(modal)
         }
@@ -862,7 +893,7 @@ class DialogMacTests: XCTestCase {
         background.performClick(nil)
         XCTAssertEqual(pressed, [8], "native activation resumes after the modal closes")
     }
-    /// A native row that only closes its dialog is its
+    /// A native row that only closes its dialog (LLP 1069.011.000 D9) is its
     /// own press, as a custom command-only button is: not its ancestor's.
     func testANativeCloseRowClosesItsDialog() throws {
         let p = fixture()
@@ -1234,7 +1265,7 @@ class DialogMacTests: XCTestCase {
 
     /// With nothing focused a bare-key shortcut still presses its button, as
     /// a page's do; a field's `focus` and `blur` arrive when it takes and
-    /// loses the focus, not at its first edit.
+    /// loses the focus, not at its first edit (jukebox F11, F23).
     func testBareShortcutsWithNothingFocusedAndFieldFocusEvents() throws {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -1353,7 +1384,7 @@ extension XCTestCase {
         XCTAssertEqual(presses, [ancestor.id], "only the nearest authored ancestor presses", file: file, line: line)
         XCTAssertEqual(pointers, ["\(ancestor.id) down", "\(ancestor.id) up"], file: file, line: line)
         XCTAssertFalse(ancestor.pressed, file: file, line: line)
-        XCTAssertEqual(p.interacting, 0, file: file, line: line)
+        XCTAssertTrue(p.mouseChain.bubbledPress == nil && p.pointerHeld == nil, file: file, line: line)
         XCTAssertTrue(window.firstResponder === focus, file: file, line: line)
         XCTAssertTrue(pageWindow.firstResponder === pageFocus, "a bubbled press never takes the page's focus", file: file, line: line)
         XCTAssertTrue(isOpen(), file: file, line: line)
@@ -1382,7 +1413,7 @@ extension XCTestCase {
         XCTAssertTrue(ancestor.pressed, file: file, line: line)
         try send(.leftMouseUp, outside)
         XCTAssertEqual(presses, [ancestor.id, content.id], "a drag off the content cancels", file: file, line: line)
-        XCTAssertEqual(p.interacting, 0, file: file, line: line)
+        XCTAssertTrue(p.mouseChain.bubbledPress == nil && p.pointerHeld == nil, file: file, line: line)
         XCTAssertTrue(isOpen(), file: file, line: line)
 
         // AppKit retains the hit for the up even when an authored inert
@@ -1392,7 +1423,7 @@ extension XCTestCase {
         try send(.leftMouseUp, inside)
         XCTAssertFalse(ancestor.pressed, file: file, line: line)
         XCTAssertEqual(presses, [ancestor.id, content.id], "authored inertness silences the ancestor", file: file, line: line)
-        XCTAssertEqual(p.interacting, 0, "the cancelled bubbled contact ends on up", file: file, line: line)
+        XCTAssertTrue(p.mouseChain.bubbledPress == nil && p.pointerHeld == nil, "the cancelled bubbled contact ends on up", file: file, line: line)
         if p.dialogs.active != nil {
             // A modal escapes its authored parent's inertness for hit
             // testing, but that parent's own listener must still refuse it.

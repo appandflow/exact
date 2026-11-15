@@ -45,7 +45,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// The plan as a `LowerCheck.PlanInfo` term.
-fn plan_info(plan: &Plan) -> String {
+fn plan_info(plan: &Plan, shared: &[(String, String)]) -> String {
     let strings: Vec<String> = plan.strings.iter().map(string).collect();
     let types: Vec<String> = plan
         .types
@@ -82,17 +82,35 @@ fn plan_info(plan: &Plan) -> String {
             w.join(", ")
         )
     };
+    let mut executables = Vec::new();
     for d in &plan.derives {
-        bodies.push(body(".derive", plan.str(d.name), plan.code(d.body), &[]));
+        let mut declaration = body(".derive", plan.str(d.name), plan.code(d.body), &[]);
+        if d.unsettled {
+            let owner = d.owner.map_or(".none".into(), |a| {
+                format!(".some {}", plan.arm(a).region.0)
+            });
+            executables.push(format!("some (\"{}\", {owner})", hex(plan.code(d.body))));
+            if let Some((_, source)) = shared.iter().find(|(n, _)| n == plan.str(d.name)) {
+                declaration.pop();
+                declaration.push_str(&format!(
+                    ", source := some {source}, executable := true, owner := {owner} }}"
+                ));
+            }
+        } else {
+            executables.push(".none".into());
+        }
+        bodies.push(declaration);
     }
     for (i, s) in plan.slots.iter().enumerate() {
         let id = exact_plan::SlotsId(i as u32);
         // Owned slots initialize in their arm's frames; a late slot after
-        // boot settlement; the router and locale are outside the semantics.
+        // boot settlement; the router, locale and format slots are outside
+        // the semantics.
         if s.owner.is_some()
             || s.late
             || plan.router == Some(id)
             || plan.locale == Some(id)
+            || plan.format == Some(id)
             || plan.mutations.iter().any(|m| m.slot == id)
         {
             continue;
@@ -121,11 +139,12 @@ fn plan_info(plan: &Plan) -> String {
         ));
     }
     format!(
-        "{{ strings := #[{}],\n    types := #[{}],\n    slots := [{}],\n    derives := [{}],\n    resources := [{}],\n    mutations := [{}],\n    bodies := [{}] }}",
+        "{{ strings := #[{}],\n    types := #[{}],\n    slots := [{}],\n    derives := [{}],\n    executables := [{}],\n    resources := [{}],\n    mutations := [{}],\n    bodies := [{}] }}",
         strings.join(", "),
         types.join(", "),
         slots.join(", "),
         derives.join(", "),
+        executables.join(", "),
         resources.join(", "),
         mutations.join(", "),
         bodies.join(",\n      ")
@@ -179,7 +198,7 @@ fn module(cases: &[Ready]) -> String {
         s.push_str(&c.lean.program);
         let _ = write!(
             s,
-            "\ndef {n}_oracle : Oracle := OracleText.parse! {}\n\ndef {n}_events : List Observe.Event := [{}]\n\ndef {n}_plan : LowerCheck.PlanInfo :=\n  {}\n\n",
+            "\ndef {n}_oracle : Oracle := OracleText.parse! {}\n\ndef {n}_events : List Observe.ScriptEvent := [{}]\n\ndef {n}_plan : LowerCheck.PlanInfo :=\n  {}\n\n",
             string(&c.lean.oracle),
             c.lean.events.join(", "),
             c.plan
@@ -285,9 +304,11 @@ pub fn run(cases: Vec<Case>, batch: usize, tag: &str) -> Result<bool, String> {
         match prepare(&case, index) {
             Ok(p) => {
                 let plan = compile(&case).map_err(|e| format!("{}: {e}", case.name))?;
+                let shared = contract::lean::shared_expressions(&case.source, case.path.as_deref())
+                    .map_err(|e| format!("{}: sharing expressions: {e}", case.name))?;
                 let ready = Ready {
                     lean: clone_case(&p.lean),
-                    plan: plan_info(&plan),
+                    plan: plan_info(&plan, &shared),
                 };
                 prepared.push((case, Some(ready), None));
             }
@@ -404,4 +425,96 @@ pub fn run(cases: Vec<Case>, batch: usize, tag: &str) -> Result<bool, String> {
         "difftest lowering: {checked} cases checked ({skipped} not compiled, {boot_refused} boot refused): runs {agree} agree, {both} both fail, {diverge} diverge; bodies {same} identical to Contract.Lower, {differ} differ, {refused} refused by it, {undecoded} undecoded"
     );
     Ok(!failed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::script::{self, Event};
+    use exact_plan::{builder::PlanBuilder, DerivesId, Value};
+
+    #[test]
+    #[ignore = "async lane: needs the Lean toolchain"]
+    fn executable_rows_are_checked_against_their_substituted_source() {
+        leanrun::build().unwrap();
+        let source = "component App\n  state n = 1\n  view\n    Child(n=n)\ncomponent Child\n  props\n    n: number\n  derive expensive = n + 1\n  derive value = expensive + expensive\n  view\n    text `${value}`\ntest \"row\"\n  expect state n == 1\n";
+        let case = script::scripted("lowering-shared", source, None)
+            .unwrap()
+            .remove(0)
+            .case;
+        let plan = compile(&case).unwrap();
+        let shared = contract::lean::shared_expressions(source, None).unwrap();
+        let row = plan.derives.iter().position(|d| d.unsettled).unwrap();
+        let mut broken = PlanBuilder::from_plan(plan.clone());
+        let wrong = broken.constant(&Value::Number(7.0));
+        broken.set_derive_body(DerivesId(row as u32), wrong);
+        let broken = broken.finish().unwrap();
+        let cases = [&plan, &broken]
+            .iter()
+            .enumerate()
+            .map(|(i, p)| Ready {
+                lean: prepare(&case, i).unwrap().lean,
+                plan: plan_info(p, &shared),
+            })
+            .collect::<Vec<_>>();
+        let (head, reports) = run_batch(&cases, &work_dir(), "lowering-shared-test").unwrap();
+        assert!(head.is_empty(), "{head:?}");
+        assert!(reports[0].sum[0] >= 3, "{:?}", reports[0].lines);
+        assert_eq!(reports[0].sum[2], 0, "{:?}", reports[0].lines);
+        assert_eq!(reports[0].sum[5], 0, "{:?}", reports[0].lines);
+        assert!(reports[1].sum[2] > 0, "{:?}", reports[1].lines);
+    }
+
+    #[test]
+    #[ignore = "async lane: needs the Lean toolchain"]
+    fn landings_check_the_configuration_after_queued_continuations() {
+        leanrun::build().unwrap();
+        let source = include_str!("../../corpus/trace/queue.contract")
+            .replace("  state n = 0", "  state n = 0\n  derive observed = n");
+        let mut case = script::scripted("lowering-land", &source, None)
+            .unwrap()
+            .remove(0)
+            .case;
+        // No later clock or input may land the work on the checker's behalf.
+        case.events.truncate(2);
+        assert_eq!(case.events, [Event::Tap("save".into()), Event::InputLand]);
+        let plan = compile(&case).unwrap();
+        let mut broken = PlanBuilder::from_plan(plan.clone());
+        let zero = broken.constant(&Value::Number(0.0));
+        broken.set_derive_body(DerivesId(0), zero);
+        let broken = broken.finish().unwrap();
+        let mut cases = Vec::new();
+        for landing in [Event::InputLand, Event::Land] {
+            case.events[1] = landing;
+            for plan in [&plan, &broken] {
+                cases.push(Ready {
+                    lean: prepare(&case, cases.len()).unwrap().lean,
+                    plan: plan_info(plan, &[]),
+                });
+            }
+        }
+        let (head, reports) = run_batch(&cases, &work_dir(), "lowering-land-test").unwrap();
+        assert!(head.is_empty(), "{head:?}");
+        for pair in reports.chunks_exact(2) {
+            let [good, broken] = pair else { unreachable!() };
+            assert!(!good.boot_refused && !broken.boot_refused);
+            assert!(good.sum[0] > 0);
+            assert!(good.lines.is_empty(), "{:?}", good.lines);
+            assert_eq!(good.sum[2], 0);
+            assert_eq!(broken.sum[2], 1, "{:?}", broken.lines);
+            let vm = format!(
+                "DIVERGE derive observed cfg2: vm {} ",
+                crate::observe::number(0.0)
+            );
+            let sem = format!(" / semantics {} ", crate::observe::number(2.0));
+            assert!(
+                broken
+                    .lines
+                    .iter()
+                    .any(|line| line.starts_with(&vm) && line.contains(&sem)),
+                "{:?}",
+                broken.lines
+            );
+        }
+    }
 }

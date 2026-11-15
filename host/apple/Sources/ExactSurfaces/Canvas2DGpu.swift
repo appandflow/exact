@@ -1,4 +1,4 @@
-// Canvas 2D replayed on the GPU. The module
+// @ref LLP 1056 §8.5 — Canvas 2D replayed on the GPU. The module
 // (`libexact_canvas_gpu.dylib`, a separate artifact loaded on demand, as the
 // SVG island module is) replays a canvas's lists into an IOSurface this file
 // owns, and the canvas's layer shows that IOSurface as its contents, as the
@@ -277,6 +277,19 @@ final class Canvas2DGpuCanvas {
         Canvas2DGpuModule.log(String(format: "canvas gpu: first replay %.1f ms (cpu %.1f, gpu %.1f); process start to first GPU pixels %.0f ms", ms[2], ms[0], ms[1], since))
     }
 
+    /// A copy of the canvas's pixels, or nil before its first draw.
+    func pixels() -> CGImage? {
+        guard let s = current else { return nil }
+        s.lock(options: .readOnly, seed: nil)
+        defer { s.unlock(options: .readOnly, seed: nil) }
+        let bytes = Data(bytes: s.baseAddress, count: s.bytesPerRow * s.height)
+        guard let provider = CGDataProvider(data: bytes as CFData),
+              let space = CGColorSpace(name: p3 ? CGColorSpace.displayP3 : CGColorSpace.sRGB) else { return nil }
+        return CGImage(width: s.width, height: s.height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: s.bytesPerRow, space: space,
+                       bitmapInfo: CGBitmapInfo(rawValue: canvas2DBitmapInfo), provider: provider, decode: nil,
+                       shouldInterpolate: false, intent: .defaultIntent)
+    }
+
     /// Replay `lists` over the kept pixels; the surface to show, or nil when
     /// the GPU failed (the host falls back to Core Graphics).
     func replay(_ lists: [Data], env: Canvas2DEnv) -> (surface: IOSurface?, unreadable: Bool) {
@@ -305,8 +318,8 @@ final class Canvas2DGpuCanvas {
 }
 
 /// `EXACT_CANVAS_STATS=1`: once a second, how many replays each path showed
-/// and the GPU module's time, and the cold first GPU draw: what a device
-/// measures of GPU replay.
+/// and the GPU module's time, and the cold first GPU draw: the device
+/// measure of LLP 1056 §8.5.
 enum Canvas2DStats {
     static let on = ProcessInfo.processInfo.environment["EXACT_CANVAS_STATS"] == "1"
     private static var gpu = 0, bitmap = 0, recorded = 0, gpuMs = 0.0, t0 = CACurrentMediaTime()

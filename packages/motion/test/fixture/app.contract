@@ -1,4 +1,4 @@
-// The conformance fixture: @exact/motion's names read and
+// The conformance fixture (LLP 1133.001 D7): @exact/motion's names read and
 // sent as an app would, each answer shown by testId for the suite.
 use gravitySensor, accelerometer, gyroscope, motionStatus, requestMotionPermission, MotionStatus, GravitySensor, Accelerometer, Gyroscope from "@exact/motion"
 

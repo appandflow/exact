@@ -1,4 +1,4 @@
-// The recorder drives under the agent: the implementation's
+// LLP 1133.012 §10's recorder drives under the agent: the implementation's
 // agent path answers behind the runner's permission and its tickets, which
 // stand for the person, and `prefer extension speech-recognition.heard`
 // stands for speech. Drive 4 (a tool's invocation) has no door on these

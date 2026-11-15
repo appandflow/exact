@@ -13,7 +13,7 @@ pub(super) struct Piece {
     /// A list item's indent, CSS px; "0" outside a list.
     pub(super) indent: String,
     /// An inline atom's kind: its label is drawn as text, marked
-    /// `data-exact-atom` for the page to draw again.
+    /// `data-exact-atom` for the page to draw again (LLP 1045.000 D6).
     pub(super) atom: Option<String>,
 }
 
@@ -44,7 +44,7 @@ pub(super) fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
         } else {
             "0".to_owned()
         };
-        // An inline atom's detail: its kind and source,
+        // An inline atom's detail (LLP 1045.000 D6): its kind and source,
         // marked so the page draws its pill when it adopts this one. Its
         // range is the two numbers after six strings; its paint, its
         // direction and its accessible name, four more.
@@ -81,9 +81,9 @@ pub(super) fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
     }
 }
 
-/// A `dataset` row's pairs, the `dataset` capability's reading:
-/// the runner's object of strings (`NativeProps`),
-/// written without whitespace and with JSON's escapes for
+/// A `dataset` row's pairs, the `dataset` capability's reading (LLP 1075.003
+/// §3.3): the runner's object of strings (`NativeProps`,
+/// LLP 1024 §9), written without whitespace and with JSON's escapes for
 /// `"`, `\\` and control characters only. Anything else yields what it
 /// parsed so far.
 pub fn dataset(json: &str) -> Vec<(String, String)> {

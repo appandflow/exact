@@ -17,8 +17,9 @@ import { tmpdir, loadavg } from 'node:os';
 import { resolve, join, extname } from 'node:path';
 import { build, dist, browserWorld, macWorld, summarize, displayReady, stop, track, focus } from './exact.mjs';
 import { chromium } from '../../scripts/agent-launch.mjs';
+import { fileURLToPath } from 'node:url';
 
-const here = resolve(new URL('.', import.meta.url).pathname);
+const here = resolve(fileURLToPath(new URL('.', import.meta.url)));
 if (process.argv[2] === 'compare') {await (await import('./compare.mjs')).compare();process.exit(0);}
 if (process.argv[2] === 'sweep') await sweep(process.argv.slice(3));
 const [engine, scene = 'cubes', n = process.env.BENCH_N ?? '10000', mode, variant] = process.argv.slice(2);

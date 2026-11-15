@@ -1,8 +1,51 @@
-// `drag`'s reply carries what the host journaled about a reorder during it, and
+// `drag`'s reply carries what the host journaled about a reorder during it (LLP 1102 §3.17), and
 // keeps every field of the carrier's reply. `bun test ./scripts/agent-drag.test.mjs`.
 import { test, expect } from 'bun:test';
-import { dragTap, heldDown, heldPhase, heldRead, heldTick, HELD_LEAD, HELD_READ, HELD_STEP, STROKES, TICK_STEP } from './agent-drag.mjs';
-import { DRAG_BOUNDS, realTap, REACH_MS, TICK_MARGIN } from '../host/apple/touches.mjs';
+import { dragTap, dragArguments, parseDrag, heldDown, heldPhase, heldRead, heldTick, HELD_LEAD, HELD_READ, HELD_STEP, STROKES, TICK_STEP } from './agent-drag.mjs';
+import { DRAG_BOUNDS, realTap, reaches, REACH_MS, TICK_MARGIN } from '../host/apple/touches.mjs';
+
+import assert from 'node:assert/strict';
+import { open } from './agent.mjs';
+import { chromium } from './agent-launch.mjs';
+import { need } from './coverage.mjs';
+
+need('chrome', chromium().unavailable)('a web contact reports browser cancellation and scrolling only for the affected finger', async () => {
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(`<!doctype html>
+    <style>body{margin:0}#target{height:2000px;background:#ddd}</style>
+    <main id="exact-root" data-boot-ms="0"><div id="target"><div id="inner" style="height:2000px"></div></div></main>
+    <script>globalThis.exact = {ready: Promise.resolve(), views: new Map([[1, document.querySelector('#target')]]),
+      agentSettled: async req => ({clock:0, nodes: req.op === 'layout' ? [{id:1, x:0, y:0, w:400, h:2000}] : []})};</script>`,
+    { headers: { 'content-type': 'text/html' } },
+  ) });
+  let session;
+  try {
+    for (const mode of ['pan-y', 'auto', 'ancestor', 'scroller', 'changed', 'none', 'mouse']) {
+      session = await open({ host: 'web', url: server.url.href, size: [400, 400] });
+      const c = session.carrier;
+      await c.evaluate(`
+        const target = document.querySelector('#target'), root = document.querySelector('#exact-root');
+        target.style.touchAction = '${mode === 'ancestor' ? 'pan-y pinch-zoom' : mode === 'none' ? 'none' : ['pan-y', 'ancestor', 'scroller'].includes(mode) ? 'pan-y' : 'auto'}';
+        root.style.touchAction = '${mode === 'ancestor' ? 'pan-y' : mode === 'scroller' ? 'none' : 'auto'}';
+        ${mode === 'scroller' ? "target.style.cssText += ';height:400px;overflow:auto'" : ''};
+        ${mode === 'changed' ? "window.addEventListener('pointerdown', () => { target.style.touchAction = 'none'; root.style.touchAction = 'none'; }, {once:true, capture:true})" : ''};
+        globalThis.cancelTarget = null;
+        window.addEventListener('pointercancel', e => globalThis.cancelTarget = e.target.id, {once:true});
+        scrollTo(0, 0)`);
+      await c.input(1, 'down', { x: 100, y: 300, mouse: mode === 'mouse' });
+      if (mode === 'changed') assert.equal(await c.evaluate("getComputedStyle(document.querySelector('#target')).touchAction"), 'none');
+      await c.input(null, 'move', { x: 100, y: 100, ms: 200 });
+      const up = await c.input(null, 'up', {});
+      if (['auto', 'pan-y', 'ancestor', 'scroller', 'changed'].includes(mode)) {
+        assert.equal(await c.evaluate('globalThis.cancelTarget'), 'inner', mode);
+        const own = ['auto', 'changed'].includes(mode) ? 'auto' : mode === 'ancestor' ? 'pan-y pinch-zoom' : 'pan-y';
+        const effective = mode === 'ancestor' ? 'pan-y' : own;
+        assert.match(up.note ?? '', new RegExp(`pointercancel.*node #1.*touch-action ${own}; effective ${effective}`));
+        assert.match(up.note, /scroll/);
+      } else assert.equal(up.note, undefined, mode);
+      await session.close(); session = null;
+    }
+  } finally { try { await session?.close(); } finally { server.stop(true); } }
+}, 30_000);
 
 /** A session and carrier whose journal says `lines` during the drag; replies settle a tick later. */
 function drive(lines, { touches = false, notes = {} } = {}) {
@@ -27,18 +70,18 @@ function drive(lines, { touches = false, notes = {} } = {}) {
   return dragTap({ s, carrier, node: { id: 7 }, target: 'grip-a', host: 'web', timing: 'agent', tapRefusal: async (_, __, e) => e }, { dx: 0, dy: 40 });
 }
 
-const refusal = 't=12 reorder: a drag refused: the last drop is held until its move shows';
+const refusal = 't=12 reorder: a drag refused: the last drop is held until its move shows (LLP 1094 D8)';
 
 test('a refused drag names the refusal and keeps the reply', async () => {
   const r = await drive([refusal, 't=13 act move → epoch 2']);
-  expect(r.note).toBe('reorder: a drag refused: the last drop is held until its move shows');
+  expect(r.note).toBe('reorder: a drag refused: the last drop is held until its move shows (LLP 1094 D8)');
   expect(r.target).toBe('grip-a');
   expect(r.delivery).toBe('platform');
   expect(r.epoch).toBe(3);
   expect(r.drag).toEqual(expect.objectContaining({ dx: 0, dy: 40 }));
 });
 
-// A phase's reply says a refused write once a drive (`landed`): the drag's reply carries it on.
+// A phase's reply says a refused write once a drive (`landed`): the drag's reply carries it on (round-2 review).
 test('a note a phase of the drag carried is the drag\'s', async () => {
   const r = await drive([], { notes: { move: 'a data source\'s write was refused' } });
   expect(r.note).toBe('a data source\'s write was refused');
@@ -71,25 +114,25 @@ function iosDrive(host, opts = { dx: 0, dy: -300 }) {
   };
   const carrier = {
     touches: null,
-    async input(id, phase, opts) { asked.push([phase, opts]); return later({ phase, delivery: 'unsupported', reason: 'no held contact across requests on iOS' }); },
+    async input(id, phase, opts) { asked.push([phase, opts]); return later({ phase, delivery: 'unsupported', reason: 'no held contact across requests on iOS (LLP 1080.000 P3)' }); },
     async ask(req) { asked.push(req); return later(host(req)); },
   };
   return { asked, run: () => dragTap({ s, carrier, node: { id: 9 }, target: 'content', host: 'ios', timing: 'agent', tapRefusal: async (_, __, e) => e }, opts) };
 }
 
-// A drag without --touch platform must not answer `delivery: unsupported` and exit 0.
+// LLP 1116.003: a drag without --touch platform answered `delivery: unsupported` and exited 0 (r5 weather, mood journal).
 test('an iOS drag without real touches scrolls the scroller it starts on', async () => {
-  const d = iosDrive(() => ({ tapped: 9, at: [200, 370], scrolledBy: [0, 300], delivery: 'recognized', native: 'scroll' }));
+  const d = iosDrive(() => ({ tapped: 9, at: [200, 370], scrolledBy: [0, 300], delivery: 'recognized', native: 'scroll' }), { dx: 0, dy: -300, over: 500 });
   const r = await d.run();
   // Its contact is asked for a pan's alone (`pan`): a finger held elsewhere would drag nothing.
-  expect(d.asked).toEqual([['down', { x: 200, y: 370, pan: true }], { op: 'tap', id: 9, scrollDrag: [0, -300] }]);
+  expect(d.asked).toEqual([['down', { x: 200, y: 370, pan: true }], { op: 'tap', id: 9, scrollDrag: [0, -300], ms: 500 }]);
   expect(r.delivery).toBe('recognized');
   expect(r.scrolledBy).toEqual([0, 300]);
   expect(r.drag).toEqual(expect.objectContaining({ dx: 0, dy: -300 }));
   expect(r.note).toBeUndefined();
 });
 
-// A sheet's scroller as tall as its form takes drags that move nothing: the reply says what to look at.
+// euxy FRICTION 9: a sheet's scroller as tall as its form took drags that moved nothing, and said nothing.
 test('an iOS drag that scrolls nothing says what to look at', async () => {
   const r = await iosDrive(() => ({ tapped: 9, at: [200, 370], scrolledBy: [0, 0], delivery: 'recognized', native: 'scroll' })).run();
   expect(r.note).toContain('nothing scrolled');
@@ -108,7 +151,55 @@ test('an iOS drag with ops during it needs a held finger', async () => {
   expect(d.asked.filter((a) => !Array.isArray(a))).toEqual([]);
 });
 
-// `drag 0 -1500` on a scroller is not refused for leaving the viewport; it scrolls the whole way.
+test('an Android reader scroller uses scroll samples rather than losing a presenter contact', async () => {
+  const asked = [], s = {
+    contact: null, held: null,
+    async layout() { return { nodes: [{ id: 9, type: 'ScrollView', x: 0, y: 50, w: 400, h: 640 }], viewport: { w: 400, h: 800 } }; },
+    async op() { return { lines: [], next: 0 }; },
+    async landed(r) { return r; },
+    async pointer() { throw new Error('the presenter cannot recognize a reader scroll'); },
+  };
+  const carrier = { reader: true, async ask(req) {
+    asked.push(req);
+    if (req.probe) return { scrollDrag: 'reader' };
+    return { tapped: 9, scrolledBy: [0, 400], delivery: 'presenter', timing: 'deterministic scroll samples; native touch and fling unobserved' };
+  } };
+  const run = opts => dragTap({ s, carrier, node: { id: 9 }, target: 'content', host: 'android', timing: 'agent' }, opts);
+  const r = await run({ dx: 0, dy: -400, over: 250 });
+  expect(asked).toEqual([
+    { op: 'tap', id: 9, scrollDrag: [0, -400], ms: 250, from: [200, 370], probe: true },
+    { op: 'tap', id: 9, scrollDrag: [0, -400], ms: 250, from: [200, 370] },
+  ]);
+  expect(r.scrolledBy).toEqual([0, 400]);
+  expect(r.timing).toContain('native touch and fling unobserved');
+  expect(s.contact).toBeNull();
+  await expect(run({ dx: 0, dy: -200, hold: 10 })).rejects.toThrow('need native input');
+  carrier.ask = async () => ({ error: 'target is covered' });
+  await expect(run({ dx: 0, dy: -200 })).rejects.toThrow('target is covered');
+});
+
+test('an Android scroller keeps its presenter-owned pan contact and holds', async () => {
+  const phases = [], asks = [], s = {
+    contact: null, held: null,
+    async layout() { return { nodes: [{ id: 9, type: 'ScrollView', x: 0, y: 50, w: 400, h: 640 }], viewport: { w: 400, h: 800 } }; },
+    async op() { return { lines: [], next: 0 }; },
+    async tagged(r) { return r; },
+    async pointer(phase) { phases.push(phase); if (phase === 'up') s.contact = null; return { at: [240, 370], delivery: 'platform' }; },
+  };
+  const carrier = {
+    reader: true,
+    async ask(req) { asks.push(req); return { scrollDrag: 'presenter' }; },
+    async input(id, phase) { phases.push(phase); return { at: [200, 370], contact: true, delivery: 'platform' }; },
+  };
+  const r = await dragTap({ s, carrier, node: { id: 9 }, target: 'content', host: 'android', timing: 'agent' }, { dx: 40, dy: 0, hold: 100 });
+  expect(phases).toEqual(['down', 'move', 'hold', 'up']);
+  expect(asks).toHaveLength(1);
+  expect(asks[0].probe).toBe(true);
+  expect(r.delivery).toBe('platform');
+  expect(s.contact).toBeNull();
+});
+
+// euxy FRICTION 14: `drag 0 -1500` on a scroller was refused for leaving the viewport; it scrolls the whole way.
 function strokeDrive(replies = () => ({})) {
   const strokes = [], node = { id: 9, type: 'ScrollView', x: 0, y: 0, w: 400, h: 800 };
   const s = { contact: null, async layout() { return { nodes: [node], viewport: { w: 400, h: 800 } }; },
@@ -141,12 +232,12 @@ test('a stroke that fails or lands with an error stops the drag, and too many st
   await expect(far.run({ dx: 0, dy: -1500 })).rejects.toThrow('leaves the viewport');
 });
 
-test('on iOS a scroller takes the whole drag at once, and under real touches says it was no real touch', async () => {
+test('on iOS a scroller takes the whole drag with its duration, and under real touches says it was no real touch', async () => {
   for (const touches of [null, {}]) {
     const d = strokeDrive(), asked = [];
     const carrier = { touches, async ask(req) { asked.push(req); return { tapped: 9, scrolledBy: [0, 1500], delivery: 'recognized' }; } };
-    const r = await d.run({ dx: 0, dy: -1500 }, { host: 'ios', carrier });
-    expect(asked).toEqual([{ op: 'tap', id: 9, scrollDrag: [0, -1500] }]);
+    const r = await d.run({ dx: 0, dy: -1500, over: 500 }, { host: 'ios', carrier });
+    expect(asked).toEqual([{ op: 'tap', id: 9, scrollDrag: [0, -1500], ms: 500 }]);
     expect(d.strokes).toEqual([]);
     expect(r.scrolledBy).toEqual([0, 1500]);
     expect(Boolean(r.note?.includes('not a real touch'))).toBe(!!touches);
@@ -457,7 +548,7 @@ function tickTouch({ pages, runner = { injected: {} }, liftAfter = 2000 }) {
 const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 20], view: 'NodeView', node: 7, session: 'main', generation: 1 };
 const ended = { ...began, seq: 6, phase: 'ended', t: 2 };
 
-// With no ops the clock still waits out the press and the move, as ops do.
+// Round 2 (Astra, Grok): with no ops the clock waited for nothing; it now waits out the press and the move, as ops do.
 test('a hold\'s clock starts after the press and the move', async () => {
   for (const drag of [{ press: 300 }, { dx: 0, dy: 40, over: 300 }]) {
     const a = tickTouch({ pages: [{ log: [began] }], liftAfter: 900 }), at = Date.now(), seen = [];
@@ -469,7 +560,7 @@ test('a hold\'s clock starts after the press and the move', async () => {
   }
 });
 
-// A log reply that shows the touch began and ended moves no clock, nor does a runner that ended with no touch
+// Round 2: a log reply that shows the touch began and ended moves no clock, nor does a runner that ended with no touch
 // seen, whose error is the drag's; a log error is the drag's, said once the runner is done.
 test('a hold\'s clock moves only while the touch is known to be down, and a failure is said once the runner is done', async () => {
   const ticked = [];
@@ -489,7 +580,7 @@ test('a hold\'s clock moves only while the touch is known to be down, and a fail
   expect(downs).toEqual([false]);
 });
 
-// A log read that rejects (the carrier gone mid-hold) is said only once the runner has let go, its error first.
+// Round 2: a log read that rejects (the carrier gone mid-hold) is said only once the runner has let go, its error first.
 test('a hold whose log read rejects waits for the runner, whose error wins', async () => {
   const gone = tickTouch({ pages: [new Error('carrier closed')], liftAfter: 50 });
   await expect(gone.run({ tick: async () => {} })).rejects.toThrow('carrier closed');
@@ -513,7 +604,7 @@ test('a hold\'s clock steps while the finger is down and stops when it lifts', a
 
 // A still drag's ops wait for the touch to reach its view inside the finger's time: the runner holds that much longer,
 // and the reply says the hold asked. A hold moves the agent's clock by its length beside the finger (`tick`, after the
-// author's ops), never by holding it longer (a 100 ms hold held 650 ms is a long press); under platform
+// author's ops), never by holding it longer (Astra round 1: a 100 ms hold held 650 ms is a long press); under platform
 // timing the clock is the wall's and is not stepped.
 function tickDrive() {
   const asked = [], ran = [];
@@ -551,7 +642,7 @@ test('a real drag holds the finger as asked and moves the clock by the hold besi
   expect(d.asked).toEqual([200 + REACH_MS, 200, 200, 0]);
 });
 
-// `hold 100` must not be held 650 ms, past UIKit's 500 ms long press.
+// Astra round 1: `hold 100` was held 650 ms, past UIKit's 500 ms long press.
 test('a short real hold is held as asked, and the clock still moves by it', async () => {
   const d = tickDrive();
   await d.run({ dx: 0, dy: 0, hold: 100 });
@@ -559,7 +650,7 @@ test('a short real hold is held as asked, and the clock still moves by it', asyn
   expect(d.s.now).toBe(1100);
 });
 
-// `hold 1000 during "clock +900 real"` must not step 900 then 1000 more inside a longer hold.
+// Astra round 1: `hold 1000 during "clock +900 real"` stepped 900 then 1000 more inside a longer hold.
 test('a hold whose ops moved the clock moves it only by the rest', async () => {
   const d = tickDrive();
   await d.run({ dx: 0, dy: 0, hold: 1000, during: [() => d.s.clock('+900 real')] });
@@ -588,6 +679,9 @@ test('CLI path reads belong to each held leg and malformed paths refuse before i
   expect(await drag.path[0].during[0]()).toBe('held');
   expect(() => parseDrag(s, '0 120 hold 500 during "tap other" then 0 -120')).toThrow('not a read');
   expect(() => parseDrag(s, '0 120 then 0')).toThrow('finite');
+  // A read quoted with single quotes is one too (LLP 1156.002 D4).
+  expect(parseDrag(s, "0 120 over 300 during 'state liked' \"tree\"").during).toHaveLength(2);
+  expect(() => parseDrag(s, '0 120 during state')).toThrow(`during 'state liked'`);
 });
 
 
@@ -638,4 +732,67 @@ test('a real clock step stops advancing as soon as its held touch ends', async (
   expect(requests).toHaveLength(1);
   expect(s.now).toBe(requests[0].to);
   expect(s.held).toBe(null);
+});
+
+// Under `interactive-widget="resizes-content"` the viewport stops at the keyboard's top. Only `into keyboard` lets
+// a real drag end below it, down to the screen minus its bottom safe area, to dismiss the keyboard (LLP 1080.000 §11).
+test('into keyboard is explicit and bounds the end above the screen bottom safe area', () => {
+  expect(parseDrag({}, '0 300 hold 1000 into keyboard during "state"').into).toBe('keyboard');
+  expect(() => parseDrag({}, '0 300 into screen')).toThrow('keyboard');
+  expect(() => parseDrag({}, '0 300 into keyboard into keyboard')).toThrow('twice');
+  expect(() => dragArguments({ dx: 0, dy: 300, into: true })).toThrow('keyboard');
+  const aim = { viewport: [400, 438], screen: { w: 400, h: 800, x: 0, y: 62 }, safeArea: { bottom: 34 }, keyboard: [0, 438, 400, 300] };
+  expect(reaches(aim, [30, 600])).toBe(false);
+  expect(reaches(aim, [30, 704], 'keyboard')).toBe(true);
+  for (const point of [[30, 704.1], [30, -1], [-1, 600], [401, 600]]) expect(reaches(aim, point, 'keyboard')).toBe(false);
+});
+
+test('the touch runner requires a visible keyboard and checks both ends before injecting', async () => {
+  const aim = (keyboard) => ({ orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, safeArea: { bottom: 34 }, point: [30, 400], fixed: [30, 400], fixedAxes: [[1, 0], [0, 1]], display: [400, 800], viewport: [400, 500], at: [30, 400], window: [30, 400], seq: 4, hit: 7, keyboard });
+  const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 400], view: 'Control', node: 7, session: 'main', generation: 1 };
+  const injected = [];
+  const drag = (keyboard, dy, opts = {}, change = {}) => realTap({ id: 7, drag: { dx: 0, dy, press: 0, over: 100, hold: 0, into: 'keyboard', ...opts },
+    ask: async (req) => req.aim ? { aim: { ...aim(keyboard), ...change } } : { log: [began,
+      { ...began, seq: 6, phase: 'moved', t: 1.1, at: [30, 400 + dy / 2] },
+      { ...began, seq: 7, phase: 'ended', t: 1.2, at: [30, 400 + dy] }], truncated: false },
+    touches: { async ask(req) { if (req.op !== 'foreground') injected.push(req.to); return req.op === 'foreground' ? { state: 'runningForeground' } : { injected: {} }; } } });
+  expect((await drag([0, 500, 400, 300], 300)).delivery).toBe('platform');
+  expect(injected).toEqual([[30, 700]]);
+  await expect(drag([0, 500, 400, 300], 300, { into: undefined })).rejects.toThrow('outside the viewport');
+  await expect(drag([0, 500, 400, 300], 367)).rejects.toThrow('bottom safe area');
+  await expect(drag([0, 500, 400, 300], 450)).rejects.toThrow('bottom safe area');
+  await expect(drag(null, 10)).rejects.toThrow('keyboard up at the press');
+  await expect(drag([0, 500, 400, 300], 100, {}, { at: [30, 501] })).rejects.toThrow('start');
+  await expect(drag([0, 500, 400, 300], 300, { path: [{ dx: 0, dy: 100, over: 100, hold: 0 }] })).rejects.toThrow('path waypoint');
+  expect(injected).toHaveLength(1);
+});
+
+// The driver sends that drag to the touch runner, never to the scroller's own drag it takes past the viewport.
+test('into keyboard requires iOS platform touches and never falls back to scrolling', async () => {
+  const later = (v) => new Promise((done) => setTimeout(() => done(v), 1));
+  const run = async ({ keyboard = { visible: true }, host = 'ios', touch = 'platform', opts = {} } = {}) => {
+    const sent = [];
+    const s = {
+      contact: null, held: null, now: 0,
+      async layout() { return later({ nodes: [{ id: 7, x: 0, y: 0, w: 400, h: 500, type: 'ScrollView' }], viewport: { w: 400, h: 500 }, screen: { x: 0, y: 62, w: 400, h: 800 }, safeArea: { bottom: 34 } }); },
+      async op(req) { return later(req.op === 'state' ? { keyboard } : { lines: [], next: 5 }); },
+      async landed(r) { return later(r); },
+    };
+    const carrier = {
+      touches: touch !== 'agent', touch,
+      async input(id, phase, opts) { sent.push({ phase, into: opts.drag.into }); return later({ tapped: id, delivery: 'platform' }); },
+      async ask() { throw Error('must not substitute a recognized scroll'); },
+    };
+    await dragTap({ s, carrier, node: { id: 7 }, target: 'transcript', host, timing: 'agent', tapRefusal: async (_, __, e) => e }, { dx: 0, dy: 400, from: [200, 300], into: 'keyboard', ...opts });
+    return sent;
+  };
+  expect(await run()).toEqual([{ phase: 'drag', into: 'keyboard' }]);
+  expect(await run({ host: 'host-ios' })).toEqual([{ phase: 'drag', into: 'keyboard' }]);
+  for (const host of ['web', 'macos', 'linux', 'android']) await expect(run({ host })).rejects.toThrow('iOS --touch platform');
+  for (const touch of ['agent', 'drag']) await expect(run({ touch })).rejects.toThrow('iOS --touch platform');
+  await expect(run({ keyboard: { visible: false }, opts: { dy: 10 } })).rejects.toThrow('keyboard up at the press');
+  await expect(run({ opts: { from: [200, 501], dy: 0 } })).rejects.toThrow('start');
+  await expect(run({ opts: { dy: 405 } })).rejects.toThrow('bottom safe area');
+  await expect(run({ opts: { dx: 201 } })).rejects.toThrow('bottom safe area');
+  await expect(run({ opts: { path: [{ dx: 0, dy: 5, hold: 0 }] } })).rejects.toThrow('path waypoint');
 });

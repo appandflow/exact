@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// A `pointerdown` action that calls `preventDefault()` keeps
+/// LLP 1005 §3: a `pointerdown` action that calls `preventDefault()` keeps
 /// the focus where it is, places no caret and starts no selection; the press
 /// still fires, as Chrome does for a prevented pointerdown
 /// (scripts/fixtures/prevent-focus.contract; host/web/tests/prevent-focus.test.mjs).

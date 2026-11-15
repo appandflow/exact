@@ -1,7 +1,8 @@
-//! A `tool` line, and a call of it as an invocation of origin `tool` that owns
-//! the work its commit started, identified by the invocation's id: the ask its
-//! mutation's refresh makes, not a re-ask the device or the person makes, and
-//! not one a refused commit let go of.
+//! LLP 1111 D2–D4a and LLP 1133.023 D7: a `tool` line, and a call of it as
+//! an invocation of origin `tool` that owns the work its commit started,
+//! identified by the invocation's id: the ask its mutation's refresh makes,
+//! not a re-ask the device or the person makes, and not one a refused
+//! commit let go of.
 
 use exact_runner::{agent, CallHow, Runner, Value, BACKGROUND};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -142,29 +143,34 @@ fn answer(r: &mut Runner<Later>, target: &str, body: &str) {
     by(r, 0.0);
 }
 
+/// How the agent's door hands a call.
+fn agent() -> CallHow {
+    CallHow {
+        door: "agent".into(),
+        ..Default::default()
+    }
+}
+
 fn call(r: &mut Runner<Later>, tool: &str, args: &str) {
-    r.call_tool(
-        tool,
-        args,
-        CallHow {
-            door: "agent".into(),
-            ..Default::default()
-        },
-    )
-    .unwrap();
+    r.call_tool(tool, args, agent()).unwrap();
     by(r, 0.0);
 }
 
 #[test]
 fn the_tool_line_is_the_plans_tools_row() {
     let plan = contract::compile(APP).unwrap();
-    let rows: Vec<String> = (plan.tools.iter())
-        .map(|t| {
+    let rows: Vec<String> = (plan.tools.iter().enumerate())
+        .map(|(i, t)| {
             format!(
                 "{} {} {:?} {} {} {}",
                 plan.str(t.name),
                 plan.str(t.consequence),
-                [t.additive, t.idempotent, t.closed],
+                [
+                    t.additive,
+                    t.idempotent,
+                    t.closed,
+                    exact_runner::tools::sends(&plan, i)
+                ],
                 plan.str(plan.action(t.action).name),
                 t.returns.is_some(),
                 t.fails.is_some()
@@ -174,10 +180,20 @@ fn the_tool_line_is_the_plans_tools_row() {
     assert_eq!(
         rows,
         [
-            "bump writes [false, false, true] bump true true",
-            "look reads [false, false, false] look false false",
+            "bump writes [false, false, true, true] bump true true",
+            "look reads [false, false, false, false] look false false",
         ]
     );
+    // A `reads` tool whose reach sends, here through an action its action
+    // calls, is not read-only (LLP 1111 D3).
+    let peeks = APP.replacen(
+        "  action bump",
+        "  tool peek reads \"Peek.\" = peek\n  action peek\n    turn()\n  action bump",
+        1,
+    );
+    let plan = contract::compile(&peeks).unwrap_or_else(|e| panic!("{e:?}"));
+    let peek = plan.tools.iter().position(|t| plan.str(t.name) == "peek");
+    assert!(exact_runner::tools::sends(&plan, peek.unwrap()));
     for (line, id) in [
         ("  tool x reads \"X.\" = nothing\n", "tool-action"),
         (
@@ -199,9 +215,9 @@ fn the_tool_line_is_the_plans_tools_row() {
     }
 }
 
-/// The call's commit, the `add` it sends and the `counter` re-ask its refresh
-/// makes are its own; it ends when they have landed, with what `returns` reads
-/// then.
+/// D7: the call's commit, the `add` it sends and the `counter` re-ask its
+/// refresh makes are its own; it ends when they have landed, with what
+/// `returns` reads then.
 #[test]
 fn a_call_owns_its_send_and_the_refresh_it_makes() {
     let (mut r, _) = boot();
@@ -233,9 +249,9 @@ fn a_call_owns_its_send_and_the_refresh_it_makes() {
     assert_eq!(calls(&r)[1]["outcome"], "failed", "{}", logs(&r));
 }
 
-/// A re-ask the person's commit makes of a resource the call last asked is not
-/// the call's; it replaces the call's ask, and the call is `superseded`, its
-/// write `applied`.
+/// D7: a re-ask the person's commit makes of a resource the call last
+/// asked is not the call's; it replaces the call's ask, and the call is
+/// `superseded`, its write `applied`.
 #[test]
 fn a_persons_refresh_supersedes_the_calls_ask() {
     let (mut r, _) = boot();
@@ -252,8 +268,8 @@ fn a_persons_refresh_supersedes_the_calls_ask() {
     );
 }
 
-/// A commit that would let go of the call's ask and is then refused lets go of
-/// nothing: the call runs on to its end.
+/// D7: a commit that would let go of the call's ask and is then refused
+/// lets go of nothing: the call runs on to its end.
 #[test]
 fn a_refused_commit_does_not_supersede() {
     let (mut r, _) = boot();
@@ -266,9 +282,9 @@ fn a_refused_commit_does_not_supersede() {
     assert_eq!(calls(&r)[0]["outcome"], "ok", "{}", logs(&r));
 }
 
-/// A re-ask the device makes of a resource a call last asked keeps the call's
-/// origin and no invocation's id: a later call does not wait for it. Nor for a
-/// re-ask the person made.
+/// D7: a re-ask the device makes of a resource a call last asked keeps the
+/// call's origin and no invocation's id: a later call does not wait for
+/// it. Nor for a re-ask the person made.
 #[test]
 fn a_device_reask_is_not_the_calls() {
     let (mut r, _) = boot();
@@ -301,8 +317,8 @@ fn a_calls_commit_skips_a_command_that_moves_the_view() {
     );
 }
 
-/// Background storage still writing when the call's work has landed: `failed`,
-/// `uncertain`.
+/// D7: background storage still writing when the call's work has landed:
+/// `failed`, `uncertain`.
 #[test]
 fn background_storage_at_the_end_is_uncertain() {
     let (mut r, background) = boot();
@@ -322,7 +338,7 @@ fn background_storage_at_the_end_is_uncertain() {
     );
 }
 
-/// Arguments are the action's, exactly; a refusal is `none`.
+/// LLP 1111 D4: arguments are the action's, exactly; a refusal is `none`.
 #[test]
 fn arguments_that_are_not_the_actions_are_refused() {
     let (mut r, _) = boot();
@@ -341,4 +357,70 @@ fn arguments_that_are_not_the_actions_are_refused() {
         );
     }
     assert!(r.call_tool("nothing", "{}", CallHow::default()).is_err());
+}
+
+/// LLP 1133.023 D7: a call its caller cancels while it waits never runs and
+/// ends `refused`, `none` (`cancelled`); one cancelled after dispatch runs to
+/// its end, and its record says the caller left.
+#[test]
+fn a_cancelled_call_is_dropped_while_it_waits_and_finished_once_it_runs() {
+    let (mut r, _) = boot();
+    let cancel = |r: &mut Runner<Later>, id: u64| -> serde_json::Value {
+        let reply = r.call_agent("cancel", &format!(r#"{{"op":"cancel","id":{id}}}"#));
+        serde_json::from_str(&reply.unwrap().unwrap()).unwrap()
+    };
+    call(&mut r, "bump", r#"{"by":2}"#);
+    let waiting = r.call_tool("look", "{}", agent()).unwrap();
+    by(&mut r, 0.0);
+    assert_eq!(calls(&r)[1]["state"], "waiting", "{}", logs(&r));
+    assert_eq!(cancel(&mut r, waiting)["state"], "ended");
+    let c = calls(&r)[0].clone();
+    assert_eq!(
+        (
+            c["tool"].as_str(),
+            c["outcome"].as_str(),
+            c["certainty"].as_str(),
+            c["reason"].as_str()
+        ),
+        (
+            Some("look"),
+            Some("refused"),
+            Some("none"),
+            Some("cancelled")
+        ),
+        "{c}"
+    );
+    assert_eq!(c["cancelled"], true);
+    answer(&mut r, "logged", "ok");
+    answer(&mut r, "count", "5");
+    assert_eq!(calls(&r)[1]["outcome"], "ok", "{}", logs(&r));
+    // `look` never ran: its commit's `focus` was never skipped.
+    assert!(!logs(&r).contains("focus: skipped"), "{}", logs(&r));
+
+    let running = r.call_tool("bump", r#"{"by":1}"#, agent()).unwrap();
+    by(&mut r, 0.0);
+    assert_eq!(calls(&r)[2]["state"], "running", "{}", calls(&r));
+    assert_eq!(cancel(&mut r, running)["state"], "running");
+    assert!(
+        logs(&r).contains("bump: its caller cancelled; it runs to its end"),
+        "{}",
+        logs(&r)
+    );
+    answer(&mut r, "logged", "ok");
+    answer(&mut r, "count", "6");
+    let c = calls(&r)[2].clone();
+    assert_eq!(
+        (
+            c["outcome"].as_str(),
+            c["certainty"].as_str(),
+            c["cancelled"].as_bool()
+        ),
+        (Some("ok"), Some("applied"), Some(true)),
+        "{c}"
+    );
+    assert_eq!(cancel(&mut r, running)["state"], "ended");
+    assert!(r
+        .call_agent("cancel", r#"{"op":"cancel","id":99}"#)
+        .unwrap()
+        .is_err());
 }

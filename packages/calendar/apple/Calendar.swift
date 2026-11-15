@@ -1,25 +1,25 @@
-// @exact/calendar on Apple: the person's calendars, read and
+// @exact/calendar on Apple (LLP 1133.018): the person's calendars, read and
 // written under access, and an event added through the system's editor.
 // Under the agent it asks EventKit for nothing and answers from the agent's
-// calendars (AgentCalendar.swift); the runner holds the permission,
+// calendars (AgentCalendar.swift, §10); the runner holds the permission,
 // editor and raise tickets and answers the status. Otherwise EventKit
 // answers (EventStore.swift).
 //
 // - `calendarEvents` answers the occurrences overlapping `[start, end)`, at
 //   most four years, in one order on every target: `utcStart`, `utcEnd`,
-//   `id`, `recurrenceId`. Its cursor is the last occurrence's place in
+//   `id`, `recurrenceId` (D3). Its cursor is the last occurrence's place in
 //   that order, so a page asked again after a change starts after the same
-//   occurrence.
+//   occurrence (D6).
 // - Under write-only access every read and `removeEvent` fails
 //   `NotAllowedError`, `write-only`, and `saveEvent` adds to the default
-//   calendar only and answers no `id`.
+//   calendar only and answers no `id` (D5, D11).
 // - The editor's `save` adds the event to the store. It answers `saved` on
 //   iOS, whose editor reports it, and `unknown` on macOS, whose editor is an
-//   `.ics` file.
-// - A change is announced, coalesced: while the re-asks one
+//   `.ics` file (D15).
+// - A change is announced, coalesced (D7): while the re-asks one
 //   announcement caused are in flight, further changes set a mark, and one
 //   more announcement follows them landing.
-// - Tier 3: the hatches below, called on the main thread, never under
+// - Tier 3 (D10): the hatches below, called on the main thread, never under
 //   the agent.
 import EventKit
 #if canImport(UIKit)
@@ -45,7 +45,7 @@ public final class CalendarModule: ExactPackage {
     private lazy var real = EventStore(log: { [weak self] in self?.say($0) }, changed: { [weak self] in self?.changedStore() })
     /// The live names read and not released, which observing follows.
     private var readers: Set<String> = []
-    /// Coalescing: an announcement's re-asks in flight; a change since.
+    /// Coalescing (D7): an announcement's re-asks in flight; a change since.
     private var awaiting = false, dirty = false, rounds = 0
     /// The agent's words last seen, so each new value acts once.
     private var store = "calendar.json", notify: Int?
@@ -103,7 +103,7 @@ public final class CalendarModule: ExactPackage {
             say(book.load(file) ? "store \(file)" : "store \(file): no such fixture")
             changedStore()
         } else if changed {
-            // A raise to full is a change of what reads answer (reset, then announce).
+            // A raise to full is a change of what reads answer (D7: reset, then announce).
             say("access \(access)")
             changedStore()
         }
@@ -121,12 +121,12 @@ public final class CalendarModule: ExactPackage {
 
     public func foreground(_ shown: Bool) {
         guard shown else { return }
-        // Access may have changed in Settings meanwhile.
+        // Access may have changed in Settings meanwhile (D5).
         if !context.agent { real.refresh() }
         changedStore()
     }
 
-    // MARK: announcing
+    // MARK: announcing (D7)
 
     private func changedStore() {
         guard !readers.isEmpty else { context.changed("calendar.calendarStatus"); return }
@@ -159,7 +159,7 @@ public final class CalendarModule: ExactPackage {
         }
     }
 
-    // MARK: the agent's answers
+    // MARK: the agent's answers (§10)
 
     private func status() -> [String: Any] {
         ["available": true, "state": "prompt", "access": book.access, "editor": true, "apple": NSNull(), "android": NSNull()]
@@ -211,7 +211,7 @@ public final class CalendarModule: ExactPackage {
         let asked = args["calendar"] as? String
         switch book.access {
         case "write-only":
-            // Saved to the calendar the person chose, and never readable again.
+            // Saved to the calendar the person chose, and never readable again (D11).
             if asked != nil { return ["error": "NotAllowedError", "message": "write-only"] }
             guard let calendar = book.defaultCalendar else { return ["error": "NotFoundError"] }
             let saved = book.stored(event, id: nil, calendar: calendar)

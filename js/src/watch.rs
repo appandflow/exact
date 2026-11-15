@@ -1,4 +1,4 @@
-//! What another thread's interrupt reaches: the module's
+//! What another thread's interrupt reaches (LLP 1048.000 D10): the module's
 //! live runtime, if one is up, and whether an interrupt is outstanding.
 
 use crate::engine::{Engine, Raw};

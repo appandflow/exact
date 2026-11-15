@@ -1,7 +1,7 @@
-// Caltrain's data source in TypeScript — the executor's fixture: the same
-// seam as apps/caltrain/data/src/lib.rs, source by
+// Caltrain's data source in TypeScript — the executor's fixture (LLP 1027
+// D5, §9 stage 1): the same seam as apps/caltrain/data/src/lib.rs, source by
 // source and message by message, so `tests/caltrain.rs` can hold the two to
-// the same bytes. Caltrain the app stays Rust; this
+// the same bytes. Caltrain the app stays Rust (Charlie, 2026-09-03); this
 // file is a test. No imports, no I/O, no globals that reach out.
 
 type Location = { lat: number; lon: number };
@@ -174,7 +174,7 @@ function query(source: string, args: unknown[]): unknown {
 
 // --- the seam ------------------------------------------------------------------
 // `answer` returns the value and throws a `DataError` (an object with `kind`
-// and `message`) for a refusal; the executor marshals both.
+// and `message`) for a refusal; the executor marshals both (LLP 1027 D1a).
 
 function answer(source: string, args: unknown[]): unknown {
   return query(source, args);

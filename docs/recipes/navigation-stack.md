@@ -1,12 +1,11 @@
 # Recipe: a navigation stack
 
-A list pushing a detail, a Cancel/Save sheet, an alert (`pattern list-detail`).
-A second screen is a route (`if` over state gets no Back, links or split).
+Keyed screens go directly in the app's first element (navigation root) or its linked tabpanels.
 
-A route's first `header` with one heading is its bar (title large at `aria-level=1`,
-inline at 2); buttons before it lead, after it trail. A pushed route has
-Back; a `button id="back"` (the root's `navigationBack`) with `text "Notes"`
-titles it "Notes".
+A route's first `header` with one heading is its bar (large at `aria-level=1`,
+inline at 2). `navigationBack="close"` names a control's `id`, not its action:
+`button id="close" press=back`. A missing literal id warns
+(`lower-navigation-back-id`); a control only on another route cannot handle Back.
 
 <!-- check: app -->
 ```contract
@@ -52,7 +51,7 @@ component App
     nav = back(nav)
 
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
+    main navigationKey=`${top(nav).id}` navigationBack="close" navigate=follow width="100%" height="100%"
       for e in stack(nav) key=e.id
         if e.name == "notes"
           // the list
@@ -105,7 +104,7 @@ which a swipe down presses. On the web: a dialog, its actions below.
 ```contract
 column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
   header display="flex" align-items="center" justify-content="space-between"
-    button id="back" press=back aria-label="Cancel"
+    button id="close" press=back aria-label="Cancel"
       image "symbol:close"
     text "New Note" role="heading"
     button press=save buttonStyle="bordered-prominent" aria-label="Save" testId="add-save"
@@ -135,7 +134,7 @@ test "add, open, delete after asking"
 ```
 
 - An alert's `aria-label` is its title. Escape/Back chooses Cancel; only `closedby="any"`
-  dismisses outside. Another modal is a sheet, closed on ok ([after-a-write](after-a-write.md)).
+  dismisses outside. Another modal is a sheet, closed on ok ([after a write](after-a-write.md)).
 - Routes stay mounted: unique `testId`s. `clock settle` after a push, sheet or alert;
   `clock data` before reading a save.
 - A run (a workout, a quiz) has one exit that ends it or asks; no Back leaves it running.

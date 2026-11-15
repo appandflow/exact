@@ -1,5 +1,5 @@
-// Pictures of a package's `img` scheme on the JS target, as the native
-// hosts' raster loaders and the runner's
+// Pictures of a package's `img` scheme on the JS target (LLP 1133.019 D2,
+// D11 item 1), as the native hosts' raster loaders and the runner's
 // `modules/pictures.rs` do: a source such as `swatch:red`, whose scheme an
 // interface declares (`images`), is never fetched. An `img` given one (bound,
 // through `PropHooks.src`, or literal, as rows.rs writes it:
@@ -20,7 +20,7 @@ export function packagePictures(schemes, admit, instance, decide) {
   const showing = new Map(); // img → { source, url, asked }
   const generations = new Map(); // source → its generation: a revocation moves it
   // Boxes refused admission: asked again after each commit, since an implementation bound or a permission granted
-  // since may let one in.
+  // since may let one in (D2).
   const refused = new Set();
   const extensionOf = v => { const i = typeof v === "string" ? v.indexOf(":") : -1; return i > 0 && Object.hasOwn(schemes, v.slice(0, i)) ? schemes[v.slice(0, i)] : undefined; };
   const forget = e => { const s = showing.get(e); if (s?.url) URL.revokeObjectURL(s.url); showing.delete(e); };
@@ -45,7 +45,7 @@ export function packagePictures(schemes, admit, instance, decide) {
     e.$picture = source;
     e.setAttribute("data-exact-picture", source);
     const why = admit(extension, source);
-    if (why) { say(`image refused: ${source}: ${why}`); refused.add(e); fail(e, why); return; }
+    if (why) { say(`image refused: ${source}: ${why} (LLP 1133.019 D2)`); refused.add(e); fail(e, why); return; }
     const s = { source, url: null, asked: generations.get(source) ?? 0 };
     showing.set(e, s);
     e.removeAttribute("src");
@@ -79,7 +79,7 @@ export function packagePictures(schemes, admit, instance, decide) {
     for (const e of document.querySelectorAll("#exact-root img[data-exact-picture]")) {
       const v = e.getAttribute("data-exact-picture");
       if (e.$picture === v) continue;
-      if (extensionOf(v) === undefined) { e.$picture = v; say(`image refused: ${v}: no package serves its scheme`); fail(e, "no package serves its scheme"); continue; }
+      if (extensionOf(v) === undefined) { e.$picture = v; say(`image refused: ${v}: no package serves its scheme (LLP 1133.019 D2)`); fail(e, "no package serves its scheme"); continue; }
       draw(e, v);
     }
     for (const e of [...showing.keys()]) if (!e.isConnected) forget(e);

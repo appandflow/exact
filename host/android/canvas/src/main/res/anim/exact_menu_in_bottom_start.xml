@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A menu opening: Material's, as Compose's DropdownMenu moves it. It grows from 80% at the
+<!-- A menu opening (LLP 1115.001 D10): Material's, as Compose's DropdownMenu moves it. It grows from 80% at the
      corner by its anchor over 120 ms and fades in over 30. The window manager runs it (Surfaces.kt). -->
 <set xmlns:android="http://schemas.android.com/apk/res/android" android:shareInterpolator="false">
     <scale

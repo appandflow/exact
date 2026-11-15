@@ -1,16 +1,16 @@
-// @exact/geofencing on Apple: the regions are the
+// @exact/geofencing on Apple (LLP 1133.021 D10-D14): the regions are the
 // host's region carrier's (`context.regions`, a `CLMonitor` the host makes
 // again at launch), and the module asks for Always and reads it back.
 //
-// - Ask: one call, `requestAlwaysAuthorization()`, whatever the When
+// - Ask (D13): one call, `requestAlwaysAuthorization()`, whatever the When
 //   In Use state; the request is remembered in the defaults, since a second
 //   call does nothing, and When In Use after it reads `denied`.
-// - Twenty regions an app: the twenty-first fails `QuotaExceededError`;
+// - Twenty regions an app (D11): the twenty-first fails `QuotaExceededError`;
 //   a radius under 100 m is raised to 100 with a journal line.
 // - A crossing reaches the module as a wake of kind `region` whose keys are
 //   the regions crossed: each undelivered transition is raised, one at a
 //   time, as `geofenceenter` or `geofenceleave`, and is forgotten only when
-//   its invocation completes.
+//   its invocation completes (D14 step 3).
 import CoreLocation
 import ExactPackage
 import Foundation
@@ -51,7 +51,7 @@ public final class GeofencingModule: NSObject, ExactPackage, CLLocationManagerDe
         }
     }
 
-    // MARK: permission
+    // MARK: permission (D13)
 
     private var authorization: CLAuthorizationStatus { manager.authorizationStatus }
 
@@ -105,14 +105,14 @@ public final class GeofencingModule: NSObject, ExactPackage, CLLocationManagerDe
         if authorization != .notDetermined, !authorizing.isEmpty, state() != "prompt" || alwaysRequested { settle() }
     }
 
-    // MARK: regions
+    // MARK: regions (D10, D11)
 
     private func add(_ args: [String: Any], _ reply: @escaping ([String: Any]) -> Void) {
         let name = args["name"] as? String ?? ""
         let latitude = args["latitude"] as? Double ?? 0, longitude = args["longitude"] as? Double ?? 0
         var radius = args["radius"] as? Double ?? 100
         if radius < 100 {
-            context.log("addGeofence \(name): radius \(radius) raised to 100")
+            context.log("addGeofence \(name): radius \(radius) raised to 100 (LLP 1133.021 D11)")
             radius = 100
         }
         let others = context.regions.list().filter { $0["name"] as? String != name }
@@ -124,7 +124,7 @@ public final class GeofencingModule: NSObject, ExactPackage, CLLocationManagerDe
         reply(["name": name, "latitude": latitude, "longitude": longitude, "radius": radius, "inside": NSNull()])
     }
 
-    // MARK: crossings
+    // MARK: crossings (D14)
 
     public func woke(_ wake: ExactWake) {
         guard wake.kind == "region" else { return wake.done(success: true) }
@@ -146,7 +146,7 @@ public final class GeofencingModule: NSObject, ExactPackage, CLLocationManagerDe
         let event: [String: Any] = ["geofence": geofence, "timestamp": pending["timestamp"] ?? 0]
         wake.raise(kind == "enter" ? "geofenceenter" : "geofenceleave", [event]) { [self] outcome in
             context.log("geofencing: \(name) \(kind) \(outcome)")
-            if outcome == "completed" || outcome == "unheard" { context.regions.delivered(name: name) }
+            if outcome == "completed" || outcome == "unheard" { context.regions.delivered(name: name, pending: pending) }
             deliver(names.dropFirst(), wake)
         }
     }

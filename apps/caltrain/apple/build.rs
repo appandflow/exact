@@ -26,7 +26,7 @@ fn main() {
         contract::bake(plan, caltrain_data::Caltrain).unwrap_or_else(|e| panic!("bake: {e:?}"));
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
     std::fs::write(out_dir.join("app.plan"), baked.encode()).unwrap();
-    // The compatibility id for this platform, beside the
+    // The compatibility id (LLP 1030 D3a) for this platform, beside the
     // plan: what a bundle may depend on and this binary cannot replace.
     println!("cargo:rerun-if-changed=../app.json");
     println!("cargo:rerun-if-changed=../data");
@@ -56,7 +56,7 @@ fn main() {
     } else {
         "exact_apple_update"
     };
-    // What the archive links, as its compatibility inputs name it.
+    // What the archive links, as its compatibility inputs name it (LLP 1047.001 D2).
     let linked = exact_bake::apple_link(&compat, host);
     std::fs::write(out_dir.join("compat.json"), compat.to_json()).unwrap();
     let pair = if std::env::var_os("EXACT_BAKED").is_some() {
@@ -72,7 +72,8 @@ fn main() {
         contract::rust_entry(
             "caltrain_data::Caltrain",
             "caltrain_data::Caltrain",
-            compat.inputs["rustMode"].as_str().unwrap()
+            compat.inputs["rustMode"].as_str().unwrap(),
+                &compat.inputs,
         ).unwrap(),
         linked
     );

@@ -1,4 +1,4 @@
-// @exact/local-auth's conformance suite on Apple, with the
+// @exact/local-auth's conformance suite on Apple (LLP 1133.010 D16), with the
 // implementation bound (`--bind local-auth`) and the platform's stores
 // (`EXACT_STORE=real`): LocalAuthentication's own sheet, and locked items in
 // the keychain. The fixture app is the one `exact new` makes outside the repo
@@ -8,8 +8,8 @@
 // BiometricKit notifications (the Features menu's), each sheet matched or
 // failed the same way, and the system's alerts answered through XCTest's
 // SpringBoard (`touch: 'platform'`). A simulator has no Secure Enclave: this
-// proves the flow and the refusals, not the hardware.
-// macOS: what a build without a provisioning profile does: no locked
+// proves the flow and the refusals, not the hardware (D2).
+// macOS: what a build without a provisioning profile does (D7): no locked
 // secret is kept, a name that must be locked is refused, an optional one
 // stays plain. It shows no sheet, so it needs no one at the Mac.
 //
@@ -158,7 +158,7 @@ try {
       const plain = await until(s, 'facts', (t) => t === 'true false true true');
       check('ios', 'unprotect, after the sheet, keeps the token plain', unprotected === 'unprotected' && plain === 'true false true true', `${unprotected} / ${plain}`);
       await s.close();
-      // A new install deletes what the last left in the keychain, which iOS keeps past a deletion.
+      // A new install deletes what the last left in the keychain (LLP 1018 D7), which iOS keeps past a deletion.
       const bundle = simctl('get_app_container', udid, id).stdout.trim();
       const copy = resolve(process.env.TMPDIR ?? '/tmp', `local-auth-${Date.now()}.app`);
       spawnSync('cp', ['-R', bundle, copy]);

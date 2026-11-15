@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
 
-/// The layout regions AppKit lays out beside the safe area,
+/// The layout regions AppKit lays out beside the safe area (LLP 1123 D10),
 /// what `env(-exact-<region>-inset-<edge>)` resolves to: each region of the
 /// session's view, as an inset per edge from its bounds, the viewport.
 /// AppKit is the source: its corner adaptation is macOS 26's

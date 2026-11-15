@@ -1,5 +1,5 @@
-//! Answers that keep coming, the runner half: a scripted stream, no
-//! network.
+//! Answers that keep coming, the runner half (LLP 1016.000 D1, D2, D4, D5;
+//! LLP 1069.004 slice 1): a scripted stream, no network.
 use super::*;
 use crate::{Message, Outcome, Response, Store};
 use exact_kernel::{Kernel, NodeType};
@@ -11,11 +11,11 @@ use exact_plan::{asm::Asm, builder::PlanBuilder, Plan, TypeKind};
 struct Scripted {
     bad_message: bool,
     reopen_on_gap: bool,
-    /// Its stream is a long poll.
+    /// Its stream is a long poll (LLP 1016.000 D8).
     long_poll: bool,
     /// … and asked of native work, which no host may run as one.
     native: bool,
-    /// Its stream is an upload that tells its bytes sent.
+    /// Its stream is an upload that tells its bytes sent (LLP 1016.000 D10).
     upload: bool,
     /// … whose failure it fails to take.
     failing_end: bool,
@@ -83,7 +83,7 @@ impl DataSource for Scripted {
             Outcome::Message(_) if self.bad_message => {
                 Err(DataError::Unavailable("not a number".into()))
             }
-            // A gap: reopen from the cursor.
+            // A gap: reopen from the cursor (LLP 1016.000 D6).
             Outcome::Message(m) if self.reopen_on_gap && m.coalesced > 0 => Ok(Answer::stream(
                 crate::Request::get("https://example.test/events").header("last-event-id", "1"),
             )),
@@ -175,6 +175,16 @@ fn one_stream(r: &mut Runner<Scripted>) -> u64 {
     out[0].ticket
 }
 
+/// What a render's checkpoint would list now: pending, and the answers open,
+/// by name (LLP 1048.000 D6).
+fn listed(r: &Runner<Scripted>) -> (Vec<String>, Vec<String>) {
+    let checkpoint = r.document_checkpoint("/");
+    let open = (checkpoint.open.iter())
+        .map(|&k| checkpoint.answers[k].0.clone())
+        .collect();
+    (checkpoint.pending, open)
+}
+
 #[test]
 fn three_messages_then_a_close_commit_four_times() {
     let mut r = boot();
@@ -184,7 +194,8 @@ fn three_messages_then_a_close_commit_four_times() {
         Value::Bool(true),
         "pending until a message"
     );
-    assert!(r.has_pending());
+    assert!(r.has_pending() && !r.is_open_stream(ticket));
+    assert_eq!(listed(&r), (vec!["progress".into()], vec![]));
     for (i, n) in ["10", "20", "30"].iter().enumerate() {
         let receipt = r.fulfill(ticket, message(n, 0)).unwrap();
         assert!(receipt.is_some(), "message {i} commits");
@@ -196,7 +207,8 @@ fn three_messages_then_a_close_commit_four_times() {
         );
         assert!(!r.has_pending(), "settle does not wait on an open stream");
         assert!(r.holds(ticket), "the ticket stays open");
-        assert!(r.in_flight().is_empty());
+        assert!(r.in_flight().is_empty() && r.is_open_stream(ticket));
+        assert_eq!(listed(&r), (vec![], vec!["progress".into()]));
     }
     assert_eq!(
         r.streams(),
@@ -221,7 +233,8 @@ fn three_messages_then_a_close_commit_four_times() {
         Value::Number(-2.),
         "the end is shaped"
     );
-    assert!(!r.holds(ticket) && r.streams().is_empty());
+    assert!(!r.holds(ticket) && r.streams().is_empty() && !r.is_open_stream(ticket));
+    assert_eq!(listed(&r), (vec![], vec![]));
     assert!(
         r.take_requests().is_empty(),
         "the host never reconnects by itself"
@@ -318,7 +331,7 @@ fn a_long_poll_waiting_to_ask_again_shows_retrying() {
     );
 }
 
-/// A long poll's first reply of any kind takes it out
+/// LLP 1016.000 D8 on D9: a long poll's first reply of any kind takes it out
 /// of every clock's wait; from then it is held and named,
 /// and each reply (no event, an event, its end) raises `heldReplies`.
 #[test]
@@ -347,8 +360,12 @@ fn a_long_poll_s_replies_hold_it_and_each_counts() {
     assert!(!r.has_pending(), "but waited on by no clock");
     assert_eq!(r.held_requests(), [("progress".to_string(), ticket)]);
     assert_eq!(r.held_replies(), [("progress".to_string(), 1)]);
+    assert!(!r.is_open_stream(ticket), "not open before its first event");
+    assert_eq!(listed(&r), (vec!["progress".into()], vec![]));
     r.fulfill(ticket, message("5", 0)).unwrap();
     assert_eq!(value(&r, "progress"), Value::Number(5.));
+    assert!(r.is_open_stream(ticket));
+    assert_eq!(listed(&r), (vec![], vec!["progress".into()]));
     assert_eq!(r.held_replies(), [("progress".to_string(), 2)]);
     let state = crate::agent::state(&r);
     assert!(
@@ -446,7 +463,7 @@ fn a_response_that_is_not_an_event_stream_ends_it() {
     assert_eq!(value(&r, "progress"), Value::Number(-2.));
 }
 
-/// An upload is in flight until its reply, for
+/// An upload (LLP 1016.000 D10) is in flight until its reply, for
 /// `pending(…)`, `state.pending` and every clock, while each count of its
 /// bytes sent commits; the reply ends it.
 #[test]
@@ -469,7 +486,10 @@ fn an_upload_is_pending_until_its_reply_while_its_progress_commits() {
         );
         assert!(r.has_pending(), "every clock waits for it");
         assert_eq!(r.in_flight(), [("progress".to_string(), ticket)]);
-        assert!(r.holds(ticket));
+        assert!(
+            r.holds(ticket) && !r.is_open_stream(ticket),
+            "in flight, not open"
+        );
     }
     let reply = Outcome::Response(Response {
         status: 201,
@@ -486,7 +506,7 @@ fn an_upload_is_pending_until_its_reply_while_its_progress_commits() {
     assert!(!r.has_pending() && r.in_flight().is_empty() && !r.holds(ticket));
 }
 
-/// An upload is asked once for its arguments: neither a
+/// An upload is asked once for its arguments (LLP 1016.000 D10): neither a
 /// topic it watches nor a refresh asks it again, in flight or after its
 /// reply; new arguments do, letting the running one go.
 #[test]
@@ -532,8 +552,8 @@ fn an_upload_is_asked_once_for_its_arguments() {
 }
 
 /// … and so is one whose end its source failed to take: the failure stands
-/// through a topic it watches, a refresh, and another reply's store write;
-/// new arguments ask again.
+/// through a topic it watches, a refresh, and another reply's store write
+/// (LLP 1146 §2.3); new arguments ask again.
 #[test]
 fn an_upload_that_failed_is_not_asked_again_at_its_arguments() {
     let mut r = boot_with(Scripted {
@@ -549,7 +569,7 @@ fn an_upload_that_failed_is_not_asked_again_at_its_arguments() {
     r.changed("clock").unwrap();
     r.act("refresh", vec![]).unwrap();
     // As if its answer had read the store, and another reply's turn wrote it.
-    r.store_readers[0] = true;
+    r.resources[0].store_reader = true;
     r.ask_failed_readers(None);
     r.act("wave", vec![Value::Number(1.)]).unwrap();
     assert!(r.take_requests().is_empty(), "nothing asks it again");
@@ -602,7 +622,11 @@ fn one(r: &mut Runner<Scripted>) -> u64 {
 
 /// Why `progress` failed: its failure's reason, else its message.
 fn failure(r: &Runner<Scripted>) -> Option<String> {
-    let f = crate::failure::state(&r.failed_args, &r.failed_why, 0)?;
+    let f = crate::failure::state(
+        crate::vm::Column::rows(&r.resources, |row| &row.failed_args),
+        crate::vm::Column::rows(&r.resources, |row| &row.failed_why),
+        0,
+    )?;
     Some(if f.reason.is_empty() {
         f.message
     } else {
@@ -610,7 +634,7 @@ fn failure(r: &Runner<Scripted>) -> Option<String> {
     })
 }
 
-/// Arguments an upload ended at answer as it ended when
+/// LLP 1016.000 D10: arguments an upload ended at answer as it ended when
 /// they come back, after another upload's answer or a failed ask between;
 /// a store write it read, a topic or a refresh sends none of them again.
 #[test]
@@ -634,7 +658,7 @@ fn an_uploads_arguments_answer_as_it_ended_when_they_come_back() {
         assert_eq!(failure(&r), None);
     }
     // A store write it read, a topic, a refresh: nothing goes out.
-    assert!(r.store_readers[0]);
+    assert!(r.resources[0].store_reader);
     r.store_changed(vec![("token".into(), b"new".to_vec())])
         .unwrap();
     r.changed("clock").unwrap();
@@ -685,8 +709,8 @@ fn an_upload_that_never_reached_the_network_is_asked_again_by_refresh() {
     assert_eq!(r.take_requests().len(), 1, "asked again");
 }
 
-/// A reload and an update of the data module carry the marks:
-/// a finished upload answers as it ended and is not sent again; one
+/// A reload and an update of the data module carry the marks (LLP 1016.000
+/// D10): a finished upload answers as it ended and is not sent again; one
 /// on its way comes back failed, `interrupted`. A launch starts with none:
 /// an upload the app still shows is asked again.
 #[test]
@@ -754,7 +778,7 @@ fn a_refused_commit_puts_the_marks_back() {
     let a = one(&mut r);
     uploaded(&mut r, a, 201);
     let before = r.uploads.clone();
-    let checkpoint = r.checkpoint(true);
+    let checkpoint = r.checkpoint();
     r.act("wave", vec![Value::Number(2.)]).unwrap();
     assert_ne!(r.uploads, before, "wave 2 was asked");
     r.conclude(checkpoint, &Err::<(), _>(RunnerError::Cycle), false);
@@ -762,7 +786,7 @@ fn a_refused_commit_puts_the_marks_back() {
 }
 
 /// Bytes sent mark an upload as having reached the network, and a refused
-/// commit of their message does not undo it: let go, it
+/// commit of their message does not undo it (LLP 1016.000 D10): let go, it
 /// is cut off whatever the host then says, and `refresh` sends nothing.
 #[test]
 fn a_refused_progress_commit_leaves_the_upload_sent() {
@@ -778,8 +802,8 @@ fn a_refused_progress_commit_leaves_the_upload_sent() {
     assert!(r.take_requests().is_empty(), "not sent again");
 }
 
-/// New arguments that make the same request keep the upload going:
-/// nothing more is sent, and both arguments answer as it
+/// New arguments that make the same request keep the upload going (LLP
+/// 1054.000.000 D3): nothing more is sent, and both arguments answer as it
 /// ends, so neither is sent again when it comes back.
 #[test]
 fn the_same_request_for_new_arguments_keeps_the_upload_for_both() {
@@ -813,7 +837,7 @@ fn the_same_request_for_new_arguments_keeps_the_upload_for_both() {
 
 /// Of a resource's uploads only the newest `ANSWERS_KEPT` keep their
 /// answers; an older one's arguments, asked again, answer that it was sent
-/// already, and nothing goes out.
+/// already, and nothing goes out (LLP 1016.000 D10).
 #[test]
 fn an_old_uploads_arguments_answer_already_sent_and_send_nothing() {
     let mut r = uploads();
@@ -844,7 +868,7 @@ fn an_old_uploads_arguments_answer_already_sent_and_send_nothing() {
 /// executor knows, says after the commit. One that had started is cut off
 /// and not sent again when its arguments come back; one that had not is no
 /// upload asked, and they ask again; and without the host's word it stands
-/// as cut off.
+/// as cut off (LLP 1016.000 D10).
 #[test]
 fn an_upload_let_go_before_its_start_was_heard_waits_for_the_hosts_word() {
     for (word, asks) in [(Some(true), 0), (Some(false), 1), (None, 0)] {
@@ -866,7 +890,7 @@ fn an_upload_let_go_before_its_start_was_heard_waits_for_the_hosts_word() {
     }
 }
 
-/// Marks belong to their resource and its source: an
+/// Marks belong to their resource and its source (LLP 1016.000 D10): an
 /// update that points the resource at another source drops them, and that
 /// source is asked at the arguments.
 #[test]
@@ -913,8 +937,8 @@ fn photos() -> Plan {
     b.finish().unwrap()
 }
 
-/// An immediate update while a burst of fifteen uploads is out.
-/// The old runner heard two of them begin; its executor had begun a
+/// An immediate update while a burst of fifteen uploads is out (LLP 1016.000
+/// D10). The old runner heard two of them begin; its executor had begun a
 /// third, unheard, and the other twelve waited in its queue. The new runner
 /// sends nothing until its host says which had begun: those three come back
 /// cut off, and the twelve that never left are asked again, under tickets
@@ -961,7 +985,12 @@ fn an_update_during_a_burst_asks_again_the_uploads_that_never_left() {
         "tickets past the old ones"
     );
     for i in 0..3 {
-        let f = crate::failure::state(&new.failed_args, &new.failed_why, i).expect("cut off");
+        let f = crate::failure::state(
+            crate::vm::Column::rows(&new.resources, |row| &row.failed_args),
+            crate::vm::Column::rows(&new.resources, |row| &row.failed_why),
+            i,
+        )
+        .expect("cut off");
         assert_eq!(f.reason, "interrupted", "photo{}", i + 1);
     }
 }
@@ -1029,4 +1058,143 @@ fn outstanding_answers_the_agent_as_json() {
     let r = boot();
     let reply = crate::agent::handle(&r, r#"{"op":"outstanding"}"#);
     assert!(reply.starts_with(r#"{"clear":false,"dataReady":true,"poisoned":false,"requests":[],"streams":["progress"]"#), "{reply}");
+}
+
+/// `entropy()` draws randomness and `writer()` keeps a secret, each before
+/// it opens its stream; neither can answer until the source is ready.
+#[derive(Default)]
+struct Deferred {
+    ready: bool,
+}
+
+impl DataSource for Deferred {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        unreachable!("the fixture implements answer")
+    }
+
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        match source {
+            "busy" => return Ok(Answer::Now(args[0].clone())),
+            "entropy" => store.observe_entropy(),
+            _ => store.set("token", "abc").unwrap(),
+        }
+        Ok(Answer::stream(crate::Request::get(&format!(
+            "https://example.test/{source}"
+        ))))
+    }
+
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        _: &str,
+        _: &[Value],
+        _: Outcome,
+    ) -> Result<Answer, DataError> {
+        Ok(Answer::Now(Value::Number(1.)))
+    }
+
+    fn ready(&self) -> bool {
+        self.ready
+    }
+
+    fn grants(&self) -> &str {
+        "secret.keep token\n"
+    }
+}
+
+#[test]
+fn a_stream_asked_at_readiness_is_pending_only_until_its_first_message() {
+    // The writer's write asks the entropy reader again in a second pass of
+    // the same settlement; the writer, asked in the first, is no longer a
+    // stand-in waiting for its source there.
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let number = b.primitive(TypeKind::Number);
+    let boolean = b.primitive(TypeKind::Bool);
+    for name in ["entropy", "writer"] {
+        let resource = b.resource(name, name, &[], number, None);
+        b.set_resource_placeholder_value(resource, &Value::Number(0.));
+        let mut arg = Asm::new();
+        arg.pending_resource(resource);
+        let arg = b.code(arg);
+        b.resource(&format!("{name}Busy"), "busy", &[arg], boolean, None);
+    }
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    let mut r = Runner::boot(
+        b.finish().unwrap(),
+        Deferred::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.data.ready = true;
+    r.data_ready().unwrap();
+    let out = r.take_requests();
+    assert_eq!(out.len(), 2, "one stream each: {out:?}");
+    for asked in &out {
+        r.fulfill(asked.ticket, message("1", 0)).unwrap();
+    }
+    for name in ["entropyBusy", "writerBusy"] {
+        assert_eq!(r.resource(name), Some(&Value::Bool(false)), "{name}");
+    }
+    assert!(r.in_flight().is_empty() && !r.has_pending());
+}
+
+#[test]
+fn frozen_page_releases_a_gated_stream_in_the_transition_commit() {
+    let plan = contract::compile(
+        r#"shape Page
+  frozen: bool
+component App
+  resource page = exactPage() as shape Page
+  resource feed = progress(1) when not page.frozen as shape number else empty()
+  view
+    text `${page.frozen} ${feed}`
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Scripted::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(value(&r, "page"), Value::record(vec![Value::Bool(false)]));
+    let first = one_stream(&mut r);
+    r.fulfill(first, message("5", 0)).unwrap();
+    let hidden = crate::Page {
+        hidden: true,
+        ..r.page()
+    };
+    assert!(
+        r.set_page(hidden).unwrap().is_none(),
+        "visibility alone has no reader"
+    );
+    assert!(r.holds(first), "a hidden desktop keeps its socket");
+    let before = r.kernel().epoch();
+    let frozen = crate::Page {
+        frozen: true,
+        ..hidden
+    };
+    let receipt = r.set_page(frozen).unwrap().unwrap();
+    assert_eq!(receipt.epoch, before + 1);
+    assert_eq!(value(&r, "page"), Value::record(vec![Value::Bool(true)]));
+    assert!(!r.holds(first) && r.streams().is_empty());
+    assert!(r.take_requests().is_empty());
+    assert_eq!(r.fulfill(first, message("99", 0)).unwrap(), None);
+    assert_eq!(value(&r, "feed"), Value::Number(5.));
+    assert!(r.set_page(frozen).unwrap().is_none());
+    r.set_page(hidden).unwrap().unwrap();
+    assert_ne!(
+        one_stream(&mut r),
+        first,
+        "resume asks again while still hidden"
+    );
 }

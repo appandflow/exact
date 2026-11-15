@@ -1,4 +1,5 @@
 //! Product-window qualification, run in the signed-in desktop after building Shelf.
+//! @ref LLP 1149 S2.1, D7, D9; LLP 1115.004 D13.
 use crate::device::tests::{default_frame_is_ink, desktop_arm, desktop_launch};
 use std::{
     fs::{self, File},
@@ -576,7 +577,7 @@ fn assert_picture(image: &tiny_skia::Pixmap) {
 }
 
 #[test]
-#[ignore = "Windows desktop; INK_SHELF names built Shelf.exe"]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_exhausted_devices_exit_with_both_refusals() {
     let exe = std::env::var("INK_SHELF").unwrap();
     for fault in ["no-devices", "no-dxbc"] {
@@ -620,7 +621,7 @@ fn shelf_exhausted_devices_exit_with_both_refusals() {
 }
 
 #[test]
-#[ignore = "Windows desktop; INK_SHELF names built Shelf.exe"]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_both_late_devices_measure_the_first_pixel_trade() {
     let mut app = fallback_launch("slow-devices");
     let text = app.text();
@@ -634,7 +635,7 @@ fn shelf_both_late_devices_measure_the_first_pixel_trade() {
 }
 
 #[test]
-#[ignore = "Windows desktop; INK_SHELF names built Shelf.exe"]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_hardware_recovers_while_startup_warp_is_pending() {
     let mut app = fallback_launch("slow-warp-recovery");
     until("hardware recovered with startup WARP pending", || {
@@ -660,7 +661,7 @@ fn shelf_hardware_recovers_while_startup_warp_is_pending() {
 }
 
 #[test]
-#[ignore = "Windows desktop; INK_SHELF names built Shelf.exe"]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_device_preparation_overlaps_slow_configuration() {
     let app = fallback_launch("slow-config");
     let text = app.close();
@@ -673,7 +674,7 @@ fn shelf_device_preparation_overlaps_slow_configuration() {
 }
 
 #[test]
-#[ignore = "Windows desktop; INK_SHELF names built Shelf.exe"]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_quit_does_not_join_a_pending_shell_call() {
     let app = fallback_launch("slow-jump-list");
     until("jump list worker started", || {
@@ -703,19 +704,19 @@ fn warp_boot(fault: &str) {
 }
 
 #[test]
-#[ignore = "Windows desktop; INK_SHELF names built Shelf.exe"]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_hardware_open_refusal_uses_warp() {
     warp_boot("hardware-open");
 }
 
 #[test]
-#[ignore = "Windows desktop; INK_SHELF names built Shelf.exe"]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_hardware_attach_refusal_uses_warp() {
     warp_boot("hardware-attach");
 }
 
 #[test]
-#[ignore = "Windows desktop; INK_SHELF names built Shelf.exe"]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_slow_preparation_displays_cpu_before_hardware() {
     let mut app = fallback_launch("slow-hardware");
     let first = app.text();
@@ -734,7 +735,7 @@ fn shelf_slow_preparation_displays_cpu_before_hardware() {
 }
 
 #[test]
-#[ignore = "Windows desktop; INK_SHELF names built Shelf.exe"]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_refused_warp_waits_for_prepared_hardware() {
     let mut app = fallback_launch("slow-hardware-no-warp");
     let first = app.text();
@@ -752,7 +753,7 @@ fn shelf_refused_warp_waits_for_prepared_hardware() {
 }
 
 #[test]
-#[ignore = "Windows desktop; INK_SHELF names built Shelf.exe"]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_unavailable_mica_still_presents() {
     let mut app = fallback_launch("mica");
     assert_picture(&app.capture("mica-unavailable"));
@@ -762,7 +763,7 @@ fn shelf_unavailable_mica_still_presents() {
 }
 
 #[test]
-#[ignore = "Windows desktop; INK_SHELF names built Shelf.exe"]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_startup_series() {
     let after = std::env::var("INK_SHELF").unwrap();
     for size in ["1024x720", "1920x1080"] {
@@ -801,7 +802,7 @@ fn shelf_startup_series() {
 }
 
 #[test]
-#[ignore = "Windows desktop; same startup series without the synchronization probe"]
+#[ignore = "NucBox desktop; same startup series without the synchronization probe"]
 fn shelf_startup_intervals() {
     std::env::set_var("EXACT_AGENT_WINDOW_PROBE", "off");
     shelf_startup_series();
@@ -809,7 +810,7 @@ fn shelf_startup_intervals() {
 }
 
 #[test]
-#[ignore = "Windows desktop; 100 paired Shelf launches, startup tail only"]
+#[ignore = "NucBox desktop; 100 paired Shelf launches, startup tail only"]
 fn shelf_startup_tail_series() {
     let exe = std::env::var("INK_SHELF").unwrap();
     for round in 0..100 {
@@ -834,7 +835,7 @@ fn shelf_startup_tail_series() {
 }
 
 #[test]
-#[ignore = "Windows desktop; verify the startup watchdog with a 200 ms layout hold"]
+#[ignore = "NucBox desktop; verify the startup watchdog with a 200 ms layout hold"]
 fn shelf_startup_watchdog() {
     let exe = std::env::var("INK_SHELF").unwrap();
     std::env::set_var(
@@ -873,7 +874,7 @@ fn shelf_startup_watchdog() {
 }
 
 #[test]
-#[ignore = "Windows desktop; INK_SHELF names built Shelf.exe"]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_resize() {
     let mut app = Shelf::open("resize", false);
     app.capture("resize-before");
@@ -885,7 +886,7 @@ fn shelf_resize() {
 }
 
 #[test]
-#[ignore = "Windows desktop; INK_SHELF names built Shelf.exe"]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_minimize_restore() {
     let mut app = Shelf::open("minimize", false);
     app.capture("minimize-before");
@@ -907,7 +908,7 @@ fn shelf_minimize_restore() {
 }
 
 #[test]
-#[ignore = "Windows desktop; system caret blink enabled; INK_SHELF names Shelf.exe"]
+#[ignore = "NucBox desktop; system caret blink enabled; INK_SHELF names Shelf.exe"]
 fn shelf_idle_caret() {
     let mut app = Shelf::open("caret", true);
     let thread = unsafe { GetWindowThreadProcessId(app.hwnd, None) };
@@ -974,7 +975,7 @@ fn shelf_idle_caret() {
 }
 
 #[test]
-#[ignore = "Windows desktop; operator cycles Settings scaling 100%, 150%, 100%, 150%, 100%"]
+#[ignore = "NucBox desktop; operator cycles Settings scaling 100%, 150%, 100%, 150%, 100%"]
 fn shelf_dpi_roundtrip() {
     let mut app = Shelf::open("dpi", false);
     assert_eq!(unsafe { GetDpiForWindow(app.hwnd) }, 96);
@@ -1027,7 +1028,7 @@ fn shelf_dpi_roundtrip() {
 }
 
 #[test]
-#[ignore = "Windows desktop; forces a real GPU TDR with dxcap -forcetdr"]
+#[ignore = "NucBox desktop; forces a real GPU TDR with dxcap -forcetdr"]
 fn shelf_device_loss() {
     let painter = std::env::var("EXACT_PAINTER").ok();
     let requested = std::env::var("EXACT_INK_DEVICE").ok();
@@ -1132,7 +1133,7 @@ fn shelf_device_loss() {
 }
 
 #[test]
-#[ignore = "Windows desktop; a person must unlock after LockWorkStation"]
+#[ignore = "NucBox desktop; a person must unlock after LockWorkStation"]
 fn shelf_lock_unlock() {
     assert!(unlocked(), "desktop must start unlocked");
     let mut app = Shelf::open("lock", false);
@@ -1147,7 +1148,7 @@ fn shelf_lock_unlock() {
         app.alive();
         !unlocked()
     });
-    fs::write(out().join("lock-waiting"), "Unlock the desktop to continue").unwrap();
+    fs::write(out().join("lock-waiting"), "Unlock the NucBox to continue").unwrap();
     until("person unlocks the desktop", || {
         app.alive();
         unlocked()
@@ -1156,7 +1157,7 @@ fn shelf_lock_unlock() {
 }
 
 #[test]
-#[ignore = "Windows desktop; sleep and a 15-second wake timer; unlock if Windows requires it"]
+#[ignore = "NucBox desktop; sleep and a 15-second wake timer; unlock if Windows requires it"]
 fn shelf_sleep_wake() {
     use windows::{
         core::PCWSTR,

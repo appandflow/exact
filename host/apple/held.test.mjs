@@ -2,9 +2,9 @@ import { test, expect } from 'bun:test';
 import { open } from '../../scripts/agent.mjs';
 import { driveHeld, holdingServer } from '../../scripts/held-fixture.mjs';
 
-// A request the server holds (`exactHeld`) on macOS, through Hermes's `fetch`, the runner
+// A request the server holds (`exactHeld`, LLP 1016.000 D9) on macOS, through Hermes's `fetch`, the runner
 // and the Swift agent: no clock waits on it, each clock reply names it, the answer's work after its reply
-// is waited on again, and the same ask unmarked is waited on before a due timer. Against a
+// is waited on again, and the same ask unmarked is waited on before a due timer (calendar F10). Against a
 // built app: `bun scripts/held-fixture.mjs native <dir> [port]`, `(cd <dir> && bun exact.mjs mac)`, then
 // EXACT_HELD_APP=<dir> EXACT_HELD_PORT=<port> (47711).
 test.skipIf(!process.env.EXACT_HELD_APP)('macOS leaves a held fetch out of every clock, names it, and counts the work after its reply', async () => {

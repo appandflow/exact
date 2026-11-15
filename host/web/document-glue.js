@@ -1,5 +1,5 @@
-// A page the build rendered (1a), and the head's fields at
-// runtime. Loaded after paint, only by a page that carries
+// A page the build rendered (LLP 1048.000 D6, 1a), and the head's fields at
+// runtime (LLP 1048.003 D1). Loaded after paint, only by a page that carries
 // a checkpoint or a runtime that sends a `head` op.
 //
 // The document remains visible while its runtime loads and adopts it. Idle
@@ -8,7 +8,7 @@
 // when a device has kept sign-in state. Real links work immediately.
 // Discrete edits and actions replay once, in order, on matching controls. An
 // active IME composition keeps the document in place through compositionend.
-const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line
+const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 
 const IDLE_FALLBACK_MS = 200;
 // A keydown or keyup as kind 6's or 43's payload, as glue.js's `keyChord` writes it (#140).
@@ -28,7 +28,8 @@ function inertAncestor(el) {
 // RealWorld's first press on a slow phone). A checkpoint whose logic answered
 // names a data module: its realm's glue and prelude, and the reader of its
 // fetches' bodies. On an idle page they start when this evaluates, the wasm
-// being in flight from the first paint; on an interaction page, at intent.
+// being in flight from the first paint; on an interaction page, after intent
+// and any named checkpoint's answers arrive.
 function preloadRuntime(checkpoint) {
   const logic = /"logic":(null|"(?:[^"\\]|\\.)*")/.exec(checkpoint?.textContent ?? "")?.[1];
   const files = ["./input-glue.js"];
@@ -64,6 +65,10 @@ function documentBoot(options) {
   const interaction = script?.dataset.activate === "interaction";
   let start;
   const started = new Promise(resolve => { start = resolve; });
+  const answers = started.then(async () => {
+    if (!script?.dataset.src) return;
+    script.textContent = await fetch(script.dataset.src).then(r => r.ok ? r.text() : "").catch(() => "");
+  });
   const hears = (el, kind) => (el?.dataset.exactOn ?? "").split(" ").includes(kind);
   const identity = el => ({ id: Number(el.dataset.view), tag: el.localName,
     name: el.getAttribute("name"), test: el.getAttribute("data-testid"), type: el.getAttribute("type"),
@@ -94,7 +99,7 @@ function documentBoot(options) {
       const el = els.find(el => hears(el, "press"));
       if (el) enqueue(el, "press");
     } else if (event.type === "input" || event.type === "change") {
-      // HTML's two: `input` as the value moves, `change`
+      // HTML's two (LLP 1069.001 D4): `input` as the value moves, `change`
       // when it is committed; a checkbox's value is whether it is checked.
       const el = els.find(el => hears(el, event.type));
       if (el) enqueue(el, event.type, el.type === "checkbox" ? String(el.checked) : el.value);
@@ -139,10 +144,11 @@ function documentBoot(options) {
   const kinds = ["click", "input", "change", "focusin", "focusout", "keydown", "keyup", "compositionstart", "compositionend"];
   for (const kind of kinds) root.addEventListener(kind, record, true);
   for (const kind of ["pointerdown", "keydown", "focusin"]) root.addEventListener(kind, intent, true);
-  // Opening a grouped alert is intent too, even by an invoker with no handler: its message's Tab stop waits for the
-  // runtime (alert-message.js)
-  root.addEventListener("beforetoggle", event => { if (holding && event.newState === "open" && event.target.querySelector?.(':scope > [data-alertpart="message"]')) start(); }, true);
-  if (root.querySelector('dialog[open] > [data-alertpart="message"]')) start(); // one opened before this loaded
+  // Opening a grouped alert or a menu is intent too, even by an invoker with no handler: the alert's message's Tab stop
+  // and the menu's focus and arrows wait for the runtime (alert-message.js, menu-rows.js, input-glue.js)
+  const wakes = el => el.matches?.('[popover][role="menu"]') || el.querySelector?.(':scope > [data-alertpart="message"]');
+  root.addEventListener("beforetoggle", event => { if (holding && event.newState === "open" && wakes(event.target)) start(); }, true);
+  if (root.querySelector('dialog[open] > [data-alertpart="message"], [popover][role="menu"]:popover-open')) start(); // one opened before this loaded
   for (const event of options.early?.splice(0) ?? []) record(event);
   if (!interaction) {
     // Beside the wasm: now, when its download began at the first paint;
@@ -173,7 +179,8 @@ function documentBoot(options) {
   const page = {
     started,
     connect(next) { ({ views, dispatch, log } = next); return page; },
-    checkpoint: `${script?.dataset.digest ?? ""}\n${script?.textContent ?? ""}`,
+    answers,
+    get checkpoint() { return script?.textContent ? `${script.dataset.digest ?? ""}\n${script.textContent}` : ""; },
     get holding() { return holding; },
     get adopted() { return adopted; },
     get adopting() { return adopting; },
@@ -206,7 +213,7 @@ function documentBoot(options) {
       onAdopted();
       // Once the caller's input is ready: until then the host holds every
       // control disabled (input waits for the handlers of the pieces the tree
-      // uses), and a replay into one would be dropped. The caller
+      // uses, LLP 1047 D5), and a replay into one would be dropped. The caller
       // resolves it synchronously at readiness; a task would wait behind the
       // next frame.
       inputReady.then(() => {
@@ -292,7 +299,7 @@ if (checkpoint?.dataset.activate === "interaction" && !globalThis.exact.document
       if (rel === "preload") { link.as = "fetch"; link.crossOrigin = ""; }
       document.head.append(link);
     }
-    preloadRuntime(checkpoint);
+    page.answers.then(() => preloadRuntime(checkpoint));
     const script = document.createElement("script");
     script.type = "module"; script.src = new URL("./glue.js", import.meta.url).href;
     script.onerror = () => { root.dataset.error = "The runtime could not load. Reload to retry; page links still work."; };

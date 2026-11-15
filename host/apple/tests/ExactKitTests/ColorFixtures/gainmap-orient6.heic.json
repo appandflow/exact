@@ -3,7 +3,7 @@
   "class" : "hdr",
   "file" : "gainmap-orient6.heic",
   "id" : "F20",
-  "note" : "ISO 21496-1 gain map, headroom 4; SDR base shown on an SDR display; HDR linear values as the patches say; EXIF orientation 6",
+  "note" : "ISO 21496-1 gain map, headroom 4; SDR base shown on an SDR display; HDR (stage 3) linear values as the patches say; EXIF orientation 6",
   "patches" : [
     {
       "h" : 64,

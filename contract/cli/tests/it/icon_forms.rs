@@ -1,6 +1,6 @@
-//! `exact_kernel::Icon::parse` against the shared cases
-//! (kernel/tests/fixtures/icon-forms.json), which the JS target's mirror
-//! (host/web-js/symbols.js `iconForm`) is held to as well.
+//! @ref LLP 1121 stage 14 C2 — `exact_kernel::Icon::parse` against the
+//! shared cases (kernel/tests/fixtures/icon-forms.json), which the JS target's
+//! mirror (host/web-js/symbols.js `iconForm`) is held to as well.
 
 #[test]
 fn icon_parse_reads_each_shared_case() {

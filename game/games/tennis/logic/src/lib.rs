@@ -142,6 +142,9 @@ impl Game for Tennis {
         far(w);
         fly(w);
         let m = w.resource::<Match>().clone();
+        if matches!(m.phase, Phase::Dead | Phase::Over) {
+            end_returns(w);
+        }
         let wait = if m.call == "Fault" || m.call == "Let" {
             REPLAY
         } else {
@@ -191,6 +194,14 @@ fn sound(w: &World, name: &str, at: Vec3, gain: f32) {
 /// Where the server's hand holds the ball.
 fn hand(side: Side, at: Vec3) -> Vec3 {
     Vec3::new(at.x + 0.3 * side.half(), 1.1, at.z - 0.35 * side.half())
+}
+
+/// A point, a fault or a let ends the rally: neither player has a ball to
+/// meet, so Jev neither commits nor swings at a return it planned.
+fn end_returns(w: &World) {
+    for side in [Side::Near, Side::Far] {
+        w.require_mut::<Player>(name(side)).contact = 0;
+    }
 }
 
 /// Reset for the next point (or the second serve), and ask Jev for its serve.
@@ -459,6 +470,7 @@ fn near(w: &mut World, input: &Input) {
 /// The far player has just struck: ask Jev now for its next shot, so the
 /// question has both balls' flight time (~2.4 s) before its commit point.
 /// Asking when you strike leaves ~1.1 s; the live check measured 19% late.
+/// @ref game/diaries/003-tennis.md "Design: Jev plans, the engine executes"
 fn ask_next(w: &World, intent: &Intent) {
     let flight = ball(w).flight;
     let hint = *w.require::<Player>("near");

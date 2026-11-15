@@ -1,4 +1,4 @@
-// What it tells the runner about the reader's scroll (flag bit 5) and about a
+// LLP 1070.000 §2.6 in the web glue: what it tells the runner about the reader's scroll (flag bit 5) and about a
 // gesture begun since the list's `scrollIntoView` (bit 6). Real DOM and events; the frame clock and the quiet
 // timer are the test's, fired by hand.
 import { beforeAll, afterAll, test as bunTest, expect } from 'bun:test';
@@ -192,7 +192,7 @@ test('the agent\'s settle ends the reader\'s motion, and the frame after it says
   expect(result).toEqual({ before: true, settled: false, after: [false, false], timers: 0 });
 });
 
-// Only an instant write that moved the port owns the next `scrollend`. One to where the port already
+// LLP 1070.000 §2.6: only an instant write that moved the port owns the next `scrollend`. One to where the port already
 // is makes none, so the reader's next `scrollend` stays the reader's.
 test('a write to where the port already is owns no scrollend: the reader\'s next one ends the scroll', async () => {
   const result = await evaluate(`(() => { const f=(${fixture})();
@@ -279,7 +279,7 @@ test('in one scrollport, the move that lands one list\'s smooth correction is no
   expect(result).toEqual({ during: true, animating: false, scrolling: [false, false], gesture: [false, false], top: 800 });
 });
 
-// An authored jump reports its target before the port moves, so its rows are built first; also when
+// LLP 1050.000 §6: an authored jump reports its target before the port moves, so its rows are built first; also when
 // it stops a smooth correction under way, whose stop would otherwise hold the list's report to the next frame.
 test('a jump made while a smooth correction runs reports its target before the port moves', async () => {
   const result = await evaluate(`(() => { const f=(${fixture})();

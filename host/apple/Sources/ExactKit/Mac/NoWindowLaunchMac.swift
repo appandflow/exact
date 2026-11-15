@@ -1,4 +1,4 @@
-// A launch with no window on macOS: an accessory app
+// @ref LLP 1133.025 D6 — a launch with no window on macOS: an accessory app
 // at every launch, and a login launch whose registration asked `hidden`.
 // The host makes the window and does not order it front; the session boots
 // by the window's path, and since a window never ordered front never draws,
@@ -18,7 +18,7 @@ extension ExactSession {
         firstDrawn(generation: generation, token: updateToken)
     }
 
-    /// Whether this session's `-exact-menu="status"` buttons are placed.
+    /// Whether this session's `-exact-menu="status"` buttons are placed (D4).
     public var placesStatusItems: Bool { presenter.statusItems.placed }
 
     /// Told when this session's placed status items become none, or some.

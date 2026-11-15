@@ -22,6 +22,8 @@ seed/PRNG and fractional accumulator. These are callable in the browser console.
 `?proof` enables the manual test clock. The full proof sends actual CDP keyboard
 and mouse events and uses fresh Chrome processes/profiles for replay and restore.
 
+Historical proof results and browser limitations are in [the diary](../../../diaries/001-beacons-three.md).
+
 ## Live feel probe
 
 A headed,

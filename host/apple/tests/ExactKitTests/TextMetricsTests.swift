@@ -1,4 +1,5 @@
 // JSON presentation and the measurement ABI must resolve identical text metrics.
+// @ref LLP 1008 §3, LLP 1001 §5
 #if os(macOS)
 import AppKit
 import IOSurface
@@ -17,7 +18,68 @@ func regionInvalidationFixture(ops: [[String: Any]], protected: Set<UInt32>) -> 
 }
 
 final class TextMetricsTests: XCTestCase {
-    /// `direction: rtl` is the base writing direction, so a Latin
+    func testEstimatedReaderGeometrySettlesOnlyAtItsAcceptedWidth() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "reader-provisional")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = session.presenter.viewport
+        RegionTextExecutor.queue.isSuspended = true
+        defer {
+            RegionTextExecutor.queue.isSuspended = false
+            window.close(); session.destroy()
+        }
+        let text = String(repeating: "Estimated reader paragraph words ", count: 2400)
+        XCTAssertGreaterThan(text.utf8.count, 65536)
+        let source = """
+        component App
+          state flags = [false]
+          action read
+            flags = [frame("paragraph").provisional, measure("paragraph").provisional, frame("holder").provisional, measure("holder").provisional, frame("peer").provisional, measure("peer").provisional]
+          view
+            box
+              button "Read" press=read testId="read"
+              box id="holder"
+                text "\(text)" id="paragraph" testId="paragraph"
+              box id="peer" position="absolute" left=0 top=0 width=20 height=20
+        """
+        XCTAssertNil(session.boot(plan: try TableFixture.plan(source), size: CGSize(width: 600, height: 400)).error)
+        let p = session.presenter
+        let node = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "paragraph" })
+        let read = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "read" })
+        let reader = try XCTUnwrap(session.text.readerParagraphs[node.id])
+        func check(_ pending: Bool) throws {
+            p.press(read.id)
+            let wire = session.runtime.agent("{\"op\":\"state\"}")
+            let state = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(wire.utf8)) as? [String: Any])
+            let slots = try XCTUnwrap(state["slots"] as? [String: Any])
+            XCTAssertEqual(slots["flags"] as? [Bool], [pending, pending, pending, pending, false, false])
+        }
+        try check(true)
+        XCTAssertNil(reader.accepted)
+        session.resize(CGSize(width: 420, height: 400))
+        try check(true)
+        XCTAssertEqual(reader.metrics(width: 420).baseline, -2)
+        RegionTextExecutor.queue.isSuspended = false
+        waitFor("the reader accepts the successor width") {
+            reader.accepted?.metadata.offeredWidth == 420
+        }
+        XCTAssertGreaterThanOrEqual(reader.metrics(width: 420).baseline, 0)
+        try check(false)
+        RegionTextExecutor.queue.isSuspended = true
+        session.resize(CGSize(width: 600, height: 400))
+        try check(true)
+        XCTAssertEqual(reader.metrics(width: 600).baseline, -2)
+        XCTAssertEqual(reader.metrics(width: 600).height, reader.metrics(width: 420).height)
+        RegionTextExecutor.queue.isSuspended = false
+        waitFor("the reader accepts the original width again") {
+            reader.accepted?.metadata.offeredWidth == 600
+        }
+        try check(false)
+    }
+
+    /// LLP 1053: `direction: rtl` is the base writing direction, so a Latin
     /// word that starts the paragraph sits at the right of the Hebrew.
     func testRtlDirectionIsTheParagraphBaseDirection() {
         let engine = TextEngine(resolve: { _ in nil })
@@ -52,7 +114,7 @@ final class TextMetricsTests: XCTestCase {
                 .font: engine.font(size: run.size, weight: run.weight, family: run.family, italic: run.italic),
                 .foregroundColor: TextEngine.color(run.color ?? spec.color)]
             if run.letterSpacing != 0 { attrs[.kern] = run.letterSpacing }
-            // A link run is underlined where the platform underlines links (AppKit; not UIKit).
+            // A link run is underlined where the platform underlines links (AppKit; not UIKit: LLP 1115 §3).
             if run.decoration.isEmpty { if Run.linksUnderlined { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue } }
             else { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             appended.append(NSAttributedString(string: run.text, attributes: attrs))
@@ -987,7 +1049,7 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertFalse(offscreen.textRasterPending)
     }
 
-    /// A live colour-scheme switch repaints every rastered text, as the
+    /// X82: a live colour-scheme switch repaints every rastered text, as the
     /// web does, whether or not it can be selected. A display pass gives two
     /// replacements to the two workers and declines the rest; the pump asks
     /// those again, a button's labels and `user-select: none` included.
@@ -1063,7 +1125,7 @@ final class TextMetricsTests: XCTestCase {
         }
     }
 
-    /// The first-mount case: button labels AppKit asks for while they are
+    /// X82's first-mount case: button labels AppKit asks for while they are
     /// off screen (its overdraw) get a worker's pixels, which wait for the
     /// pump to publish them; one asked while both workers are busy is
     /// declined, and the pump asks it again. None can be selected.
@@ -1244,7 +1306,7 @@ final class TextMetricsTests: XCTestCase {
         defer { window.close(); session.destroy() }
         var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"]]
         for id in 2...4 {
-            // 16 pt pinned: the geometry below predates the platform body size.
+            // 16 pt pinned: the geometry below predates the platform body size (LLP 1115 D3).
             ops.append(["op": "create", "id": id, "kind": "text", "style": ["font_size": 16.0],
                         "props": ["text": String(repeating: "independent paragraph \(id) ", count: 32)]])
         }

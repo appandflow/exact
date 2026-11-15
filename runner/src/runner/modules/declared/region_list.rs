@@ -1,9 +1,9 @@
-//! A keyed list whose entries are watched regions: what
+//! A keyed list whose entries are watched regions (LLP 1133.021 §12): what
 //! `wake_list.rs` does for a registration a wake runs for, where the entry
 //! is neither a one-shot nor periodic but a state the platform reports
 //! crossings of.
 //!
-//! - **The tap chooses its event by a field**: `"tap": {"as":
+//! - **The tap chooses its event by a field** (§9 item 9): `"tap": {"as":
 //!   "wake", "event": {"by": "inside", "false": "geofenceenter", "true":
 //!   "geofenceleave"}, "stays": true}` raises the event named under the
 //!   field's value (`false` for none) and flips the field. A `--wake` entry
@@ -11,16 +11,16 @@
 //! - **It stays.** A tap is refused neither before a due time nor offline,
 //!   and the entry is listed whatever the invocation's outcome. One that
 //!   expires or is superseded keeps the transition, `pending` on the entry,
-//!   as the host's store keeps an undelivered one; the next
+//!   as the host's store keeps an undelivered one (D14 step 3); the next
 //!   delivery of the entry clears it.
 //! - **Each delivery carries a `timestamp`:** the agent clock's date for a
 //!   tap, the entry's own for a `--wake` that gives one (a transition kept
-//!   from before).
+//!   from before, D14).
 //! - **A send that answers a value may list** (`addGeofence` answers its
 //!   `Geofence`): the entry is listed as an answerless send's is, and the
 //!   call answers the entry's fields.
 //! - **`"most"`** bounds the entries of the list's kind, a call that would
-//!   list one more failing with `"over"` (`QuotaExceededError`); a
+//!   list one more failing with `"over"` (`QuotaExceededError`, D11); a
 //!   call that replaces an entry of its key adds none.
 
 use super::super::super::{DataSource, Runner};

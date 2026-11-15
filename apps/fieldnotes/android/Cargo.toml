@@ -1,8 +1,8 @@
-# Fieldnotes on Android's Canvas host: one library with the
+# Fieldnotes on Android's Canvas host (llp/0001 §5): one library with the
 # runner, the kernel, the baked plan, the notes' TypeScript as Hermes
 # bytecode and the Rust backup source (written by build.rs, never committed),
 # which the reader (host/android) loads as libexactcanvas.so. Its share
-# target is driven here. Off Android the library is empty.
+# target (LLP 1133.024 D5) is driven here. Off Android the library is empty.
 [package]
 name = "fieldnotes-android"
 version.workspace = true
@@ -20,8 +20,9 @@ bench = false
 [target.'cfg(target_os = "android")'.dependencies]
 fieldnotes-data = { path = "../data" }
 exact-data-host = { path = "../../../data/host" }
+ibex2-sqlite = { path = "../../../vendor/ibex/crates/ibex2-sqlite" }
 exact-logic = { path = "../../../logic" }
-exact-linux = { path = "../../../host/linux" }
+exact-painted = { path = "../../../host/painted" }
 exact-js = { path = "../../../js" }
 
 [build-dependencies]

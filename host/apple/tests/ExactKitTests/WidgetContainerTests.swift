@@ -8,6 +8,11 @@ import ExactCore
 
 @MainActor
 final class WidgetContainerTests: XCTestCase {
+    func testUpdateLocksStayInTheAppsPrivateContainer() throws {
+        let support = try XCTUnwrap(FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
+        XCTAssertEqual(WidgetContainer.updateBase, support)
+    }
+
     func testPublicationSkipsUnchangedAssetsAndKeepsPinnedGenerations() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -61,7 +66,7 @@ final class WidgetContainerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("widget-generations/current").path))
     }
 
-    /// The build writes `ExactWidgetKinds` for an app with an entry of either kind, empty with
+    /// LLP 1126.001 WP13: the build writes `ExactWidgetKinds` for an app with an entry of either kind, empty with
     /// activities alone; a bundle without it publishes nothing.
     func testPublicationIsGatedOnAnEntryOfEitherKind() throws {
         let fm = FileManager.default

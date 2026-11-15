@@ -1,4 +1,4 @@
-# The Rust binding's fixture: a data source that calls
+# The Rust binding's fixture (LLP 1133.002 stage 3): a data source that calls
 # @exact/geolocation through the binding `build.rs` generates from the app's
 # plan.
 [package]

@@ -1,5 +1,5 @@
 # Markdown's data source: the one seam through which a file becomes a
-# document. Reads on the host's worker, never in the runner.
+# document (LLP 1004 D4). Reads on the host's worker, never in the runner.
 [package]
 name = "markdown-data"
 version.workspace = true

@@ -1,10 +1,10 @@
-// @exact/calendar's conformance suite under the agent: the fixture app
-// built for a host and driven with the implementation's agent path over
-// packages/calendar/fixture/calendar.json, in UTC. The reads are held equal
-// to the suite's own reading of that file: the occurrences overlapping the
-// range, ordered by `utcStart`, `utcEnd`, `id` and `recurrenceId`, `limit`
-// at a time; a cursor asked again after a change starts after the same
-// place in that order.
+// @exact/calendar's conformance suite under the agent (LLP 1133.018 §10, §14
+// stage 0): the fixture app built for a host and driven with the
+// implementation's agent path over packages/calendar/fixture/calendar.json,
+// in UTC. The reads are held equal to the suite's own reading of that file:
+// the occurrences overlapping the range, ordered by `utcStart`, `utcEnd`,
+// `id` and `recurrenceId`, `limit` at a time; a cursor asked again after a
+// change starts after the same place in that order (D6).
 //
 // Three grants: both lines (full, then write-only and the raise), and the
 // write-only line alone. The web has no store: there the status answers
@@ -105,7 +105,7 @@ try {
       check(host, 'declined, it stays write-only', at(12).raised === 'write-only' && at(12).status === 'true granted write-only true', `${at(12).raised} ${at(12).status}`);
       check(host, 'allowed, full, and the reads answer', at(17).raised === 'full' && /^e/.test(at(17).walk) && at(17).walk.split(' ')[0].split(',').length === all.length + 1, `${at(17).raised} ${at(17).walk}`);
     }
-    // A storm of changes costs at most two rounds of reads.
+    // A storm of changes costs at most two rounds of reads (D7).
     {
       const r = drive(fixture, host, flags('granted'), ['clock settle', 'prefer extension calendar.notify=25', 'clock settle', 'clock +3000', 'clock settle', 'tree', 'logs']);
       const lines = r[6]?.lines ?? [], from = lines.findIndex(l => /calendar: notify 25/.test(l));

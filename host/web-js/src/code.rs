@@ -10,11 +10,11 @@
 //!
 //! Values: numbers, strings and bools are JavaScript's; a record or list is
 //! an array; `none` is `null` and `some(x)` is `x` (the checker refuses an
-//! option directly inside an option); unit is `null`.
+//! option directly inside an option, LLP 1090 D2); unit is `null`.
 //!
-//! The runner's evaluation bounds are checked where the VM
+//! The runner's evaluation bounds (LLP 1090 D1, D3) are checked where the VM
 //! checks them, in its order: a body with a list step (a `Map`, `Filter`,
-//! `join`, or a list builder) is *metered*, its function
+//! `join`, or a list builder, LLP 1088 §9.1) is *metered*, its function
 //! counting steps in a local `$s` from 0,
 //! so each call is one evaluation; a `Map`/`Filter` is a loop that steps and
 //! sums its result's extent; a `Record`/`List` is `K`, a `Concat` `cc`, and
@@ -27,13 +27,17 @@ use std::collections::{BTreeMap, BTreeSet};
 /// What names a body may read, from where it is compiled.
 #[derive(Clone, Default)]
 pub struct Scope {
+    /// JavaScript label, evaluated only in the trap catch; whether it poisons a tree update.
+    pub evaluation: Option<(String, bool)>,
     /// JavaScript getters for the enclosing region frames, innermost last:
     /// (item, index, bound).
     pub frames: Vec<Frame>,
     /// Whether this is an action body (writes and commands are allowed).
     pub action: bool,
-    /// The JavaScript object holding the row slots in force (a slot owned by
-    /// a `for` lives on its row), by slot index.
+    /// A shared at-read body accepts its reader's budget.
+    pub unsettled: bool,
+    /// The JavaScript object holding the row slots in force (LLP 1017 P4c:
+    /// a slot owned by a `for` lives on its row), by slot index.
     pub rows: Option<String>,
     /// Row slots available in this scope, excluding slots owned by descendants.
     pub row_slots: BTreeSet<usize>,
@@ -53,13 +57,17 @@ pub struct Uses {
     /// Resource fields read as Markdown, also prepared before an unopened view mounts.
     pub markdown_paths: BTreeSet<Vec<usize>>,
     pub names: BTreeSet<String>,
-    /// budget.js's.
+    /// The host commands the plan's actions name (LLP 1047.002 D1): the ones
+    /// commands.js exports are imported from it by name and handed to the
+    /// runtime, so a command no action names is never linked.
+    pub commands: BTreeSet<String>,
+    /// budget.js's (LLP 1090 D3).
     pub budget: BTreeSet<String>,
     /// How many times generated code named one of budget.js's: a body
     /// that named none cannot trap.
     pub metered: usize,
     /// Module-scope constants, by name: JavaScript built once from the plan
-    /// that many sites share (generated code at scale).
+    /// that many sites share (LLP 1071 §7, generated code at scale).
     pub consts: BTreeMap<String, String>,
     /// The constants `share` made, by value.
     pub shared: BTreeMap<String, String>,
@@ -113,7 +121,7 @@ fn checked(f: Stdlib) -> bool {
 }
 
 /// The roster entries that take list steps on the caller's budget: `join`,
-/// and the list builders, which take its `$s` and leave
+/// and the list builders (LLP 1088 §9.1), which take its `$s` and leave
 /// their own steps in budget.js's `ST`.
 fn stepped(f: u64) -> bool {
     [
@@ -131,7 +139,7 @@ fn stepped(f: u64) -> bool {
     .any(|&g| f == g as u64)
 }
 
-/// Whether `ins` takes list steps, so its function counts them.
+/// Whether `ins` takes list steps, so its function counts them (D1).
 fn metered(ins: &[Instruction]) -> bool {
     ins.iter().any(|i| {
         matches!(i.op, Opcode::Map | Opcode::Filter) || i.op == Opcode::Call && stepped(i.args[0])
@@ -140,10 +148,12 @@ fn metered(ins: &[Instruction]) -> bool {
 
 /// Whether `code` reads or writes a row slot.
 pub fn touches_rows(plan: &Plan, code: &[u8]) -> bool {
-    instructions(code).flatten().any(|i| {
-        matches!(i.op, Opcode::LoadSlot | Opcode::StoreSlot)
-            && plan.slots[i.args[0] as usize].owner.is_some()
-    })
+    exact_runner::vm::transitive_instructions(plan, code)
+        .flatten()
+        .any(|i| {
+            matches!(i.op, Opcode::LoadSlot | Opcode::StoreSlot)
+                && plan.slots[i.args[0] as usize].owner.is_some()
+        })
 }
 
 /// A JavaScript function expression for `code` (`() => …`, or `(p0, …) =>`
@@ -158,7 +168,14 @@ pub fn function(
     let ins: Vec<Instruction> = instructions(code)
         .collect::<Result<_, _>>()
         .map_err(|t| format!("malformed code: {t:?}"))?;
+    let before = uses.metered;
+    let loads = ins
+        .iter()
+        .filter(|i| i.op == Opcode::LoadDerive && plan.unsettled_body(i.args[0] as u32).is_some())
+        .count();
+    let shared = scope.unsettled || loads > 1 || loads != 0 && metered(&ins);
     let mut t = Translator {
+        shared,
         plan,
         scope,
         uses,
@@ -172,16 +189,24 @@ pub fn function(
     let body = t.range(&ins, 0, ins.len())?;
     let ps: Vec<String> = (0..params).map(|i| format!("p{i}")).collect();
     let head = format!("({})", ps.join(","));
-    if metered(&ins) {
-        // One call, one evaluation: its own steps from 0, whatever it reads.
+    if shared || metered(&ins) {
         let out = t.out.strip_suffix("return;").unwrap_or(&t.out);
         let ret = match body {
             Body::Expr(e) => format!("return {e};"),
             Body::Stmts => String::new(),
         };
-        return Ok(format!("{head}=>{{let $s=0;{}{out}{ret}}}", t.decls()));
+        let (head, init) = if scope.unsettled {
+            ("($budget)".to_string(), "")
+        } else if shared {
+            (head, "let $budget={s:0,n:0,d:0};")
+        } else {
+            (head, "let $s=0;")
+        };
+        let f = format!("{head}=>{{{init}{}{out}{ret}}}", t.decls());
+        return Ok(evaluated(f, scope, before, uses));
     }
-    Ok(wrap(&head, &t, body))
+    let f = wrap(&head, &t, body);
+    Ok(evaluated(f, scope, before, uses))
 }
 
 /// `code` as one JavaScript expression evaluated where it is written: the
@@ -194,10 +219,42 @@ pub fn expression(
     uses: &mut Uses,
 ) -> Result<String, String> {
     let f = function(plan, code, scope, 0, uses)?;
-    Ok(match f.strip_prefix("()=>") {
+    Ok(called_expression(f))
+}
+
+pub fn called_expression(f: String) -> String {
+    match f.strip_prefix("()=>") {
         Some(e) if !e.starts_with('{') => e.to_string(),
         _ => format!("({f})()"),
-    })
+    }
+}
+
+pub fn evaluated(f: String, scope: &Scope, before: usize, uses: &mut Uses) -> String {
+    let Some((label, instance)) = &scope.evaluation else {
+        return f;
+    };
+    if uses.metered == before {
+        return f;
+    }
+    let guard = uses.budget("$E");
+    let (head, body) = f.split_once("=>").expect("function");
+    let body = if body.starts_with('{') {
+        body[1..body.len() - 1].to_string()
+    } else {
+        format!("return {body};")
+    };
+    format!(
+        "{head}=>{{try{{{body}}}catch($e){{{guard}($e,{label},{});}}}}",
+        *instance as u8
+    )
+}
+
+/// A scope whose label is only constructed if this evaluation traps.
+pub fn evaluation(scope: &Scope, label: String, instance: bool) -> Scope {
+    Scope {
+        evaluation: Some((serde_json::to_string(&label).unwrap(), instance)),
+        ..scope.clone()
+    }
 }
 
 fn wrap(head: &str, t: &Translator<'_>, body: Body) -> String {
@@ -226,6 +283,7 @@ enum Body {
 }
 
 struct Translator<'a> {
+    shared: bool,
     plan: &'a Plan,
     scope: &'a Scope,
     uses: &'a mut Uses,
@@ -402,7 +460,19 @@ impl Translator<'_> {
                         self.push(format!("s_{}()", x.args[0]))
                     }
                 }
-                Opcode::LoadDerive => self.push(format!("d_{}()", x.args[0])),
+                Opcode::LoadDerive => {
+                    if self.plan.unsettled_body(x.args[0] as u32).is_some() {
+                        self.uses.budget("$enter");
+                        self.push(format!(
+                            "d_{}({},{})",
+                            x.args[0],
+                            if self.shared { "$budget" } else { "undefined" },
+                            x.pc
+                        ));
+                    } else {
+                        self.push(format!("d_{}()", x.args[0]));
+                    }
+                }
                 Opcode::LoadResource => self.push(format!("r_{}()", x.args[0])),
                 Opcode::LoadParam => self.push(format!("p{}", x.args[0])),
                 Opcode::LoadItem | Opcode::LoadIndex | Opcode::LoadBound => {
@@ -489,12 +559,13 @@ impl Translator<'_> {
                             }
                         }
                         self.out.push_str(&format!(
-                            "if(($s+={list}.length)>65536){t}(\"IterationLimit\",{pc});{list}={join}({list},{sep},{pc});",
-                            pc = x.pc
+                            "if(({steps}+={list}.length)>65536){t}(\"IterationLimit\",{pc});{list}={join}({list},{sep},{pc});",
+                            pc = x.pc,
+                            steps = if self.shared { "$budget.s" } else { "$s" }
                         ));
                         self.push(list);
                     } else if stepped(f as u64) {
-                        // `concat`, `slice`, `includes`: this
+                        // `concat`, `slice`, `includes` (LLP 1088 §9.1): this
                         // evaluation's `$s` in, their steps out, at the VM's
                         // point in its order.
                         self.flush();
@@ -511,10 +582,11 @@ impl Translator<'_> {
                             self.uses.budget(&format!("x_{}", f.name())),
                         );
                         self.out.push_str(&format!(
-                            "{r}={name}({},$s,{pc});$s+={st};",
+                            "{r}={name}({},{steps},{pc});{steps}+={st};",
                             regs.join(","),
                             r = regs[0],
-                            pc = x.pc
+                            pc = x.pc,
+                            steps = if self.shared { "$budget.s" } else { "$s" }
                         ));
                         self.push(regs[0].clone());
                     } else if checked(f) {
@@ -571,6 +643,7 @@ impl Translator<'_> {
                     }
                     let base = self.locals;
                     let mut inner = Translator {
+                        shared: self.shared,
                         plan: self.plan,
                         scope: self.scope,
                         uses: self.uses,
@@ -625,12 +698,20 @@ impl Translator<'_> {
                         .to_string();
                     let args = self.popn(x.args[1] as usize)?;
                     self.flush();
-                    let c = self.uses.rt("C");
-                    self.out.push_str(&format!(
-                        "{c}({},[{}]);",
-                        serde_json::to_string(&name).unwrap(),
-                        args.join(",")
-                    ));
+                    // The app's chosen language lands with the action's
+                    // writes (chosen.js, imported by a plan that runs it).
+                    if name == "setLocale" {
+                        self.out
+                            .push_str(&format!("$setLocale({});", args.join(",")));
+                    } else {
+                        self.uses.commands.insert(name.clone());
+                        let c = self.uses.rt("C");
+                        self.out.push_str(&format!(
+                            "{c}({},[{}]);",
+                            serde_json::to_string(&name).unwrap(),
+                            args.join(",")
+                        ));
+                    }
                 }
                 Opcode::Refresh => {
                     self.flush();
@@ -638,10 +719,11 @@ impl Translator<'_> {
                     self.out.push_str(&format!("{r}(r_{});", x.args[0]));
                 }
                 Opcode::PendingResource => self.push(format!("r_{}.p()", x.args[0])),
+                Opcode::CurrentResource => self.push(format!("r_{}.c()", x.args[0])),
                 Opcode::FailedMutation => self.push(format!("m_{}.f()", x.args[0])),
                 Opcode::FailureMutation => self.push(format!("m_{}.e()", x.args[0])),
                 Opcode::FailedResource => self.push(format!("r_{}.f()", x.args[0])),
-                // `none` or the `Failure` record, `[code, message, reason]`.
+                // `none` or the `Failure` record, `[code, message, reason]` (LLP 1109 D3).
                 Opcode::FailureResource => self.push(format!("r_{}.e()", x.args[0])),
                 Opcode::Return => {
                     match self.stack.pop() {
@@ -675,7 +757,7 @@ impl Translator<'_> {
                     ));
                 }
                 Opcode::PendingMutation => self.push(format!("m_{}.p()", x.args[0])),
-                // A native module's props: the pairs as one
+                // A native module's props (LLP 1024 D1): the pairs as one
                 // JSON object of strings, as `stdlib::native_props` writes it.
                 Opcode::NativeProps => {
                     let f = self.popn(x.args[0] as usize * 2)?;
@@ -721,7 +803,7 @@ impl Translator<'_> {
     }
 
     /// A `Map` or `Filter` at `pc` over `list`, its body `f`, as the VM runs
-    /// one: an empty list is itself and takes no step; each item takes a
+    /// one (D3): an empty list is itself and takes no step; each item takes a
     /// step, then runs the body, then adds what it keeps to the result's
     /// extent, trapping where the VM does. A filter that keeps every item is
     /// its list. What came before is flushed first, so it runs first; the
@@ -743,7 +825,8 @@ impl Translator<'_> {
         let add = format!(
             "if(typeof $v===\"string\"){{$c++;$b+=$e?{u}($v):3*$v.length}}else if(typeof $v===\"object\"&&$v!==null){{$c+={p}($v,$e);$b+={eb}}}else $c++;if($c>16777216||$b>67108864&&($e||($e=1,$b={q}($o,{kept}))>67108864)){t}(\"ValueTooLarge\",{pc})"
         );
-        let step = format!("if(++$s>65536){t}(\"IterationLimit\",{pc});");
+        let steps = if self.shared { "$budget.s" } else { "$s" };
+        let step = format!("if(++{steps}>65536){t}(\"IterationLimit\",{pc});");
         let each = if map {
             format!("const $v=$f($a[$k],$k);$o[$k]=$v;{add}")
         } else {
@@ -805,14 +888,17 @@ mod tests {
     use exact_plan::Stdlib;
 
     /// Every roster entry an `Opcode::Call` can name has its `x_` export in
-    /// rt.js (or roster.js and router.js, which it re-exports, or budget.js,
-    /// the checked string builders); `at`, `formatDate` and `formatNumber` compiled and then failed
-    /// the bundle for want of one. `map` and
+    /// rt.js (or a runtime file it re-exports: clock.js, pieces.js, roster.js
+    /// and router.js; or budget.js, the checked string builders); `at`,
+    /// `formatDate` and `formatNumber` compiled and then failed
+    /// the bundle for want of one (an app's diary, 2026-10-04). `map` and
     /// `filter` are opcodes with a callback body, never a call.
     #[test]
     fn every_called_roster_entry_has_a_runtime_export() {
         let rt = [
             include_str!("../rt.js"),
+            include_str!("../clock.js"),
+            include_str!("../pieces.js"),
             include_str!("../roster.js"),
             include_str!("../router.js"),
             include_str!("../format.js"),

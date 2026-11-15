@@ -1,4 +1,5 @@
 //! A compose target is sampled into a drawable; no window frame is read back.
+//! @ref LLP 1149 D2.7, D7, D11.
 use super::*;
 use crate::device::apple::{trace_interval, trace_mark, trace_time, Layer, RenderLayer, Trace};
 use crate::present::Thread;

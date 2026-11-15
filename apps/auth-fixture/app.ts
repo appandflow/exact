@@ -1,6 +1,6 @@
-// The auth fixture's source: the whole AT Protocol-style
+// The auth fixture's source (LLP 1069.006 D6): the whole AT Protocol-style
 // OAuth client, as a source writes it with `fetch`, `secret.keep`, Web
-// Crypto and the two bindings, against the local fixture
+// Crypto (LLP 1069.005) and the two bindings, against the local fixture
 // server (`fixture.mjs`) only. Discovery, the DPoP key and PAR happen when
 // the app is prepared; the press calls `openAuthSession` at once (on the web
 // its popup must open in the press's call stack); the answer checks `state`
@@ -8,20 +8,20 @@
 // checks the account, and keeps the tokens. The transaction is single-use
 // with an expiry, and never overwrites a signed-in session's key.
 //
-// Passkeys: each ceremony fetches its options from the
+// Passkeys (LLP 1133.011 §10): each ceremony fetches its options from the
 // fixture's relying party in the mutation that runs it (a challenge is
-// single-use), and posts the response back; the plan sees `{ok,
+// single-use, D9), and posts the response back; the plan sees `{ok,
 // message}` only, never a response, a challenge or a signature.
 //
-// Sign-in: a single-use nonce from the server when the
+// Sign-in (LLP 1133.014 §10): a single-use nonce from the server when the
 // screen shows, kept here; at a press `get` is called with nothing awaited
 // before it (on the web the provider's button holds the popup's window for
 // it), the credential posted to the server without its handle, and a fresh
 // nonce fetched whatever the outcome. The plan sees the account's name only.
 //
-// "Check this build": a challenge from the server,
+// "Check this build" (LLP 1133.028 §8.1): a challenge from the server,
 // `attest` over it, and the server's verdict, which is all the plan sees;
-// the token never leaves this file.
+// the token never leaves this file (D2).
 import type { Answer, Store } from './app.contract.d.ts';
 import { attest, resetAttestation } from '@exact/attestation';
 import { credentials, PublicKeyCredential } from '@exact/passkeys';
@@ -31,32 +31,32 @@ export const appId = 'com.exact.authfixture';
 const ISSUER = 'http://127.0.0.1:4331';
 const ORIGIN = 'https://auth-fixture.exact.test';
 // The passkey relying party's server: the fixture server, unless the bake selects the fixture's public origin
-// with `EXACT_BACKEND_ORIGIN=https://exact-auth-fixture.expo.app`, whose host is
+// (LLP 1133.011 §13 question 4) with `EXACT_BACKEND_ORIGIN=https://exact-auth-fixture.expo.app`, whose host is
 // then the RP ID. Sign-in and the attestation checks use the fixture server either way.
 export const origin = 'http://127.0.0.1:4331';
 export const grants = {
   'http://127.0.0.1:4331': ['net.fetch http://127.0.0.1:4331', 'auth.session http://127.0.0.1:4331',
     // The native callback: the client id's hostname reversed (AT Protocol).
     'auth.callback test.exact.auth-fixture:/oauth', 'auth.callback https://auth-fixture.exact.test/.exact/auth/callback',
-    // The desktop's loopback callback, at any port.
+    // The desktop's loopback callback, at any port (LLP 1133.005 D9).
     'auth.callback http://127.0.0.1/oauth/loopback',
     'secret.keep fixture.session', 'secret.keep fixture.pending', 'secret.keep fixture.dpop', 'secret.keep fixture.passkeys',
     'secret.keep fixture.pending-second', 'secret.keep fixture.dpop-second',
     // The fixture's relying party, and the web drive's (the page is a loopback one).
     'auth.passkey auth-fixture.exact.test', 'auth.passkey localhost', 'device.attestation',
-    // The fixture's sign-in clients (stand-ins for the real ones an operator registers).
+    // The fixture's sign-in clients (LLP 1133.014 §13 question 6 names the real ones).
     'auth.apple com.exact.authfixture.web', 'auth.google fixture-web.apps.googleusercontent.com', 'auth.google fixture-ios.apps.googleusercontent.com'],
   'https://exact-auth-fixture.expo.app': ['net.fetch http://127.0.0.1:4331', 'auth.session http://127.0.0.1:4331',
     'net.fetch https://exact-auth-fixture.expo.app',
     'auth.callback test.exact.auth-fixture:/oauth', 'auth.callback https://auth-fixture.exact.test/.exact/auth/callback',
-    // The desktop's loopback callback, at any port.
+    // The desktop's loopback callback, at any port (LLP 1133.005 D9).
     'auth.callback http://127.0.0.1/oauth/loopback',
     'secret.keep fixture.session', 'secret.keep fixture.pending', 'secret.keep fixture.dpop', 'secret.keep fixture.passkeys',
     'secret.keep fixture.pending-second', 'secret.keep fixture.dpop-second',
     'auth.passkey exact-auth-fixture.expo.app', 'auth.passkey localhost', 'device.attestation',
     'auth.apple com.exact.authfixture.web', 'auth.google fixture-web.apps.googleusercontent.com', 'auth.google fixture-ios.apps.googleusercontent.com'],
 };
-// The Google Cloud project Play Integrity bills;
+// The Google Cloud project Play Integrity bills (LLP 1133.020 §3.2);
 // unused on Apple.
 const CLOUD_PROJECT = '000000000000';
 // The RP ID: on the web the page's host, `localhost` for any loopback page; natively the relying party's
@@ -66,7 +66,7 @@ const rpId = () => {
   if (page) return page[1] === '127.0.0.1' ? 'localhost' : page[1];
   return /^https:\/\//.test(origin) ? origin.slice('https://'.length) : 'auth-fixture.exact.test';
 };
-// One client id per application type.
+// One client id per application type (after review, item 3).
 const CLIENT = {
   native: `${ORIGIN}/.exact/auth/client-metadata.native.json`,
   web: `${ORIGIN}/.exact/auth/client-metadata.web.json`,
@@ -128,8 +128,8 @@ const session = (store: Store) => {
   return { signedIn: true, handle: String(JSON.parse(kept).handle) };
 };
 
-// A desktop's loopback callback on a fixed port the client chose, as
-// command-line tools' sign-ins often use. A second sign-in waits beside
+// A desktop's loopback callback on a port the client chose, as Codex's
+// ChatGPT sign-in uses 1455 (LLP 1133.005 D9). A second sign-in waits beside
 // the first on its own port, with its own transaction and key.
 const LOOPBACK_CALLBACK = 'http://127.0.0.1:4332/oauth/loopback';
 const SECOND_CALLBACK = 'http://127.0.0.1:4333/oauth/loopback';
@@ -233,7 +233,7 @@ function failed(e: any) {
 }
 
 // The server's list after a sign-in, so the credential manager hides a
-// passkey the server forgot.
+// passkey the server forgot (D11).
 async function signedInAs(store: Store, done: { userId: string; handle: string }, credentialId: string) {
   store.set('fixture.session', JSON.stringify({ handle: done.handle, did: done.userId, passkey: credentialId }));
   const { ids } = await relyingParty('/passkey/accepted', { userId: done.userId, records: records(store) });
@@ -298,7 +298,7 @@ const errorName = (e: unknown) => String((e as any)?.name ?? (e as any)?.code ??
 
 // One attestation (or, with a key the server holds, an assertion) over a
 // fresh challenge, and what the server concluded. A `NetworkError` keeps
-// the key, so the same challenge is tried once more.
+// the key, so the same challenge is tried once more (D3).
 async function proveOnce(account: string | undefined) {
   const { challenge } = await post(ISSUER, '/attest/challenge', {});
   const ask = () => attest({ clientData: challenge, account, android: { cloudProjectNumber: CLOUD_PROJECT } });
@@ -408,7 +408,7 @@ export const answer: Answer = (source, args, store) => {
     case 'signInWith': return signInWith(store, args[0] as 'apple' | 'google') as never;
     case 'offerSignIn': return offerSignIn(store) as never;
     case 'signOut': return (async () => {
-      // The next sign-in may not happen without UI.
+      // The next sign-in may not happen without UI (LLP 1133.014 D1).
       await preventSilentAccess();
       for (const key of ['fixture.session', 'fixture.pending', 'fixture.dpop', 'fixture.pending-second', 'fixture.dpop-second']) store.forget(key);
       return { ok: true, message: 'Signed out' };

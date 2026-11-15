@@ -11,7 +11,7 @@ extension NSColor {
     @objc class func exactTestUndocumentedColor() -> NSColor { .systemRed }
 }
 
-/// On AppKit, a system colour change (the accent) makes every
+/// LLP 1095 D5 on AppKit: a system colour change (the accent) makes every
 /// resolution again, and what was resolved into a symbol with it.
 final class SystemColorMacTests: XCTestCase {
     func testAColourNamedMethodReturningNoObjectIsTheFallback() {
@@ -24,6 +24,11 @@ final class SystemColorMacTests: XCTestCase {
         XCTAssertEqual(SystemColor.channels("exactTestUndocumentedColor", dark: false, fallback: [1, 2, 3, 255]), [1, 2, 3, 255])
         XCTAssertNil(SystemColor.native(.object(["sys": .string("exactTestUndocumentedColor")])))
         XCTAssertNotEqual(SystemColor.channels("systemRedColor", dark: false, fallback: [1, 2, 3, 255]), [1, 2, 3, 255])
+    }
+
+    func testQuinaryLabelKeepsItsObjectiveCName() {
+        XCTAssertEqual(SystemColorNames.color("quinaryLabelColor"), NSColor.quinaryLabel)
+        XCTAssertNil(SystemColorNames.color("quinaryLabel"))
     }
 
     /// Every class colour the role table names for this platform, and those

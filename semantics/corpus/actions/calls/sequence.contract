@@ -1,4 +1,4 @@
-// A call: the callee's statements where the call stands, in the
+// A call (LLP 1089): the callee's statements where the call stands, in the
 // caller's one commit, each reading the state the action started with.
 // First, in the middle, in an arm, and twice.
 component App

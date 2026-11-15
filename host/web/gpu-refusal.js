@@ -1,5 +1,5 @@
-// The page a GPU surface shows when this browser cannot draw it,
-// on the host's `no-adapter` refusal. It sits in the canvas's box and
+// The page a GPU surface shows when this browser cannot draw it (LLP 1139.003
+// D1), on the host's `no-adapter` refusal. It sits in the canvas's box and
 // nowhere else, as a `role=status` the driver's `tree` names; the canvas's
 // own HUD is inert under it, so a control that leads nowhere cannot be
 // pressed, and the app's title, menus and other canvases keep working around

@@ -1,6 +1,70 @@
-//! One checked table, four positional shapes, encoded paths.
+//! @ref LLP 1038 D2/D3 — one checked table, four positional shapes, encoded paths.
 
 use super::*;
+
+/// The router's table of the routes the author declared, unchecked: what a
+/// location is matched against at run time (`Table::matches`), so what a
+/// location written elsewhere (the manifest's `share_target.action`) is
+/// checked against too.
+pub fn table(routes: &contract_syntax::RoutesDecl) -> exact_route::Table {
+    exact_route::Table {
+        routes: routes
+            .rows
+            .iter()
+            .map(|r| exact_route::Route {
+                name: r.name.clone(),
+                pattern: r.pattern.clone(),
+                parent: r.parent,
+                tab: r.tab,
+                notfound: r.notfound,
+            })
+            .collect(),
+    }
+}
+
+/// Why a pattern's escapes are not the one spelling of its URL, or None. The
+/// URL Standard keeps an escape as written and the router compares paths as
+/// serialized, while a host decodes every escape to find a file: an escape of
+/// a character a path carries as itself (`%41`) or in lower case (`%c3`)
+/// would be another route than the URL a browser sends for the same page.
+/// Escapes of what a literal cannot hold raw (`%2F`, `%25`, `%3A`, …) stay.
+fn escape_spelling(pattern: &str) -> Option<String> {
+    // What a path carries as itself: printable ASCII that `canonical` leaves
+    // raw and a literal admits, but `%` and `/`, which an escape alone means.
+    let raw = |b: u8| (0x21..=0x7e).contains(&b) && !br#"%/\:?#*(){}+"<>^`|"#.contains(&b);
+    let bytes = pattern.as_bytes();
+    let (mut spelled, mut said, mut i) = (String::new(), None, 0);
+    while i < bytes.len() {
+        let hex = bytes
+            .get(i + 1..i + 3)
+            .filter(|h| h.iter().all(u8::is_ascii_hexdigit));
+        let (Some(hex), b'%') = (hex, bytes[i]) else {
+            let len = pattern[i..].chars().next().map_or(1, char::len_utf8);
+            spelled.push_str(&pattern[i..i + len]);
+            i += len;
+            continue;
+        };
+        let escape = &pattern[i..i + 3];
+        let byte = u8::from_str_radix(&escape[1..], 16).ok()?;
+        if raw(byte) {
+            said.get_or_insert(format!(
+                "`{escape}` escapes `{}`, which a URL carries as itself",
+                byte as char
+            ));
+            spelled.push(byte as char);
+        } else {
+            if hex.iter().any(u8::is_ascii_lowercase) {
+                said.get_or_insert(format!(
+                    "a browser writes `{escape}` as `{}`",
+                    escape.to_ascii_uppercase()
+                ));
+            }
+            spelled.push_str(&escape.to_ascii_uppercase());
+        }
+        i += 3;
+    }
+    said.map(|said| format!("{said}; the router matches a path only as written, while a host serves both spellings alike: write `{spelled}`"))
+}
 
 pub(super) fn declare(file: &File, shapes: &mut Shapes) -> Result<(), TypeError> {
     let Some(routes) = &file.routes else {
@@ -13,19 +77,7 @@ pub(super) fn declare(file: &File, shapes: &mut Shapes) -> Result<(), TypeError>
             routes.span,
         );
     }
-    let mut table = exact_route::Table {
-        routes: routes
-            .rows
-            .iter()
-            .map(|r| exact_route::Route {
-                name: r.name.clone(),
-                pattern: r.pattern.clone(),
-                parent: r.parent,
-                tab: r.tab,
-                notfound: r.notfound,
-            })
-            .collect(),
-    };
+    let mut table = table(routes);
     if let Err(e) = table.check() {
         let id = match e.code.as_str() {
             "route-duplicate" => "route-duplicate",
@@ -40,7 +92,16 @@ pub(super) fn declare(file: &File, shapes: &mut Shapes) -> Result<(), TypeError>
             routes.rows.get(e.route).map_or(routes.span, |r| r.span),
         );
     }
-    // The `notfound` the compiler writes, beside the
+    for row in &routes.rows {
+        if let Some(message) = escape_spelling(&row.pattern) {
+            return err(
+                "route-pattern",
+                format!("route {}: {message}", row.name),
+                row.span,
+            );
+        }
+    }
+    // @ref LLP 1116.009 D2 — the `notfound` the compiler writes, beside the
     // table the author wrote and checked: the check above is of that table,
     // so a missing `/` is still refused.
     if contract_syntax::implicit_notfound(file) {
@@ -87,11 +148,11 @@ pub(super) fn declare(file: &File, shapes: &mut Shapes) -> Result<(), TypeError>
                 ("url", Ty::String),
                 ("tab", Ty::String),
                 ("params", record("Params")),
-                // Beside the url, never part of it.
+                // @ref LLP 1153 D5 — beside the url, never part of it.
                 ("fragment", Ty::String),
             ],
         ),
-        // What `sharedFiles(entry, name)` answers.
+        // @ref LLP 1133.024 D3 — what `sharedFiles(entry, name)` answers.
         (
             "SharedFiles",
             vec![
@@ -131,7 +192,7 @@ pub(super) fn value_call(name: &str, args: &[Expr], scope: &Scope, shapes: &Shap
 /// Router roster entries require the runtime context declared by `routes`.
 /// The router's `push` and `replace` are also the web's list and text
 /// spellings (`xs.push(x)`, `s.replace(a, b)`): a call that cannot be the
-/// router's says what to write instead.
+/// router's says what to write instead (@ref LLP 1088 D7.4).
 pub(super) fn not_the_router(
     f: Stdlib,
     args: &[Expr],
@@ -147,7 +208,7 @@ pub(super) fn not_the_router(
         Stdlib::Push if list() => {
             contract_syntax::idioms::refusal("push").expect("refused")
         }
-        Stdlib::Replace if args.len() == 3 => "`replace(nav, location)` is the router's; for text, write `s.replaceAll(find, with)`, the web's `String.prototype.replaceAll`".into(),
+        Stdlib::Replace if args.len() == 3 => "`replace(nav, location)` is the router's; for text, write `s.replaceAll(find, with)`, the web's `String.prototype.replaceAll` (LLP 1088 D2)".into(),
         _ => return Ok(()),
     };
     err("type-refused-idiom", why, span)
@@ -385,7 +446,7 @@ pub fn expand_path(
     Ok(Expr::Template(parts, span))
 }
 
-/// A route's `pages=`: a source call over
+/// A route's `pages=` (LLP 1048.000 D2, LLP 1048.003 D5): a source call over
 /// values that lists the values of the route's one parameter, `list<string>`.
 /// The build asks it once, and the server for its sitemap. Its signature
 /// joins the seam's.

@@ -1,4 +1,4 @@
-// Real Swift bridge, native invalidation and painted ink.
+// @ref LLP 1043.000 §3 D5, D7 — real Swift bridge, native invalidation and painted ink.
 import XCTest
 import CoreText
 import ImageIO

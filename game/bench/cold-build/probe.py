@@ -28,7 +28,7 @@ elif mode == 'rustc-probe' or args and pathlib.Path(args[0]).stem == 'rustc':
         # Cargo may clear the completed fingerprint before launching rustc.
         # The caller snapshots completed copied hashes before starting the build.
         if extra in hashes:
-            print('CACHE REJECTED: Cargo invoked rustc for copied fingerprint ' + extra, file=sys.stderr, flush=True)
+            print('D2 CACHE REJECTED: Cargo invoked rustc for copied fingerprint ' + extra, file=sys.stderr, flush=True)
             save(dict(kind='cache-rejected', args=args, fingerprint=extra, code=86))
             sys.exit(86)
     cmd = args + (['-Ztime-passes', '-Ztime-passes-format=json'] if compiled else [])

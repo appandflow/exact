@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// An arrow, Space and the Page keys scroll the scroller
+/// LLP 1115.000 D8.5: an arrow, Space and the Page keys scroll the scroller
 /// the focus is in: a `scroll` node around the focused text, or the page when
 /// that node has nowhere to go. A page is AppKit's own action; here it is
 /// applied at once, as under the agent, since AppKit animates it on its own

@@ -1,4 +1,4 @@
-//! Closed top-layer boxes are not laid out.
+//! Closed top-layer boxes are not laid out (@ref LLP 1021 §5, LLP 1115 D6).
 //!
 //! A browser lays out neither a closed `dialog` nor a closed popover: its
 //! style sheet makes `dialog:not([open])` and `[popover]:not(:popover-open)`
@@ -33,7 +33,7 @@ fn closed_wait() -> bool {
     if CLOSED_WAIT.get() {
         return true;
     }
-    // watchOS has no UIKit presenter to return covered top-layer boxes.
+    // LLP 1126 D10: watchOS has no UIKit presenter to return covered top-layer boxes.
     cfg!(any(target_os = "ios", target_os = "tvos"))
 }
 
@@ -64,12 +64,13 @@ impl<D: DataSource> Host<D> {
     /// At boot, before the first layout: the navigation root's tablist
     /// (`Kernel::root_tabs`), whose place UIKit's tab bar takes, is covered
     /// whole, so no layout measures its tabs' symbols and button faces only
-    /// for the presenter to cover it at its first batch (in a sequencer app on iOS,
+    /// for the presenter to cover it at its first batch (in euxy on iOS,
     /// 0.5 MB of CoreUI's glyph documents and probe buttons kept). The
     /// presenter takes the cover over when it installs its containers and
     /// gives it back where no tab bar shows (`NavigationIOS.swift`,
     /// `adoptBootCover`). A tablist whose author wrote `appearance: none`
-    /// keeps its box, as the presenter leaves it.
+    /// keeps its box, as the presenter leaves it; so does one that holds the
+    /// root's panels, whose routes stay in the page.
     pub(crate) fn cover_root_tablist(&mut self) {
         if !closed_wait() {
             return;
@@ -85,14 +86,25 @@ impl<D: DataSource> Host<D> {
         {
             return;
         }
-        let Some(tablist) = kernel.root_tabs(root).map(|t| t.tablist) else {
+        let Some(tabs) = kernel.root_tabs(root) else {
             return;
         };
+        let tablist = tabs.tablist;
         let authored = kernel.node(tablist).is_some_and(|n| {
             n.style.appearance == exact_kernel::Appearance::None
                 && n.style.written.has(exact_kernel::StyleId::Appearance)
         });
-        if !authored {
+        let holds_panel = tabs.panels.iter().any(|panel| {
+            let mut at = kernel.node(*panel).and_then(|n| n.parent);
+            while let Some(id) = at {
+                if id == tablist {
+                    return true;
+                }
+                at = kernel.node(id).and_then(|n| n.parent);
+            }
+            false
+        });
+        if !authored && !holds_panel {
             // A node the kernel has is always coverable.
             let _ = self
                 .runner
@@ -298,6 +310,22 @@ component App
     #[test]
     fn a_tablist_its_author_kept_keeps_its_box() {
         assert!(!covered(&app(r#" appearance="none""#)));
+    }
+
+    #[test]
+    fn a_tablist_that_holds_the_panels_keeps_its_box() {
+        let source = r#"component App
+  state selected = "home"
+  view
+    main navigationKey=selected navigationBack="back" display="flex" flex-direction="column"
+      row role="tablist" testId="tabs"
+        button role="tab" aria-controls="panel"
+          text "Home"
+        column role="tabpanel" id="panel"
+          column navigationKey="home"
+            text "Home"
+"#;
+        assert!(!covered(source));
     }
 
     /// A box in a closed `dialog` is not laid out, so it does not

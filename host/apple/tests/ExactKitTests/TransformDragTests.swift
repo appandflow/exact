@@ -4,7 +4,7 @@ import CoreGraphics
 @testable import ExactDrag
 
 final class TransformDragTests: XCTestCase {
-    override class func setUp() { super.setUp(); ExactDrag.install() }
+    override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     func testPacketMatchesFrozen120ByteOffsetsAndPreservesHighIdentities() {
         let packet = TransformDragPacket(op: 13, runtime: UInt64.max - 1,
             handleKey: 9_007_199_254_740_993, targetKey: 0xffff_ffff_0000_0001,
@@ -47,7 +47,7 @@ final class TransformDragTests: XCTestCase {
             XCTAssertNil(TransformDragPosition(x: 0, y: value, scale: 1))
         }
         XCTAssertNotNil(TransformDragPosition(x: -1, y: 1, scale: Double(Float.leastNonzeroMagnitude)))
-        // A pinch keeps the content under its focal point there.
+        // A pinch keeps the content under its focal point there (LLP 1057.001 §4).
         let origin = try! XCTUnwrap(TransformDragPosition(x: 10, y: -20, scale: 2))
         let still = try! XCTUnwrap(origin.focused(from: CGPoint(x: 50, y: 30), to: CGPoint(x: 50, y: 30), factor: 1.5))
         XCTAssertEqual(still.values, [-10, -45, 3], "content 20,25 under the focus stays at 50,30")

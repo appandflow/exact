@@ -10,7 +10,7 @@ The same stack as `../../heavy-list/expo`: Expo SDK 58 `58.0.0-preview.6`, React
 | Package | Version | Why |
 |---|---|---|
 | `@shopify/react-native-skia` | 2.11.2 | Expo 58's `bundledNativeModules.json` |
-| `@legendapp/list` | 3.4.0 | the list; pure JS, not in Expo's list, so the latest. Replaced `@shopify/flash-list` 2.0.2 on 2026-09-27 |
+| `@legendapp/list` | 3.4.0 | the list; pure JS, not in Expo's list, so the latest. Replaced `@shopify/flash-list` 2.0.2 on 2026-09-27 (per Charlie) |
 | `react-native-reanimated` | 4.7.0 | Reanimated 4.6 (what preview.6 lists) declares RN 0.83–0.87; 4.7.0 declares 0.86–0.88 and is what `expo@58.0.0-preview.7` pins for RN 0.88.0-rc.1 |
 | `react-native-worklets` | 0.13.0 | Reanimated 4.7's required worklets line (preview.7's pin) |
 | `react-native-safe-area-context` | ~5.9.1 | top bar below the status bar |

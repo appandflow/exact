@@ -21,7 +21,7 @@ pub struct Batch {
 /// Validate before token translation or storage/continuation serialization.
 impl Batch {
     /// `{"op":"auth","ticket":N}`: an auth session for the page to arm and
-    /// open inside this batch, in the press's call stack.
+    /// open inside this batch, in the press's call stack (LLP 1069.006 D4).
     pub fn auth(&mut self, ticket: u64) {
         self.ops
             .push(format!("{{\"op\":\"auth\",\"ticket\":{ticket}}}"));
@@ -34,8 +34,22 @@ pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'stati
             return Some("only HTTP may opt into independent transport");
         }
     }
-    (request.ceiling_refusal())
+    // This host's sockets only listen (LLP 1016.000 D7): a Rust source's
+    // two-way socket is refused, never opened to only listen (LLP 1016.003).
+    // A TypeScript socket here asks for none.
+    if request.socket && request.listen.is_none() && !request.is_process() {
+        return Some("Request::socket is unavailable on the web's wasm host");
+    }
+    // This host's sockets carry no idle timeout (LLP 1016.000 D11).
+    if request.idle_timeout_ms.is_some() {
+        return Some("an idle timeout is unavailable on the web's wasm host");
+    }
+    request
+        .prefetch_refusal()
+        .or(request.preload_refusal())
+        .or(request.ceiling_refusal())
         .or(request.timeout_refusal())
+        .or(request.protocols_refusal())
         .or(request.body_from_refusal())
         .or(request.body_to_refusal())
         .or(request.long_poll_refusal())
@@ -124,7 +138,7 @@ impl Batch {
         let key = |i: usize| keys.map_or("null".into(), |k| format!("\"{}\"", motion_node(k[i])));
         self.ops.push(format!("{{\"op\":\"reorder-drag\",\"id\":{view},\"runtime\":\"{runtime}\",\"handleKey\":\"{}\",\"list\":{},\"listKey\":{},\"wrapper\":{},\"wrapperKey\":{},\"rootKey\":{},\"rowEpoch\":\"{}\"}}",motion_node(handle),id(0),key(0),id(1),key(1),key(2),binding.map_or(0,|b|b.row_epoch)));
     }
-    /// One op already written as JSON (a grouped reorder's).
+    /// One op already written as JSON (a grouped reorder's, LLP 1094).
     pub(crate) fn push_op(&mut self, json: String) {
         self.ops.push(json);
     }
@@ -189,9 +203,9 @@ impl Batch {
         Batch::default()
     }
 
-    /// One coalesced router change beside commands. Its
+    /// @ref LLP 1038 D7 — one coalesced router change beside commands. Its
     /// `url` is the visit's location with its fragment, which the history
-    /// mirrors, and `scroll` asks for the scroll to it.
+    /// mirrors, and `scroll` asks for the scroll to it (LLP 1153 D5).
     pub fn router(&mut self, change: &exact_runner::RouterChange) {
         let mut s = text!("{{\"op\":\"router\",\"top\":{},\"url\":", change.top);
         quote(&change.location(), &mut s);
@@ -247,6 +261,7 @@ impl Batch {
     }
 
     /// Wrapping contexts and their paragraph/exclusion identities; geometry is the DOM's.
+    /// @ref LLP 1043.000 §3 D2, D7
     pub(crate) fn textflow(&mut self, contexts: &str) {
         self.ops
             .push(text!("{{\"op\":\"textflow\",\"contexts\":{}}}", contexts));
@@ -258,44 +273,21 @@ impl Batch {
     }
 
     /// `{"op":"create","id":…,"tag":…,"props":{…},"css":…,"handlers":[…]}`,
-    /// plus `"ns":"http://www.w3.org/2000/svg"` for an SVG element.
+    /// plus `"ns":"http://www.w3.org/2000/svg"` when `svg`, an SVG node by its
+    /// type (LLP 1055 D4). The tag cannot say: a module's custom element may
+    /// be named `felt-haptics` (LLP 1024 D1).
     pub fn create(
         &mut self,
         id: u32,
         tag: &str,
+        svg: bool,
         props: &[(&str, String)],
         css: &str,
         handlers: &[&str],
     ) {
         let mut s = text!("{{\"op\":\"create\",\"id\":{},\"tag\":", id);
         quote(tag, &mut s);
-        if matches!(
-            tag,
-            "svg"
-                | "g"
-                | "path"
-                | "polyline"
-                | "polygon"
-                | "circle"
-                | "ellipse"
-                | "line"
-                | "rect"
-                | "defs"
-                | "linearGradient"
-                | "radialGradient"
-                | "stop"
-                | "use"
-                | "symbol"
-                | "clipPath"
-                | "marker"
-                | "mask"
-                | "pattern"
-                | "foreignObject"
-                | "filter"
-                | "text"
-                | "tspan"
-        ) || tag.starts_with("fe")
-        {
+        if svg {
             s.push_str(",\"ns\":\"http://www.w3.org/2000/svg\"");
         }
         s.push_str(",\"props\":");
@@ -310,7 +302,7 @@ impl Batch {
 
     /// `{"op":"head","title":…,"description":…,"image":…,"canonical":…,
     /// "robots":…,"status":…}`: the active head's fields, `null` where none
-    /// is set.
+    /// is set (LLP 1048.003 D1).
     pub fn head(&mut self, head: &exact_runner::Head) {
         let mut s = String::from("{\"op\":\"head\"");
         for (name, value) in head.fields() {
@@ -331,7 +323,7 @@ impl Batch {
     }
 
     /// `{"op":"adopt","adopted":…}`: whether the page's document is this
-    /// runtime's own first tree, so the glue binds it
+    /// runtime's own first tree (LLP 1048.000 D6), so the glue binds it
     /// rather than replacing it.
     pub fn adopt(&mut self, adopted: bool) {
         self.ops
@@ -349,7 +341,7 @@ impl Batch {
     }
 
     /// `{"op":"keyframes","name":…,"css":…}`: one `@keyframes` rule for the
-    /// page's stylesheet, sent once per name before a node names it.
+    /// page's stylesheet, sent once per name before a node names it (LLP 1055 D7).
     pub fn keyframes(&mut self, name: &str, css: &str) {
         let mut s = String::from("{\"op\":\"keyframes\",\"name\":");
         quote(name, &mut s);
@@ -359,9 +351,9 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// `{"op":"theme","css":…}`: the theme's `:root` rule, at
+    /// `{"op":"theme","css":…}`: the theme's `:root` rule (LLP 1095 D4), at
     /// a boot whose plan has one (none for an empty rule), and after a live
-    /// edit moves the roles.
+    /// edit moves the roles (LLP 1121 stage 5).
     pub fn theme(&mut self, css: &str) {
         if css.is_empty() {
             return;
@@ -372,8 +364,16 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// The large-title size at the runner's root, for the bar's reserved line.
+    pub fn large_title(&mut self, size: f32) {
+        self.ops.push(text!(
+            "{{\"op\":\"large-title\",\"size\":{}}}",
+            Shortest(f64::from(size))
+        ));
+    }
+
     /// `{"op":"looks","id":…,"css":…}`: a view's state-look rules for the
-    /// page's looks sheet, `""` to drop them.
+    /// page's looks sheet (LLP 1121 D8), `""` to drop them.
     pub fn looks(&mut self, id: u32, css: &str) {
         let mut s = text!("{{\"op\":\"looks\",\"id\":{},\"css\":", id);
         quote(css, &mut s);
@@ -404,7 +404,7 @@ impl Batch {
 
     /// `{"op":"animate","id":…,"property":…,"delay":ms,"duration":ms,"values":[…]}`
     /// — a spring's frames, evenly spaced; `translate` values are `[x,y]`
-    /// pairs, `[x,y,px,py]` with percentages of the box,
+    /// pairs, `[x,y,px,py]` with percentages of the box (chess diary #4),
     /// the rest numbers. No values means stop playing the property.
     pub fn animate(
         &mut self,
@@ -480,7 +480,7 @@ impl Batch {
     }
 
     /// `{"op":"timelines"}` — a boot or commit while drag timelines are
-    /// bound: the page seeks their consumers again once
+    /// bound (LLP 1057.003 D4): the page seeks their consumers again once
     /// the batch is applied.
     pub fn timelines(&mut self) {
         self.ops.push("{\"op\":\"timelines\"}".into());
@@ -494,7 +494,7 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// Watch a 2D canvas's box: the page reports its geometry.
+    /// Watch a 2D canvas's box (LLP 1056 D4): the page reports its geometry.
     pub fn canvas2d_watch(&mut self, view: u32) {
         self.ops.push(text!(
             "{{\"op\":\"canvas2d\",\"id\":{},\"watch\":true}}",
@@ -502,7 +502,7 @@ impl Batch {
         ));
     }
 
-    /// Image handles for the page to load for Canvas 2D.
+    /// Image handles for the page to load for Canvas 2D (LLP 1056 D9).
     pub fn canvas2d_images(&mut self, srcs: &[String]) {
         let mut s = String::from("{\"op\":\"canvas2d\",\"images\":[");
         for (i, src) in srcs.iter().enumerate() {
@@ -515,17 +515,17 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// Whether a 2D canvas wants the page's animation frames.
+    /// Whether a 2D canvas wants the page's animation frames (LLP 1056 D5).
     pub fn canvas2d_frames(&mut self, frames: bool) {
         self.ops
             .push(text!("{{\"op\":\"canvas2d\",\"frames\":{}}}", frames));
     }
 
-    /// A 2D canvas's stamped lists, in order, as `[address,
+    /// A 2D canvas's stamped lists (LLP 1056 D4), in order, as `[address,
     /// length]` pairs in this wasm's memory: the glue replays them in place,
     /// with no text between (the host keeps them alive for the batch);
     /// `fresh` starts a new bitmap at `w`×`h`, `p3` and `float16` its
-    /// getContext settings.
+    /// getContext settings (LLP 1100 D12a).
     pub fn canvas2d(&mut self, c: &exact_runner::CanvasList) {
         let mut s = text!(
             "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"p3\":{},\"float16\":{},\"lists\":[",
@@ -561,11 +561,60 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// Ask the page to finish layout before resolving a capture's backing.
+    pub fn canvas_capture_prepare(&mut self, ticket: u64) {
+        self.ops.push(format!(
+            "{{\"op\":\"canvasCapturePrepare\",\"ticket\":{ticket}}}"
+        ));
+    }
+
+    /// `{"op":"canvasCapture","ticket","id","lifetime","generation","w","h","scale","path","scope","type","quality"?}`:
+    /// the page writes the canvas's bitmap as `toBlob` encodes `type` and
+    /// `quality` (`exact_runner::canvas_capture`).
+    pub fn canvas_capture(
+        &mut self,
+        ticket: u64,
+        c: &exact_runner::canvas_capture::CanvasCapture,
+        scope: Option<&str>,
+    ) {
+        let mut s = text!(
+            "{{\"op\":\"canvasCapture\",\"ticket\":{},\"id\":{},\"lifetime\":{},\"generation\":{},\"sequence\":{},\"w\":{},\"h\":{},\"scale\":{},\"path\":",
+            ticket,
+            c.view,
+            c.lifetime,
+            c.generation,
+            c.sequence,
+            c.width,
+            c.height,
+            Shortest(c.scale)
+        );
+        quote(&c.path, &mut s);
+        s.push_str(",\"scope\":");
+        match scope {
+            Some(scope) => quote(scope, &mut s),
+            None => s.push_str("null"),
+        }
+        s.push_str(",\"type\":");
+        quote(&c.encoding.media_type, &mut s);
+        if let Some(q) = c.encoding.quality {
+            s.push_str(&text!(",\"quality\":{}", Shortest(q)));
+        }
+        s.push('}');
+        self.ops.push(s);
+    }
+
     /// `{"op":"request","ticket":N,"target":…,"method":…,"url":…,"headers":[[k,v]…],"body":"<base64>","cache":"default"|"reload"}`
-    /// — a request the runner handed the host to run; the
+    /// — a request the runner handed the host to run (LLP 1016 D2); the
     /// reply comes back through `exact_fulfill`.
     pub fn request(&mut self, r: &exact_runner::RequestOut) {
-        if let Some(message) = request_refusal(&r.request) {
+        if let Err(message) = r.request.check_protocols() {
+            self.refuse(r.ticket, &message);
+            return;
+        }
+        if let Some(message) = (r.request.prefetch && r.class != exact_runner::RequestClass::Read)
+            .then_some("exactPrefetch requires a plain HTTP read")
+            .or(request_refusal(&r.request))
+        {
             self.refuse(r.ticket, message);
             return;
         } else if let Some(work) = r.request.surface.as_deref() {
@@ -573,6 +622,12 @@ impl Batch {
                 exact_runner::SurfaceRequest::Capture { name } => ("capture", name, None),
                 exact_runner::SurfaceRequest::Restore { name, bytes } => {
                     ("restore", name, Some(bytes.as_slice()))
+                }
+                // The host hands a canvas capture to the page itself
+                // (`Host::emit_request`); none reaches a GPU surface.
+                exact_runner::SurfaceRequest::Canvas { .. } => {
+                    self.refuse(r.ticket, "a canvas capture is not GPU surface work");
+                    return;
                 }
             };
             let mixed = r.request.continuation.is_some()
@@ -650,7 +705,18 @@ impl Batch {
         if let Some(ms) = r.request.timeout_ms {
             push_text!(&mut s, ",\"timeoutMs\":{}", ms);
         }
-        // `exactHeld`: the page lists it, and no clock waits on it.
+        if !r.request.protocols.is_empty() {
+            s.push_str(",\"protocols\":");
+            string_list(
+                &r.request
+                    .protocols
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+                &mut s,
+            );
+        }
+        // `exactHeld` (LLP 1016.000 D9): the page lists it, and no clock waits on it.
         if r.request.is_held() {
             s.push_str(",\"held\":true");
         }
@@ -670,7 +736,7 @@ impl Batch {
             s.push(']');
         }
         s.push(']');
-        // `exactBodyFrom`: the page reads the app file
+        // `exactBodyFrom` (LLP 1108 D6 R2): the page reads the app file
         // into the body (http-body.js), under the request's grants.
         if let Some(path) = &r.request.body_from {
             s.push_str(",\"bodyFrom\":");
@@ -687,7 +753,7 @@ impl Batch {
             quote(r.request.redirect.name(), &mut s);
         }
         // Who asked it, for the local network's rule at the page's fetch
-        // and WebSocket open; absent is the app's own.
+        // and WebSocket open (LLP 1133.036 D6); absent is the app's own.
         // Under the agent the substitute's state stands for the browser's.
         let reach = r.request.reach;
         if reach.origin != exact_runner::CallOrigin::App {
@@ -698,20 +764,29 @@ impl Batch {
         }
         s.push_str(",\"body\":\"");
         s.push_str(&exact_runner::agent::base64(&r.request.body));
-        s.push_str("\",\"cache\":\"");
-        s.push_str(if r.forced { "reload" } else { "default" });
         s.push('"');
-        // An answer that keeps coming: the page reads the
+        if r.forced || r.request.cache != exact_runner::CacheMode::Unspecified {
+            s.push_str(",\"cache\":\"");
+            s.push_str(
+                if r.forced && r.request.cache != exact_runner::CacheMode::NoStore {
+                    "reload"
+                } else {
+                    r.request.cache.name()
+                },
+            );
+            s.push('"');
+        }
+        // An answer that keeps coming (LLP 1016.000): the page reads the
         // body as events and delivers each as a message (kind 8).
         if r.request.stream {
             s.push_str(",\"stream\":true");
         }
-        // An upload: the page sends it with XMLHttpRequest and
+        // An upload (LLP 1016.000 D10): the page sends it with XMLHttpRequest and
         // delivers its bytes sent as messages, then its reply.
         if r.request.upload_progress {
             s.push_str(",\"upload\":true");
         }
-        // A long poll: the page asks again with each reply's cursor.
+        // A long poll (D8): the page asks again with each reply's cursor.
         if let Some(poll) = &r.request.long_poll {
             s.push_str(",\"longPoll\":{\"cursor\":");
             quote(&poll.cursor, &mut s);
@@ -727,9 +802,9 @@ impl Batch {
     }
 
     /// `{"op":"store","tier":"secret","name":…,"value":…|null}` — a secret
-    /// the app kept or forgot, for the page to persist after
+    /// the app kept or forgot (LLP 1018 D1), for the page to persist after
     /// the commit (`localStorage` under `exact.secret.<name>`); `"plain"`
-    /// for a persisted state, kept under its own name. A kept
+    /// for a persisted state (LLP 1116 D5), kept under its own name. A kept
     /// answer's bytes go as base64, since `localStorage` holds text.
     pub fn store(&mut self, w: &exact_runner::StoreWrite) {
         let tier = if w.name.starts_with(exact_runner::Store::STATE) {
@@ -754,7 +829,7 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// `{"op":"grants","lines":[…]}` — what the app may reach,
+    /// `{"op":"grants","lines":[…]}` — what the app may reach (LLP 1016 D6),
     /// once at boot, from the runner's one parse of the whole set; the page
     /// refuses a request outside them itself. A set that does not parse
     /// grants nothing, as on a native host: `lines` is empty and `error`
@@ -780,7 +855,7 @@ impl Batch {
     }
 
     /// `{"op":"command","name":…,"args":[…]}` — a capability an action
-    /// called, for the glue to execute after the commit.
+    /// called (LLP 1005 §3), for the glue to execute after the commit.
     pub fn command(&mut self, name: &str, args: &[exact_plan::Value], source: Option<u32>) {
         let mut s = String::from("{\"op\":\"command\",\"name\":");
         quote(name, &mut s);
@@ -799,9 +874,9 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// `{"op":"sound","files":[…],"ops":[…]}`: the voice
+    /// `{"op":"sound","files":[…],"ops":[…]}` (LLP 1096 D7): the voice
     /// table's ops, `{"op":"play","id":…,"sound":…,"at":…,"gain":…}` (with
-    /// `playbackRate` and `pan` when not 1 and 0) and
+    /// `playbackRate` and `pan` when not 1 and 0, LLP 1125 D10) and
     /// `{"op":"end","id":…,"at":…}`, in runner milliseconds. `plan` at a
     /// boot names the files to decode, in declaration order (a new boot
     /// silences the last one's voices); nothing is sent when there is
@@ -857,13 +932,39 @@ impl Batch {
                     }
                     s.push('}');
                 }
+                // LLP 1096 D14: only the values the call gave.
+                SoundOp::Set {
+                    id,
+                    at,
+                    gain,
+                    playback_rate,
+                    pan,
+                    ramp,
+                } => {
+                    push_text!(
+                        &mut s,
+                        "{{\"op\":\"set\",\"id\":{},\"at\":{}",
+                        id,
+                        Shortest(*at)
+                    );
+                    for (name, v) in [
+                        ("gain", gain),
+                        ("playbackRate", playback_rate),
+                        ("pan", pan),
+                    ] {
+                        if let Some(v) = v {
+                            push_text!(&mut s, ",\"{}\":{}", name, Shortest(*v));
+                        }
+                    }
+                    push_text!(&mut s, ",\"ramp\":{}}}", Shortest(*ramp));
+                }
                 SoundOp::End { id, at } => push_text!(
                     &mut s,
                     "{{\"op\":\"end\",\"id\":{},\"at\":{}}}",
                     id,
                     Shortest(*at)
                 ),
-                // A sequence step's haptic, at its time.
+                // A sequence step's haptic, at its time (LLP 1125 D3).
                 SoundOp::Haptic { id, kind, at } => {
                     push_text!(&mut s, "{{\"op\":\"haptic\",\"id\":{},\"kind\":", id);
                     quote(kind, &mut s);
@@ -883,8 +984,8 @@ impl Batch {
         self.ops
     }
 
-    /// The runner's timed outputs since the last take:
-    /// the voice table's `sound` op and the MIDI queue's `midi`
+    /// The runner's timed outputs since the last take (LLP 1096 D7, LLP
+    /// 1125 D7): the voice table's `sound` op and the MIDI queue's `midi`
     /// op; at a `boot`, the files to decode and whether MIDI's arm loads.
     pub fn timed<D: exact_runner::DataSource>(
         &mut self,
@@ -904,7 +1005,7 @@ impl Batch {
     }
 
     /// `{"op":"exit","id":…,"css":…}` — the view leaves with `css`, the CSS
-    /// `animation` list of its `-exact-exit-animation`: the page keeps
+    /// `animation` list of its `-exact-exit-animation` (LLP 1063): the page keeps
     /// it, inert, where it was until the exit ends. Its `destroy` ops follow
     /// as usual.
     pub fn exit(&mut self, id: u32, css: &str) {
@@ -917,7 +1018,7 @@ impl Batch {
     /// `{"op":"at","ms":…}` — the clock at which the ops that follow were
     /// committed (a timer's due time inside one `advance`), so a page that
     /// owns time can attribute the transitions they start to that instant
-    /// (one seek and sixty give the same bits).
+    /// (LLP 1012: one seek and sixty give the same bits).
     pub fn at(&mut self, ms: f64) {
         self.ops
             .push(text!("{{\"op\":\"at\",\"ms\":{}}}", Shortest(ms)));
@@ -937,14 +1038,14 @@ impl Batch {
     }
 
     /// The kernel transactions this batch carries, `"seq":[first,last]`, when
-    /// the runner measures: a development page's frame sampler
+    /// the runner measures (LLP 1079 D3): a development page's frame sampler
     /// joins its frames to them.
     pub fn seq(mut self, range: Option<(u64, u64)>) -> Batch {
         self.seq = range;
         self
     }
 
-    /// Failure lines already bounded by the runner, delivered once.
+    /// Failure lines already bounded by the runner, delivered once (LLP 1142 D9).
     pub fn alerts(mut self, lines: Vec<String>) -> Batch {
         self.alerts = lines;
         self
@@ -956,12 +1057,12 @@ impl Batch {
         self
     }
 
-    /// Carry the runner deadline, not a poll interval.
+    /// @ref LLP 1043.000 §3 D8 — carry the runner deadline, not a poll interval.
     /// The batch as one JSON document:
     /// `{"ops":[…],"timers":bool,"clock":ms,"error":null|"…"}` — `clock` is
     /// the runner's clock after the call (an advance a timer refused stops at
     /// that timer's due time); `"frames":true` while a frame task wants each
-    /// animation frame.
+    /// animation frame (LLP 1073 D5).
     pub fn finish(
         self,
         timer_due_ms: Option<f64>,
@@ -1073,7 +1174,8 @@ mod quote_tests {
         assert_eq!(out, "\"a\\\"b\\\\c\\nd\\re\\tf\\u0001g\\u001fh\u{7f}é€😀\"");
     }
 
-    /// Inline and shared text with the same bytes are one JSON text.
+    /// Inline and shared text with the same bytes are one JSON text (Charlie,
+    /// 2026-09-28, LLP 1017.003 "The value's text").
     #[test]
     fn inline_and_shared_text_are_one_json_text() {
         use exact_plan::Value;

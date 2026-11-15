@@ -1,4 +1,4 @@
-//! The portable device, the control the direct devices are measured against.
+//! The portable device and S0 control. @ref LLP 1149 D5.1, D6.3, D11.
 
 use super::{check_region, texture_ids};
 use super::{Device, Error, Format, Info, Result, Submission, TextureDesc};
@@ -27,6 +27,39 @@ const ATTRIBUTES: [::wgpu::VertexAttribute; 12] = ::wgpu::vertex_attr_array![
     4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Uint32x4,
     8 => Float32x4, 9 => Float32x4, 10 => Float32x4, 11 => Float32x4
 ];
+
+// The fixed instance ABI and bind group in ink.wgsl. Scene-sized allocations
+// are checked separately when textures and buffers are made.
+fn requested_limits(available: ::wgpu::Limits) -> Result<::wgpu::Limits> {
+    let limits = ::wgpu::Limits::default().or_worse_values_from(&available);
+    let needed = ::wgpu::Limits {
+        max_texture_dimension_2d: 1,
+        max_buffer_size: size_of::<Instance>() as u64,
+        max_bind_groups: 1,
+        max_bind_groups_plus_vertex_buffers: 2,
+        max_bindings_per_bind_group: 9,
+        max_sampled_textures_per_shader_stage: 7,
+        max_samplers_per_shader_stage: 1,
+        max_uniform_buffers_per_shader_stage: 1,
+        max_uniform_buffer_binding_size: 16,
+        max_vertex_buffers: 1,
+        max_vertex_attributes: ATTRIBUTES.len() as u32,
+        max_vertex_buffer_array_stride: size_of::<Instance>() as u32,
+        max_inter_stage_shader_variables: 13,
+        max_color_attachments: 1,
+        max_color_attachment_bytes_per_sample: ::wgpu::TextureFormat::Rgba8Unorm
+            .target_pixel_byte_cost()
+            .unwrap(),
+        ..limits.clone()
+    };
+    let mut error = None;
+    needed.check_limits_with_fail_fn(&limits, true, |name, need, have| {
+        error = Some(Error::Device(format!(
+            "Ink needs {name} >= {need}, adapter offers {have}"
+        )));
+    });
+    error.map_or(Ok(limits), Err)
+}
 
 struct Texture {
     raw: ::wgpu::Texture,
@@ -135,6 +168,7 @@ impl Wgpu {
         let (device, queue) = adapter
             .request_device(&::wgpu::DeviceDescriptor {
                 label: Some("exact-ink"),
+                required_limits: requested_limits(adapter.limits())?,
                 required_features: if caching {
                     ::wgpu::Features::PIPELINE_CACHE
                 } else {

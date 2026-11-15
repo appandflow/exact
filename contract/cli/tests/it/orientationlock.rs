@@ -1,7 +1,8 @@
-//! `orientationlock` lowers to a prop on any element; a literal outside its
-//! words is refused naming them; other platforms' names point at it; and the
-//! bake refuses a lock inside a `dialog` or popover, and a literal type the
-//! manifest's `orientation` leaves no room for.
+//! LLP 1133.029 D1–D3: `orientationlock` lowers to a prop on any element; a
+//! literal outside its words is refused naming them; other platforms'
+//! names point at it; and the bake refuses a lock inside a `dialog` or
+//! popover, and a literal type the manifest's `orientation` leaves no room
+//! for.
 
 use exact_kernel::{Kernel, PropId};
 use exact_plan::Value;

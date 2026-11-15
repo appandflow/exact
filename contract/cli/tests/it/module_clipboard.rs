@@ -1,4 +1,4 @@
-//! The repository's `@exact/clipboard`
+//! LLP 1133.006 stage 1, through the repository's `@exact/clipboard`
 //! installed beside an app, its implementation played as the host's native
 //! slot: a keyed shape (`ClipboardItem`) in a declaration, a send that
 //! answers nothing reaching an implementation that is its own substitute
@@ -30,6 +30,7 @@ impl App {
             "exact.json",
             "apple/exact.json",
             "web/exact.json",
+            "windows/exact.json",
         ] {
             std::fs::create_dir_all(package.join(file).parent().unwrap()).unwrap();
             std::fs::copy(source.join(file), package.join(file)).unwrap();
@@ -123,7 +124,7 @@ fn write(items: Json) -> Json {
     json!({ "extension": "clipboard", "send": "write", "args": { "data": items } })
 }
 
-/// A keyed shape compiles as Contract's optional fields,
+/// D8 items 1 and 4: a keyed shape compiles as Contract's optional fields,
 /// and under the agent the implementation takes the write: it is its own
 /// substitute.
 #[test]
@@ -140,7 +141,7 @@ fn a_write_reaches_the_implementation_under_the_agent() {
     assert_eq!(calls.lock().unwrap().len(), 2);
 }
 
-/// Each item's `app:/` path at a key the shape declares a path
+/// D8 item 3: each item's `app:/` path at a key the shape declares a path
 /// is admitted against the calling source's `fs.read` lines before the
 /// implementation hears of it; text is not a path.
 #[test]

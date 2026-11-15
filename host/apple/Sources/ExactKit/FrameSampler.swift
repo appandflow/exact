@@ -8,8 +8,8 @@ import UIKit
 import AppKit
 #endif
 
-/// A session's display-link callbacks, the frames it judges presented: a
-/// display link of its own, run only inside active segments,
+/// A session's display-link callbacks, the frames it judges presented (LLP
+/// 1079 D3–D4): a display link of its own, run only inside active segments,
 /// or throughout a recording an app
 /// started (`startTrace_EXPERIMENTAL`). It watches; it never keeps the
 /// session's frame source (`Frames`) running, so the measured app schedules
@@ -34,7 +34,7 @@ final class FrameSampler: NSObject {
 
     /// A new session's sampler, where it samples from boot. Where it starts
     /// at the first ask instead, so does the count of its runner's plan
-    /// sites' work, which is told before the first runner
+    /// sites' work (LLP 1079 D1), which is told before the first runner
     /// boots.
     static func fromBoot(_ session: ExactSession, atBoot: Bool = atBoot) -> FrameSampler? {
         guard measured else { return nil }
@@ -61,15 +61,15 @@ final class FrameSampler: NSObject {
         /// needed it included: on iOS and tvOS 18 and later, from the update
         /// link's `beforeCATransactionCommit` to its `afterCATransactionCommit`.
         var commit: Double?
-        /// A late frame's hatch calls: those that
+        /// A late frame's hatch calls (LLP 1075.003.000.001 §3.1): those that
         /// overlapped its interval, each charged its overlap, with `coverage`.
         var hatches: [String: Any]?
         /// A late frame's main-thread host phases inside its interval, and
-        /// what none of them took (`HostPhases.window`).
+        /// what none of them took (LLP 1142 D1, `HostPhases.window`).
         var phases: [String: Any]?
         /// The tracked scroller's offset as the last turn committed it, and
         /// its phase: `t` dragged, `d` decelerating, `b` past its range,
-        /// `-` at rest (`scrollSample`).
+        /// `-` at rest (LLP 1144 D1, `scrollSample`).
         var scroll: (Double, String)?
         /// In a recording: how long the main thread's turns that ended in
         /// this frame's interval ran, milliseconds.
@@ -119,7 +119,7 @@ final class FrameSampler: NSObject {
     private var active = -Double.infinity
     private var observing = false
     var observationStopped: ((String) -> Void)?
-    /// `perf frames hold`: the segment stays open with no batch,
+    /// `perf frames hold` (LLP 1144 D1): the segment stays open with no batch,
     /// so a list built up front is sampled as it glides; released by `perf
     /// frames release`, or by anything that stops sampling.
     var held = false {
@@ -299,7 +299,7 @@ final class FrameSampler: NSObject {
     /// A display-link recording's link asks for the display's full rate, so
     /// that it ticks at every refresh a scroll draws; otherwise, a passive
     /// recording's included, it keeps the default range, which never raises
-    /// the rate.
+    /// the rate (LLP 1061 D4).
     private func followDisplay() {
         #if os(iOS)
         let range = recording == nil || recorder != nil ? CAFrameRateRange.default : FrameClock.full(on: session?.presenter.viewport.window?.screen)
@@ -433,7 +433,7 @@ final class FrameSampler: NSObject {
 
     @objc func tick(_ link: CADisplayLink) {
         observe(now: link.timestamp, target: link.targetTimestamp, at: CACurrentMediaTime())
-        // Which images show without their pixels this frame.
+        // Which images show without their pixels this frame (LLP 1145 D2).
         session?.rasters.sampleBlank()
         // The session's own frame source running is activity too.
         if session?.frames.link != nil || held { active = CACurrentMediaTime() }
@@ -452,9 +452,13 @@ final class FrameSampler: NSObject {
         // Hold the interval to the period the last callback announced, so a
         // change of rate (a recording asking for the full one, ProMotion
         // lowering it) misses no frame
-        let announced = period
+        let announced = period ?? (target - now) * 1000
         period = (target - now) * 1000
-        if let last { sample(interval: (now - last) * 1000, period: announced ?? (target - now) * 1000, at: now) }
+        // A callback whose target is its own timestamp announces no period,
+        // and an interval cannot be counted in frames of none
+        if let last, announced.isFinite, announced > 0 {
+            sample(interval: (now - last) * 1000, period: announced, at: now)
+        }
         last = now
     }
 
@@ -601,9 +605,9 @@ final class FrameSampler: NSObject {
     }
     var observedCount: Int { presented }
 
-    /// `{"op":"perf","frames":true[,"late":N]}`: lifetime counters, the
+    /// `{"op":"perf","frames":true[,"late":N]}` (D4): lifetime counters, the
     /// ring's percentiles with the range they cover, the most recent late
-    /// records; `all` adds every retained record (a trace).
+    /// records; `all` adds every retained record (a trace, D5).
     func reply(late n: Int = 20, all: Bool = false) -> [String: Any] {
         let xs = records.map(\.interval).sorted()
         let q = { (f: Double) -> Any in xs.isEmpty ? NSNull() : xs[min(xs.count - 1, Int(f * Double(xs.count)))] }
@@ -623,12 +627,12 @@ final class FrameSampler: NSObject {
 }
 
 extension ExactSession {
-    /// Save Trace: this session's journal, its presented frames,
+    /// Save Trace (LLP 1079 D5): this session's journal, its presented frames,
     /// `perf` over every root and its hatches, with who made them and each timing's
     /// proxy, as `trace-<wallclock>.json` in the app's temporary directory;
     /// `agent.mjs trace <file>` reads it back. The path, or why not.
     /// `signalled`, it is also `trace-pid-<pid>.json`, the name `trace --pid`
-    /// waits for.
+    /// waits for (LLP 1142 D5).
     public func saveTrace(signalled: Bool = false) -> Result<URL, Error> {
         guard FrameSampler.measured else { return .failure(TraceError.production) }
         // A release build's first trace starts its measuring: it has the
@@ -654,7 +658,7 @@ extension ExactSession {
                 var row = row; row["pid"] = canvas * 2 + (row["pid"] as? Int ?? 0); return row
             }
         }
-        // The host binary's build, as `build.mjs` stamped it. It
+        // The host binary's build, as `build.mjs` stamped it (LLP 1142 D2). It
         // is not the running plan's: a development host may run another plan.
         let info = ExactEnv.appMetadata
         var hostBuild: [String: Any] = ["bundlePath": Bundle.main.bundlePath]
@@ -667,7 +671,7 @@ extension ExactSession {
                                        "bootWall": ((Date().timeIntervalSince1970 - (CACurrentMediaTime() - ExactEnv.t0)) * 1000).rounded(),
                                        "pid": Int(ProcessInfo.processInfo.processIdentifier), "session": label,
                                        "savedAt": (Date().timeIntervalSince1970 * 1000).rounded(), "hostBuild": hostBuild]
-        let trace: [String: Any] = [
+        var trace: [String: Any] = [
             "traceEvents": events,
             "identity": identity,
             "proxies": ["period": "target: the sampler's own display link, targetTimestamp − timestamp",
@@ -678,9 +682,10 @@ extension ExactSession {
             "journal": raw(agent("{\"op\":\"logs\",\"since\":0}")),
             "frames": frames,
             "perf": perf,
-            // The hatches, read in this same turn, so the sections agree.
+            // The hatches (LLP 1075.003.000.001 §3.3), read in this same turn, so the sections agree.
             "hatches": ["state": presenter.elements.observation(hatchDiagnostics), "perf": hatchPerf()],
         ]
+        trace.merge(traceSnapshot()) { _, snapshot in snapshot }
         do {
             let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("trace-\(stamp).json")
@@ -705,7 +710,7 @@ extension ExactSession {
     enum TraceError: Error { case production }
 
     /// Start measuring what `perf` reads, where this binary can and has not
-    /// yet (a release build): the presented frames, the hatch
+    /// yet (a release build, LLP 1079): the presented frames, the hatch
     /// calls' timing and the plan sites' work. The agent's requests, and
     /// Save Trace, ask.
     func measurePerf(frameSampler: Bool = true) {
@@ -718,7 +723,7 @@ extension ExactSession {
     static let latestTrace = "trace-latest.json"
 }
 
-/// `SIGUSR1` saves the session's trace, with no alert, as Linux's
+/// `SIGUSR1` saves the session's trace, with no alert (LLP 1142 D5), as Linux's
 /// display loop does: `agent.mjs trace --pid <pid>` asks a running app for
 /// one with no person at its menu. Not in a production bake. The handler only
 /// marks the signal; the save runs on the main queue.
@@ -751,7 +756,7 @@ public enum TraceSignal {
 extension ExactSession {
     static let journal = Logger(subsystem: "com.exact.app", category: "journal")
 
-    /// A batch's failure lines (a resource refused, a request
+    /// A batch's failure lines (LLP 1142 D4: a resource refused, a request
     /// or a send failed), written where a person or an agent looks: the
     /// unified log (`log show --predicate 'subsystem == "com.exact.app"'`)
     /// and stderr, which `build.mjs --run` shows. The runner queues them only
@@ -763,7 +768,7 @@ extension ExactSession {
         }
     }
 
-    /// The journal's other lines, at a lower
+    /// The journal's other lines (LLP 1143 open question 1), at a lower
     /// level than a failure and not on stderr: a run a person drives reads
     /// what `logs` would have said with `log stream --level info`. A host
     /// line (`host: …`) is HostLog's, already written as it happened.
@@ -793,14 +798,49 @@ final class FrameObservation {
     }
 }
 
-// Independent real-time observation, never a clock loan.
+// @ref LLP 1142 §13 D8 — independent real-time observation, never a clock loan.
 extension Agent {
     func liveFrames(_ request: [String: Any], completed: @escaping ([String: Any]) -> Void) {
         guard let ms = Agent.integer(request["live"]), (1...120_000).contains(ms) else {
             completed(["malformed": true, "error": "perf frames live: milliseconds must be an integer in 1...120000"])
             return
         }
-        guard FrameSampler.measured, let sampler = session.sampler else { completed(["unavailable": true]); return }
+        guard FrameSampler.measured, session.sampler != nil else { completed(["unavailable": true]); return }
+        #if os(macOS)
+        // A driven window behind the other apps' (`NSWindow.Level.agentBehind`) may be
+        // covered, and AppKit presents no frames to a covered window: it comes forward
+        // for the recording, once AppKit reports it visible, and goes back after.
+        if let window = session.presenter.viewport.window, window.level == .agentBehind, window.isVisible,
+           !window.occlusionState.contains(.visible) {
+            var seen: NSObjectProtocol?
+            var started = false
+            let start = { [self] in
+                guard !started else { return }
+                started = true
+                // The token holds this closure, which holds `seen`: let it go.
+                seen.map(NotificationCenter.default.removeObserver)
+                seen = nil
+                observeLiveFrames(request, ms: ms) { reply in
+                    window.level = .agentBehind
+                    window.orderFront(nil)
+                    completed(reply)
+                }
+            }
+            seen = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { _ in
+                if window.occlusionState.contains(.visible) { start() }
+            }
+            window.level = .normal
+            window.orderFrontRegardless()
+            // Never reported visible: the recording answers that it found no display link.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { start() }
+            return
+        }
+        #endif
+        observeLiveFrames(request, ms: ms, completed: completed)
+    }
+
+    private func observeLiveFrames(_ request: [String: Any], ms: Int, completed: @escaping ([String: Any]) -> Void) {
+        guard let sampler = session.sampler else { completed(["unavailable": true]); return }
         guard sampler.beginObservation() else {
             completed(["unavailable": true, "reason": "capture already active or no visible window display link", "clockMode": session.clock == nil ? "real" : "virtual"])
             return
@@ -808,15 +848,11 @@ extension Agent {
         let start = CACurrentMediaTime(), from = session.now(), before = sampler.observedCount
         let observation = FrameObservation(ms: ms) { [self] reason in
             sampler.endObservation()
-            let storageSubstituted = ExactEnv.environment["EXACT_AGENT"] != nil && ExactEnv.environment["EXACT_STORE"] != "real"
             var result = sampler.reply(late: request["late"] as? Int ?? 20, all: request["records"] as? Bool == true)
-            result["live"] = ["ms": (CACurrentMediaTime() - start) * 1000, "from": from, "to": session.now(),
-                              "clockMode": session.clock == nil ? "real" : "virtual", "clockChanged": false,
-                              "execution": ExactEnv.agentMode ? "agent" : "normal",
-                              "scheduling": ExactEnv.agentMode ? "agent" : "normal",
-                              "performanceClaim": !ExactEnv.agentMode && !storageSubstituted && session.clock == nil,
-                              "inputPath": "unknown", "observation": sampler.observation(from: (start - ExactEnv.t0) * 1000, before: before),
-                              "substitutions": ExactEnv.agentMode ? ["timers", "collection-fill-scheduling", "scroll-velocity", "wheel-routing", "device-facts", "capabilities"] : storageSubstituted ? ["storage", "secret-presence"] : []] as [String: Any]
+            result["live"] = session.executionObservation().merging([
+                "ms": (CACurrentMediaTime() - start) * 1000, "from": from, "to": session.now(),
+                "inputPath": "unknown", "observation": sampler.observation(from: (start - ExactEnv.t0) * 1000, before: before)
+            ]) { _, observed in observed }
             if let reason { result["error"] = session.state == .destroyed ? "session destroyed during live observation" : reason }
             completed(result)
         }

@@ -1,4 +1,4 @@
-// What the host did, as lines in the runner's journal (the
+// @ref LLP 1143 D2 — what the host did, as lines in the runner's journal (the
 // agent's `logs`) and in the unified log (`log stream --predicate
 // 'subsystem == "dev.exact" AND category == "host"'`), for a run a person
 // drives by hand. A fixed set of events: navigation, presentation, focus, the

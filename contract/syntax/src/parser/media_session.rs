@@ -1,4 +1,4 @@
-//! The media session's two test steps: `tap "audio"
+//! The media session's two test steps (LLP 1098 D10): `tap "audio"
 //! mediasession "seekto" 600`, the action the platform's handler would call,
 //! and `expect mediasession`, a read of `state.mediaSession`.
 

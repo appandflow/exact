@@ -1,4 +1,4 @@
-//! @exact/contacts' and @exact/calendar's fixture: a
+//! @exact/contacts' and @exact/calendar's fixture (LLP 1133.018 stage 3): a
 //! data source with no sources of its own, which declares the contacts line
 //! and the full calendar line.
 

@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// HTML's `autocomplete` as AppKit's content type: the last
+/// HTML's `autocomplete` as AppKit's content type (LLP 1102 §3.6): the last
 /// field token names it, `off` and an unknown token leave none, and a
 /// textarea takes it too.
 final class AutofillMacTests: XCTestCase {

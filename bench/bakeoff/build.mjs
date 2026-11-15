@@ -8,8 +8,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
-const HERE = resolve(new URL('.', import.meta.url).pathname);
+const HERE = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1]]] : a), []));
 const { round, spec, arm, sim, pin } = args;
 if (!round || !spec || !arm || !sim || !pin) { console.error('usage: build.mjs --round <dir> --spec <id> --arm exact|swiftui|uikit --sim <udid> --pin <exact2>'); process.exit(2); }

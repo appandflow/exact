@@ -1,9 +1,10 @@
-//! The age range's and tracking consent's admission in the runner, through this
-//! checkout's `@exact/age-range` and `@exact/tracking-consent` installed beside
-//! the app, each implementation played by the test as the host's native slot
-//! under the agent: the sheet a request holds and what its answer tells the
-//! implementation, the decline a region's status rules out, the origin rule,
-//! and the targets tracking consent does not exist on.
+//! The age range's and tracking consent's admission in the runner (LLP
+//! 1133.028 §7), through this checkout's `@exact/age-range` and
+//! `@exact/tracking-consent` installed beside the app, each implementation
+//! played by the test as the host's native slot under the agent: the sheet
+//! a request holds and what its answer tells the implementation, the decline
+//! a region's status rules out, the origin rule, and the targets tracking
+//! consent does not exist on.
 
 use exact_runner::{CallOrigin, Dispatch, Outcome, Reply, Response, Runner, Work};
 use serde_json::{json, Value as Json};
@@ -15,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 const APP: &str = r#"use requestAgeRange, ageRangeStatus, AgeRange, AgeRangeStatus from "@exact/age-range"
-use requestTrackingAuthorization, trackingAuthorizationStatus, TrackingStatus from "@exact/tracking-consent"
+use requestTrackingAuthorization, trackingAuthorizationStatus, TrackingStatus from "@exact/tracking-consent/apple"
 
 component App
   resource status = ageRangeStatus() as shape AgeRangeStatus
@@ -247,7 +248,7 @@ fn a_required_signal_leaves_no_decline() {
 /// On iOS each request holds a `tracking` sheet answered by tap alone, which
 /// reaches the implementation; on every other target the request fails
 /// `NotSupportedError` before any sheet, and the status, answered by the
-/// declared defaults, reads `denied`.
+/// declared defaults, reads `denied` (D13, D17).
 #[test]
 fn tracking_is_ios_and_tvos_alone() {
     let (_app, mut r, calls) = boot("track", "ios", &["tracking-consent"]);

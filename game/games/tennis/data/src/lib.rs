@@ -8,6 +8,7 @@
 //! request header, read at request time). Everything else, and every web
 //! build, posts to the dev proxy on 127.0.0.1:47913 (`jev-proxy.mjs`), which
 //! holds the key; a browser bundle never contains one.
+//! @ref game/diaries/003-tennis.md "Where the HTTP call lives"
 use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Store, Value};
 use serde_json::{json, Value as Json};
 

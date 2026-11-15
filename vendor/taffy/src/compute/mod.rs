@@ -23,7 +23,7 @@
 //!
 pub(crate) mod common;
 pub(crate) mod leaf;
-// EXACT PATCH 12: sizing through a preferred aspect ratio.
+// EXACT PATCH 12 (LLP 1053 G1): sizing through a preferred aspect ratio.
 pub(crate) mod ratio;
 
 #[cfg(feature = "block_layout")]
@@ -65,7 +65,7 @@ use crate::{CacheTree, MaybeMath, MaybeResolve};
 
 /// Compute layout for the root node in the tree
 pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, available_space: Size<AvailableSpace>) {
-    // EXACT PATCH 19: a root is a block-level box in the space it is offered, whatever
+    // EXACT PATCH 19 (LLP 1074): a root is a block-level box in the space it is offered, whatever
     // it lays its children out as (CSS 2.1 §10.3.3).
     // - Its size styles go through the ratio (`compute::ratio`).
     // - An automatic width fills the offer less its margins, where auto margins are zero.
@@ -86,6 +86,7 @@ pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, avai
             common::absolute::AbsolutePass {
                 area_size: Size { width, height },
                 area_offset: Point::ZERO,
+                clearance: crate::geometry::Rect::ZERO,
                 direction,
                 sizing_mode: SizingMode::InherentSize,
                 #[cfg(feature = "content_size")]
@@ -117,10 +118,10 @@ pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, avai
     );
     // An automatic width fills, within the limits the ratio transferred; the ratio then gives the
     // height from it.
-    // HTML form controls with an automatic inline size shrink to fit even
-    // when they are the document's one root child. Exact carries that
-    // distinction on Taffy's existing table marker (patch 21), as block
-    // child layout does below the root.
+    // EXACT PATCH 21: HTML form controls with an automatic inline size shrink
+    // to fit even when they are the document's one root child. Exact carries
+    // that distinction on Taffy's existing table marker, as block child layout
+    // does below the root.
     let fills = in_flow
         && !style.is_table_item()
         && style_size.width.is_none()

@@ -8,9 +8,9 @@ import UIKit
 #endif
 
 #if os(macOS) || os(iOS)
-/// A partitioned iframe through the web arm's C ABI:
-/// its own data store, `FrameNavigation` records in order, its
-/// commands, its refusals and crash recovery, against pages a loopback
+/// A partitioned iframe through the web arm's C ABI (LLP 1020.002 stage 1):
+/// its own data store, `FrameNavigation` records in the D2 sequence, the D3
+/// commands, the D1 refusals and crash recovery, against pages a loopback
 /// server in the test serves.
 final class IframePartitionTests: XCTestCase {
     private typealias EventFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
@@ -290,7 +290,7 @@ final class IframePartitionTests: XCTestCase {
         XCTAssert(seen.cleared?.hasPrefix("SyntaxError") == true, seen.cleared ?? "")
         clear(["partition": "memory-one", "types": ["cookies", "storage"]])
         XCTAssertEqual(seen.cleared, "")
-        // A page open in the partition may keep data; a fresh document reads the cleared store.
+        // A page open in the partition may keep data (D4); a fresh document reads the cleared store.
         let fresh = Seen()
         let (d, webD) = mount(arm, fresh, configuration: ["partition": "memory-one"], src: "\(baseURL)/b")
         defer { arm.destroy(d) }
@@ -349,7 +349,7 @@ final class IframePartitionTests: XCTestCase {
     }
 
     /// Under the agent a `persist:` partition is in memory, so a drive never
-    /// touches a person's saved logins; outside it, it persists, by app.
+    /// touches a person's saved logins; outside it, it persists, by app (D1).
     func testPersistentPartitionsAreTheAppsAndInMemoryUnderTheAgent() throws {
         let arm = try arm(), seen = Seen()
         func store(_ configuration: [String: Any]) -> WKWebsiteDataStore {
@@ -380,6 +380,75 @@ final class IframePartitionTests: XCTestCase {
         }
     }
 
+    func testUnpartitionedAgentFramesShareProcessWebsiteDataOutsidePartitions() throws {
+        let arm = try arm(), seen = Seen(), session = UUID().uuidString
+        var handles: [UnsafeMutableRawPointer] = []
+        defer { for handle in handles { arm.destroy(handle) } }
+        func store(agent: Bool, session: String) -> WKWebsiteDataStore {
+            let (handle, web) = mount(arm, seen, configuration: ["agent": agent, "session": session], src: nil)
+            handles.append(handle)
+            return web.configuration.websiteDataStore
+        }
+        func cookies(_ store: WKWebsiteDataStore) -> [HTTPCookie] {
+            var result: [HTTPCookie]?
+            store.httpCookieStore.getAllCookies { result = $0 }
+            spin { result != nil }
+            XCTAssertNotNil(result)
+            return result ?? []
+        }
+        let ordinary = store(agent: false, session: "ordinary")
+        XCTAssertTrue(ordinary === WKWebsiteDataStore.default())
+        let name = "exact-test-\(session)"
+        let personal = try XCTUnwrap(HTTPCookie(properties: [.domain: "example.invalid", .path: "/", .name: name, .value: "personal"]))
+        let test = try XCTUnwrap(HTTPCookie(properties: [.domain: "example.invalid", .path: "/", .name: name, .value: "test"]))
+        var saved = false
+        ordinary.httpCookieStore.setCookie(personal) { saved = true }
+        spin { saved }
+        XCTAssertTrue(saved)
+        defer {
+            var removed = false
+            ordinary.httpCookieStore.delete(personal) { removed = true }
+            spin { removed }
+        }
+        let first = store(agent: true, session: session)
+        XCTAssertFalse(first.isPersistent)
+        XCTAssertFalse(first === ordinary)
+        XCTAssertTrue(first === store(agent: true, session: session), "frames in one drive share storage")
+        let other = store(agent: true, session: session + "other")
+        XCTAssertTrue(first === other, "unpartitioned frames share storage across sessions")
+        saved = false
+        first.httpCookieStore.setCookie(test) { saved = true }
+        spin { saved }
+        XCTAssertTrue(saved)
+        defer {
+            var removed = false
+            first.httpCookieStore.delete(test) { removed = true }
+            spin { removed }
+        }
+        XCTAssertEqual(cookies(other).first { $0.name == name }?.value, "test")
+        let done: DoneFn = { context, bytes, length in
+            Unmanaged<Seen>.fromOpaque(context!).takeUnretainedValue().cleared = String(decoding: UnsafeBufferPointer(start: bytes, count: Int(length)), as: UTF8.self)
+        }
+        for request: [String: Any] in [["partition": "", "types": ["*"]], ["types": ["*"]]] {
+            seen.cleared = nil
+            let data = try JSONSerialization.data(withJSONObject: request)
+            data.withUnsafeBytes { arm.clear($0.bindMemory(to: UInt8.self).baseAddress, UInt32(data.count), Unmanaged.passUnretained(seen).toOpaque(), done) }
+            spin { seen.cleared != nil }
+            XCTAssertTrue(seen.cleared?.hasPrefix("NotFoundError") == true, seen.cleared ?? "no reply")
+        }
+        XCTAssertEqual(cookies(first).first { $0.name == name }?.value, "test")
+        let (invalid, web) = mount(arm, seen, configuration: ["agent": true, "session": session, "partition": ""], src: nil)
+        defer { arm.destroy(invalid) }
+        XCTAssertFalse(web.configuration.websiteDataStore === first, "an invalid partition cannot reach the unpartitioned store")
+        Array("{\"session\":\"\(session)\"}".utf8).withUnsafeBufferPointer { arm.endSession($0.baseAddress, UInt32($0.count)) }
+        let fresh = store(agent: true, session: session)
+        XCTAssertTrue(fresh === first, "ending a session leaves the process store available to other sessions")
+        XCTAssertEqual(cookies(fresh).first { $0.name == name }?.value, "test")
+        XCTAssertEqual(cookies(ordinary).first { $0.name == name }?.value, "personal", "the person's default store survives")
+        Array("{\"session\":\"\(session)\"}".utf8).withUnsafeBufferPointer { arm.endSession($0.baseAddress, UInt32($0.count)) }
+        Array("{\"session\":\"\(session)other\"}".utf8).withUnsafeBufferPointer { arm.endSession($0.baseAddress, UInt32($0.count)) }
+    }
+
     /// A partitioned frame changing its partition gets a new web view, in the new store.
     func testAChangedPartitionReplacesTheWebView() throws {
         let arm = try arm(), seen = Seen()
@@ -396,7 +465,7 @@ final class IframePartitionTests: XCTestCase {
         XCTAssertNotEqual(first.configuration.websiteDataStore, second.configuration.websiteDataStore)
     }
 
-    /// Three recoveries after 250, 500 and 1,000 ms; the fourth death in 30 s ends it.
+    /// Three recoveries after 250, 500 and 1,000 ms; the fourth death in 30 s ends it (D2, Astra r3).
     func testAFourthCrashIn30SecondsStopsRecovering() throws {
         let arm = try arm(), seen = Seen()
         let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-crash"], src: "\(baseURL)/a")
@@ -427,11 +496,50 @@ final class IframePartitionTests: XCTestCase {
         XCTAssert(seen.records.dropFirst(after).contains { $0.event == "navigatesuccess" })
     }
 
-    /// A partitioned web view under a hidden node view (`display: none`)
-    /// still paints on request, with no private occlusion selector, so a
-    /// capture of a hidden tab has its pixels. (The web view's own
-    /// `isHidden` or a zero `alpha` paints nothing on iOS; the arm sets
-    /// neither.)
+    /// A navigation, a new source or `stopLoading` while a crash's recovery
+    /// is queued owns the frame: the recovery never loads the crashed page
+    /// over it.
+    func testWhatTakesTheFrameWhileRecoveryIsQueuedKeepsIt() throws {
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-crash-taken"], src: "\(baseURL)/a")
+        defer { arm.destroy(handle) }
+        spin { self.events(seen).contains("navigatesuccess") }
+        let pid = { (web.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value ?? 0 }
+        let takers: [(name: String, take: () -> Void, shows: String?)] = [
+            ("navigate", { self.json(["op": "navigate", "url": "\(self.baseURL)/b"], arm.command, handle) }, "\(baseURL)/b"),
+            ("a new source", { self.send("\(self.baseURL)/c", arm.setSrc, handle) }, "\(baseURL)/c"),
+            ("stopLoading", { self.json(["op": "stopLoading"], arm.command, handle) }, nil),
+        ]
+        for taker in takers {
+            settle(seen)
+            let crashed = web.url?.absoluteString
+            let before = seen.records.count
+            spin { pid() > 0 }
+            kill(pid(), SIGKILL)
+            spin { seen.records.dropFirst(before).contains { $0.event == "navigateerror" && $0.record["error"] as? String == "crashed" } }
+            let after = seen.records.count
+            taker.take()
+            if let shows = taker.shows {
+                spin { seen.records.dropFirst(after).contains { $0.event == "navigatesuccess" && $0.record["url"] as? String == shows } }
+            }
+            // Past the longest recovery delay.
+            pause(1.5)
+            let later = seen.records.dropFirst(after)
+            let summary = "\(taker.name): \(later.map { "\($0.event) \($0.record["destination"] ?? "") \($0.record["url"] ?? "")" })"
+            if let shows = taker.shows {
+                XCTAssertFalse(later.contains { $0.event == "navigate" && $0.record["destination"] as? String == crashed }, summary)
+                XCTAssertEqual(later.last { $0.event == "navigatesuccess" }?.record["url"] as? String, shows, summary)
+            } else {
+                XCTAssertFalse(later.contains { $0.event == "navigate" }, summary)
+            }
+        }
+    }
+
+    /// Stage 1's first measurement (D1, "Hidden tabs"): a partitioned web
+    /// view under a hidden node view (`display: none`) still paints on
+    /// request, with no private occlusion selector, so D7's capture of a
+    /// hidden tab has its pixels. (The web view's own `isHidden` or a zero
+    /// `alpha` paints nothing on iOS; the arm sets neither.)
     func testAHiddenFramePaintsWhenAsked() throws {
         let arm = try arm(), seen = Seen()
         let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-hidden"], src: "\(baseURL)/b")
@@ -480,7 +588,7 @@ final class IframePartitionTests: XCTestCase {
     #endif
 
     /// The postMessage bridge is absent: nothing is delivered, and the page's
-    /// own `window.postMessage` reaches its own listeners.
+    /// own `window.postMessage` reaches its own listeners (D1).
     func testAPartitionedFrameHasNoBridge() throws {
         let arm = try arm(), seen = Seen()
         let (handle, web) = mount(arm, seen, configuration: ["partition": "memory-p"], src: "\(baseURL)/a")
@@ -533,6 +641,7 @@ final class FramePages {
             switch path {
             case "/a": response = Self.page("Page A", head: "<link rel=icon href=/a.png>")
             case "/b": response = Self.page("Page B")
+            case "/c": response = Self.page("Page C")
             case "/redirect": response = "HTTP/1.1 302 Found\r\nLocation: /b\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
             case "/slow": self.held.append(connection); return
             default: response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"

@@ -1,13 +1,13 @@
 // A button of an app's OWN bar (the clone's bottom bar, Bluesky's icon-only
-// bar): an authored pressable, as PostButton is. The library never wraps the
-// platform's tabs or header routes, which stay the platform's. A column over
-// and under its icon, held smaller while pressed; its icon filled when
-// selected, which it says aloud as the bar's current item
-// (aria-current="page", the selected trait on iOS); a count's pill or a dot
-// over the icon's right half. Its one slot follows the icon, for what an
-// item shows instead (the Profile button's avatar, with no icon); an item
-// held for more (the Profile button's account switcher) puts its long press
-// on that fill, the app's.
+// bar): an authored pressable, as PostButton is (LLP 1139 D9's exception;
+// theme2's 04:40 ruling). The library never wraps the platform's tabs or
+// header routes, which stay the platform's. A column over and under its
+// icon, held smaller while pressed; its icon filled when selected, which it
+// says aloud as the bar's current item (aria-current="page", the selected
+// trait on iOS); a count's pill or a dot over the icon's right half. Its one
+// slot follows the icon, for what an item shows instead (the Profile
+// button's avatar, with no icon); an item held for more (the Profile
+// button's account switcher) puts its long press on that fill, the app's.
 style BarItemLook
   padding-top="actions.bar-item-top"
   padding-bottom="actions.bar-item-bottom"

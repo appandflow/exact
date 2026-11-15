@@ -159,7 +159,7 @@ fn a_single_session_relayouts_slots_at_their_own_proposed_width() {
         let children = session.kernel().node(root).unwrap().children();
         assert_eq!(children.len(), 8);
         // Each placement root is an absolutely positioned box at the region's
-        // top left: the Lock Screen and the expanded
+        // top left (LLP 1126.001 WP10): the Lock Screen and the expanded
         // bottom (the first and the last) take the region through `right:
         // 0`, the others CSS 2.1 §10.3.7's shrink-to-fit width.
         for (i, child) in children.into_iter().enumerate() {
@@ -329,7 +329,7 @@ fn caltrain_activities_bake_with_state_schemas_and_unchanged_app_plan() {
         .unwrap()
         .encode();
     let all = compile_entries(&app, &manifest).unwrap();
-    // A widget, two activities and the watch entry.
+    // A widget, two activities and the watch entry (LLP 1126.002 D4).
     assert_eq!(all.len(), 4);
     for a in manifest.live_activities().unwrap() {
         let plan = &all[&a.kind].plan;
@@ -478,7 +478,7 @@ fn shared_number_spellings_cover_format_boundaries_and_double_extremes() {
 
 #[test]
 fn a_source_text_activity_names_no_members_file() {
-    // A text has no path to read members from.
+    // A text has no path to read members from (LLP 1091.002).
     let src =
         source("text title").replace("  inject\n", "  members \"./more.contract\"\n  inject\n");
     let errors = compile_activity(&src, &activity()).unwrap_err();

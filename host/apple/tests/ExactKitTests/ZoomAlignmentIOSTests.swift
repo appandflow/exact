@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// The zoom's alignment: UIKit's zoom lands the source on the
+/// LLP 1035.001, the zoom's alignment: UIKit's zoom lands the source on the
 /// presented route's element with the source's id; for an image, on the
 /// image as drawn, so a thumbnail morphs into the photo rather than into the
 /// whole route with two photos cross-fading.

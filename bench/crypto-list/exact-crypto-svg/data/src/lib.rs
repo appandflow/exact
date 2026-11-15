@@ -12,7 +12,7 @@
 //!
 //! This crate knows nothing about the chart: a row carries its series once, as
 //! numbers with their minimum and maximum, and the Contract maps them to SVG
-//! `points`. A tick edits the row's numbers; the source keeps
+//! `points` (LLP 1017.003). A tick edits the row's numbers; the source keeps
 //! no second copy of them.
 //!
 //! Record sharing (as in the heavy bench): every answer is a fresh list whose
@@ -233,7 +233,7 @@ impl Market {
 }
 
 /// The source. The list first shows the plan's baked value, which the source
-/// adopts as its rows (the runner already holds it, so the
+/// adopts as its rows (LLP 1027 D11: the runner already holds it, so the
 /// records are shared, not built again); the numbers a tick edits are parsed
 /// on a background thread started at launch.
 pub struct Crypto {

@@ -1,5 +1,5 @@
-//! An async function resumes under the answer it began in:
-//! three answers await one promise the first made, then fetch their
+//! An async function resumes under the answer it began in (LLP 1133.002
+//! D14): three answers await one promise the first made, then fetch their
 //! own rows, and every request after the await arrives under its own
 //! answer. Before the bundle lowered `async` through the context helper
 //! (js/bake/src/typescript.mjs `asyncContextHelper`), a continuation ran

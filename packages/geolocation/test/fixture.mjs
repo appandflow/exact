@@ -1,10 +1,11 @@
-// The conformance fixture, as every platform's suite makes
+// The conformance fixture (LLP 1133.001 D7), as every platform's suite makes
 // it: an app `exact new` made outside the repo, its files replaced by
 // `fixture/`'s, depending on this package by `file:` and installed.
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { ensureShells } from '../../../scripts/app-shells.mjs';
 
 export const here = import.meta.dir, pkg = resolve(here, '..'), root = resolve(pkg, '../..');
 
@@ -16,10 +17,10 @@ export const run = (cmd, args, cwd, env = process.env) => {
 
 /** The fixture app's directory and its bundle id. `dependencies` are added to
  * its package.json beside this package (`file:` by default); `approximate`
- * grants the approximate line in place of the precise one. */
+ * grants the approximate line (D7) in place of the precise one. */
 export function makeFixture({ geolocation = `file:${pkg}`, dependencies = {}, approximate = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'exact-geolocation-')), app = join(dir, 'geofixture');
-  run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app], root);
+  run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app, '--with', 'ios,mac'], root);
   for (const f of ['app.contract', 'app.ts', 'strings']) cpSync(join(here, 'fixture', f), join(app, f), { recursive: true });
   rmSync(join(app, 'app.test.contract'), { force: true });
   const id = JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).app.id;
@@ -30,6 +31,9 @@ export function makeFixture({ geolocation = `file:${pkg}`, dependencies = {}, ap
   manifest.dependencies = { ...manifest.dependencies, '@exact/geolocation': geolocation, ...dependencies };
   writeFileSync(join(app, 'package.json'), JSON.stringify(manifest, null, 2));
   run('bun', ['install'], app);
+  // The native workspace written before the build starts: one the build wrote
+  // is newer than the build, and the driver refuses the build as stale.
+  ensureShells(app);
   return { app, id };
 }
 

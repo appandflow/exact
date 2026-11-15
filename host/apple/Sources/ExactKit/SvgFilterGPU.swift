@@ -1,4 +1,4 @@
-// A filter chain on the GPU, where Core Image says
+// @ref LLP 1055.000 D14 — a filter chain on the GPU, where Core Image says
 // what the chain says. The island module runs every primitive in software
 // (premultiplied `f32` images, a copy per step): a CSS chain over a full
 // iPad scene was 387 ms of the main thread a frame and hundreds of MB while

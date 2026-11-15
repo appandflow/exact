@@ -1,5 +1,5 @@
 // data: carousel
-// Synthetic conformance plan: virtualized lists (list.js), on
+// Synthetic conformance plan: virtualized lists (LLP 1071 D5, list.js), on
 // Carousel's sources and wasm (it links collections) — a long list scrolled
 // by the agent, whose edges grow it at both ends (reachstart's rows come
 // above what shows, anchored), an authored scrollTop that builds its rows

@@ -1,4 +1,4 @@
-//! Portable storage requests; handles stay inside their host.
+//! Portable storage requests; handles stay inside their host (LLP 1027.001 D2).
 use exact_runner::{Outcome, Request};
 use serde_json::{json, Value};
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Opt-in native correctness + command-ack diagnostic, no frame-rate claim.
+// Opt-in LLP 1041 native correctness + command-ack diagnostic, no frame-rate claim.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';

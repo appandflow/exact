@@ -1,4 +1,4 @@
-// The auth fixture's passkey relying party: registration
+// The auth fixture's passkey relying party (LLP 1133.011 §10): registration
 // and sign-in verified as a real server verifies them (WebAuthn Level 3 §7.1
 // and §7.2), with WebCrypto and a CBOR reader of the few types WebAuthn uses.
 // Registration asks for a discoverable ES256 credential with user
@@ -88,8 +88,8 @@ export const androidOrigin = fingerprint => `android:apk-key-hash:${b64(Uint8Arr
 export const LOOPBACK = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 /**
- * A relying party. `rps` maps each RP ID it serves to the origins `clientDataJSON` may carry for it (WebAuthn §7.1
- * step 9): strings, or a RegExp. `key` is the HMAC key's text (at least 32 characters); without one, each instance and
+ * A relying party. `rps` maps each RP ID it serves to the origins `clientDataJSON` may carry for it (§7.1 step 9,
+ * D6): strings, or a RegExp. `key` is the HMAC key's text (at least 32 characters); without one, each instance and
  * each `reset()` makes a random key, which makes every earlier challenge and record unknown. `log.passkey` counts
  * what it verified and lists what it refused.
  */

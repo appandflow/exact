@@ -1,12 +1,13 @@
-//! Miswirings the compiler can see: a name that points at
+//! Miswirings the compiler can see (LLP 1116.010 D5): a name that points at
 //! nothing, or a key that never meets its partner, which the hosts refuse or
-//! ignore at run time without failing the build, though the repair is one
-//! line away: a delete button indented as a sibling of the swipe row's
-//! `scroll` instead of inside it (iOS: `swipeContent on #243 is refused:
-//! "delete-1" names no one descendant of it`); a navigation root keyed by a
-//! literal while its routes are keyed by id, so no push is ever shown;
-//! `EmptyState(symbol="sparkles")`, which draws nothing; `navigationSplit`
-//! on the root, which no host reads.
+//! ignore at run time without failing the build. Round 12's builders spent
+//! 7, 8 and 1 minutes on them with the repair one line away: grocery-list's
+//! delete button, indented as a sibling of the swipe row's `scroll` instead of
+//! inside it (iOS: `swipeContent on #243 is refused: "delete-1" names no one
+//! descendant of it`); chat-rooms' navigation root keyed by a literal while its
+//! routes are keyed by id, so no push was ever shown; habit-tracker's
+//! `EmptyState(symbol="sparkles")`, which draws nothing; recipe-finder's
+//! `navigationSplit` on the root, which no host reads.
 //!
 //! Only what is certain is named. A name is compared as written: a literal, or
 //! a template whose fixed text a descendant's `id` could not complete
@@ -14,20 +15,8 @@
 //! use or a slot is the benefit of the doubt.
 
 use crate::LowerError;
+use contract_syntax::inline::calls::shown;
 use contract_syntax::{Attr, Expr, Node, Span, TemplatePart};
-
-/// The children of a node, through choices.
-pub(super) fn arms(node: &Node) -> Vec<&[Node]> {
-    match node {
-        Node::Element { children, .. } | Node::Use { children, .. } => vec![children],
-        Node::When {
-            then, otherwise, ..
-        } => vec![then, otherwise],
-        Node::Match { some, none, .. } => vec![&some.1, none],
-        Node::Each { body, .. } => vec![body],
-        Node::Children { .. } => Vec::new(),
-    }
-}
 
 /// One piece of a name: written text, or a `${…}` hole.
 #[derive(Clone, PartialEq)]
@@ -40,6 +29,13 @@ enum Piece {
 /// spell (`row-${i}`, `delete-${m.id}`).
 #[derive(Clone, PartialEq)]
 struct Name(Vec<Piece>);
+
+pub(super) fn names_may_match(a: &Expr, b: &Expr) -> bool {
+    match (Name::of(a), Name::of(b)) {
+        (Some(a), Some(b)) => a.may_match(&b),
+        _ => true,
+    }
+}
 
 impl Name {
     /// The name, when it is a literal or a template of holes it can spell.
@@ -129,11 +125,42 @@ impl Name {
 
     /// Whether some value of the holes could make the two names one.
     fn may_match(&self, other: &Name) -> bool {
-        if let (Some(a), Some(b)) = (self.literal(), other.literal()) {
-            return a == b;
+        if let Some(a) = self.literal() {
+            return other.can_be(&a);
+        }
+        if let Some(b) = other.literal() {
+            return self.can_be(&b);
         }
         let (ha, hb, ta, tb) = (self.head(), other.head(), self.tail(), other.tail());
         (ha.starts_with(&hb) || hb.starts_with(&ha)) && (ta.ends_with(&tb) || tb.ends_with(&ta))
+    }
+
+    /// Holes may be empty, but cannot remove or overlap the written text.
+    fn can_be(&self, literal: &str) -> bool {
+        let mut chunks = vec![String::new()];
+        for piece in &self.0 {
+            match piece {
+                Piece::Text(text) => chunks.last_mut().unwrap().push_str(text),
+                Piece::Hole(_) => chunks.push(String::new()),
+            }
+        }
+        let Some(mut rest) = literal.strip_prefix(chunks[0].as_str()) else {
+            return false;
+        };
+        if chunks.len() == 1 {
+            return rest.is_empty();
+        }
+        let Some(middle) = rest.strip_suffix(chunks.last().unwrap().as_str()) else {
+            return false;
+        };
+        rest = middle;
+        for chunk in &chunks[1..chunks.len() - 1] {
+            let Some(position) = rest.find(chunk.as_str()) else {
+                return false;
+            };
+            rest = &rest[position + chunk.len()..];
+        }
+        true
     }
 
     /// As written: the literal's text, a template's with its holes.
@@ -151,7 +178,7 @@ impl Name {
 /// An expression's spelling, when it is a name, a field of one, a call or a number.
 fn spell(e: &Expr) -> Option<String> {
     match e {
-        Expr::Ident(n, _) => Some(n.clone()),
+        Expr::Ident(n, _) => Some(shown(n).to_string()),
         Expr::Member(base, field, _) => Some(format!("{}.{field}", spell(base)?)),
         Expr::Number(n, _) => Some(n.to_string()),
         Expr::Str(s, _) => Some(format!("{s:?}")),
@@ -180,7 +207,7 @@ fn ids<'a>(nodes: &'a [Node], out: &mut Vec<(Name, &'a Node)>) -> Option<()> {
                 out.push((Name::of(&id.value)?, node));
             }
         }
-        for list in arms(node) {
+        for list in node.child_lists() {
             ids(list, out)?;
         }
     }
@@ -205,7 +232,7 @@ fn written(name: &Name) -> String {
 
 const SWIPE_FIX: &str = "(docs/recipes/list-rows.md)";
 
-/// `lower-swipe-wiring`: a row's `scroll swipeContent=… swipeLeading=…
+/// `lower-swipe-wiring` (LLP 1116.010 D5): a row's `scroll swipeContent=… swipeLeading=…
 /// swipeTrailing=…` whose names do not meet the elements inside it. iOS builds UIKit's
 /// swipe action from a content element and action buttons that are all descendants of the
 /// scroll, the actions beside the content and not inside it, and refuses the row at run
@@ -314,13 +341,13 @@ fn route_keys<'a>(nodes: &'a [Node], out: &mut Vec<&'a Attr>) {
                 continue;
             }
         }
-        for list in arms(node) {
+        for list in node.child_lists() {
             route_keys(list, out);
         }
     }
 }
 
-/// `lower-navigation-key`: the navigation root's `navigationKey` names
+/// `lower-navigation-key` (LLP 1116.010 D5): the navigation root's `navigationKey` names
 /// the route to show, so it has to be a key some route carries while that route is on top.
 /// A literal root key over routes keyed by their entry's id never names a pushed route:
 /// chat-rooms' `main navigationKey="rooms"` over `navigationKey=`${e.id}`` showed nothing
@@ -375,10 +402,10 @@ pub(super) fn navigation_keys(
     }
 }
 
-/// `lower-navigation-split`: `navigationSplit` (a width, or `"none"`) is
+/// `lower-navigation-split` (LLP 1116.010 D5): `navigationSplit` (a width, or `"none"`) is
 /// read from the stack's root route, the first route under the navigation root; on the
-/// root itself or on a box no host reads it: on `main` it leaves the
-/// default 320-point list over a blank detail pane. The `"placeholder"` box
+/// root itself or on a box no host reads it. recipe-finder wrote it on `main` and got the
+/// default 320-point list over a blank detail pane (round 12). The `"placeholder"` box
 /// inside the root route is the word's other form and is left alone.
 pub(super) fn navigation_split(
     tag: &str,
@@ -416,7 +443,7 @@ fn bare_word(source: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
 }
 
-/// `lower-image-source`: an `image` whose literal source is one bare
+/// `lower-image-source` (LLP 1116.010 D5): an `image` whose literal source is one bare
 /// word is neither a symbol (`symbol:<role>`) nor a file (it has no extension and no path),
 /// so nothing is drawn: habit-tracker's `EmptyState(symbol="sparkles")` rendered a blank
 /// where the icon goes, and only a screenshot showed it.

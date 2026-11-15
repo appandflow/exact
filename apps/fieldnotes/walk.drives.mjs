@@ -1,4 +1,4 @@
-// The walk drives on Fieldnotes under the agent: the
+// LLP 1133.026 §12's walk drives on Fieldnotes under the agent: the
 // pedometer's and altimeter's declared substitutes, their `motion-fitness`
 // ticket and tracks. Drives 1-5 need a target with the sensors, so they run
 // on iOS; drive 6 (no walk button) on macOS and the web.

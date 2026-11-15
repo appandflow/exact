@@ -1,8 +1,8 @@
-// @exact/speech-recognition's conformance suite on the web: th// te fixture
-// app (`test/fixture`) made with `exact new` outside the repo, built for the
-// web, and driven in each engine with the web implementations bound. No
-// agent. Where an engine has no recognizer, or none that can run here, the
-// suite checks that it says so.
+// @exact/speech-recognition's conformance suite on the web (LLP 1133.001 D7,
+// LLP 1133.012 §10, stage 1): the fixture app (`test/fixture`) made with
+// `exact new` outside the repo, built for the web, and driven in each engine
+// with the web implementations bound. No agent. Where an engine has no
+// recognizer, or none that can run here, the suite checks that it says so.
 //
 // A Chrome-family track carries the known spoken file (`fixture.mjs`
 // `spokenFile`): the engine's fake capture device plays it where that device
@@ -41,7 +41,7 @@ const origin = `http://127.0.0.1:${server.port}`;
 const fake = ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-audio-capture=${spoken}`];
 const profile = join(homedir(), '.cache/exact/speech/chrome-profile');
 mkdirSync(profile, { recursive: true });
-// What each engine is expected to offer: Chrome on a desktop takes a track; Safari only its own microphone;
+// What each engine is expected to offer (D8): Chrome on a desktop takes a track; Safari only its own microphone;
 // Firefox ships no recognizer it enables. Playwright passes `--disable-component-update`, which keeps Chrome
 // from downloading its on-device model.
 const launches = {
@@ -167,7 +167,7 @@ for (const engine of engines) {
       const listening = await until(page, 'heard', t => / (listening|ended) true /.test(t) || / ended /.test(t));
       if (onDevice) {
         check(engine, 'it listens, the track\'s audio reaching the recognizer', / listening true /.test(listening), listening);
-        // The microphone is held exclusively while a lease on it is active.
+        // The microphone is held exclusively while a lease on it is active (D12 item 4).
         await tap(page, 'on-microphone');
         const refused = await until(page, 'held-error', t => t !== '');
         check(engine, 'a microphone start while the track is leased is NotReadableError', refused === 'NotReadableError', refused);
@@ -197,7 +197,7 @@ for (const engine of engines) {
     }
 
     // The microphone: the browser's own capture under an exclusive hold. Where the recognizer cannot keep audio
-    // on the device, `processLocally=true` opens nothing and ends `service-not-allowed`.
+    // on the device, `processLocally=true` opens nothing and ends `service-not-allowed` (D9).
     const microphone = async () => {
       const before = await text(page, 'held');
       await tap(page, 'on-microphone');

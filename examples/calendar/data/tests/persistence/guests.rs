@@ -62,7 +62,7 @@ fn guests_are_kept_in_order_across_a_restart_and_need_no_schema_change() {
         want.map(|(n, e)| (n.to_owned(), e.to_owned())).to_vec()
     );
     assert!(guests(&mut app, "sample-2026-09-1").is_empty());
-    // The phones, kept beside the guests in the order added.
+    // The phones, kept beside the guests in the order added (LLP 1133.024 D16).
     let phones = app.call(
         "calendarGuestPhones",
         vec![Value::str("sample-2026-09-0"), num(0)],

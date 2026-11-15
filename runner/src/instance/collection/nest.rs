@@ -1,7 +1,7 @@
-//! One level of nesting: a virtualized list in a virtualized
-//! list's row lives and dies with that row; what the reader scrolled it
-//! to is kept, by default, as an item key and an offset into that item; a
-//! pin inside it pins the outer row too.
+//! One level of nesting (LLP 1070 §4): a virtualized list in a virtualized
+//! list's row lives and dies with that row (N1); what the reader scrolled it
+//! to is kept, by default, as an item key and an offset into that item (Q1
+//! as ruled, §4.2); a pin inside it pins the outer row too (N5).
 use super::*;
 use std::collections::HashMap;
 use traversal::InnerSites;
@@ -168,7 +168,7 @@ fn inner_pins(children: &[Child], sites: &InnerSites, out: &mut [Option<ViewId>;
 
 impl Collection {
     /// The pins this list keeps: its own report's, else a pin an inner list
-    /// in one of its rows holds. Hosts report a pin to its nearest
+    /// in one of its rows holds (N5). Hosts report a pin to its nearest
     /// owner only; the chain up is derived here, in one place.
     pub(super) fn pins(&self) -> [Option<ViewId>; 2] {
         let mut out = self
@@ -246,7 +246,7 @@ impl Collection {
         let mut lists = Vec::new();
         inner_lists(&mut row.roots, &outer, "", &sites, &mut lists);
         // An inner port is at most the outer port along the same axis, or
-        // the outer rows' cross size across it: build that
+        // the outer rows' cross size across it (F2's bootstrap): build that
         // much before any host has laid the inner list out, so the frame
         // that first shows it is covered.
         let port = self.geometry.as_ref().map(|g| (g.port_main, g.cross));

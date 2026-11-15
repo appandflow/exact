@@ -1,18 +1,18 @@
-// @exact/photos on Android: MediaStore's images read and added to. Under the agent it asks MediaStore
-// for nothing and answers from the agent's library (AgentLibrary.kt); the runner holds the permission tickets and
+// @exact/photos on Android (LLP 1133.019): MediaStore's images read and added to. Under the agent it asks MediaStore
+// for nothing and answers from the agent's library (AgentLibrary.kt, §10); the runner holds the permission tickets and
 // lays the status it keeps over each answer.
 //
 // - A photo reaches the app as an id (its MediaStore content URI), a picture (`photos:<id>`, which an `img` draws
-//   through the reader's image door, `ContentResolver.loadThumbnail`) or a copy in `app:/tmp/photos/` (emptied
+//   through the reader's image door, `ContentResolver.loadThumbnail`, D2) or a copy in `app:/tmp/photos/` (emptied
 //   when the module is first made in a launch).
-// - The read permissions are by API level: `READ_EXTERNAL_STORAGE` to 32, `READ_MEDIA_IMAGES` from 33, with
+// - The read permissions are by API level (D4): `READ_EXTERNAL_STORAGE` to 32, `READ_MEDIA_IMAGES` from 33, with
 //   `READ_MEDIA_VISUAL_USER_SELECTED` from 34 (limited access), each asked only where the manifest declares it, with
 //   `ACCESS_MEDIA_LOCATION` in the same request. Adding asks nothing (API 29 and later).
-// - The app's own photos are read under the add line: the runner lets a picture or a copy through as `owned`,
+// - The app's own photos are read under the add line (D6): the runner lets a picture or a copy through as `owned`,
 //   and MediaStore decides by opening the id.
 // - Android has no event for a change in Settings: each resume reads the status again and, when it changed,
-//   announces it, and revokes the pictures it drew that the app may no longer read.
-// - Tier 3: `queryArgsHatch` sees each `photoAssets` query's `Bundle` after the module's arguments, on the
+//   announces it, and revokes the pictures it drew that the app may no longer read (D6).
+// - Tier 3 (D9): `queryArgsHatch` sees each `photoAssets` query's `Bundle` after the module's arguments, on the
 //   module's thread; `insertValuesHatch` each add's `ContentValues`, likewise.
 package exact.photos
 
@@ -41,7 +41,7 @@ import kotlin.math.min
 
 class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
     companion object {
-        /** The app's access hatches, on the module's thread. */
+        /** The app's access hatches (D9), on the module's thread. */
         @JvmStatic var queryArgsHatch: ((Bundle) -> Unit)? = null
         @JvmStatic var insertValuesHatch: ((ContentValues) -> Unit)? = null
         private const val SELECTED = "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
@@ -64,7 +64,7 @@ class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
     init {
         if (!emptied) {
             emptied = true
-            context.file("app:/tmp/photos/x")?.parentFile?.deleteRecursively()
+            context.directory("app:/tmp/photos")?.let { dev.exact.canvas.Files.removeTree(it) }
         }
         if (context.agent) library.missing?.let { say(it) }
     }
@@ -91,8 +91,11 @@ class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
         if (now.toString() == before) return
         context.changed("photos.photoLibraryStatus")
         context.changed("photos.photoAssets")
-        if (now.getString("access") == "full") return
-        // What the app may read narrowed: a picture of a photo it can no longer open is withdrawn.
+        if (now.getString("access") != "full") withdraw()
+    }
+
+    /** What the app may read narrowed: a picture of a photo it can no longer open is withdrawn (D6). */
+    private fun withdraw() {
         val ids = drawn.toList()
         work.execute {
             val gone = ids.filter { !opens(Uri.parse(it)) }
@@ -100,7 +103,7 @@ class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
         }
     }
 
-    // The fact
+    // The fact (D5)
 
     private fun has(permission: String) = app.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
 
@@ -120,7 +123,7 @@ class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
         val full = reads.firstOrNull()?.let { it != SELECTED && has(it) } == true
         val limited = !full && SELECTED in reads && has(SELECTED)
         val granted = full || limited
-        // Neither: the state is the host's history of the request.
+        // Neither: the state is the host's history of the request (LLP 1133.008 D8 item 7).
         val history = reads.firstOrNull()?.let { context.permission(it) }
         val state = if (granted) "granted" else history?.state ?: "prompt"
         val out = JSONObject()
@@ -153,11 +156,11 @@ class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
         val location = listOf(Manifest.permission.ACCESS_MEDIA_LOCATION).filter { it in declared }
         val asked = (reads + location).toTypedArray()
         val first = reads.first()
-        context.requestPermissions(asked) {
+        context.requestPermissions(asked) { answered ->
             // A refusal with no rationale owed after it is permanent: the history `permission` reads, as
             // `askPermission` keeps it for one permission.
             val activity = context.activity
-            if (status().getString("state") != "granted" && activity != null && !activity.shouldShowRequestPermissionRationale(first)) {
+            if (first in answered && status().getString("state") != "granted" && activity != null && !activity.shouldShowRequestPermissionRationale(first)) {
                 app.getSharedPreferences("exact.permissions", android.content.Context.MODE_PRIVATE).edit().putBoolean(first, true).apply()
             }
             context.changed("photos.photoLibraryStatus")
@@ -165,13 +168,17 @@ class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
         }
     }
 
-    /** API 34's selection dialog: the read request again, while access is limited. Answers the status. */
+    /** API 34's selection dialog: the read request again, while access is limited (D6). Answers the status. The dialog
+     * can answer with the activity still resumed, and a limited library changed within itself reads the same status,
+     * so the pictures of photos it took out are withdrawn here, not at a resume. */
     private fun manage(reply: (JSONObject) -> Unit) {
         if (Build.VERSION.SDK_INT < 34 || status().getString("access") != "limited") return reply(status())
         context.requestPermissions(reads.toTypedArray()) {
             context.changed("photos.photoLibraryStatus")
             context.changed("photos.photoAssets")
-            reply(status())
+            val now = status()
+            if (now.getString("access") != "full") withdraw()
+            reply(now)
         }
     }
 
@@ -239,7 +246,7 @@ class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
                 main.post { drawn += id }
                 reply(bitmap, null)
             } catch (e: SecurityException) {
-                // Another app's photo under the add line alone: an unresolved image.
+                // Another app's photo under the add line alone (D6): an unresolved image.
                 reply(null, if (owned) "NotFoundError" else "NotAllowedError")
             } catch (e: java.io.IOException) {
                 reply(null, "NotFoundError")
@@ -258,7 +265,7 @@ class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
 
     private fun copy(args: JSONObject, reply: (JSONObject) -> Unit) {
         val uri = Uri.parse(args.optString("asset"))
-        // Opened as the app's own when it is; else a read of the library, asked while `prompt`.
+        // Opened as the app's own when it is (D6); else a read of the library, asked while `prompt`.
         work.execute {
             if (opens(uri)) return@execute reply(copied(uri, args))
             main.post {
@@ -275,14 +282,14 @@ class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
         val ext = name.substringAfterLast('.', "jpg")
         val path = args.optString("path").ifEmpty { null }?.let { if (it.endsWith(".$ext")) it else "$it.$ext" } ?: "app:/tmp/photos/${++copies}.$ext"
         val file = context.file(path) ?: return error("NotAllowedError")
-        // The original bytes, location kept, where the app holds ACCESS_MEDIA_LOCATION; the owner's are never
+        // The original bytes, location kept, where the app holds ACCESS_MEDIA_LOCATION (D4); the owner's are never
         // redacted, so the flag describes another app's photo opened without it.
         val original = has(Manifest.permission.ACCESS_MEDIA_LOCATION)
         val own = row.getJSONObject("android").opt("ownerPackageName") == app.packageName
         val size = try {
             file.parentFile?.mkdirs()
             app.contentResolver.openInputStream(if (original) MediaStore.setRequireOriginal(uri) else uri)?.use { input ->
-                file.outputStream().use { input.copyTo(it) }
+                dev.exact.canvas.Files.output(file).use { input.copyTo(it) }
             } ?: return error("NotFoundError")
         } catch (e: SecurityException) { return error("NotAllowedError") } catch (e: java.io.IOException) { return error("UnknownError") }
         return JSONObject()
@@ -293,7 +300,7 @@ class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
 
     private fun add(args: JSONObject): JSONObject {
         val path = args.optString("path")
-        val file = context.file(path)?.takeIf { it.isFile } ?: return error("NotFoundError")
+        val file = context.fileToRead(path) ?: return error("NotFoundError")
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.path, bounds)
         val type = bounds.outMimeType ?: return error("DataError")
@@ -314,11 +321,11 @@ class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
             return error("UnknownError")
         }
         main.post { context.changed("photos.photoAssets") }
-        // The app reads its own photo whatever its read permission.
+        // The app reads its own photo whatever its read permission (D6).
         return JSONObject().put("asset", uri.toString())
     }
 
-    // The agent's answers
+    // The agent's answers (§10)
 
     private fun agent(name: String, args: JSONObject, reply: (JSONObject) -> Unit) {
         when (name) {
@@ -380,7 +387,7 @@ class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
         val file = context.file(path) ?: return error("UnknownError")
         try {
             file.parentFile?.mkdirs()
-            file.writeBytes(asset.bytes)
+            dev.exact.canvas.Files.write(file, asset.bytes)
         } catch (e: java.io.IOException) { return error("UnknownError") }
         say("copied $id to $path sha256 ${AgentLibrary.sha256(asset.bytes)}")
         return JSONObject().put("path", path).put("name", asset.name).put("type", asset.type).put("size", asset.bytes.size)
@@ -390,12 +397,11 @@ class PhotosModule(context: ExtensionContext) : ExactExtension(context) {
 
     private fun agentAdd(args: JSONObject): JSONObject {
         val path = args.optString("path")
-        val bytes = context.file(path)?.takeIf { it.isFile }?.readBytes() ?: return error("NotFoundError")
-        val directory = context.file("app:/tmp/photos-library/x")?.parentFile ?: return error("DataError")
-        val asset = library.add(bytes, directory, context.now()) ?: return error("DataError")
+        val bytes = context.fileToRead(path)?.readBytes() ?: return error("NotFoundError")
+        val asset = library.add(bytes, context.now()) { context.file("app:/tmp/photos-library/$it") } ?: return error("DataError")
         say("added ${asset.id} from $path sha256 ${AgentLibrary.sha256(bytes)} ${asset.width}x${asset.height} ${asset.type}")
         context.changed("photos.photoAssets")
-        // The app reads its own photo whatever its read permission.
+        // The app reads its own photo whatever its read permission (D6).
         return JSONObject().put("asset", asset.id)
     }
 }

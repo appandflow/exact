@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-/// A quit the app holds fades its window and takes it out of
+/// LLP 1069.010: a quit the app holds fades its window and takes it out of
 /// full screen first, `setWindowOpacity(opacity)` and `exitFullscreen()`.
 @MainActor
 final class WindowCommandsMacTests: XCTestCase {
@@ -32,6 +32,41 @@ final class WindowCommandsMacTests: XCTestCase {
         XCTAssertEqual(window.alphaValue, 1)
         XCTAssertEqual(said, ["setWindowOpacity refused: the opacity is a number from 0 to 1"])
         XCTAssertFalse(ExactWindowCommands.perform("close", [], on: window) { said.append($0) }, "not a window command of these")
+    }
+
+    /// LLP 1133.025 D4: `hideWindow()` puts away the window of an app that
+    /// keeps running, as the person's close does (`PageFactsMacTests` holds
+    /// what the page then reads), and showing it again is a restore. Where
+    /// the app would end without its window, it is refused and the window
+    /// stays. Which apps keep their window is the manifest's and the status
+    /// item's.
+    func testHidingTheWindowKeepsItOnlyWhereTheAppKeepsRunning() {
+        let window = shown()
+        var said: [String] = []
+        ExactWindowCommands.hide(window, keeps: false) { said.append($0) }
+        XCTAssertTrue(window.isVisible, "refused: the window stays")
+        XCTAssertEqual(said, ["hideWindow refused: the app ends without its window; it keeps running with host.macos.window.keepRunning or a status item placed"])
+
+        said = []
+        ExactWindowCommands.hide(window, keeps: true) { said.append($0) }
+        XCTAssertEqual(said, [])
+        XCTAssertFalse(window.isVisible || window.isMiniaturized, "ordered out: neither on screen nor in the Dock")
+        XCTAssertTrue(PageFacts.persisted(window), "put away as a close under keepRunning puts it: pagehide, persisted")
+        ExactWindowCommands.hide(window, keeps: true) { said.append($0) }
+        XCTAssertEqual(said, [], "a window already away is left as it is")
+        window.makeKeyAndOrderFront(nil) // bare `focus()`'s `front()`
+        waitFor("the window shown again is counted a restore") { PageFacts.restores(window) > 0 }
+        XCTAssertEqual(PageFacts.restores(window), 1, "shown again: pageshow, persisted")
+        XCTAssertFalse(PageFacts.persisted(window))
+        PageFacts.closed(window)
+
+        let app: [String: Any] = ["ExactWindow": ["keepRunning": true]]
+        let documents: [String: Any] = ["ExactWindow": ["keepRunning": true], "ExactLaunchMode": "navigate-new"]
+        XCTAssertTrue(ExactDocuments.keepsWindow(main: true, placesStatusItems: false, app), "keepRunning")
+        XCTAssertFalse(ExactDocuments.keepsWindow(main: false, placesStatusItems: false, app), "a window other than main closes")
+        XCTAssertTrue(ExactDocuments.keepsWindow(main: true, placesStatusItems: true, [:]), "a placed status item reaches the app")
+        XCTAssertFalse(ExactDocuments.keepsWindow(main: true, placesStatusItems: false, [:]), "the default: the app ends with its window")
+        XCTAssertFalse(ExactDocuments.keepsWindow(main: true, placesStatusItems: true, documents), "a document's window closes as a document")
     }
 
     func testLeavingFullScreenLeavesAWindowThatIsNotFullScreenAsItIs() {

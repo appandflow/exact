@@ -59,10 +59,11 @@ internal fun makePicture(id: Int, w: Int, h: Int, hwbuf: Boolean): Bitmap {
 }
 
 /**
- * Replays an op stream (exact2's host/linux/src/canvas.rs) onto a Canvas. Its scratch objects are its own: one
+ * Replays an op stream (exact2's host/painted/src/canvas.rs) onto a Canvas. Its scratch objects are its own: one
  * Player a thread. [image] and [row] resolve ids; [group] gives a scroller's node (main thread only).
  */
 internal class Player(private val fonts: Map<Int, Font>) {
+    var origins: PaintedOrigins? = null
     var image: (Int) -> Bitmap? = { null }
     /** A platform element's node (op 28, [Natives]). */
     var native: (Int) -> android.graphics.RenderNode? = { null }
@@ -73,14 +74,33 @@ internal class Player(private val fonts: Map<Int, Font>) {
     var slot: (Int) -> android.graphics.RenderNode? = { null }
     /** A node exact2's reader animates (op 29, [Layers]). */
     var layer: (Int) -> android.graphics.RenderNode? = { null }
+    var shared: (Long) -> android.graphics.RenderNode? = { null }
     var group: ((Int) -> android.graphics.RenderNode)? = null
     /** What is drawn in place of a scroller's own node, for one whose edge the reader stretches ([Scrolling]). */
     var holder: ((Int) -> android.graphics.RenderNode?)? = null
-    private var grouped = 0
     var width = 0
     var height = 0
+    /** The scale an animated layer's node is drawn at beyond the stream's matrices ([Layers]): part of a pixelated
+     * image's enlargement. */
+    var layerScale = 1f
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val glyphPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var imageTint: Int? = null
+    private var imageRendering = 0
+    private var imageMode = 0
+    private val clipUnion = Path()
+    private val maskPaint = Paint().apply {
+        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+    }
+    private fun tintImage() {
+        imageMode = imageRendering
+        imageRendering = 0
+        imagePaint.isFilterBitmap = imageMode != 1
+        imagePaint.colorFilter = imageTint?.let {
+            android.graphics.PorterDuffColorFilter(it, android.graphics.PorterDuff.Mode.SRC_IN)
+        }
+        imageTint = null
+    }
     private val imagePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val src = RectF()
@@ -113,9 +133,78 @@ internal class Player(private val fonts: Map<Int, Font>) {
     /** [anim] over [bounds]: drawn at the origin, under a translation, with bounds of its size alone. Android 10's
      * `AnimatedImageDrawable` drew a strip of its frames, or nothing, at bounds away from the origin. */
     private fun drawAnimated(c: Canvas, anim: android.graphics.drawable.Drawable) {
-        c.save(); c.translate(bounds.left.toFloat(), bounds.top.toFloat())
-        anim.setBounds(0, 0, bounds.width(), bounds.height()); anim.draw(c)
-        c.restore()
+        val target = RectF(bounds)
+        sampleImage(c, anim.intrinsicWidth, anim.intrinsicHeight, target, live = true) { canvas, placed, paint ->
+            canvas.save(); canvas.translate(placed.left, placed.top)
+            anim.colorFilter = paint.colorFilter
+            anim.setFilterBitmap(paint.isFilterBitmap)
+            try {
+                anim.setBounds(0, 0, placed.width().toInt(), placed.height().toInt()); anim.draw(canvas)
+            } finally { anim.colorFilter = null; canvas.restore() }
+        }
+    }
+
+    private fun drawSampledBitmap(c: Canvas, bmp: Bitmap, target: RectF) {
+        val hardware = bmp.config == Bitmap.Config.HARDWARE
+        if (hardware && c.isHardwareAccelerated) {
+            sampleImage(c, bmp.width, bmp.height, target, live = true) { canvas, placed, paint -> canvas.drawBitmap(bmp, null, placed, paint) }
+            return
+        }
+        // A software tile cannot draw a hardware bitmap: it draws a copy of its pixels.
+        val source = if (imageMode == 2 && hardware) (bmp.copy(Bitmap.Config.ARGB_8888, false) ?: return) else bmp
+        try {
+            sampleImage(c, source.width, source.height, target) { canvas, placed, paint -> canvas.drawBitmap(source, null, placed, paint) }
+        } finally { if (source !== bmp) source.recycle() }
+    }
+
+    /** CSS's virtual integer enlargement is tiled so the scale cannot allocate it whole. [live] tiles are recorded
+     * into HWUI's display list rather than drawn into software bitmaps: an animated drawable keeps playing, and a
+     * hardware bitmap is drawn without a readback. */
+    private inline fun sampleImage(c: Canvas, width: Int, height: Int, target: RectF, live: Boolean = false, draw: (Canvas, RectF, Paint) -> Unit) {
+        if (imageMode != 2 || width <= 0 || height <= 0) { draw(c, target, imagePaint); return }
+        val matrixValues = FloatArray(9)
+        current.getValues(matrixValues)
+        val nx = kotlin.math.floor(target.width() * layerScale * kotlin.math.hypot(matrixValues[0], matrixValues[3]) / width + 0.5f).coerceAtLeast(1f)
+        val ny = kotlin.math.floor(target.height() * layerScale * kotlin.math.hypot(matrixValues[1], matrixValues[4]) / height + 0.5f).coerceAtLeast(1f)
+        if (nx == 1f && ny == 1f) { draw(c, target, imagePaint); return }
+        val fullWidth = width * nx; val fullHeight = height * ny
+        val sx = target.width() / fullWidth; val sy = target.height() / fullHeight
+        val clip = RectF(c.clipBounds)
+        if (!clip.intersect(target) || sx <= 0 || sy <= 0) return
+        val nearest = Paint().apply { isFilterBitmap = false }
+        val left = kotlin.math.floor((clip.left - target.left) / sx / 256).toInt() * 256
+        val top = kotlin.math.floor((clip.top - target.top) / sy / 256).toInt() * 256
+        val right = kotlin.math.ceil((clip.right - target.left) / sx).toInt()
+        val bottom = kotlin.math.ceil((clip.bottom - target.top) / sy).toInt()
+        for (y in top until bottom step 256) for (x in left until right step 256) {
+            val core = RectF(x.toFloat(), y.toFloat(), (x + 256f).coerceAtMost(fullWidth), (y + 256f).coerceAtMost(fullHeight))
+            val halo = RectF(core).apply { inset(-1f, -1f); intersect(0f, 0f, fullWidth, fullHeight) }
+            if (live && c.isHardwareAccelerated) {
+                // Keep the drawable in HWUI's display list: a software tile freezes an animation at its recorded frame.
+                val tile = android.graphics.RenderNode("pixelated image").apply {
+                    setPosition(0, 0, halo.width().toInt(), halo.height().toInt())
+                    setUseCompositingLayer(true, imagePaint)
+                }
+                val recording = tile.beginRecording()
+                draw(recording, RectF(-halo.left, -halo.top, fullWidth - halo.left, fullHeight - halo.top), nearest)
+                tile.endRecording()
+                c.save()
+                c.clipRect(target.left + core.left * sx, target.top + core.top * sy, target.left + core.right * sx, target.top + core.bottom * sy)
+                c.translate(target.left + halo.left * sx, target.top + halo.top * sy)
+                c.scale(sx, sy)
+                c.drawRenderNode(tile)
+                c.restore()
+                continue
+            }
+            val pixels = Bitmap.createBitmap(halo.width().toInt(), halo.height().toInt(), Bitmap.Config.ARGB_8888)
+            try {
+                draw(Canvas(pixels), RectF(-halo.left, -halo.top, fullWidth - halo.left, fullHeight - halo.top), nearest)
+                c.save()
+                c.clipRect(target.left + core.left * sx, target.top + core.top * sy, target.left + core.right * sx, target.top + core.bottom * sy)
+                c.drawBitmap(pixels, null, RectF(target.left + halo.left * sx, target.top + halo.top * sy, target.left + halo.right * sx, target.top + halo.bottom * sy), imagePaint)
+                c.restore()
+            } finally { pixels.recycle() }
+        }
     }
 
     /**
@@ -162,7 +251,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
         val sx = shiftX; val sy = shiftY
         shiftX = sx + l; shiftY = sy + t
         val inner = node.beginRecording()
-        replay(inner, b, from, at)
+        replay(inner, b, from, at, reuseGroups = true, into = node)
         node.endRecording()
         shiftX = sx; shiftY = sy
         current.set(here)
@@ -193,27 +282,12 @@ internal class Player(private val fonts: Map<Int, Font>) {
     private val layerRect = RectF()
     private val layerMatrix = Matrix()
 
-    /** The RESTORE that closes the group whose content starts at [from], or -1. */
-    private fun layerEnd(b: IntBuffer, from: Int, n: Int): Int {
-        var depth = 0
-        var i = from
-        while (i < n) {
-            when (b.get(i)) {
-                4, 5, 7 -> depth++
-                6 -> { if (depth == 0) return i; depth-- }
-                20, 21 -> return -1
-            }
-            i = walker.end(b, i)
-        }
-        return -1
-    }
-
     /** Whether [from, to) is one rect fill (op 2) and matrices. */
     private fun singleFill(b: IntBuffer, from: Int, to: Int): Boolean {
         var fills = 0
         var i = from
         while (i < to) {
-            when (b.get(i)) { 1 -> {}; 2 -> fills++; else -> return false }
+            when (b.get(i)) { 1, 48 -> {}; 2 -> fills++; else -> return false }
             i = walker.end(b, i)
         }
         return fills == 1
@@ -225,7 +299,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
         var fills = 0
         var i = from
         while (i < to) {
-            when (b.get(i)) { 1 -> {}; 2, 3 -> fills++; else -> return false }
+            when (b.get(i)) { 1, 48 -> {}; 2, 3 -> fills++; else -> return false }
             i = walker.end(b, i)
         }
         return fills == 1
@@ -245,10 +319,10 @@ internal class Player(private val fonts: Map<Int, Font>) {
     }
 
     /** [replay] into a node whose origin is at ([dx], [dy]) in the stream's pixels. */
-    fun replayAt(canvas: Canvas, b: IntBuffer, from: Int, n: Int, dx: Float, dy: Float) {
+    fun replayAt(canvas: Canvas, b: IntBuffer, from: Int, n: Int, dx: Float, dy: Float, into: android.graphics.RenderNode? = null) {
         val sx = shiftX; val sy = shiftY
         shiftX = sx + dx; shiftY = sy + dy
-        try { replay(canvas, b, from, n) } finally { shiftX = sx; shiftY = sy }
+        try { replay(canvas, b, from, n, into = into) } finally { shiftX = sx; shiftY = sy }
     }
 
     private fun f(b: IntBuffer, i: Int) = java.lang.Float.intBitsToFloat(b.get(i))
@@ -507,9 +581,9 @@ internal class Player(private val fonts: Map<Int, Font>) {
         current.getValues(iconValues)
         val v = iconValues
         val sx = v[0]; val sy = v[4]
-        if (v[1] != 0f || v[3] != 0f || sx <= 0f || sy <= 0f) return false
+        if (v[1] != 0f || v[3] != 0f || v[6] != 0f || v[7] != 0f || v[8] != 1f || sx <= 0f || sy <= 0f) return false
         path.computeBounds(iconBounds, true)
-        val grow = if (paint.style == Paint.Style.STROKE) paint.strokeWidth * (if (paint.strokeJoin == Paint.Join.MITER) 2f else 0.5f) else 0f
+        val grow = if (paint.style == Paint.Style.STROKE) paint.strokeWidth * (if (paint.strokeJoin == Paint.Join.MITER) maxOf(2f, paint.strokeMiter / 2f) else 0.5f) else 0f
         val l = Math.floor(((iconBounds.left - grow) * sx + v[2]).toDouble()).toFloat() - 1f
         val t = Math.floor(((iconBounds.top - grow) * sy + v[5]).toDouble()).toFloat() - 1f
         val w = Math.ceil(((iconBounds.right + grow) * sx + v[2]).toDouble()).toInt() + 1 - l.toInt()
@@ -520,7 +594,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
         for (k in from until to) mix(b.get(k))
         mix(paint.color); mix(sx.toRawBits()); mix(sy.toRawBits()); mix(path.fillType.ordinal)
         if (paint.style == Paint.Style.STROKE) {
-            mix(paint.strokeWidth.toRawBits()); mix(paint.strokeCap.ordinal); mix(paint.strokeJoin.ordinal); mix(7)
+            mix(paint.strokeWidth.toRawBits()); mix(paint.strokeCap.ordinal); mix(paint.strokeJoin.ordinal); mix(paint.strokeMiter.toRawBits()); mix(7)
         }
         // The fraction of a pixel it sits at is part of the picture.
         mix(((v[2] - Math.floor(v[2].toDouble()).toFloat()) * 8f).toInt()); mix(((v[5] - Math.floor(v[5].toDouble()).toFloat()) * 8f).toInt())
@@ -630,7 +704,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
         if (readRRect(b, i + 15)) c.clipOutRect(rect) else { path.rewind(); path.addRoundRect(rect, radii, Path.Direction.CW); c.clipOutPath(path) }
         val square = readRRect(b, i + 3)
         // Under a scale and translation: the mask made once on the CPU ([Shadows]), not a GPU blur.
-        if (values[1] == 0f && values[3] == 0f && values[0] > 0f && Math.abs(values[0] - values[4]) < 1e-3f && sigma > 0.5f / values[0]) {
+        if (values[1] == 0f && values[3] == 0f && values[6] == 0f && values[7] == 0f && values[8] == 1f && values[0] > 0f && Math.abs(values[0] - values[4]) < 1e-3f && sigma > 0.5f / values[0]) {
             val mf = shadowPaint.maskFilter
             shadowPaint.maskFilter = null
             val drawn = Shadows.draw(c, shadowPaint, rect, radii, sigma, values[0])
@@ -678,8 +752,12 @@ internal class Player(private val fonts: Map<Int, Font>) {
         }
     }
 
-    fun replay(canvas: Canvas, b: IntBuffer, from: Int, n: Int) {
+    fun replay(canvas: Canvas, b: IntBuffer, from: Int, n: Int, reuseGroups: Boolean = false, into: android.graphics.RenderNode? = null) {
+        val placements = origins?.let { ArrayList<PaintedOrigins.Placement>() }
+        var children = placements
         tint = 1f; tintEnd = -1
+        imageTint = null
+        imageRendering = 0
         val base = canvas.save()
         val matrixBase = matrixDepth
         // Each recording starts locally; stream matrices supply the device coordinates.
@@ -687,6 +765,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
         var c: Canvas = canvas
         var outer: Canvas? = null
         var node: android.graphics.RenderNode? = null
+        var grouped = 0
         var i = from
         while (i < n) {
             when (b.get(i)) {
@@ -699,6 +778,14 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     c.setMatrix(matrix)
                     i += 7
                 }
+                48 -> {
+                    for (k in 0 until 9) values[k] = f(b, i + 1 + k)
+                    matrix.setValues(values)
+                    if (shiftX != 0f || shiftY != 0f) matrix.postTranslate(-shiftX, -shiftY)
+                    current.set(matrix)
+                    c.setMatrix(matrix)
+                    i += 10
+                }
                 27 -> { backdrop(c, b, from, i); i += 14 }
                 42 -> { backdrop(c, b, from, i); i += 14 + 2 * b.get(i + 1) }
                 40 -> { shadow(c, b, i); i += 27 }
@@ -709,6 +796,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                         if (square) c.clipRect(rect) else { path.rewind(); path.addRoundRect(rect, radii, Path.Direction.CW); c.clipPath(path) }
                         current.mapRect(backdropBounds, rect)
                         val m = Matrix(); m.setTranslate(Math.round(backdropBounds.left).toFloat(), Math.round(backdropBounds.top).toFloat())
+                        children?.add(PaintedOrigins.Placement(node, Math.round(backdropBounds.left).toFloat(), Math.round(backdropBounds.top).toFloat()))
                         c.setMatrix(m)
                         c.drawRenderNode(node)
                         c.restore()
@@ -750,6 +838,29 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     i = readPath(b, i + 2, b.get(i + 1) == 1)
                     c.clipPath(path)
                 }
+                45 -> {
+                    saveMatrix()
+                    c.save()
+                    val end = i + 2 + b.get(i + 1)
+                    val count = b.get(i + 2)
+                    var at = i + 3
+                    clipUnion.rewind()
+                    repeat(count) { child ->
+                        at = readPath(b, at + 1, b.get(at) == 1)
+                        if (child == 0) clipUnion.set(path)
+                        else check(clipUnion.op(path, Path.Op.UNION)) { "invalid clip union" }
+                    }
+                    c.clipPath(clipUnion)
+                    i = end
+                }
+                46 -> {
+                    saveMatrix()
+                    // The transparent area outside the mask must erase the isolated content too.
+                    c.saveLayer(null, maskPaint)
+                    i += 1
+                }
+                47 -> { imageTint = b.get(i + 1); i += 2 }
+                49 -> { imageRendering = b.get(i + 1); i += 2 }
                 6 -> {
                     if (i == tintEnd) { tint = 1f; tintEnd = -1 }
                     c.restore(); restoreMatrix(); i += 1
@@ -758,7 +869,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     // saveLayer bounds use the current Canvas space, including earlier restores.
                     saveMatrix()
                     val alpha = f(b, i + 1)
-                    val end = layerEnd(b, i + 2, n)
+                    val end = walker.layerEnd(b, i + 2, n)
                     if (end > 0 && singleFill(b, i + 2, end)) {
                         // One fill cannot overlap itself: its colour carries the opacity, with no offscreen surface.
                         c.save(); tint = alpha; tintEnd = end
@@ -768,11 +879,12 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     i += 2
                 }
                 8 -> {
+                    tintImage()
                     rect.set(f(b, i + 2), f(b, i + 3), f(b, i + 2) + f(b, i + 4), f(b, i + 3) + f(b, i + 5))
                     val anim = animated(b.get(i + 1))
                     if (anim != null) {
                         rect.round(bounds); drawAnimated(c, anim)
-                    } else image(b.get(i + 1))?.let { bmp -> c.drawBitmap(bmp, null, rect, imagePaint) }
+                    } else image(b.get(i + 1))?.let { bmp -> drawSampledBitmap(c, bmp, rect) }
                     i += 6
                 }
                 26 -> i += 3 + (b.get(i + 2) + 3) / 4
@@ -799,6 +911,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                 11 -> i += 4
                 12 -> i += 2
                 14 -> {
+                    tintImage()
                     // A picture drawn within a (rounded) rect.
                     val anim = animated(b.get(i + 1))
                     if (anim != null) {
@@ -822,7 +935,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                             square -> c.clipRect(rect)
                             else -> { path.rewind(); path.addRoundRect(rect, radii, Path.Direction.CW); c.clipPath(path) }
                         }
-                        c.drawBitmap(bmp, null, dstRect, imagePaint)
+                        drawSampledBitmap(c, bmp, dstRect)
                         c.restore()
                     }
                     i += 18
@@ -833,7 +946,8 @@ internal class Player(private val fonts: Map<Int, Font>) {
                     stroke.strokeWidth = f(b, i + 2)
                     stroke.strokeCap = when (b.get(i + 3)) { 1 -> Paint.Cap.ROUND; 2 -> Paint.Cap.SQUARE; else -> Paint.Cap.BUTT }
                     stroke.strokeJoin = when (b.get(i + 4)) { 1 -> Paint.Join.ROUND; 2 -> Paint.Join.BEVEL; else -> Paint.Join.MITER }
-                    val pathAt = i + 5
+                    stroke.strokeMiter = f(b, i + 5)
+                    val pathAt = i + 6
                     i = readPath(b, pathAt, false)
                     // A circle as an oval or (dashed) arcs, Skia's analytic ops; another dashed stroke as its
                     // path's on-segments ([strokeDashed]); neither is rasterized again at every frame HWUI draws.
@@ -861,6 +975,7 @@ internal class Player(private val fonts: Map<Int, Font>) {
                         c.save()
                         matrix.setTranslate(f(b, i + 2) - shiftX, f(b, i + 3) - shiftY)
                         c.setMatrix(matrix)
+                        children?.add(PaintedOrigins.Placement(r, f(b, i + 2) - shiftX, f(b, i + 3) - shiftY))
                         c.drawRenderNode(r)
                         c.restore()
                     }
@@ -876,39 +991,71 @@ internal class Player(private val fonts: Map<Int, Font>) {
                 24 -> i += 3 + b.get(i + 2)
                 29 -> {
                     // A layer the reader moves and fades: drawn in the stream's coordinates, as a slot is.
-                    layer(b.get(i + 1))?.let { s -> c.save(); matrix.setTranslate(-shiftX, -shiftY); c.setMatrix(matrix); c.drawRenderNode(s); c.restore() }
+                    layer(b.get(i + 1))?.let { s ->
+                        children?.add(PaintedOrigins.Placement(s, -shiftX, -shiftY))
+                        c.save(); matrix.setTranslate(-shiftX, -shiftY); c.setMatrix(matrix); c.drawRenderNode(s); c.restore()
+                    }
                     i += 2
                 }
                 30, 31 -> i += 3 + b.get(i + 2)
                 32 -> i += 2
                 33 -> i += 3
+                50, 51 -> i += 2 + b.get(i + 1)
+                52 -> {
+                    shared(SharedElements.key(b, i + 1))?.let { s -> c.save(); matrix.setTranslate(-shiftX, -shiftY); c.setMatrix(matrix); c.drawRenderNode(s); c.restore() }
+                    i += 3
+                }
                 20 -> {
                     // A scroller's rows: their own node, so a move only translates it.
                     val g = group!!(b.get(i + 1))
-                    g.setPosition(0, 0, width, height)
                     node = g
                     grouped = b.get(i + 1)
-                    outer = c
-                    saveMatrix()
-                    c = g.beginRecording()
-                    current.reset(); c.setMatrix(current)
                     i += 2
+                    if (reuseGroups) {
+                        // A backdrop references the page's group; recording it again would move the page's rows.
+                        while (i < n && b.get(i) != 21) i = walker.end(b, i)
+                    } else {
+                        g.setPosition(0, 0, width, height)
+                        outer = c
+                        saveMatrix()
+                        c = g.beginRecording()
+                        children = origins?.let { ArrayList<PaintedOrigins.Placement>() }
+                        current.reset(); c.setMatrix(current)
+                    }
                 }
                 21 -> {
                     node?.let { g ->
-                        g.endRecording()
-                        c = outer!!
-                        restoreMatrix()
+                        if (!reuseGroups) {
+                            g.endRecording()
+                            children?.let { origins?.record(g, it) }
+                            children = placements
+                            c = outer!!
+                            restoreMatrix()
+                        }
+                        children?.add(PaintedOrigins.Placement(g, -shiftX, -shiftY))
                         c.save(); matrix.setTranslate(-shiftX, -shiftY); c.setMatrix(matrix); c.drawRenderNode(holder?.invoke(grouped) ?: g); c.restore()
                     }
                     node = null
                     i += 1
                 }
-                else -> break
+                else -> {
+                    // The library and these classes were built from different sources (LLP 1159.002 D3).
+                    if (!saidUnknownOp) {
+                        saidUnknownOp = true
+                        android.util.Log.e("exact", "exact canvas: unknown op ${b.get(i)} at $i of $n; the frame stops here")
+                    }
+                    break
+                }
             }
         }
         canvas.restoreToCount(base)
         matrixDepth = matrixBase
+        placements?.let { origins?.record(into, it) }
+    }
+
+    private companion object {
+        /** Whether an unknown op was logged: once a process. */
+        var saidUnknownOp = false
     }
 }
 

@@ -1,4 +1,4 @@
-//! Kept answers: a store-reading
+//! Kept answers (LLP 1027 D4, as ruled 2026-09-03): a store-reading
 //! resource's last fresh answer, persisted beside the app's secrets under
 //! [`Store::KEPT`] so the next launch's first frame shows it before the
 //! data source is ready — a TypeScript module its host loads after first
@@ -16,8 +16,8 @@ use exact_plan::Value;
 
 /// The largest kept answer: its identifying arguments' and its value's
 /// canonical bytes together. Reading, decoding and shape-checking one this
-/// size at boot takes under a millisecond on an iPhone simulator: a library
-/// a first screen shows, never a feed.
+/// size at boot takes under a millisecond on an iPhone simulator (LLP 1027
+/// D4, 2026-10-16): a library a first screen shows, never a feed.
 const KEPT_DATA_BYTES: usize = 256 * 1024;
 /// The longest kept entry: the data, with the arguments' list header
 pub(super) const MAX_KEPT_BYTES: usize = KEPT_DATA_BYTES + 5;
@@ -26,7 +26,7 @@ pub(super) const MAX_KEPT_BYTES: usize = KEPT_DATA_BYTES + 5;
 /// loaded iPhone simulator), what a native host keeps on disk beside the
 /// app's own files, and, as base64, about 700 K of the characters a web
 /// page's `localStorage` shares with the app's secrets and persisted
-/// states.
+/// states (LLP 1027 D4, 2026-10-16).
 pub(crate) const KEPT_TOTAL_BYTES: usize = 2 * MAX_KEPT_BYTES;
 
 /// Whether answers are kept, and the resources an answer too big to keep was said of, once each
@@ -36,16 +36,17 @@ pub(super) struct Keeping {
     pub(super) too_big: Vec<usize>,
     /// The resources said to be kept under an argument of this launch's own, once each
     pub(super) of_launch: Vec<usize>,
-    /// Kept answers this boot refused, by resource, with why: journaled
-    /// with the ones it shows, so a refusal is never silent.
+    /// The kept answers a settlement refused, set waiting or showed once
+    /// their identity matched, by resource, with the line that says so:
+    /// journaled when its commit stands, so a refusal is never silent.
     pub(super) refused: Vec<(usize, String)>,
-    /// Whether a module source declared `kept` keeps its answers:
-    /// always, but in a private session.
+    /// Whether a module source declared `kept` keeps its answers (LLP
+    /// 1133.015 D4): always, but in a private session.
     pub(super) modules: bool,
 }
 
 /// Whether resource `i` reads a module's live source declared `"kept":
-/// true`: its implementation loads after first pixel
+/// true` (LLP 1133.015 D4): its implementation loads after first pixel
 /// whatever the data source, so its last answer is kept as a TypeScript
 /// source's is.
 pub(super) fn kept_module(plan: &exact_plan::Plan, i: usize) -> bool {
@@ -60,50 +61,35 @@ pub(super) fn kept_module(plan: &exact_plan::Plan, i: usize) -> bool {
         })
 }
 
-/// Note that resource `i`'s kept answer, kept for `kept`, was refused
-/// for this launch's identifying `now` (or, with `now` unknown, because
-/// they read a store reader still on its fallback). Once per resource.
-pub(super) fn refuse(
-    keeping: &mut Keeping,
-    plan: &exact_plan::Plan,
-    i: usize,
-    kept: &[Value],
-    now: Option<&[Value]>,
-) {
-    if keeping.refused.iter().any(|(r, _)| *r == i) {
-        return;
-    }
-    let json = |args: &[Value]| {
-        let mut out = String::new();
-        crate::agent::untyped_json(&Value::list(args.to_vec()), &mut out);
-        out
-    };
-    let why = match now {
-        Some(now) => format!(
-            "this launch asks for {}",
-            super::lines::shortened(&json(now))
-        ),
-        None => "this launch's arguments read a store reader still on its fallback".into(),
-    };
-    let name = plan.str(plan.resources[i].name);
-    keeping
-        .refused
-        .push((i, super::lines::kept_refused(name, Some(&json(kept)), &why)));
+/// Whether a store reader of `source` waits for the data module at boot,
+/// so that the answer it kept stands in until then (LLP 1027 D4): not a
+/// runner fact's, which is this launch's own (LLP 1039 D3, LLP 1030 D7),
+/// nor a declared source's, which the launch asks at boot, as it never waits
+/// for the module (LLP 1162.001 D4).
+pub(super) fn waits_for_module(plan: &exact_plan::Plan, source: &str) -> bool {
+    !exact_plan::runner_owned_source(source) && plan.fetch_named(source).is_none()
 }
 
-/// The store name a resource's kept answer lives under.
-/// The kept entries in `snapshot` no declared reader of `plan` seeds. A
-/// cold boot seeds a first frame only from declared readers' kept answers,
-/// so any other entry (a reader made transient, a resource removed) is
+/// The kept entries in `names` that no resource of `plan` seeds. A cold
+/// boot seeds a first frame only from the kept answers of a surface record,
+/// a kept module source, and a row the plan marks `reader` whose source
+/// waits for the data module ([`waits_for_module`]). Any other entry (a
+/// reader made `transient`, a resource removed, a declared source's) is
 /// forgotten on disk, not carried forever. A reload's carried readers are
 /// checked for compatibility instead.
-pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, Vec<u8>)]) -> Vec<String> {
-    snapshot
-        .iter()
-        .filter_map(|(name, _)| {
+pub(super) fn obsolete<'n>(
+    plan: &exact_plan::Plan,
+    names: impl Iterator<Item = &'n String>,
+) -> Vec<String> {
+    names
+        .filter_map(|name| {
             let resource = name.strip_prefix(Store::KEPT)?;
             (!(0..plan.resources.len()).any(|i| {
-                (plan.resources[i].reader || kept_module(plan, i))
+                (kept_surface(plan, i)
+                    || kept_module(plan, i)
+                    || plan.resources[i].reader
+                        && waits_for_module(plan, plan.str(plan.resources[i].source)))
+                    && !plan.resources[i].transient
                     && plan.str(plan.resources[i].name) == resource
             }))
             .then(|| name.clone())
@@ -111,16 +97,32 @@ pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, Vec<u8>)]) 
         .collect()
 }
 
-/// Every kept entry in `snapshot`: what an app that keeps no answers
-/// forgets.
-pub(super) fn all(snapshot: &[(String, Vec<u8>)]) -> Vec<String> {
-    snapshot
-        .iter()
-        .filter(|(name, _)| name.starts_with(Store::KEPT))
-        .map(|(name, _)| name.clone())
+/// The kept entries in `names` that belong to a `transient` resource of
+/// `plan` (LLP 1156.005 D4): forgotten wherever a snapshot is adopted.
+pub(super) fn transient<'n>(
+    plan: &exact_plan::Plan,
+    names: impl Iterator<Item = &'n String>,
+) -> Vec<String> {
+    names
+        .filter(|name| {
+            name.strip_prefix(Store::KEPT).is_some_and(|resource| {
+                (plan.resources.iter()).any(|r| r.transient && plan.str(r.name) == resource)
+            })
+        })
+        .cloned()
         .collect()
 }
 
+/// Every kept entry in `names`: what an app that keeps no answers
+/// forgets (LLP 1069.008.000 D7).
+pub(super) fn all<'n>(names: impl Iterator<Item = &'n String>) -> Vec<String> {
+    names
+        .filter(|name| name.starts_with(Store::KEPT))
+        .cloned()
+        .collect()
+}
+
+/// The store name a resource's kept answer lives under.
 pub(super) fn kept_name(resource: &str) -> String {
     let mut name = String::from(Store::KEPT);
     name.push_str(resource);
@@ -186,41 +188,57 @@ pub(super) fn decode(bytes: &[u8]) -> Option<(Vec<Value>, Value)> {
 }
 
 impl<D: DataSource> Runner<D> {
-    /// Whether resource `i`'s identifying call arguments (not its `with`
-    /// context) read, directly or through derives, a store-reading resource
-    /// still on its fallback, its compiled answer or placeholder, before its
-    /// source is ready: its identity is not yet known, so its kept answer
-    /// must wait. An account resource with no kept answer of its own shows
-    /// its placeholder (`did: ""`), and that empty id would match whatever
-    /// another launch kept. Kept seeds,
-    /// carried and checkpoint answers and non-store values are known.
-    pub(super) fn identity_unknown(&self, i: usize, states: &[Option<ResourceState>]) -> bool {
+    /// Whether resource `i`'s identifying arguments read a resource of a
+    /// source declared in Contract, a list's included, which no kept answer
+    /// seeds.
+    fn identity_reads_declared(&self, i: usize) -> bool {
+        self.identity_reads(i, |r| {
+            let source = self.plan.str(self.resource_row(r).source);
+            self.plan.fetch_named(source).is_some()
+        })
+    }
+
+    /// Whether resource `i`'s identifying arguments read, directly or
+    /// through derives, a resource `hit` names.
+    fn identity_reads(&self, i: usize, hit: impl Fn(usize) -> bool) -> bool {
+        use crate::instance::Input;
+        self.identity_inputs(
+            i,
+            |_| true,
+            |input| match input {
+                Input::Resource(r) | Input::PendingResource(r) | Input::FailedResource(r) => hit(r),
+                _ => false,
+            },
+        )
+    }
+
+    /// Whether `visit` returned true for an input that resource `i`'s
+    /// identifying arguments the `arg` filter passes read, directly or
+    /// through derives; it is not called again once it has.
+    pub(super) fn identity_inputs(
+        &self,
+        i: usize,
+        arg: impl Fn(usize) -> bool,
+        mut visit: impl FnMut(crate::instance::Input) -> bool,
+    ) -> bool {
         use crate::instance::Input;
         let deps = self.sites.deps();
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i).clone();
         let identity = row.args.len as usize - usize::from(row.context);
-        let mut work: Vec<_> = row
-            .args
-            .iter()
-            .take(identity)
-            .map(|a| deps.reads_of(&self.plan, self.plan.arg(a).expr))
+        let mut work: Vec<_> = (row.args.iter().take(identity).enumerate())
+            .filter(|&(k, _)| arg(k))
+            .map(|(_, a)| deps.reads_of(&self.plan, self.plan.arg(a).expr))
             .collect();
         let mut derives = vec![false; self.plan.derives.len()];
         while let Some(reads) = work.pop() {
             for input in deps.inputs(&reads) {
                 match input {
-                    Input::Resource(r) | Input::PendingResource(r) | Input::FailedResource(r)
-                        if self.store_readers[r]
-                            && states[r]
-                                .as_ref()
-                                .is_some_and(|s| s.placeholder || s.value.is_compiled()) =>
-                    {
-                        return true;
-                    }
                     Input::Derive(d) if !derives[d] => {
                         derives[d] = true;
                         work.push(deps.derives[d].clone());
                     }
+                    Input::Derive(_) => {}
+                    input if visit(input) => return true,
                     _ => {}
                 }
             }
@@ -229,22 +247,26 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// What the first frame shows from the bake until its source is ready
-    /// (said in the journal), and each store
+    /// (LLP 1048.003 D6; feed F24: say so in the journal), and each store
     /// reader whose build-time answer a store holding secrets passed over
-    /// for its placeholder.
+    /// for its placeholder (LLP 1027 D4, 2026-10-10).
     pub(super) fn journal_build_time(&mut self) {
         let secrets = self.store.opened_with_secrets();
-        for i in 0..self.stale.len() {
-            let Some(state) = self.resources[i].as_ref().filter(|_| self.stale[i]) else {
+        for i in 0..self.resources.len() {
+            let Some(state) = self.resources[i]
+                .state
+                .as_ref()
+                .filter(|_| self.resources[i].stale)
+            else {
                 continue;
             };
-            let name = self.plan.str(self.plan.resources[i].name);
+            let name = self.plan.str(self.resource_row(i).name);
             let line = if state.value.is_compiled() {
                 super::lines::build_time(name)
             } else if state.placeholder
                 && secrets
-                && self.store_readers[i]
-                && self.plan.resources[i].initial.len > 0
+                && self.resources[i].store_reader
+                && self.resource_row(i).initial.len > 0
             {
                 super::lines::secrets_unseen(name)
             } else {
@@ -259,12 +281,12 @@ impl<D: DataSource> Runner<D> {
     /// already carry URLs), so a stale answer is traceable to its key.
     pub(super) fn journal_kept_seeds(&mut self) {
         self.journal_refused();
-        for i in 0..self.plan.resources.len() {
-            if let Some(state) = self.resources[i].as_ref().filter(|s| s.kept_seed) {
+        for i in 0..self.resources.len() {
+            if let Some(state) = self.resources[i].state.as_ref().filter(|s| s.kept_seed) {
                 let mut args = String::new();
                 crate::agent::untyped_json(&Value::list(state.args.clone()), &mut args);
                 let line =
-                    super::lines::kept_shown(self.plan.str(self.plan.resources[i].name), &args);
+                    super::lines::kept_shown(self.plan.str(self.resource_row(i).name), &args);
                 self.log(line);
             }
         }
@@ -283,47 +305,59 @@ impl<D: DataSource> Runner<D> {
     /// many arguments as the call identifies and fit its shape; otherwise
     /// the refusal is noted for the journal.
     pub(super) fn kept_seed(&mut self, i: usize) -> Option<(Vec<Value>, Value)> {
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i).clone();
+        // @ref LLP 1156.005 D4 — boot forgot any entry kept before it was.
+        if row.transient {
+            return None;
+        }
         let name = self.plan.str(row.name);
         let entry = self.store.kept(&kept_name(name))?;
         let identity = row.args.len as usize - usize::from(row.context);
-        let seed = decode(entry)
-            .filter(|(args, value)| args.len() == identity && self.check_shape(i, value).is_ok());
+        let seed = decode(entry).and_then(|(mut args, value)| {
+            if kept_surface(&self.plan, i) {
+                let surface = crate::surface_record::surface_name(&self.plan, &row)?;
+                if args.pop() != Some(crate::surface_record::keep_signature(&self.plan, row.ty)?)
+                    || args.as_slice() != [Value::str(surface)]
+                {
+                    return None;
+                }
+            }
+            (args.len() == identity && self.check_shape(i, &value).is_ok()).then_some((args, value))
+        });
         if seed.is_none() {
             let line = super::lines::kept_refused(name, None, "it no longer decodes or fits");
             self.keeping.refused.push((i, line));
+            if row.keep {
+                self.store.forget_kept(&kept_name(name));
+            }
         }
         seed
     }
 
-    /// Before the source is ready, each store reader is asked again at
+    /// Before the data module is ready, each row the bake marked `reader`
+    /// whose source waits for it ([`waits_for_module`]) is asked again at
     /// `data_ready`, and shows the answer kept from the last launch where it
-    /// still fits (`seeded`: a document's answers already seeded it). A
-    /// launch that begins with a presence secret locked or pending shows
-    /// none: a kept answer is the account's content, and
-    /// the person has not passed the check yet.
-    pub(super) fn seed_kept(&mut self, seeded: &[bool], device_state: bool) {
+    /// still fits. A row a page's answer seeded (`seeded`) is left to the
+    /// page, whose checkpoint says whether it is asked again
+    /// ([`Runner::seed_checkpoint`]). A launch that begins with a presence
+    /// secret locked or pending shows none (LLP 1133.010 D5): a kept answer
+    /// is the account's content, and the person has not passed the check yet.
+    pub(super) fn seed_kept(&mut self, seeded: &[bool]) {
         let locked = self.store.opened_locked();
         if locked {
-            self.log("kept answers not shown: the launch begins with a presence secret locked");
+            self.log("kept answers not shown: the launch begins with a presence secret locked (LLP 1133.010 D5)");
         }
         for (i, &taken) in seeded.iter().enumerate() {
-            if !self.plan.resources[i].reader
-                || exact_plan::runner_owned_source(self.plan.str(self.plan.resources[i].source))
-            {
+            let row = self.resource_row(i);
+            if taken || !row.reader || !waits_for_module(&self.plan, self.plan.str(row.source)) {
                 continue;
             }
-            // An answer the runtime already has isn't asked again when
-            // the module loads, unless the device's store may change it.
-            if taken && !device_state {
-                continue;
-            }
-            self.stale[i] = true;
-            if self.resources[i].is_some() || locked {
+            self.resources[i].stale = true;
+            if self.resources[i].state.is_some() || locked {
                 continue;
             }
             if let Some((args, value)) = self.kept_seed(i) {
-                self.resources[i] = Some(ResourceState {
+                self.resources[i].state = Some(ResourceState {
                     inspection_generation: 0,
                     args,
                     value: crate::held::Held::new(value),
@@ -331,6 +365,8 @@ impl<D: DataSource> Runner<D> {
                     placeholder: false,
                     kept_seed: true,
                     answered_for: None,
+                    asleep: false,
+                    slept: false,
                     origin: 0,
                 });
             }
@@ -339,37 +375,51 @@ impl<D: DataSource> Runner<D> {
 
     /// The first frame's kept answers: a store reader's while the data
     /// source is not ready, and a kept module source's always.
-    pub(super) fn seed_at_boot(
-        &mut self,
-        seeded: &[bool],
-        device_state: bool,
-        ready: bool,
-        private: bool,
-    ) {
+    pub(super) fn seed_at_boot(&mut self, seeded: &[bool], ready: bool, private: bool) {
         if !ready {
-            self.seed_kept(seeded, device_state);
+            self.seed_kept(seeded);
         }
-        self.seed_kept_modules(ready, private);
+        self.seed_kept_modules(private);
+        if !private && !self.store.opened_locked() {
+            for i in 0..self.plan.resources.len() {
+                if !kept_surface(&self.plan, i) || self.resources[i].state.is_some() {
+                    continue;
+                }
+                if let Some((args, value)) = self.kept_seed(i) {
+                    self.resources[i].state = Some(ResourceState {
+                        inspection_generation: 0,
+                        args,
+                        value: crate::held::Held::new(value),
+                        store_revision: self.store.revision(),
+                        placeholder: false,
+                        kept_seed: true,
+                        answered_for: None,
+                        asleep: false,
+                        slept: false,
+                        origin: 0,
+                    });
+                }
+            }
+        }
     }
 
-    /// Each resource reading a kept module source shows
+    /// Each resource reading a kept module source (LLP 1133.015 D4) shows
     /// the answer kept from the last launch where it still fits, and is
-    /// asked again: at `data_ready` when the data source is not ready yet,
-    /// else at once. The seed is provisional, as any kept answer is. A
-    /// private session keeps none.
-    pub(super) fn seed_kept_modules(&mut self, ready: bool, private: bool) {
+    /// asked again ([`Runner::ask_at_launch`]). The seed is provisional, as
+    /// any kept answer is. A private session keeps none.
+    pub(super) fn seed_kept_modules(&mut self, private: bool) {
         self.keeping.modules = !private;
         if private || self.store.opened_locked() {
             return;
         }
         for i in 0..self.plan.resources.len() {
-            if !kept_module(&self.plan, i) || self.resources[i].is_some() {
+            if !kept_module(&self.plan, i) || self.resources[i].state.is_some() {
                 continue;
             }
             let Some((args, value)) = self.kept_seed(i) else {
                 continue;
             };
-            self.resources[i] = Some(ResourceState {
+            self.resources[i].state = Some(ResourceState {
                 inspection_generation: 0,
                 args,
                 value: crate::held::Held::new(value),
@@ -377,44 +427,88 @@ impl<D: DataSource> Runner<D> {
                 placeholder: false,
                 kept_seed: true,
                 answered_for: None,
+                asleep: false,
+                slept: false,
                 origin: 0,
             });
-            match ready {
-                true => self.refresh_next.push(i),
-                false => self.stale[i] = true,
-            }
+            self.ask_at_launch(i);
         }
     }
 
     /// Keep a store-reading resource's fresh answer for the next boot's
-    /// first frame, when this source may not be ready then.
+    /// first frame (LLP 1027 D4), when this source may not be ready then.
     pub(super) fn keep_answer(&mut self, i: usize, args: &[Value], value: &Value) {
         // An element of a resource over a list is the launch's to ask.
         if self.member(i).is_some() {
             return;
         }
-        let module = self.keeping.modules && kept_module(&self.plan, i);
-        if !module && (!self.keeping.on || !self.store_readers[i]) {
+        self.answered_waiting(i, args, false);
+        let surface = self.keeping.modules
+            && kept_surface(&self.plan, i)
+            && crate::surface_record::surface_name(&self.plan, self.resource_row(i))
+                .is_some_and(|name| self.surface_records.contains_key(name));
+        let module = surface || self.keeping.modules && kept_module(&self.plan, i);
+        if !module && (!self.keeping.on || !self.resources[i].store_reader)
+            || self.resource_row(i).transient
+        {
             return;
         }
-        // Runner facts are never kept answers.
-        let source = self.plan.str(self.plan.resources[i].source);
-        if exact_plan::runner_owned_source(source) {
+        // @ref LLP 1039 D3 / LLP 1030 D7 — a runner fact's answer is never
+        // kept, but a surface record's (`kept_surface`).
+        // @ref LLP 1162.001 D4 — nor is a declared source's, nor one whose
+        // identifying arguments read a declared resource, a kept module
+        // source's included: a launch with no rendered page starts the
+        // declared resource on its placeholder, so such a kept answer would
+        // not fit (LLP 1027.005 D3), and an older one is forgotten.
+        if !surface && !waits_for_module(&self.plan, self.plan.str(self.resource_row(i).source)) {
             return;
         }
-        // Context reaches the source but does not
+        if !surface && self.identity_reads_declared(i) {
+            self.answered_waiting(i, args, true);
+            self.store
+                .forget_kept(&kept_name(self.plan.str(self.resource_row(i).name)));
+            return;
+        }
+        // @ref LLP 1027.005 D6 — context reaches the source but does not
         // enter the kept entry or its budget.
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i).clone();
         let args = &args[..row.args.len as usize - usize::from(row.context)];
+        // The record the module published, without the host's own members
+        // (`presented`, LLP 1009 D9): those are this launch's.
+        let published;
+        let value = if surface {
+            let record = crate::surface_record::surface_name(&self.plan, &row)
+                .and_then(|name| self.surface_records.get(name));
+            let Some(Ok(v)) = record
+                .map(|text| crate::surface_record::decode_published(&self.plan, row.ty, text))
+            else {
+                return;
+            };
+            published = v;
+            &published
+        } else {
+            value
+        };
+        let surface_args;
+        let args = if surface {
+            let Some(signature) = crate::surface_record::keep_signature(&self.plan, row.ty) else {
+                return;
+            };
+            surface_args = [args.to_vec(), vec![signature]].concat();
+            surface_args.as_slice()
+        } else {
+            args
+        };
         let name = kept_name(self.plan.str(row.name));
         if !fits(args, value) {
             // An older answer kept for it would show stale at the next launch: forget it (with the commit), and
             // say so once
+            self.answered_waiting(i, args, true);
             self.store.forget_kept(&name);
             if !self.keeping.too_big.contains(&i) {
                 self.keeping.too_big.push(i);
                 let line = format!(
-                    "too big to keep: resource `{}` answered with more than {KEPT_DATA_BYTES} bytes ({kib} KiB) counting its identifying arguments, so the next launch cannot show this answer before the resource answers again. To show it at launch, keep the answer and its identifying arguments under {kib} KiB: move what the first screen does not need into another resource, and pass large inputs that do not identify the answer (a token, a time) after `with`, which are not counted; an input that identifies it stays in the call, or becomes a smaller key",
+                    "too big to keep: resource `{}` answered with more than {KEPT_DATA_BYTES} bytes ({kib} KiB) counting its identifying arguments, so the next launch cannot show this answer before the resource answers again. To show it at launch, keep the answer and its identifying arguments under {kib} KiB: move what the first screen does not need into another resource, and pass large inputs that do not identify the answer (a token, a time) after `with`, which are not counted; an input that identifies it stays in the call, or becomes a smaller key (LLP 1027 D4)",
                     self.plan.str(row.name),
                     kib = KEPT_DATA_BYTES / 1024,
                 );
@@ -423,6 +517,7 @@ impl<D: DataSource> Runner<D> {
             return;
         }
         self.say_of_launch(i, args);
+        self.answered_waiting(i, args, true);
         let entry = encode(args, value);
         self.make_room(&name, entry.len());
         self.store.keep(&name, entry);
@@ -447,7 +542,7 @@ impl<D: DataSource> Runner<D> {
             total -= n;
             self.store.forget_kept(&other);
             let line = format!(
-                "kept answers are at most {} KiB together: forgot `{}`'s ({n} bytes) to keep `{}`'s, so the next launch shows `{0}`'s placeholder until it answers",
+                "kept answers are at most {} KiB together: forgot `{}`'s ({n} bytes) to keep `{}`'s, so the next launch shows `{0}`'s placeholder until it answers (LLP 1027 D4)",
                 KEPT_TOTAL_BYTES / 1024,
                 &other[Store::KEPT.len()..],
                 &name[Store::KEPT.len()..],
@@ -457,8 +552,8 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Say once that resource `i` is kept under an identifying argument of
-    /// this launch's own, so the next launch never matches it:
-    /// one that reads an `exactTime()` resource and is its
+    /// this launch's own, so the next launch never matches it (LLP
+    /// 1027.005): one that reads an `exactTime()` resource and is its
     /// `epochAtZero` or `seed` as they are. The compiler names one written
     /// so; this finds one it could not follow. A time made from the clock
     /// (a record's creation, saved) may identify the answer: not said.
@@ -482,9 +577,9 @@ impl<D: DataSource> Runner<D> {
             return;
         };
         self.keeping.of_launch.push(i);
-        let row = &self.plan.resources[i];
+        let row = self.resource_row(i).clone();
         let line = format!(
-            "`{name}`'s kept answer is never shown at launch: its identifying argument {n} is this launch's {what}, which changes every launch. Pass it after `with` (`resource {name} = {source}(…) with …`), which still reaches the source but is not counted",
+            "`{name}`'s kept answer is never shown at launch: its identifying argument {n} is this launch's {what}, which changes every launch. Pass it after `with` (`resource {name} = {source}(…) with …`), which still reaches the source but is not counted (LLP 1027.005)",
             name = self.plan.str(row.name),
             source = self.plan.str(row.source),
             n = k + 1,
@@ -497,7 +592,7 @@ impl<D: DataSource> Runner<D> {
     fn reads_clock(&self, i: usize, k: usize) -> bool {
         use crate::instance::Input;
         let deps = self.sites.deps();
-        let Some(arg) = self.plan.resources[i].args.iter().nth(k) else {
+        let Some(arg) = self.resource_row(i).args.iter().nth(k) else {
             return false;
         };
         let mut work = vec![deps.reads_of(&self.plan, self.plan.arg(arg).expr)];
@@ -506,7 +601,7 @@ impl<D: DataSource> Runner<D> {
             for input in deps.inputs(&reads) {
                 match input {
                     Input::Resource(r) | Input::PendingResource(r) | Input::FailedResource(r)
-                        if self.plan.str(self.plan.resources[r].source) == crate::time::SOURCE =>
+                        if self.plan.str(self.resource_row(r).source) == crate::time::SOURCE =>
                     {
                         return true;
                     }
@@ -521,7 +616,7 @@ impl<D: DataSource> Runner<D> {
         false
     }
 
-    /// A peer committed to the app's store. The host
+    /// A peer committed to the app's store (LLP 1126.001 WP12). The host
     /// supplies a fresh snapshot; only store readers and persisted slots
     /// are refreshed. Ordinary window state and pure resources stay local.
     pub fn store_changed(
@@ -529,7 +624,7 @@ impl<D: DataSource> Runner<D> {
         snapshot: Vec<(String, Vec<u8>)>,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         let was_poisoned = self.poisoned;
-        let checkpoint = self.checkpoint(false);
+        let checkpoint = self.checkpoint();
         let result = self.restore_store(snapshot).and_then(|change| {
             if !change.any {
                 return Ok(None);
@@ -571,45 +666,68 @@ impl<D: DataSource> Runner<D> {
         snapshot: Vec<(String, Vec<u8>)>,
     ) -> Result<crate::StoreChange, RunnerError> {
         let was_poisoned = self.poisoned;
-        let checkpoint = self.checkpoint(false);
+        let checkpoint = self.checkpoint();
         let result = self.restore_store(snapshot);
         self.conclude(checkpoint, &result, was_poisoned);
         result
+    }
+
+    /// After a cold boot, the kept entries the host has and left out of the
+    /// snapshot (past [`Store::KEPT_TOTAL_BYTES`]): those the boot would
+    /// have forgotten had they been read are forgotten, which needs no
+    /// value. A name the store holds was read, and the boot judged it.
+    pub fn forget_unread_kept(&mut self, names: &[String]) {
+        let unread = names.iter().filter(|name| self.store.kept(name).is_none());
+        let forgotten = match crate::device::keeps_no_answers(self.data.grants()) {
+            true => all(unread),
+            false => obsolete(&self.plan, unread),
+        };
+        for name in &forgotten {
+            self.store.forget_unread_kept(name);
+        }
     }
 
     fn restore_store(
         &mut self,
         snapshot: Vec<(String, Vec<u8>)>,
     ) -> Result<crate::StoreChange, RunnerError> {
+        // Another writer (an older build of the app) may have kept one again.
+        let transient = transient(&self.plan, snapshot.iter().map(|(name, _)| name));
         let change = self.store.refresh_snapshot(snapshot);
+        for name in &transient {
+            self.store.forget_kept(name);
+        }
         if !change.any {
             return Ok(change);
         }
         for i in 0..self.slots.len() {
             if self.plan.slots[i].persist {
-                let initial = self.eval(self.plan.slots[i].init, &[], &[])?;
+                let initial = self.eval(self.plan.slots[i].init, &[], &[]).map_err(|e| {
+                    e.evaluated(|| {
+                        format!(
+                            "state {:?} initializer",
+                            self.plan.str(self.plan.slots[i].name)
+                        )
+                    })
+                })?;
                 self.slots[i] = self.restore_persisted(i, initial);
             }
         }
         Ok(change)
     }
 
+    /// The resources a change to the store asks again.
     pub(super) fn store_readers(&self) -> Vec<usize> {
-        self.store_readers
-            .iter()
-            .enumerate()
-            .filter_map(|(i, reads)| {
-                (*reads
-                    && !exact_plan::runner_owned_source(
-                        self.plan.str(self.plan.resources[i].source),
-                    ))
-                .then_some(i)
+        (0..self.resources.len())
+            .filter(|&i| {
+                self.asks_on_store_change(i)
+                    && !exact_plan::runner_owned_source(self.plan.str(self.resource_row(i).source))
             })
             .collect()
     }
 
     /// The data source is ready — a host loaded its TypeScript module after
-    /// the first pixel: every deferred resource shown
+    /// the first pixel (LLP 1027 D4): every deferred resource shown
     /// from a placeholder is asked again, and every send made before now
     /// is sent, in one commit. `None` when nothing was waiting, or when the
     /// source is still not ready. Hosts call it once, so a stand-in's
@@ -625,28 +743,46 @@ impl<D: DataSource> Runner<D> {
         &mut self,
         change: crate::StoreChange,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let result = self.activate(change);
+        self.launch.clear();
+        result
+    }
+
+    /// The asks it makes are the launch's own (`launch`), but for a resource
+    /// a refresh already waits to ask.
+    fn activate(
+        &mut self,
+        change: crate::StoreChange,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         if !self.data.ready() {
             self.log("data_ready: the data source is not ready");
             return Ok(None);
         }
-        // A pending presence move runs once the source has loaded,
-        // so the store's readers see it from this commit on.
+        // A pending presence move runs once the source has loaded (LLP
+        // 1133.010 D4), so the store's readers see it from this commit on.
         self.presence_ready();
         let readers = if change.read {
             self.store_readers()
         } else {
             Vec::new()
         };
-        let stale: Vec<usize> = (0..self.stale.len())
-            .filter(|i| self.stale[*i] || readers.contains(i))
+        let stale: Vec<usize> = (0..self.resources.len())
+            .filter(|i| self.resources[*i].stale || readers.contains(i))
+            .collect();
+        let launch: Vec<usize> = (stale.iter().copied())
+            .filter(|i| !self.refresh_next.contains(i))
             .collect();
         // Writes made before the source was ready are overlaid from here
-        self.overlays.iter_mut().for_each(|o| *o = None);
+        self.resources
+            .iter_mut()
+            .map(|row| &mut row.overlay)
+            .for_each(|o| *o = None);
         if self.unsent.is_empty() {
             if !change.any && stale.is_empty() && self.writes.records.is_empty() {
                 return Ok(None);
             }
             self.owe(&stale);
+            self.launch = launch;
             return (self.reasking(|r| r.commit_again(stale, "data_ready"))).map(Some);
         }
         let what = format!(
@@ -655,26 +791,27 @@ impl<D: DataSource> Runner<D> {
             self.unsent.len()
         );
         let was_poisoned = self.poisoned;
-        let checkpoint = self.checkpoint(false);
+        let checkpoint = self.checkpoint();
+        self.launch = launch;
         self.refresh_next.extend(&stale);
         self.owe(&stale);
         let result = if self.poisoned {
             Err(RunnerError::Poisoned)
         } else {
             let (by, later) = self.send_unsent();
-            // The gate step joins this settlement as every commit's: a gate
-            // the sent answers open arms its
+            // The gate step joins this settlement as every commit's (LLP
+            // 1092 D8; b6 review A2): a gate the sent answers open arms its
             // task, and a key that is no key refuses this commit. Each
             // resource asks under its waiting ask's origin, and each send
-            // under its own.
+            // under its own (LLP 1133.002 D12).
             match self
                 .router_change()
                 .and_then(|_| self.reasking(|r| r.settle(false)))
                 .and_then(|_| self.gate_step())
             {
                 Ok(()) => {
-                    for ((origin, id), (m, source, args, request)) in by.into_iter().zip(later) {
-                        let target = super::Target::Mutation(m);
+                    for ((origin, id), (target, source, args, request)) in by.into_iter().zip(later)
+                    {
                         self.as_invocation(origin, id, |r| {
                             r.enqueue(target, source, args, request, false)
                         });
@@ -693,13 +830,13 @@ impl<D: DataSource> Runner<D> {
         // `data_ready`): they are dropped, said in the journal, and their
         // writes end.
         if dropped {
-            for (m, ..) in std::mem::take(&mut self.unsent) {
-                let name = self.plan.str(self.plan.mutations[m].name).to_string();
+            for (target, ..) in std::mem::take(&mut self.unsent) {
+                let name = self.target_name(target);
                 self.log(super::lines::unsent_refused(
                     &name,
                     "data_ready was refused",
                 ));
-                self.end_write(m, None);
+                self.end_write(target, None);
             }
             self.sync_pending_flags();
         }
@@ -725,22 +862,17 @@ impl<D: DataSource> Runner<D> {
     /// long ago, so a source's refusal ends that one send, said in the
     /// journal, as a refused reply does — never this commit.
     #[allow(clippy::type_complexity)]
-    fn send_unsent(
-        &mut self,
-    ) -> (
-        Vec<(CallOrigin, u64)>,
-        Vec<(usize, String, Vec<Value>, super::Request)>,
-    ) {
+    fn send_unsent(&mut self) -> (Vec<(CallOrigin, u64)>, Vec<super::Later>) {
         let (mut by, mut later) = (Vec::new(), Vec::new());
-        for (m, source, args, (origin, id)) in std::mem::take(&mut self.unsent) {
+        for (target, source, args, (origin, id)) in std::mem::take(&mut self.unsent) {
             let sent = later.len();
-            self.as_invocation(origin, id, |r| r.send_one(m, source, args, &mut later));
+            self.as_invocation(origin, id, |r| r.send_one(target, source, args, &mut later));
             by.extend(std::iter::repeat_n((origin, id), later.len() - sent));
         }
         self.sync_pending_flags();
         // Pending until the request goes out with the commit, or is let go.
-        for (m, ..) in &later {
-            self.pending_mut[*m] = true;
+        for m in later.iter().filter_map(|l| l.0.mutation()) {
+            self.pending_mut[m] = true;
         }
         (by, later)
     }
@@ -753,32 +885,48 @@ impl<D: DataSource> Runner<D> {
     /// One of [`Self::send_unsent`]'s sends, under its commit's origin.
     fn send_one(
         &mut self,
-        m: usize,
+        target: super::Target,
         source: String,
         args: Vec<Value>,
-        later: &mut Vec<(usize, String, Vec<Value>, super::Request)>,
+        later: &mut Vec<super::Later>,
     ) {
-        let target = super::Target::Mutation(m);
+        let m = target
+            .mutation()
+            .expect("a send's target names its mutation");
         let name = self.plan.str(self.plan.mutations[m].name).to_string();
-        self.mutation_requests += 1;
-        let answer = if Self::activity_send(&source) {
-            self.activity_request(&source, &args)
-        } else {
-            self.store.set_clock_ms(self.now_ms);
-            let answer = self
-                .data
-                .answer_for(target, &mut self.store, &source, &args);
-            self.refuse_locked(answer)
-        };
-        // What its turn sent as an answer.
-        self.stage_answer(target);
+        let answer = self
+            .check_send_arguments(m, &args)
+            .map_err(|e| format!("{e:?}"))
+            .and_then(|()| {
+                self.mutation_requests += 1;
+                let answer = if Self::activity_send(&source) {
+                    self.activity_request(&source, &args)
+                } else if self.plan.fetch_named(&source).is_some() {
+                    self.fetch_answer(&source, &args)
+                } else {
+                    self.store.set_clock_ms(self.now_ms);
+                    let answer = self
+                        .data
+                        .answer_for(target, &mut self.store, &source, &args);
+                    let answer = self.single_answer(target, answer);
+                    self.refuse_locked(answer)
+                };
+                // What its turn sent as an answer (LLP 1016.000 D7, the amendment
+                // of 2026-10-18).
+                self.stage_answer(target);
+                answer.map_err(|e| format!("{e:?}"))
+            });
         let refused = match answer {
             Ok(super::Answer::Now(value)) if self.conforms(&value, self.plan.mutations[m].ty) => {
                 match self.mutation_slot(m) {
                     Ok(slot) => {
-                        self.forget_ticket(super::Target::Mutation(m));
-                        self.land_write(m, None, &value);
-                        self.slots[slot] = Value::some(value);
+                        if self.newest_wins(m) {
+                            self.forget_ticket(target);
+                        }
+                        self.land_write(target, None, &value);
+                        if self.conclude_send(target) {
+                            self.slots[slot] = Value::some(value);
+                        }
                         self.landed.push(m);
                         for r in self.declared_refreshes(m) {
                             self.force_refresh(r);
@@ -793,19 +941,37 @@ impl<D: DataSource> Runner<D> {
                 Some("its answer does not fit the mutation's shape".to_string())
             }
             Ok(super::Answer::Later(request)) => {
-                later.push((m, source, args, request));
+                later.push((target, source, args, request));
                 None
             }
-            Err(error) => Some(format!("{error:?}")),
+            Err(error) => Some(error),
         };
         if let Some(why) = refused {
             self.log(super::lines::unsent_refused(&name, &why));
             // Its write ends; the resources it showed in drop it in
             // this commit, and a refusal of the commit does not bring
             // it back.
-            self.refused_unsent.push((m, self.asked_write(m)));
-            self.end_write(m, None);
+            self.refused_unsent.push((target, self.asked_write(target)));
+            self.end_write(target, None);
         }
+    }
+}
+
+/// A public surface reader is the sole host fact allowed a kept launch answer.
+pub(super) fn kept_surface(plan: &exact_plan::Plan, i: usize) -> bool {
+    let row = &plan.resources[i];
+    row.keep
+        && !row.transient
+        && plan.str(row.source) == crate::surface_record::SOURCE
+        && crate::surface_record::surface_name(plan, row)
+            .is_some_and(|name| plan.surfaces.iter().any(|s| plan.str(s.name) == name))
+}
+
+impl<D: DataSource> Runner<D> {
+    pub(super) fn surface_seed_waiting(&self, i: usize) -> bool {
+        kept_surface(&self.plan, i)
+            && crate::surface_record::surface_name(&self.plan, self.resource_row(i))
+                .is_some_and(|name| !self.surface_records.contains_key(name))
     }
 }
 
@@ -841,6 +1007,56 @@ mod tests {
         }
         assert!(decode(&encode(&args, &deep)).is_some());
         assert_eq!(kept_name("remembered"), "exact.kept.remembered");
+    }
+
+    #[test]
+    fn activation_refuses_a_waiting_non_finite_send_without_asking_its_source() {
+        use crate::{DataError, Target};
+        use exact_kernel::{Kernel, NodeType};
+        use exact_plan::{builder::PlanBuilder, TypeKind};
+
+        struct Calls(usize);
+        impl DataSource for Calls {
+            fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+                self.0 += 1;
+                Ok(Value::str("answer"))
+            }
+        }
+        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        let string = b.primitive(TypeKind::String);
+        let optional = b.option(string);
+        let none = b.constant(&Value::NONE);
+        for name in ["invalid", "valid"] {
+            let slot = b.slot(name, optional, none);
+            b.mutation(name, slot, string);
+        }
+        b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+        let mut r = Runner::boot(
+            b.finish().unwrap(),
+            Calls(0),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        // Exercise activation's boundary independently of the action's check.
+        for (m, n) in [f64::INFINITY, 1.0].into_iter().enumerate() {
+            r.unsent.push((
+                Target::Mutation(m),
+                "save".into(),
+                vec![Value::Number(n)],
+                r.sent_by(),
+            ));
+        }
+        r.data_ready().unwrap();
+        assert_eq!(r.data.0, 1);
+        assert_eq!(r.mutation_requests(), 1);
+        assert_eq!(r.slot("invalid"), Some(&Value::NONE));
+        assert_eq!(r.slot("valid"), Some(&Value::some(Value::str("answer"))));
+        assert!(!r.has_pending());
+        assert!(r.pending_mut.iter().all(|pending| !pending));
+        assert!(r.journal().any(|line| line.contains("invalid")
+            && line.contains("argument 1 contains a non-finite number")));
     }
 
     #[test]

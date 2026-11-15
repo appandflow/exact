@@ -1,4 +1,4 @@
-// The Inspector's row values as the panel shows them: a number is the
+// The Inspector's row values as the panel shows them (stage 15 D4 batch 3 #2, theme2's ruling): a number is the
 // shortest decimal that is still the plan's 32-bit float, a length at most 3 decimals, and the text an edit sends
 // stays the row's own.
 import { expect, test } from 'bun:test';
@@ -14,14 +14,14 @@ test('a row shows its float as the plan wrote it, a length at most 3 decimals, a
     { name: 'width', value: 12, source: 'authored' },
     { name: 'transform', value: [{ scale: 1.100000023841858 }, 0.5], source: 'authored' },
     { name: 'color', value: 'label', source: 'authored' },
-    // Every unitless row keeps its decimals, a true double is left as it is, and any magnitude shortens.
+    // Round 1: every unitless row keeps its decimals, a true double is left as it is, and any magnitude shortens.
     { name: 'fill_opacity', value: Math.fround(1 / 3), source: 'authored' },
     { name: 'zoom', value: Math.fround(1.0004), source: 'authored' },
     { name: 'stroke_miterlimit', value: Math.fround(Math.SQRT2), source: 'authored' },
     { name: 'press_scale', value: 0.123456789123, source: 'authored' },
     { name: 'letter_spacing', value: Math.fround(1e-10), source: 'authored' },
     { name: 'flex_grow', value: Math.fround(1e30), source: 'authored' },
-    // A numeric line-height multiplies; translate and an SVG radius are lengths; an int row is as written;
+    // Round 2: a numeric line-height multiplies; translate and an SVG radius are lengths; an int row is as written;
     // the shortest decimal on the far side of a rounding boundary.
     { name: 'line_height', value: Math.fround(1.234567), source: 'authored' },
     { name: 'translate', value: [Math.fround(16.00625), 0], source: 'authored' },

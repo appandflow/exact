@@ -1,4 +1,4 @@
-// A text that changes or leaves is repainted on the commit
+// LLP 1116.005 D4: a text that changes or leaves is repainted on the commit
 // that changes it, on iOS. Stopwatch's shape, in a stack that scrolls: a
 // centred status line that Reset makes a collapsed space (its box laid out
 // to nothing), a count whose text changes, and a line an `if` removes

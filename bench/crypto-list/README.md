@@ -4,7 +4,7 @@ A list of 5,000 coins with live prices and a small live chart per row: the "stan
 apps draw the same rows from the same data: exact2 twice (`exact-crypto-svg/`, inline SVG, and `exact-crypto-gpu/`,
 a GPU canvas per row), SwiftUI (`swiftui/`, a plain `List`), UIKit (`uikit/`, a hand-tuned `UICollectionView`) and
 Expo (`expo/`, React Native + a Skia canvas per row + LegendList). `SPEC.md` is the screen, the row, the live ticks
-and the parity rules ("Decisions" resolves every ambiguity).
+and the parity rules ("Decisions" resolves every ambiguity); `GAPS.md` is what exact2 lacked when it was built.
 Every app is measured by `bench/heavy-list`'s probe, injected (or linked) into it on a real device.
 
 ```sh

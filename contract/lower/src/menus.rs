@@ -1,15 +1,15 @@
-//! Menus: HTML's `hr`, a menu's separator row, and the shape a
+//! LLP 1021 (Menus): HTML's `hr`, a menu's separator row, and the shape a
 //! confirmation must have to present natively — refused here where it can
 //! be seen, rather than at the tap on the iOS host (`MenusIOS.swift`,
 //! `openConfirmation`, which logs `confirmation <id> refused: <why>`). And
-//! what its shape implies of its outside: an alert has
+//! what its shape implies of its outside (LLP 1115.000 D13.4): an alert has
 //! none.
 
 use crate::{err, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node, Span};
 use exact_kernel::StyleId;
 
-/// A button's place in the Mac's
+/// LLP 1021 §5.3 and LLP 1133.025 D4, D5: a button's place in the Mac's
 /// menu bar, as one menu id; `dock` beside it or alone files it in the Dock
 /// menu too; `status` alone presents it as the app's status item, which
 /// takes the button's place and so joins no menu.
@@ -32,7 +32,7 @@ pub(crate) fn check_menu_placement(tag: &str, attr: &Attr) -> Result<(), LowerEr
     if ids.contains(&"status") && ids.len() > 1 {
         return err(
             "lower-menu-status",
-            "`-exact-menu=\"status\"` stands alone: the status item takes the button's place, so it joins no menu",
+            "`-exact-menu=\"status\"` stands alone: the status item takes the button's place, so it joins no menu (LLP 1133.025 D4)",
             attr.span,
         );
     }
@@ -48,7 +48,7 @@ pub(crate) fn check_menu_placement(tag: &str, attr: &Attr) -> Result<(), LowerEr
     Ok(())
 }
 
-/// A root's bounded opt-out from the Mac's standard items.
+/// LLP 1021 §5.3: a root's bounded opt-out from the Mac's standard items.
 pub(crate) fn check_menu_remove(attrs: &[Attr], root: bool) -> Result<(), LowerError> {
     const IDS: &[&str] = &[
         "close-all",
@@ -75,7 +75,7 @@ pub(crate) fn check_menu_remove(attrs: &[Attr], root: bool) -> Result<(), LowerE
         "actual-size",
         "zoom-in",
         "zoom-out",
-        // The host's Quit at the end of the status item's menu.
+        // The host's Quit at the end of the status item's menu (LLP 1133.025 D7).
         "status-quit",
     ];
     for attr in attrs.iter().filter(|a| a.name == "-exact-menu-remove") {
@@ -91,7 +91,7 @@ pub(crate) fn check_menu_remove(attrs: &[Attr], root: bool) -> Result<(), LowerE
     Ok(())
 }
 
-/// A root's chord for File ▸ Close Window, the one host item
+/// LLP 1021 §5.3.3: a root's chord for File ▸ Close Window, the one host item
 /// that takes a declared chord, `close-window=chord` (one `aria-keyshortcuts`
 /// chord with `Meta`, not one of the host's or the system's standard chords)
 /// or `close-window=none`.
@@ -315,15 +315,15 @@ pub(crate) fn check_invoker(tag: &str, attrs: &[Attr]) -> Result<(), LowerError>
     )
 }
 
-/// HTML's `hr`, as the platform draws a separator: one hairline, a single
-/// solid top edge one device pixel
+/// HTML's `hr`, as the platform draws a separator (LLP 1115 §3, wave 1; LLP
+/// 1115.000 D10.3): one hairline, a single solid top edge one device pixel
 /// thick (`-exact-hairline`) in the separator role (`-exact-separator`:
 /// `separatorColor` on Apple), with no margin of its own, as `Divider()` and
 /// a table's separator have none and the common resets zero an `hr`'s. In
 /// place of the UA stylesheet's `margin: 0.5em auto` and its two-toned
 /// `inset` 1px box, which the web's sheet resets (`host/web/index.html`);
 /// its `overflow: hidden` stays. The edge is `currentcolor`, so an author's
-/// `color`, `border-*` or `margin` still wins.
+/// `color`, `border-*` or `margin` still wins (LLP 1021 D1).
 pub(crate) const HR: &[(StyleId, &str)] = &[
     (StyleId::BorderStyleTop, "solid"),
     (StyleId::BorderWidthTop, "-exact-hairline"),
@@ -334,7 +334,7 @@ pub(crate) const HR: &[(StyleId, &str)] = &[
 
 /// A `dialog` whose role is `alertdialog` is presented as the platform's
 /// confirmation, and its `closedby`, unless written, is what that
-/// confirmation does, so every host and
+/// confirmation does (LLP 1115 D6; LLP 1115.000 D13.4), so every host and
 /// the web's `dialog` behave alike. `alert` is whether its rows are an
 /// alert's ([`Lowerer::check_menu_shapes`]). **An alert has no outside:**
 /// `closerequest`, so Escape and Back cancel it and a tap outside does
@@ -490,7 +490,7 @@ impl Lowerer<'_> {
         let mut rows = Vec::new();
         self.rows(children, false, &mut Vec::new(), &mut rows);
         let alert = alert_shaped(&rows);
-        // A prompt asks one thing, whatever its `id`:
+        // A prompt asks one thing (rules/DEFERRED.md), whatever its `id`:
         // fields on arms of one `if` or `match` never show together.
         let fields: Vec<&Row> = rows.iter().filter(|r| text_field(r)).collect();
         if let Some(field) = fields.iter().find(|f| f.repeats) {
@@ -517,7 +517,7 @@ impl Lowerer<'_> {
         };
         // An unwritten `closedby` is implied (`implied_closedby`); one written
         // otherwise asks for what the native confirmation of this shape
-        // cannot do. An alert has no outside and always
+        // cannot do (LLP 1115.000 D13.4). An alert has no outside and always
         // has its cancel: `closerequest`, or `any` for the platform's
         // dismissible form. A chooser is dismissed by a tap outside: `any`.
         let closedby = attrs.iter().rev().find(|a| a.name == "closedby");

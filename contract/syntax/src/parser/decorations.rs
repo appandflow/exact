@@ -1,4 +1,4 @@
-//! Named textarea decoration rows.
+//! Named textarea decoration rows (LLP 1114.007).
 use super::*;
 
 impl Parser {
@@ -21,7 +21,7 @@ impl Parser {
 
     /// `atom <name> link="scheme:" | link="relative" | prefix="@"`, with an
     /// optional `role` and style, then optionally an indented block of more
-    /// rows and the `:hover` and `:checked` state parts;
+    /// rows and the `:hover` and `:checked` state parts (LLP 1045.000 D3);
     /// which rows it takes is the lowerer's.
     pub(super) fn atom(&mut self) -> R<StyleDecl> {
         let span = self.expect_word("atom")?;

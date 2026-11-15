@@ -1,6 +1,6 @@
-// The smoke's inspection steps (`smoke.mjs` imports them as it does
-// `smoke-duo.mjs`): 2b, `layout <node>`; 2c, `state`'s
-// host sections; 7a, `layout agree` at the drive's
+// The smoke's web builds and inspection steps (`smoke.mjs` imports them as it does
+// `smoke-duo.mjs`): 2b, `layout <node>` (LLP 1035.002 D1); 2c, `state`'s
+// host sections (D2, D3); 7a, `layout agree` (LLP 1080.001 D5) at the drive's
 // settled points; and the pooling drive on Carousel's virtualized feed.
 import { render } from './agent-inspect.mjs';
 import { pollUntil } from './agent-launch.mjs';
@@ -9,11 +9,51 @@ import { createServer } from 'node:http';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { HOST_DEV } from './app.mjs';
+import { HOST_DEV, resolveApp } from './app.mjs';
 
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export function webSmokeBuild(app, appOnly) {
+  const root = resolve(import.meta.dir, '..'), dir = mkdtempSync(resolve(tmpdir(), 'exact-smoke-web-'));
+  process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+  const build = (selected, dist, flags = [], env = {}) => {
+    const result = spawnSync(process.execPath, [resolve(root, 'host/web/build.mjs'), selected.crate('web'), ...flags], {
+      cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: selected.dir, EXACT_WEB_DIST: dist, ...env },
+    });
+    if (result.status !== 0) process.exit(result.status ?? 1);
+  };
+  const selectedWebDist = resolve(dir, 'dist');
+  build(app, selectedWebDist);
+  if (appOnly) return { selectedWebDist, fixtureWebDist: null, fixtureOptions: null };
+  // Generic plans need neither the selected app's module nor its source declarations.
+  // Orientation Fixture has an empty data source and no replaceable module.
+  const fixtureApp = resolveApp(resolve(root, 'apps/orientation-fixture'));
+  const fixtureAppDist = resolve(dir, 'fixture-app');
+  const fixtureWebDist = resolve(dir, 'fixtures');
+  build(fixtureApp, fixtureAppDist);
+  build(fixtureApp, fixtureWebDist, ['--wasm'], { EXACT_WEB_LINK: 'all' });
+  return { selectedWebDist, fixtureWebDist, fixtureOptions: { app: fixtureApp.dir, webDist: fixtureAppDist } };
+}
+
+export function webSmokeSweep(fixtureWebDist) {
+  // The JS fixtures choose Caltrain explicitly, even when the smoke's app came from the environment.
+  return spawnSync('cargo', ['test', '-p', 'exact-web', '--test', 'it', 'navigation::', '--', '--ignored', '--nocapture'], {
+    cwd: resolve(import.meta.dir, '..'), stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: '', EXACT_ROUTER_DIST: fixtureWebDist },
+  });
+}
+
+export function isDeckURL(source, base) {
+  // Native trees keep the authored path; web trees expose src under the page's base.
+  if (base === null) return source === '/deck/index.html';
+  if (typeof source !== 'string' || !source) return false;
+  try {
+    return new URL(source, base).href === new URL('deck/index.html', base).href;
+  } catch {
+    return false;
+  }
+}
 
 export async function formControlsSmoke({ host, open, check }) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-form-controls-')), root = resolve(import.meta.dir, '..'), plan = resolve(dir, 'controls.plan');
@@ -55,7 +95,7 @@ export async function formControlsSmoke({ host, open, check }) {
 // A bundled page (`local.html`) loads a loopback `http:` stylesheet, as
 // Chrome does from a secure page, and the host logs one that fails (#135).
 // A bundled PDF (`local.pdf`) is shown by its type, not as its bytes in an
-// HTML document (#115): on Apple in PDFKit's view.
+// HTML document (#115): on Apple in PDFKit's view (LLP 1020.002 D10).
 export async function httpFrameSmoke({ host, open, check }) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-http-frames-'));
   const source = resolve(dir, 'app.contract'), plan = resolve(dir, 'app.plan');
@@ -94,7 +134,7 @@ export async function httpFrameSmoke({ host, open, check }) {
     // Before #115 the PDF's bytes were the text of an HTML body, which has
     // no element to outline; WebKit's PDF document has its annotation layer
     // (a refused load's error page outlines too, so the layer is named), and
-    // an Apple host's PDF view says so with its pages.
+    // an Apple host's PDF view says so with its pages (LLP 1020.002 D10).
     const pdf = (tree) => byTestId(tree, 'local-pdf');
     const pdfShown = (tree) => pdf(tree)?.loading === false && (pdf(tree).pdf === true || !!pdf(tree).guest?.some(n => n.id === 'annotationContainer'));
     let tree, state;
@@ -114,7 +154,7 @@ export async function httpFrameSmoke({ host, open, check }) {
   finally { try { await s?.close(); } finally { await new Promise(done => server.close(done)); rmSync(dir, { recursive: true, force: true }); } }
 }
 
-// 2b. `layout <node>`: the runner's half names where
+// 2b. `layout <node>` (LLP 1035.002 D1): the runner's half names where
 // each value came from, the host's half the spaces it has; the explained
 // box is the listing's box; a stale id is refused by name.
 export async function explainNode(s, { tree, layout, check }) {
@@ -125,16 +165,16 @@ export async function explainNode(s, { tree, layout, check }) {
   check(n && ['authored', 'inherited', 'initial'].includes(n.style.text_color?.source), `text_color has no source: ${JSON.stringify(n?.style?.text_color)}`);
   check(n && listed && Math.abs(n.space.viewport.x - listed.x) < 0.01 && Math.abs(n.space.viewport.w - listed.w) < 0.01, `the explained box ${JSON.stringify(n?.space?.viewport)} disagrees with the listing ${JSON.stringify(listed)}`);
   check(await s.op({ op: 'layout', id: 999999 }).then(() => false, (e) => /stale node/.test(e.message)), 'a stale node id was not refused by name');
-  // The wire refuses what it would answer by doing nothing: a method's `target`, an unknown op.
+  // The wire refuses what it would answer by doing nothing (habits F8): a method's `target`, an unknown op.
   check(await s.op({ op: 'tap', target: 'station-name' }).then(() => false, (e) => /s\.tap\("station-name"/.test(e.message)), 'a raw tap with a target was not refused');
   check(await s.op({ op: 'tapp', id: n?.id }).then(() => false, () => true), 'an unknown op was not refused');
 }
 
-// 2c. `state`'s host sections are present on every host
+// 2c. `state`'s host sections (LLP 1035.002 D2) are present on every host
 // (Linux says `unavailable`, never nothing); where the host has a focus,
 // the field just typed into is the editor; on iOS the keyboard comes up
 // (its notification lands asynchronously, so poll). Every reply is
-// tagged with the runner's epoch and incarnation. Answers the state
+// tagged with the runner's epoch and incarnation (D3). Answers the state
 // and tree it read last.
 export async function hostSections(s, { host, tree, state, check }) {
   check(state.focus && state.keyboard && state.navigation, `state lacks a host section: ${Object.keys(state).join(', ')}`);
@@ -152,7 +192,7 @@ export async function hostSections(s, { host, tree, state, check }) {
     state = await s.state();
     tree = await s.tree();
     // The field hears the key; on iOS Return then puts the keyboard away from
-    // a single-line field, so the hint goes with the focus.
+    // a single-line field (LLP 1115.000 D9.2), so the hint goes with the focus.
     const hint = byTestId(tree, 'search-hint')?.props.text;
     check(state.slots.lastKey === 'Enter' && (host === 'ios' ? state.slots.searchFocused === false && hint === undefined : hint === 'searching · last key Enter'), `Enter at the field: lastKey ${JSON.stringify(state.slots.lastKey)}, searchFocused ${state.slots.searchFocused}, hint ${JSON.stringify(hint)}`);
     check(byTestId(tree, 'station-search')?.props.value === 'Palo', `Enter changed the field's text to ${JSON.stringify(byTestId(tree, 'station-search')?.props.value)}`);
@@ -160,7 +200,7 @@ export async function hostSections(s, { host, tree, state, check }) {
   return { state, tree };
 }
 
-// 7a. `layout agree` after `clock settle`: a failure for a
+// 7a. `layout agree` (LLP 1080.001 D5) after `clock settle`: a failure for a
 // drive that does not settle, a missing reply, an incomplete walk (each
 // reason named), a required kind that covered nothing, and each listed
 // disagreement as the transcript renders it. The web and Linux answer
@@ -180,7 +220,7 @@ export async function agree(s, label, { host, check }) {
   return a;
 }
 
-// The pooling drive, when the app is Carousel: on the
+// The pooling drive (LLP 1080.001 D5), when the app is Carousel: on the
 // feed page, `Down` moves the virtualized feed far, so rows retire and park and the rows built
 // there take them. Both counters must grow — retirement and reuse happened —
 // then the walk is clean and counts every parked root `state` reports.
@@ -197,13 +237,14 @@ export async function poolingDrive(s, { host, check }) {
   console.log(`${host} carousel pool: parks ${before.parks}→${after.parks}, takes ${before.takes}→${after.takes}, parked ${after.parked}`);
 }
 
-/** A web page the smoke reloaded has booted again. Nothing notifies across a reload, so this polls, and its bound
- *  only stops a page that never boots (docs/testing.md). The bound was 5 s, which a loaded Mac's boot outlasts, and
- *  the caller then read an `exact` the page had not made yet ("exact is not defined"). */
-export async function rebooted(carrier) {
-  const ready = "document.readyState === 'complete' && document.getElementById('exact-root')?.dataset.bootMs != null && !!globalThis.exact?.agentSettled";
+/** Wait for the replacement document and its runtime. The time origin distinguishes it from the page reloaded. */
+export async function rebooted(carrier, before) {
+  const ready = `performance.timeOrigin !== ${JSON.stringify(before)} && document.readyState === 'complete' && document.getElementById('exact-root')?.dataset.bootMs != null && !!globalThis.exact?.ready && !!globalThis.exact?.agentSettled`;
   for (let i = 0; i < 600; i++) {
-    if (await carrier.evaluate(ready).catch(() => false)) return;
+    if (await carrier.evaluate(ready).catch(() => false)) {
+      await carrier.evaluate('globalThis.exact.ready');
+      return;
+    }
     await new Promise((done) => setTimeout(done, 50));
   }
   throw new Error('the reloaded page did not boot within 30 s');

@@ -1,12 +1,11 @@
-//! Lowering's warnings: what compiles and runs but is
+//! Lowering's warnings (@ref LLP 1116 D6): what compiles and runs but is
 //! not what the author meant, where a host would drop it without a word.
 //! Beside the refusals (`lint.rs`, [`crate::lower_all`]), never instead of
 //! them: a warning fails no build and no test, and names its repair as a
 //! refusal does.
 //!
-//! Each is read from the checked file's expanded root, as lowering reads it, and gives what
-//! it cannot see the benefit of the doubt, as `routes.rs`'s `check_scroll` does: an `if`,
-//! `for` or `match`, a use or a slot, a computed role or type.
+//! Each check names what it can establish from the expanded root, as lowering reads it.
+//! Unexpanded uses and slots, and computed roles and types, stay unknown.
 
 use crate::tags::AttrTarget;
 use crate::LowerError;
@@ -21,9 +20,12 @@ use std::collections::{BTreeMap, BTreeSet};
 mod container;
 mod counts;
 mod fixed_beside;
+mod geometry;
+mod header_bar;
 mod launch;
 pub(crate) mod line_height;
 mod miswiring;
+mod navigation_back;
 mod nested_header;
 mod parts;
 mod roles;
@@ -35,42 +37,38 @@ mod scroll_bound;
 mod sounds;
 mod states;
 mod svg;
+mod tabs;
+mod text_styles;
 mod title;
+mod transform;
+mod transform_drag;
 mod width;
 pub(crate) use width::horizontal_flex;
 
 /// At most this many warnings from one compile. A blank SF Symbol's uses,
-/// `tamber-unreachable` and colours that stay one scheme follow, each site briefly: a repair
+/// `forma-unreachable` and colours that stay one scheme follow, each site briefly: a repair
 /// of the first twenty would only show the next (rules/RULES.md, "Loop shape").
 pub const MAX_WARNINGS: usize = 20;
 
 /// Every warning the checked file earns, in source order of its checks.
 pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
     crate::control_roles::unlowered();
-    with_text_styles(checked, &TextStyles::new())
+    with_text_styles(checked, &TextStyles::new(), Vec::new())
 }
 
-/// Effective text sizing and native control boundaries from lowering. A reused
-/// source site whose own style differs between instances stays unknown. The tag
-/// distinguishes a button from the title synthesized at the same source span.
-pub(crate) type TextStyles = std::collections::BTreeMap<(Span, u32, String), Option<TextStyle>>;
+pub(crate) use text_styles::{TextStyle, TextStyles};
 
-#[derive(Clone, PartialEq)]
-pub(crate) struct TextStyle {
-    pub(crate) native: Option<bool>,
-    pub(crate) font: Option<Attr>,
-    pub(crate) layout: Vec<Attr>,
-    /// The lowered parent includes list cards and swipe scrollers absent from the source.
-    pub(crate) parent_horizontal_flex: Option<bool>,
-}
-
-pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> Vec<LowerError> {
+pub(crate) fn with_text_styles(
+    checked: &Checked<'_>,
+    lowered: &TextStyles,
+    mut out: Vec<LowerError>,
+) -> Vec<LowerError> {
     let root = &checked.expanded.root;
-    let mut out = Vec::new();
+    let controlled = roles::controlled(checked);
     routeless_header::check(checked, &mut out);
     // Track the navigation root (the outermost `navigationKey`) and its `navigationBack`.
     crate::menu_rows::notes(&root.view, &mut out);
-    crate::symbols::tints(&root.view, &checked.file.styles, lowered, &mut out);
+    crate::symbols::tints(&root.view, checked.file, lowered, &mut out);
     let mut stack: Vec<(&Node, bool, Option<&str>)> =
         root.view.iter().rev().map(|n| (n, false, None)).collect();
     let (mut seen, mut platform) = (BTreeSet::new(), Vec::new());
@@ -86,18 +84,19 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
                 // A component used twice is inlined twice: one line for its source.
                 let span = node.span();
                 let fresh = seen.insert((span.source_id, span.line, span.col, span.end_col));
-                // A symbol by another spelling than its role.
+                // @ref LLP 1116.007 D3.1 — a symbol by another spelling than its role.
                 if let (true, "image", Some(source)) = (fresh, tag.as_str(), positional.first()) {
                     out.extend(crate::symbols::image_source(source, &mut platform));
                 }
                 out.extend(roles::button(tag, attrs, children, span).filter(|_| fresh));
                 out.extend(roles::dialog_role(tag, attrs, span).filter(|_| fresh));
                 out.extend(roles::level_without_heading(tag, attrs, span).filter(|_| fresh));
+                out.extend(roles::keys(attrs, children, span, &controlled).filter(|_| fresh));
                 if fresh {
                     line_height::multiplier(attrs, &mut out);
                 }
                 let keyed = has(attrs, "navigationKey");
-                // A name or a key that meets nothing.
+                // @ref LLP 1116.010 D5 — a name or a key that meets nothing.
                 miswiring::swipe(attrs, children, fresh, &mut out);
                 if tag == "image" {
                     miswiring::image_source(positional.first(), fresh, &mut out);
@@ -108,10 +107,10 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
                 }
                 miswiring::navigation_split(tag, attrs, keyed, keyed && !in_root, fresh, &mut out);
                 let route = in_root && keyed && !has(attrs, "navigationBack");
-                // A route that says it has no bar draws its header as written.
+                // A route that says it has no bar (LLP 1115.000 D5.2) draws its header as written.
                 let no_bar = literal(attrs, "navigationBar") == Some("none");
                 if route && !no_bar {
-                    route_header(children, &[], &mut out);
+                    header_bar::route_header(children, &[], &mut out);
                     nested_header::nested_header(children, &mut out);
                     fixed_beside::fixed_beside((tag, attrs), children, &mut out);
                 }
@@ -119,7 +118,8 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
                     drawn_back(attrs, children, name, &mut out);
                 }
                 if literal(attrs, "role") == Some("tablist") {
-                    single_tab(node, &mut out);
+                    tabs::single_tab(node, &mut out);
+                    tabs::search_tab(node, &mut out);
                 }
                 let back = if keyed && !in_root {
                     literal(attrs, "navigationBack").filter(|name| !name.is_empty())
@@ -138,31 +138,33 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
         };
         stack.extend(children.into_iter().rev().map(|n| (n, in_root, back)));
     }
-    for style in &checked.file.styles {
-        line_height::multiplier(&style.attrs, &mut out);
-    }
+    (checked.file.styles.iter()).for_each(|s| line_height::multiplier(&s.attrs, &mut out));
     out.extend(screens::screen_by_state(checked));
     // A `replace` the router refuses on a root route's screen, a `select` after a push.
     out.extend(root_replace::router(checked));
     out.extend(counts::count_plural(checked));
-    // A row that searches another data list, or its own, or reads a key by position.
+    // @ref LLP 1116.016 D4 — a row that searches another data list; LLP 1017.003 D3, its own; LLP 1142 D6, a key by position.
     out.extend(rows::row_lookup(checked));
-    // A `delete=` no list row holds.
+    // @ref LLP 1116.020 D1 — a `delete=` no list row holds.
     out.extend(crate::swipe_rows::unplaced(
         &root.view,
         &checked.file.styles,
     ));
-    // A RoundButton label of more than a word.
+    // @ref LLP 1116.011 D2.1 — a RoundButton label of more than a word.
     out.extend(parts::round_button_label(checked));
-    // An empty state drawn as a list's row.
+    // @ref LLP 1116.020 D5 — an empty state drawn as a list's row.
     out.extend(parts::empty_state_in_list(checked));
-    // A summary card in a grouped list's card.
+    // @ref LLP 1116.021 D7 — a summary card in a grouped list's card.
     out.extend(parts::summary_card_in_list(checked));
-    // A node's own state part it never meets.
+    // @ref LLP 1121 D8 — a node's own state part it never meets.
     states::dead(&root.view, &mut out);
     performance_now(root, &checked.file.fns, &mut out);
     sounds::undeclared(checked, &mut out);
-    // An identifying argument of the launch's own.
+    geometry::unnamed(checked, &mut out);
+    navigation_back::unnamed(checked, &mut out);
+    transform::owners(checked, &mut out);
+    transform_drag::check(&root.view, &checked.file.styles, &mut out);
+    // @ref LLP 1027.005 D6 — an identifying argument of the launch's own.
     launch::launch_identity(root, &checked.file.fns, &mut out);
     width::width_padding(&root.view, &checked.file.styles, &mut out);
     scroll_bound::scroll_grows(&root.view, &checked.file.styles, &mut out);
@@ -178,9 +180,9 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
                 span: e.span,
             }),
     );
-    // The design's values of params the app no longer has.
+    // @ref LLP 1121 D15 — the design's values of params the app no longer has.
     if let Some(source) = &checked.file.design {
-        if let Ok(design) = exact_tamber::parse(&source.text) {
+        if let Ok(design) = exact_forma::parse(&source.text) {
             let params = crate::params::tokens(checked.file);
             out.extend(crate::anatomy::unknown_params(
                 &design,
@@ -193,6 +195,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     crate::warning_rank::keep_first(&mut out);
     out.extend(platform);
     crate::control_roles::unreachable(&root.view, &checked.file.styles, &mut out);
+    crate::style_hosts::undrawn(&root.view, &checked.file.styles, &mut out);
     one_scheme(
         root,
         &checked.file.styles,
@@ -204,15 +207,15 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
         },
         &mut out,
     );
-    out
+    crate::theme::shown_errors(out) // a param by the name its author wrote
 }
 
-/// What the one-scheme warning knows of the app's tokens.
+/// What the one-scheme warning knows of the app's tokens (LLP 1121 D3).
 struct Tokens {
     /// The tokens one colour in light and dark, not marked `scheme=fixed`,
     /// with that colour and whether in every tuple (`theme::one_scheme_tokens`).
     one: Vec<(String, String, bool)>,
-    /// The tokens are a design's (`app.tamber`), which can mark one, not an inline `theme`'s.
+    /// The tokens are a design's (`app.forma`), which can mark one, not an inline `theme`'s.
     design: bool,
 }
 
@@ -242,280 +245,17 @@ fn computed(attrs: &[Attr], name: &str) -> bool {
         .is_some_and(|a| !matches!(a.value, Expr::Str(..)))
 }
 
-/// The plain boxes a bar's walk looks inside.
+/// The plain boxes a bar's walk looks inside (LLP 1075.003 §9.10).
 const BOXES: &[&str] = &[
     "view", "box", "column", "row", "header", "nav", "section", "footer", "article", "aside",
     "main",
 ];
-
-/// What the iOS bar makes of one node in a route's header.
-enum Part {
-    /// An `if`, `for`, `match`, use or slot, or a computed role or type: the benefit of the doubt.
-    Doubt,
-    /// Not shown in the header on any host: `display="none"`, or a popover
-    /// or dialog, which shows over the page when it opens.
-    Hidden,
-    /// `text role="heading"`: the bar's title. An `aria-level` with no role
-    /// is not one, there or to the bar.
-    Heading,
-    /// Another `text`: the subtitle when it is the first after the heading.
-    Text,
-    /// `input type="search"`: the bar's search field.
-    Search,
-    /// `role="tablist"`: the bar's segmented control.
-    Tablist,
-    /// A button that presses, or opens a popover: a bar item.
-    Pressable,
-    /// `role="status"`: a readout, a bar item that nothing presses,
-    /// what it holds its face.
-    Status,
-    /// A plain box, walked into.
-    Box,
-    /// Anything else.
-    Other,
-}
-
-fn part(node: &Node) -> Part {
-    let Node::Element { tag, attrs, .. } = node else {
-        return Part::Doubt;
-    };
-    // A popover or dialog shows over the page when opened, not in the bar.
-    if literal(attrs, "display") == Some("none") || has(attrs, "popover") || tag == "dialog" {
-        return Part::Hidden;
-    }
-    if computed(attrs, "role") || computed(attrs, "display") {
-        return Part::Doubt;
-    }
-    let role = literal(attrs, "role");
-    if role == Some("tablist") {
-        return Part::Tablist;
-    }
-    // A link navigates, given the benefit as a pressed thing; a disabled button is a dimmed item.
-    let disabled = |a: &Attr| a.name == "disabled" && !matches!(a.value, Expr::Bool(false, _));
-    let item = attrs.iter().any(disabled)
-        || (has(attrs, "popovertarget") && literal(attrs, "popovertargetaction") != Some("hide"));
-    if has(attrs, "press") || (tag == "button" && item) || tag == "link" {
-        return Part::Pressable;
-    }
-    if role == Some("status") && tag != "header" {
-        return Part::Status;
-    }
-    match tag.as_str() {
-        "text" if role == Some("heading") => Part::Heading,
-        "text" => Part::Text,
-        "input" if computed(attrs, "type") => Part::Doubt,
-        "input" if literal(attrs, "type") == Some("search") => Part::Search,
-        t if BOXES.contains(&t) => Part::Box,
-        _ => Part::Other,
-    }
-}
 
 fn kids(node: &Node) -> &[Node] {
     match node {
         Node::Element { children, .. } => children,
         _ => &[],
     }
-}
-
-/// Whether the subtree holds something the bar places or the compiler
-/// cannot see through: then a box around it is walked, not dropped whole.
-fn holds_placed(node: &Node) -> bool {
-    kids(node).iter().any(|k| match part(k) {
-        Part::Doubt
-        | Part::Heading
-        | Part::Search
-        | Part::Tablist
-        | Part::Pressable
-        | Part::Status => true,
-        Part::Box => holds_placed(k),
-        Part::Hidden | Part::Text | Part::Other => false,
-    })
-}
-
-fn holds_heading(node: &Node) -> bool {
-    kids(node).iter().any(|k| match part(k) {
-        Part::Heading => true,
-        Part::Box | Part::Pressable | Part::Status => holds_heading(k),
-        _ => false,
-    })
-}
-
-/// A box with a literal fill: before the heading, the title's avatar.
-fn filled(node: &Node) -> bool {
-    let Node::Element { attrs, .. } = node else {
-        return false;
-    };
-    has(attrs, "background-color") || has(attrs, "background")
-}
-
-/// A passive box of texts and symbol images, one of each at least: a
-/// subtitle's line of glyphs (Signal's "🔕 Muted ⏱ 1w").
-fn glyph_line(node: &Node) -> bool {
-    let (mut symbol, mut text) = (false, false);
-    for k in kids(node) {
-        match (part(k), k) {
-            (Part::Text, _) => text = true,
-            (
-                Part::Other,
-                Node::Element {
-                    tag, positional, ..
-                },
-            ) if tag == "image" => match positional.first() {
-                // A computed source may be a symbol: the benefit.
-                Some(Expr::Str(s, _)) if !s.starts_with("symbol:") => return false,
-                Some(_) => symbol = true,
-                None => return false,
-            },
-            (Part::Hidden, _) => {}
-            _ => return false,
-        }
-    }
-    symbol && text && !filled(node)
-}
-
-/// What the walk of one header has seen.
-#[derive(Default)]
-struct Bar<'a> {
-    headings: usize,
-    /// The last heading counted: the bar's title when it is the one.
-    title: Option<&'a Node>,
-    /// An `if`, `for`, `match`, use or slot, or a computed role: the
-    /// headings counted may not be all.
-    doubt: bool,
-    /// The heading has been passed, in document order.
-    passed: bool,
-    subtitle: bool,
-    avatar: bool,
-    search: bool,
-    tablist: bool,
-    tap: bool,
-    unplaced: Vec<(Span, String)>,
-}
-
-/// A route's `header` that is not the bar, in `lower-header-no-bar`'s words.
-const NOT_THE_BAR: &str = "the header is drawn in the page as written, and the bar has no title: a pushed route's holds the system Back button alone, above the header, and a stack's first route has no bar.";
-
-/// The other repairs `lower-header-no-bar` names: a site's header, and the route's own chrome.
-const OR_NO_BAR: &str = "; or, for a site's header, say `appearance=\"none\"` on it; or, if this screen draws its own chrome, say `navigationBar=\"none\"` on the route's element (the one with `navigationKey`, not its line under `routes`)";
-
-/// `lower-header-unplaced`: a node in a route's first `header` that the
-/// iOS navigation bar does not place. The
-/// bar takes one heading as its title, the first text after it as the
-/// subtitle (a filled box before it as the avatar), one search field, one
-/// tablist, the buttons that press, open a popover or are disabled, and the
-/// readouts (`role="status"`); the rest of the header is hidden
-/// with it. With no heading or with two, the bar takes nothing and the
-/// header is shown as written: `lower-header-no-bar`'s.
-/// An `if` first among the route's children is read branch by branch: a branch's first node
-/// is the route's first child while it is taken, and `after` the route's nodes past that `if`.
-fn route_header<'a>(children: &'a [Node], after: &[&'a Node], out: &mut Vec<LowerError>) {
-    if let Some(Node::When {
-        then, otherwise, ..
-    }) = children.first()
-    {
-        let rest: Vec<&Node> = children[1..].iter().chain(after.iter().copied()).collect();
-        route_header(then, &rest, out);
-        route_header(otherwise, &rest, out);
-        return;
-    }
-    let Some(header @ Node::Element { tag, attrs, .. }) = children.first() else {
-        return;
-    };
-    if tag != "header" || nested_header::no_bar(attrs) {
-        return;
-    }
-    let mut bar = Bar::default();
-    walk(kids(header), &mut bar);
-    if bar.headings != 1 {
-        if !bar.doubt {
-            out.push(LowerError {
-                id: "lower-header-no-bar",
-                message: if bar.headings == 0 {
-                    format!("this route's `header` holds no heading, so on iOS it is not the navigation bar: {NOT_THE_BAR} Give it one `text role=\"heading\"` (`aria-level=1` for a large title) — its buttons become the bar's items{OR_NO_BAR} (docs/recipes/navigation-stack.md)")
-                } else {
-                    format!("this route's `header` holds {} headings, so on iOS it is not the navigation bar: {NOT_THE_BAR} Keep one `text role=\"heading\"` and make the others plain `text` (the first text after the heading is the bar's subtitle), or move them below the `header`{OR_NO_BAR} (docs/recipes/navigation-stack.md)", bar.headings)
-                },
-                span: header.span(),
-            });
-        }
-        return;
-    }
-    if let Some(title) = bar.title {
-        let content: Vec<&Node> = children[1..].iter().chain(after.iter().copied()).collect();
-        title::title_twice(title, &content, out);
-    }
-    for (span, what) in bar.unplaced {
-        out.push(LowerError {
-            id: "lower-header-unplaced",
-            message: format!(
-                "{what} in this route's `header` is not shown on iOS: the navigation bar there takes one heading as its title, the first text after it as the subtitle, one `input type=\"search\"`, one `role=\"tablist\"`, the buttons that press or are disabled and the readouts (`role=\"status\"`), and hides the rest of the header. Move it below the `header`, into the route's content (the scroller's first row), make it a button that presses, or, if it is a status that nothing presses (a \"● Live\" beside the title), give it `role=\"status\"` (docs/contract-for-agents.md, \"Tabs and stacks\")"
-            ),
-            span,
-        });
-    }
-}
-
-fn walk<'a>(nodes: &'a [Node], bar: &mut Bar<'a>) {
-    for node in nodes {
-        let span = node.span();
-        match part(node) {
-            Part::Doubt => bar.doubt = true,
-            Part::Hidden => {}
-            Part::Heading => {
-                bar.headings += 1;
-                bar.title = Some(node);
-                bar.passed = true;
-            }
-            Part::Search if !bar.search => bar.search = true,
-            Part::Tablist if !bar.tablist => bar.tablist = true,
-            Part::Search => bar
-                .unplaced
-                .push((span, "a second `input type=\"search\"`".into())),
-            Part::Tablist => bar
-                .unplaced
-                .push((span, "a second `role=\"tablist\"`".into())),
-            // A pressable box around the heading is the title, tapped.
-            Part::Pressable if !bar.tap && has_press(node) && holds_heading(node) => {
-                bar.tap = true;
-                walk(kids(node), bar);
-            }
-            Part::Pressable => {}
-            // A status around the heading is no readout: walked for it.
-            Part::Status if holds_heading(node) => walk(kids(node), bar),
-            Part::Status => {}
-            Part::Text if bar.passed && !bar.subtitle => bar.subtitle = true,
-            Part::Text => bar.unplaced.push((
-                span,
-                if bar.passed {
-                    "this text, after the subtitle,".into()
-                } else {
-                    "this text, before the heading,".into()
-                },
-            )),
-            Part::Box if bar.passed && !bar.subtitle && glyph_line(node) => bar.subtitle = true,
-            Part::Box if !bar.passed && !bar.avatar && filled(node) && !holds_heading(node) => {
-                bar.avatar = true;
-            }
-            Part::Box if holds_placed(node) => walk(kids(node), bar),
-            // A box with nothing in it lays the bar's items out (a spacer).
-            Part::Box if kids(node).is_empty() => {}
-            Part::Box => bar.unplaced.push((span, "this box".into())),
-            Part::Other => {
-                let what = match node {
-                    Node::Element { tag, .. } if tag == "button" => {
-                        "a `button` that presses nothing".into()
-                    }
-                    Node::Element { tag, .. } => format!("this `{tag}`"),
-                    _ => "this node".into(),
-                };
-                bar.unplaced.push((span, what));
-            }
-        }
-    }
-}
-
-fn has_press(node: &Node) -> bool {
-    matches!(node, Node::Element { attrs, .. } if has(attrs, "press"))
 }
 
 /// The `header`s that may be a route's first child: its first node, or the
@@ -547,9 +287,9 @@ fn first_headers<'a>(children: &'a [Node], out: &mut Vec<&'a Node>) {
 
 /// `lower-back-twice`: a route draws its own Back control (the element
 /// whose `id` the root's `navigationBack` names) where iOS shows the system
-/// Back too. Every pushed route has the navigation bar
+/// Back too (LLP 1115.000 D5.2). Every pushed route has the navigation bar
 /// unless it says `navigationBar="none"`, and the bar's Back presses the
-/// authored control, so a control drawn in the page is a
+/// authored control (LLP 1115 D5), so a control drawn in the page is a
 /// second Back on the same screen.
 ///
 /// A control in the route's first `header` is not drawn there on iOS: when
@@ -610,42 +350,6 @@ fn drawn_back(route: &[Attr], children: &[Node], name: &str, out: &mut Vec<Lower
     }
 }
 
-/// `lower-single-tab`: a root tab bar (a `role="tablist"` whose tabs name
-/// their panels with `aria-controls`) with fewer than two tabs: a bar of
-/// one tab under a single screen, copied from a tab skeleton.
-fn single_tab(tablist: &Node, out: &mut Vec<LowerError>) {
-    let (mut tabs, mut controls, mut doubt) = (0, false, false);
-    let mut stack: Vec<&Node> = kids(tablist).iter().collect();
-    while let Some(node) = stack.pop() {
-        match node {
-            Node::Element {
-                attrs, children, ..
-            } => {
-                if computed(attrs, "role") {
-                    doubt = true;
-                } else if literal(attrs, "role") == Some("tab") {
-                    tabs += 1;
-                    controls |= has(attrs, "aria-controls");
-                } else {
-                    stack.extend(children);
-                }
-            }
-            _ => doubt = true,
-        }
-    }
-    if controls && !doubt && tabs < 2 {
-        out.push(LowerError {
-            id: "lower-single-tab",
-            message: format!(
-                "this tab bar has {} tab{}: a tab bar is for moving between two or more sections, and one tab is a bar that does nothing. For a single screen, drop the `role=\"tablist\"` and the `tabpanel` around the routes, so the routes are the navigation root's children (one stack); add the other tabs if the app has them (docs/contract-for-agents.md, \"Tabs and stacks\")",
-                tabs,
-                if tabs == 1 { "" } else { "s" }
-            ),
-            span: tablist.span(),
-        });
-    }
-}
-
 /// What a number may be, as far as the clock goes: a bit set. A value may
 /// be several (a state assigned a reading in one action and a duration in
 /// another). The empty set is a state or derive not yet resolved, which
@@ -667,9 +371,9 @@ const EPOCH: Kinds = 16;
 const ALL: [Kinds; 5] = [TIME, SPAN, CONST, UNSEEN, EPOCH];
 
 /// One kind with another, under `op`: a time with the origin added is the
-/// wall-clock time; a time less a time or an unseen anchor is a span, less
-/// a constant, a span or the origin still a time; otherwise what either is,
-/// a constant only when both are.
+/// wall-clock time, with a span added a later time; a time less a time or
+/// an unseen anchor is a span, less a constant, a span or the origin still
+/// a time; otherwise what either is, a constant only when both are.
 fn pair(op: BinOp, x: Kinds, y: Kinds) -> Kinds {
     let join = if x == y || y == CONST {
         x
@@ -680,6 +384,7 @@ fn pair(op: BinOp, x: Kinds, y: Kinds) -> Kinds {
     };
     match op {
         BinOp::Add if x | y == TIME | EPOCH => UNSEEN,
+        BinOp::Add if x | y == TIME | SPAN => TIME,
         BinOp::Sub if x == TIME => match y {
             TIME | UNSEEN => SPAN,
             _ => TIME,
@@ -906,7 +611,7 @@ fn sent(
 
 /// `type-performance-now-persisted`: a value made from `performanceNow()`
 /// without `epochAtZero` added, given to a source by a `send` or kept in a
-/// persisted state.
+/// persisted state (LLP 1116 D6, D5).
 /// `performanceNow()` counts from 0 at each launch, so a start mark a
 /// source keeps reads as a time before the next launch began (stopwatch:
 /// laps of `0-5:0-41`). A span, one reading less another (or less an
@@ -956,7 +661,7 @@ fn performance_now(root: &contract_syntax::Component, fns: &[FnDecl], out: &mut 
     for a in &root.actions {
         sent(&clock, &a.body, &mut Vec::new(), &mut found);
     }
-    // A persisted state outlives the launch as a source's copy does.
+    // A persisted state outlives the launch as a source's copy does (D5).
     for s in root.states.iter().filter(|s| root.persists(&s.name)) {
         if clock.names.get(&s.name).is_some_and(|k| k & TIME != 0) {
             out.push(LowerError {
@@ -1046,7 +751,7 @@ fn literal_colour(value: &str) -> bool {
         }
     }
     match exact_color::parse(&lower) {
-        Some(exact_color::Parsed::Legacy(c)) => c.a > 0.0,
+        Some(exact_color::Parsed::Legacy(c, _)) => c.a > 0.0,
         Some(exact_color::Parsed::Wide(c)) => c.alpha > 0.0,
         _ => false,
     }
@@ -1085,8 +790,8 @@ fn literal_colours(text: &str, out: &mut Vec<String>) {
 struct Leaves<'a> {
     fns: &'a [FnDecl],
     derives: &'a [Binding],
-    /// The theme's entries, by every spelling a row names them: a name is
-    /// the colour it stands for.
+    /// The theme's entries, by every spelling a row names them (LLP 1095
+    /// D4): a name is the colour it stands for.
     theme: Vec<(String, &'a str)>,
     /// The entries a row names: their colours are their declaration's to
     /// report, once, not each row's.
@@ -1095,7 +800,8 @@ struct Leaves<'a> {
 
 impl Leaves<'_> {
     /// The entry a theme name is, as declared, and the colour text it
-    /// stands for: a name exactly, a role's spelling without case.
+    /// stands for: a name exactly, a role's spelling without case (LLP 1095
+    /// D4).
     fn entry_named(&self, word: &str) -> Option<(&str, &str)> {
         self.theme
             .iter()
@@ -1115,7 +821,7 @@ impl Leaves<'_> {
         match e {
             Expr::Str(text, _) => {
                 literal_colours(text, out);
-                // A token's colours are its declaration's.
+                // A token's colours are its declaration's (LLP 1121 D3).
                 for word in text.split(|c: char| c.is_whitespace() || c == ',') {
                     if let Some((name, _)) = self.entry_named(word) {
                         let mut named = self.named.borrow_mut();
@@ -1207,8 +913,21 @@ fn names(e: &Expr, word: &str) -> bool {
     match e {
         Expr::Str(s, _) => s == word,
         Expr::Ternary(_, a, b, _) => names(a, word) || names(b, word),
+        Expr::Let { body, .. } => names(body, word),
         _ => false,
     }
+}
+
+/// The sites from `first` on stand on an accent fill: their white text is
+/// kept (@ref LLP 1116.020 D7). White on the accent is a filled button's
+/// label (Messages' bubble): the accent stays a fill in both schemes, and
+/// `check` holds the pair to 3:1.
+fn on_accent_fill(sites: &mut Vec<Site>, first: usize) {
+    let kept: Vec<Site> = sites
+        .drain(first..)
+        .filter(|s| s.name != "color" || !s.colours.iter().all(|c| white(c)))
+        .collect();
+    sites.extend(kept);
 }
 
 /// Whether a literal colour is white.
@@ -1221,9 +940,9 @@ fn white(c: &str) -> bool {
 }
 
 /// `lower-colour-one-scheme`: a literal colour (a hex, `rgb()`, `hsl()`, a
-/// named colour) on a colour property of the page, outside `light-dark()`.
-/// It stays the same in dark mode while the platform's
-/// text and controls change: light cards under white text. The
+/// named colour) on a colour property of the page, outside `light-dark()`
+/// (LLP 1116.002 D1). It stays the same in dark mode while the platform's
+/// text and controls change: round 4's light cards under white text. The
 /// one authored colour is the accent, a role or one `light-dark()` pair;
 /// the rest are roles or unsaid. It still fires when the app forces a
 /// `color-scheme`, which is the app with no dark mode. Artwork (`fill`,
@@ -1240,7 +959,7 @@ fn one_scheme(
     tokens: &Tokens,
     out: &mut Vec<LowerError>,
 ) {
-    // A game reads its world through `exactSurface`: its HUD and
+    // A game (LLP 1046) reads its world through `exactSurface`: its HUD and
     // title screen are its art, over a world no scheme repaints.
     if root.resources.iter().any(|r| r.source == "exactSurface") {
         return;
@@ -1305,7 +1024,13 @@ fn one_scheme(
         }
     }
     for s in styles {
+        let first = sites.len();
         colour_sites(&s.attrs, &leaves, &[], &mut sites);
+        if width::last(&s.attrs.iter().collect::<Vec<_>>(), "background-color")
+            .is_some_and(|fill| names(&fill.value, "AccentColor"))
+        {
+            on_accent_fill(&mut sites, first);
+        }
     }
     // Each node with whether the nearest fill over it (its own included)
     // can be the accent.
@@ -1322,23 +1047,15 @@ fn one_scheme(
             Node::Element {
                 attrs, children, ..
             } => {
-                if let Some(fill) = attrs.iter().rev().find(|a| a.name == "background-color") {
+                // The fill its class gives it counts, as its own does.
+                let rows = width::rows(attrs, styles).unwrap_or_else(|| attrs.iter().collect());
+                if let Some(fill) = width::last(&rows, "background-color") {
                     accent = names(&fill.value, "AccentColor");
                 }
                 let first = sites.len();
                 colour_sites(attrs, &leaves, &locals, &mut sites);
-                // White text on an accent fill is a
-                // filled button's label (Messages' bubble): the accent stays
-                // a fill in both schemes, and `check` holds the pair to 3:1.
                 if accent {
-                    let mut i = first;
-                    while i < sites.len() {
-                        if sites[i].name == "color" && sites[i].colours.iter().all(|c| white(c)) {
-                            sites.remove(i);
-                        } else {
-                            i += 1;
-                        }
-                    }
+                    on_accent_fill(&mut sites, first);
                 }
                 (children.iter().collect(), locals)
             }
@@ -1371,7 +1088,7 @@ fn one_scheme(
         );
     }
     // A token a row names that is one colour in every scheme: one line, at
-    // its declaration, however many rows name it.
+    // its declaration, however many rows name it (LLP 1121 D3).
     let named = leaves.named.borrow().clone();
     for e in entries {
         let spellings = [e.name.clone(), format!("-exact-{}", e.name)];
@@ -1400,7 +1117,7 @@ fn one_scheme(
             s.name.clone(),
         ))
     });
-    let why = "Leave the accent unsaid (the platform's; a brand is an `app.tamber`), or write it as a role or one `light-dark(light, dark)` pair on `accent-color`. A forced `color-scheme` is no repair: the app then has no dark mode (docs/contract-for-agents.md, \"Colours: say a role, not a value\")";
+    let why = "Leave the accent unsaid (the platform's; a brand is an `app.forma`), or write it as a role or one `light-dark(light, dark)` pair on `accent-color`. A forced `color-scheme` is no repair: the app then has no dark mode (docs/contract-for-agents.md, \"Colours: say a role, not a value\")";
     // `#fff` on `color` stays; `#fff`, `#eee` on `background-color` stay.
     let shown = |s: &Site| {
         let mut shown: Vec<String> = s.colours.iter().take(3).map(|c| format!("`{c}`")).collect();
@@ -1414,10 +1131,10 @@ fn one_scheme(
         };
         format!("{} on `{}` {stay}", shown.join(", "), s.name)
     };
-    // A token's line names it and both ways out.
+    // A token's line names it and both ways out (LLP 1121 D3).
     let mark = match tokens.design {
         true => "mark it `scheme=fixed` in the design if one colour is deliberate (an ink on a fixed fill, a ground under media)",
-        false => "an inline `theme` cannot mark one deliberate: move it to `app.tamber` and mark it `scheme=fixed`",
+        false => "an inline `theme` cannot mark one deliberate: move it to `app.forma` and mark it `scheme=fixed`",
     };
     let token = |s: &Site| {
         // Marked only where it is one colour in every app mode.

@@ -5,7 +5,7 @@ import XCTest
 import UIKit
 
 /// A grouped list's background as its author wrote it is the list's ground on iOS, as it replaces the sheet's on the
-/// other hosts: the list's own layer paints it once, UIKit's grounds clear, so `transparent` shows what
+/// other hosts (LLP 1084 D7): the list's own layer paints it once, UIKit's grounds clear, so `transparent` shows what
 /// lies behind the list around its cards, which keep theirs.
 final class GroupedGroundIOSTests: GroupedListFixture {
     private let light = UITraitCollection(userInterfaceStyle: .light), dark = UITraitCollection(userInterfaceStyle: .dark)
@@ -61,7 +61,7 @@ final class GroupedGroundIOSTests: GroupedListFixture {
         XCTAssertTrue(all.allSatisfy { $0 == rgba(.systemBackground, light) }, "\(all)")
     }
 
-    /// A theme's page ground is a plain list's, its `Canvas` where it sets no `background`, as a page's is.
+    /// A theme's page ground (LLP 1095 D4) is a plain list's, its `Canvas` where it sets no `background`, as a page's is.
     func testAThemedPlainListsGroundIsThePagesGround() throws {
         ThemeRoles.apply(wireBatch([["op": "roles", "roles": ["Canvas": [253, 246, 227, 255]]]]))
         defer { ThemeRoles.apply(wireBatch([["op": "roles", "roles": [String: Any]()]])) }
@@ -70,7 +70,7 @@ final class GroupedGroundIOSTests: GroupedListFixture {
         XCTAssertTrue(all.allSatisfy { abs($0[0] - 253.0 / 255) < 0.01 && abs($0[2] - 227.0 / 255) < 0.01 }, "\(all)")
     }
 
-    /// A theme's grouped ground is the collection view's from the first layout on, as the sections'.
+    /// A theme's grouped ground (LLP 1095 D4) is the collection view's from the first layout on, as the sections'.
     func testAThemesGroundIsTheWholeListsFromTheFirstLayout() throws {
         ThemeRoles.apply(wireBatch([["op": "roles", "roles": ["grouped-background": [[10, 20, 30, 255], [40, 50, 60, 255]]]]]))
         defer { ThemeRoles.apply(wireBatch([["op": "roles", "roles": [String: Any]()]])) }

@@ -1,4 +1,4 @@
-// The relying party's routes at the fixture's public origin: an EAS Hosting API
+// The relying party's routes at the fixture's public origin (LLP 1133.011 §13 question 4): an EAS Hosting API
 // route module, which `origin.mjs` bundles as CommonJS, as `expo export` bundles one. EAS Hosting calls the export
 // named for the request's method with a `Request` and expects a `Response`. `ORIGIN_RPS` is the RP IDs and origins
 // `origin.mjs` defines at bundle time; the HMAC key is the deployment's `PASSKEY_RECORD_KEY`, an EAS environment

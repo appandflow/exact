@@ -1,17 +1,17 @@
-//! A read of a slot its own action assigned before
+//! @ref LLP 1116.003 D6 — a read of a slot its own action assigned before
 //! it is warned of.
 //!
 //! Every statement of an action reads the state the action started with,
-//! and its assignments land together when it ends: after
+//! and its assignments land together when it ends (LLP 1089 D2): after
 //! `now = performanceNow()`, `if now >= endsAt` tests the last tick's time.
 //! It is on the page, unlike a read behind a call (`calls.rs`, the same
-//! rule's other frame), yet it is easy to write expecting the new value.
-//! It is a
+//! rule's other frame since LLP 1035.005.002 C2), yet five builds in the
+//! bake-off's rounds 4 and 5 wrote it expecting the new value. It is a
 //! warning, not a refusal: a swap, `a = b` then `b = a`, means it.
 //!
 //! The walk is the action's own frame, path-sensitive as `calls.rs`'s: an
 //! arm starts from what the paths into it wrote and the branch leaves their
-//! union. A call is another frame, refused there. A condition tests the
+//! union. A call is another frame, checked there. A condition tests the
 //! starting state, which no assignment changes, so its facts hold for the
 //! rest of the path: a read is left alone where it runs only on paths
 //! exclusive with the assignment's (sequential `if k == …`, the right of an
@@ -21,7 +21,7 @@
 //! copied unchanged (`s = S(s, f=…)`, then `s.g`) is the same value.
 
 use super::calls::{copied, slot_reads};
-use super::sends::{exclusive, facts, Guard};
+use super::sends::{exclusive, scoped_facts, Guard};
 use super::{AnalyzeError, Related};
 use contract_syntax::inline::calls::shown;
 use contract_syntax::{BinOp, Component, Expr, Span, Stmt};
@@ -40,6 +40,7 @@ type Written<'a> = BTreeMap<&'a str, Vec<Write<'a>>>;
 
 struct Walk<'a> {
     slots: &'a BTreeSet<&'a str>,
+    binders: Vec<(&'a str, Span)>,
     out: Vec<AnalyzeError>,
 }
 
@@ -78,7 +79,7 @@ impl<'a> Walk<'a> {
                     otherwise,
                     ..
                 } => {
-                    let tested = facts(cond);
+                    let tested = scoped_facts(cond, &self.binders);
                     self.reads(cond, guard, &tested, written, bound);
                     let mut inner = guard.clone();
                     inner.extend(tested);
@@ -91,13 +92,15 @@ impl<'a> Walk<'a> {
                     subject,
                     some,
                     none,
-                    ..
+                    span,
                 } => {
                     self.reads(subject, guard, &Guard::new(), written, bound);
                     let mut other = written.clone();
+                    self.binders.push((&some.0, *span));
                     bound.push(&some.0);
                     self.block(&some.1, guard, written, bound);
                     bound.pop();
+                    self.binders.pop();
                     self.block(none, guard, &mut other, bound);
                     merge(written, other);
                 }
@@ -120,11 +123,11 @@ impl<'a> Walk<'a> {
             Expr::Binary(BinOp::And, a, b, _) => {
                 self.reads(a, guard, tested, written, bound);
                 let mut held = guard.clone();
-                held.extend(facts(a));
+                held.extend(scoped_facts(a, &self.binders));
                 self.reads(b, &held, tested, written, bound);
             }
             Expr::Ternary(c, a, b, _) => {
-                let test = facts(c);
+                let test = scoped_facts(c, &self.binders);
                 self.reads(c, guard, &test, written, bound);
                 let mut held = guard.clone();
                 held.extend(test);
@@ -196,6 +199,7 @@ pub(super) fn check(c: &Component) -> Vec<AnalyzeError> {
     for a in &c.actions {
         let mut walk = Walk {
             slots: &slots,
+            binders: Vec::new(),
             out: Vec::new(),
         };
         walk.block(

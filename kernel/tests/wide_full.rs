@@ -1,5 +1,5 @@
 //! A full table whose free-able slots are all recent recovers as refused
-//! colours age them, with no new colour admitted. Its own
+//! colours age them, with no new colour admitted (LLP 1121 stage 4). Its own
 //! process: the table is the process's.
 
 use exact_kernel::style::wide::{self, Keep};

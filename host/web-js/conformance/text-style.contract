@@ -1,4 +1,4 @@
-// Synthetic conformance plan: a text style's weight
+// Synthetic conformance plan: a text style's weight (LLP 1115.000 D12.2)
 // through the `font` shorthand, bound and static, and a heading whose level
 // is bound, each beside a bound weight that may say nothing (`none`): the
 // style's weight then, on both web targets.

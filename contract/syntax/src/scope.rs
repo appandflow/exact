@@ -1,4 +1,4 @@
-//! Module scope: each file's names are its own
+//! Module scope (LLP 1091 D1/D4/D5): each file's names are its own
 //! declarations and what its `use` lines name. The loader gives every
 //! declaration a program-unique name and rewrites each file through its own
 //! scope before the files are merged, so every later pass sees one flat
@@ -7,11 +7,13 @@
 use crate::ast::*;
 use crate::parser::SyntaxError;
 use crate::Span;
+use exact_motion::animation::{is_easing, Role, Slots};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// Status intrinsics resolve their target before looking up a function.
-pub const STATUS_CALLS: &[&str] = &["pending", "failed", "failure"];
+pub const STATUS_CALLS: &[&str] = &["pending", "failed", "failure", "current"];
 
 /// The namespaces a top-level name lives in. Shapes and `fn`s share one:
 /// both are called as `Name(…)`.
@@ -25,7 +27,7 @@ pub enum Kind {
     Style,
     /// `decoration`.
     Decoration,
-    /// `atom`.
+    /// `atom` (LLP 1045.000).
     Atom,
     /// `keyframes`.
     Keyframes,
@@ -80,10 +82,13 @@ pub struct Scope {
     /// Each name this file may write, by namespace, to the program-unique
     /// name of the declaration it means: its own declarations and its uses.
     pub names: HashMap<(Kind, String), String>,
-    /// Names other loaded files declare that this file does not see, to the
-    /// file that declares them, so a reference to one is refused with the
-    /// `use` that would bring it rather than resolved behind the author's back.
-    pub elsewhere: HashMap<(Kind, String), Elsewhere>,
+    /// The loader's index of this file, excluded from shared refusal lookups.
+    pub unit: usize,
+    /// Every declared name, to the first file that declares it, shared by
+    /// every file's scope. A name another file declares and this file does
+    /// not see ([`Scope::elsewhere`]) is refused with the `use` that would
+    /// bring it rather than resolved behind the author's back.
+    pub elsewhere: Arc<HashMap<(Kind, String), Elsewhere>>,
     /// Every reference [`rescope`] met to a name in `elsewhere`, in order:
     /// the loader refuses them together, naming each `use` line the file
     /// lacks, so one compile shows them all (rules: every failure in one run).
@@ -97,23 +102,52 @@ pub struct Scope {
     /// The types the compiler declares (`PointerEvent`, `Geometry`, …):
     /// every file sees them, so another file's `fn` of the name is never
     /// what a type means.
-    pub builtin_types: std::collections::HashSet<String>,
+    pub builtin_types: Arc<HashSet<String>>,
     /// The program-unique names that are shapes, not `fn`s: a call of a
     /// shape named `path` is the router's `path()`, as the checker reads it.
-    pub shapes: std::collections::HashSet<String>,
-    /// Shapes other files declare that this file does not see as shapes:
-    /// a written type of one of these names is refused even when this file
-    /// has a `fn` of the name, which is no type.
-    pub foreign_shapes: std::collections::HashMap<String, String>,
-    /// The program-unique names that are native modules' sources and sends:
-    /// a resource or a `send` naming one in scope takes its
+    pub shapes: Arc<HashSet<String>>,
+    /// Every file's shapes, by their declared and their generated name, to
+    /// the files that declare them (the loader's index and the path a
+    /// refusal shows), in the loader's order, shared by every file's scope.
+    /// A shape another file declares that this file does not see as a shape
+    /// ([`Scope::foreign_shape`]) is refused as a written type even when
+    /// this file has a `fn` of the name, which is no type.
+    pub foreign_shapes: Arc<HashMap<String, Vec<(usize, String)>>>,
+    /// The program-unique names that are native modules' sources and sends
+    /// (LLP 1133.001): a resource or a `send` naming one in scope takes its
     /// name, where a data source's name is left as written.
-    pub modules: std::collections::HashSet<String>,
+    pub modules: Arc<HashSet<String>>,
 }
 
 impl Scope {
     fn get(&self, kind: Kind, name: &str) -> Option<&str> {
         self.names.get(&(kind, name.to_owned())).map(String::as_str)
+    }
+
+    /// The declaration of a name another loaded file declares and this file
+    /// does not see.
+    pub fn elsewhere(&self, kind: Kind, name: &str) -> Option<&Elsewhere> {
+        let key = (kind, name.to_owned());
+        self.elsewhere
+            .get(&key)
+            .filter(|e| e.unit != self.unit && !self.names.contains_key(&key))
+    }
+
+    /// The file that declares a shape of `name` this file does not see as a
+    /// shape, the last in the loader's order of the files other than this one.
+    pub fn foreign_shape(&self, name: &str) -> Option<&str> {
+        if self
+            .get(Kind::Call, name)
+            .is_some_and(|to| self.shapes.contains(to))
+        {
+            return None;
+        }
+        self.foreign_shapes
+            .get(name)?
+            .iter()
+            .rev()
+            .find(|(owner, _)| *owner != self.unit)
+            .map(|(_, file)| file.as_str())
     }
 
     /// The program-unique name `name` means here; `Ok(None)` for a name no
@@ -124,7 +158,7 @@ impl Scope {
         if let Some(to) = self.get(kind, name) {
             return Ok(Some(to));
         }
-        if self.elsewhere.contains_key(&(kind, name.to_owned())) {
+        if self.elsewhere(kind, name).is_some() {
             self.missing.borrow_mut().push(Missing {
                 kind,
                 name: name.to_owned(),
@@ -183,6 +217,13 @@ pub fn calls(file: &mut File) -> std::collections::HashSet<String> {
     seen.called
 }
 
+/// Every source named by a resource, send, command, placeholder or route.
+pub fn sources(file: &mut File) -> std::collections::HashSet<String> {
+    let mut seen = Seen::default();
+    walk(file, &Scope::default(), Some(&mut seen)).expect("an empty scope refuses nothing");
+    seen.sources
+}
+
 /// Every named type referenced by annotations in `file`.
 pub fn type_names(file: &mut File) -> std::collections::HashSet<String> {
     let mut seen = Seen::default();
@@ -196,12 +237,14 @@ struct Seen {
     bound: std::collections::HashSet<String>,
     called: std::collections::HashSet<String>,
     typed: std::collections::HashSet<String>,
+    sources: std::collections::HashSet<String>,
 }
 
 fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), SyntaxError> {
     let mut r = Rewriter {
         scope,
         locals: Vec::new(),
+        bound: HashMap::new(),
         callable: Vec::new(),
         seen,
     };
@@ -221,13 +264,15 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         timelines,
         // A `@color-profile`'s dashed name is global, as in CSS.
         color_profiles: _,
-        // The theme's names are the app's, as roles are.
+        // The theme's names are the app's, as roles are (LLP 1095 D4).
         theme: _,
         design: _,
         package_designs: _,
         library: _,
         library_packages: _,
         fns,
+        // A declared source's name is a source's, which no `use` scopes.
+        sources,
         modules,
         tests,
         properties: _,
@@ -246,6 +291,10 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         for ty in m.answers.iter_mut().chain(&mut m.args) {
             r.ty(ty)?;
         }
+    }
+    for source in sources {
+        r.params(&mut source.params)?;
+        r.ty(&mut source.shape)?;
     }
     for shape in shapes {
         r.scope.rename(Kind::Call, &mut shape.name, shape.span)?;
@@ -289,7 +338,10 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
                 // `pages=source(args)` names a data source, as a resource
                 // does; only its arguments are Contract.
                 match (&*field.name, &mut field.value) {
-                    ("pages", Expr::Call(_, args, _)) => r.exprs(args)?,
+                    ("pages", Expr::Call(source, args, _)) => {
+                        r.source(source);
+                        r.exprs(args)?;
+                    }
                     _ => r.expr(&mut field.value)?,
                 }
             }
@@ -319,6 +371,8 @@ struct Rewriter<'a> {
     /// members, an action's or `fn`'s parameters, `for`, `match`, arrow and
     /// `let` binders. A call of one is the binding's, never a top-level name.
     locals: Vec<String>,
+    /// Counts keep an outer binding visible after an inner binding is removed.
+    bound: HashMap<String, usize>,
     /// For each of `locals`, whether it is an action, prop or inject: the
     /// innermost binding of `t` being one stops `t(…)` being the strings
     /// intrinsic, as the type checker reads it.
@@ -361,7 +415,7 @@ impl Rewriter<'_> {
         // In the order the type checker brings them into scope: props and
         // injects (a members block's are its component's); each state, seen
         // by those after it; the members the component's other files
-        // declare; then the rest.
+        // declare (LLP 1091.002 D5); then the rest.
         let mark = self.locals.len();
         self.bind_callable(members.props.iter().cloned());
         self.bind_callable(props.iter().chain(injects.iter()).map(|p| p.name.clone()));
@@ -386,6 +440,7 @@ impl Rewriter<'_> {
             self.expr(&mut b.expr)?;
         }
         for res in resources {
+            self.source(&res.source);
             self.scope.rename_source(&mut res.source);
             // Over a list, the arguments and the key read the element.
             let inner = match &mut res.each {
@@ -405,6 +460,7 @@ impl Rewriter<'_> {
             }
             self.ty(&mut res.shape)?;
             if let Some(p) = &mut res.placeholder {
+                self.source(&p.source);
                 self.exprs(&mut p.args)?;
             }
         }
@@ -451,7 +507,14 @@ impl Rewriter<'_> {
     }
 
     fn unbind(&mut self, mark: usize) {
-        self.locals.truncate(mark);
+        for name in self.locals.drain(mark..) {
+            if let Some(count) = self.bound.get_mut(&name) {
+                *count -= 1;
+                if *count == 0 {
+                    self.bound.remove(&name);
+                }
+            }
+        }
         self.callable.truncate(mark);
     }
 
@@ -466,6 +529,9 @@ impl Rewriter<'_> {
     fn bind_as(&mut self, names: impl IntoIterator<Item = String>, callable: bool) -> usize {
         let mark = self.locals.len();
         self.locals.extend(names);
+        for name in &self.locals[mark..] {
+            *self.bound.entry(name.clone()).or_default() += 1;
+        }
         self.callable.resize(self.locals.len(), callable);
         if let Some(seen) = self.seen.as_deref_mut() {
             seen.bound.extend(self.locals[mark..].iter().cloned());
@@ -474,7 +540,7 @@ impl Rewriter<'_> {
     }
 
     fn local(&self, name: &str) -> bool {
-        self.locals.iter().any(|l| l == name)
+        self.bound.contains_key(name)
     }
 
     fn params(&mut self, params: &mut [Param]) -> R {
@@ -503,16 +569,16 @@ impl Rewriter<'_> {
                 }
                 _ if self.scope.builtin_types.contains(name.as_str()) || name == "action" => Ok(()),
                 // Nothing of the name here: another file's is refused with the
-                // rest of the file's missing names.
+                // rest of the file's missing names (§21).
                 None => self.scope.rename(Kind::Call, name, *span),
                 // A `fn` of the name here, which is no type: another file's
                 // shape of the name is not reachable past it by a `use`.
                 Some(_) => {
-                    if let Some(file) = self.scope.foreign_shapes.get(name.as_str()) {
+                    if let Some(file) = self.scope.foreign_shape(name) {
                         self.scope.refused.borrow_mut().push(SyntaxError {
                             id: "contract-use-missing",
                             message: format!(
-                                "`{name}` is a shape declared in `{file}`, and this file's `{name}` is a `fn`; rename one, then name the shape in a `use`"
+                                "`{name}` is a shape declared in `{file}`, and this file's `{name}` is a `fn`; rename one, then name the shape in a `use` (LLP 1091 D1)"
                             ),
                             span: *span,
                         });
@@ -525,6 +591,12 @@ impl Rewriter<'_> {
         }
     }
 
+    fn source(&mut self, name: &str) {
+        if let Some(seen) = &mut self.seen {
+            seen.sources.insert(name.to_owned());
+        }
+    }
+
     fn stmts(&mut self, stmts: &mut [Stmt]) -> R {
         let mark = self.locals.len();
         for stmt in stmts {
@@ -534,12 +606,14 @@ impl Rewriter<'_> {
                     self.bind([name.clone()]);
                 }
                 Stmt::Assign { expr, .. } => self.expr(expr)?,
-                // A send that answers nothing is a statement.
+                // A send that answers nothing is a statement (LLP 1133.004 D5).
                 Stmt::Command { name, args, .. } => {
+                    self.source(name);
                     self.scope.rename_source(name);
                     self.exprs(args)?
                 }
                 Stmt::Send { source, args, .. } => {
+                    self.source(source);
                     self.scope.rename_source(source);
                     self.exprs(args)?
                 }
@@ -566,7 +640,7 @@ impl Rewriter<'_> {
                     self.unbind(inner);
                     self.stmts(none)?;
                 }
-                // The parser never makes a call; expansion does,
+                // The parser never makes a call (LLP 1089); expansion does,
                 // after every file is in one scope.
                 Stmt::Call { args, body, .. } => {
                     self.exprs(args)?;
@@ -677,7 +751,7 @@ impl Rewriter<'_> {
         Ok(())
     }
 
-    /// `class=Name` and `class=(c ? A : B)` name styles.
+    /// `class=Name` and `class=(c ? A : B)` name styles (LLP 1017 P6).
     fn class(&mut self, value: &mut Expr) -> R {
         match value {
             Expr::Ident(name, span) => self.scope.rename(Kind::Style, name, *span),
@@ -689,7 +763,7 @@ impl Rewriter<'_> {
         }
     }
 
-    /// The keyframes an `animation` literal names, where it is written.
+    /// The keyframes an `animation` literal names, where it is written (D5).
     /// In a shorthand that is each comma-separated animation's first word
     /// that is not one of CSS's animation keywords or a number, as CSS reads
     /// it; in `animation-name`, each item. A name computed as the app runs is
@@ -726,12 +800,12 @@ impl Rewriter<'_> {
     }
 
     /// Resolve and rename the keyframes names in a literal's text parts,
-    /// read as `motion`'s grammar reads the shorthand (its `Animations::
-    /// grammar`, mirrored here, which `contract` cannot depend on): split at
-    /// top-level commas and spaces, each animation's parts taking, in turn,
-    /// a time, an easing, a count, a direction, a fill mode, a play state,
-    /// and then the name — so a keyword whose slot is full is the name. A
-    /// computed part's role is unknown until it runs; it fills no slot.
+    /// read with `motion`'s own [`Slots`], as its grammar reads the
+    /// shorthand: split at top-level commas and spaces, each animation's
+    /// parts taking, in turn, a time, an easing, a count, a direction, a fill
+    /// mode, a play state, and then the name — so a keyword whose slot is
+    /// full is the name, and a keyword in any case is the keyword. A computed
+    /// part's role is unknown until it runs; it fills no slot.
     fn keyframes_in(&self, parts: &mut [Part<'_>], shorthand: bool, span: Span) -> R {
         const HOLE: char = '\u{1}';
         let combined: String = parts
@@ -756,7 +830,7 @@ impl Rewriter<'_> {
             // when it is the name in every one, left when it is the name in
             // none, and where it is the name in some but not others and also
             // renamed keyframes, no rename is right, so the compile is
-            // refused.
+            // refused (LLP 1091 §20).
             let names: Vec<(usize, &str)> = if shorthand {
                 let roles = literal_roles(&tokens, HOLE);
                 // A computed comma may make more than one animation here, each
@@ -781,7 +855,7 @@ impl Rewriter<'_> {
                             return Err(SyntaxError {
                                 id: "contract-animation-ambiguous",
                                 message: format!(
-                                    "`{t}` beside a computed value is the animation's name or a keyword depending on the value when it runs, and `{t}` here is keyframes another file's `{t}` renamed; quote the name (`'{bare}'`) or name the keyframes otherwise"
+                                    "`{t}` beside a computed value is the animation's name or a keyword depending on the value when it runs, and `{t}` here is keyframes another file's `{t}` renamed; quote the name (`'{bare}'`) or name the keyframes otherwise (LLP 1091 D5)"
                                 ),
                                 span,
                             });
@@ -806,7 +880,8 @@ impl Rewriter<'_> {
                 } else {
                     (token, start)
                 };
-                if name == "none" {
+                // `none` is no name, in any case unquoted (`motion` drops it).
+                if name == "none" || (!quoted && name.eq_ignore_ascii_case("none")) {
                     continue;
                 }
                 if let Some(to) = self.scope.resolve(Kind::Keyframes, name, span)? {
@@ -840,13 +915,13 @@ impl Rewriter<'_> {
         Ok(())
     }
 
-    /// A `-exact-clock(Name)` literal names a timeline where it is written; a
+    /// A `-exact-clock(Name)` literal names a timeline where it is written (D5); a
     /// bare name is the clock pass's.
     fn timeline(&mut self, value: &mut Expr) -> R {
         match value {
             // A bare name is the clock pass's to rewrite; one another file
             // declares and this file neither names nor binds is recorded with
-            // the file's other missing names.
+            // the file's other missing names (§21).
             Expr::Ident(name, span) => {
                 if !self.local(name) && self.scope.get(Kind::Timeline, name).is_none() {
                     self.scope.resolve(Kind::Timeline, name, *span)?;
@@ -901,22 +976,6 @@ impl Rewriter<'_> {
 
     fn expr(&mut self, e: &mut Expr) -> R {
         match e {
-            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {
-                Ok(())
-            }
-            Expr::List(items, _) => self.exprs(items),
-            Expr::Template(parts, _) => {
-                for part in parts {
-                    if let TemplatePart::Expr(e) = part {
-                        self.expr(e)?;
-                    }
-                }
-                Ok(())
-            }
-            Expr::Some(inner, _)
-            | Expr::Member(inner, _, _)
-            | Expr::NamedArg(_, inner, _)
-            | Expr::Unary(_, inner, _) => self.expr(inner),
             Expr::Call(name, args, span) => {
                 if let Some(seen) = self.seen.as_deref_mut() {
                     seen.called.insert(name.clone());
@@ -943,46 +1002,17 @@ impl Rewriter<'_> {
                 }
                 self.exprs(args)
             }
-            Expr::Binary(_, a, b, _) => {
-                self.expr(a)?;
-                self.expr(b)
-            }
-            Expr::Ternary(c, a, b, _) => {
-                self.expr(c)?;
-                self.expr(a)?;
-                self.expr(b)
-            }
-            Expr::Match {
-                subject,
-                var,
-                some,
-                none,
-                ..
-            } => {
-                self.expr(subject)?;
-                let mark = self.bind([var.clone()]);
-                self.expr(some)?;
-                self.unbind(mark);
-                self.expr(none)
-            }
-            Expr::Arrow { params, body, .. } => {
-                let mark = self.bind(params.iter().cloned());
-                self.expr(body)?;
-                self.unbind(mark);
-                Ok(())
-            }
-            Expr::Let {
-                name, value, body, ..
-            } => {
-                self.expr(value)?;
-                let mark = self.bind([name.clone()]);
-                self.expr(body)?;
-                self.unbind(mark);
-                Ok(())
-            }
             Expr::Typed(inner, ty, _) => {
                 self.expr(inner)?;
                 self.ty(ty)
+            }
+            _ => {
+                for (child, binds) in e.scoped_operands_mut() {
+                    let mark = self.bind(binds.iter().map(String::from));
+                    self.expr(child)?;
+                    self.unbind(mark);
+                }
+                Ok(())
             }
         }
     }
@@ -994,98 +1024,7 @@ enum Part<'a> {
     Computed,
 }
 
-/// One animation's slots, filled in the order `motion` fills them.
-#[derive(Default, Clone, PartialEq, Eq, Hash)]
-struct Shorthand {
-    named: bool,
-    times: u32,
-    eased: bool,
-    counted: bool,
-    directed: bool,
-    filled: bool,
-    stated: bool,
-}
-
-impl Shorthand {
-    /// Fill a computed part's slot, as `motion` would fill it with a
-    /// value of that kind; `None` where that value would be refused.
-    fn fill(&mut self, role: Role) -> Option<bool> {
-        let free = |slot: &mut bool| (!std::mem::replace(slot, true)).then_some(false);
-        match role {
-            Role::Time => {
-                self.times = self.times.saturating_add(1);
-                (self.times <= 2).then_some(false)
-            }
-            Role::Easing => free(&mut self.eased),
-            Role::Count => free(&mut self.counted),
-            Role::Direction => free(&mut self.directed),
-            Role::Fill => free(&mut self.filled),
-            Role::Play => free(&mut self.stated),
-            Role::Name => free(&mut self.named).map(|_| true),
-        }
-    }
-
-    /// Fill `part` in as `motion` does: `Some(true)` for the name,
-    /// `Some(false)` for a slot, `None` where `motion` refuses the shorthand
-    /// (a third time, a second name, a word that is nothing).
-    fn take(&mut self, part: &str) -> Option<bool> {
-        // `motion` parses numbers as Rust does: `inf` and `nan` are numbers.
-        let number = |n: &str| n.parse::<f64>().ok();
-        let time = part
-            .strip_suffix("ms")
-            .or_else(|| part.strip_suffix('s'))
-            .and_then(number)
-            .is_some();
-        if time {
-            self.times = self.times.saturating_add(1);
-            return (self.times <= 2).then_some(false);
-        }
-        let easing = matches!(
-            part,
-            "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "step-start" | "step-end"
-        ) || ["cubic-bezier(", "steps(", "linear(", "-exact-spring("]
-            .iter()
-            .any(|f| part.starts_with(f));
-        let free = |slot: &mut bool| !std::mem::replace(slot, true);
-        if easing && free(&mut self.eased) {
-            return Some(false);
-        }
-        if (part == "infinite" || number(part).is_some_and(|n| n >= 0.0)) && free(&mut self.counted)
-        {
-            return Some(false);
-        }
-        if matches!(
-            part,
-            "normal" | "reverse" | "alternate" | "alternate-reverse"
-        ) && free(&mut self.directed)
-        {
-            return Some(false);
-        }
-        if matches!(part, "none" | "forwards" | "backwards" | "both") && free(&mut self.filled) {
-            return Some(false);
-        }
-        if matches!(part, "running" | "paused") && free(&mut self.stated) {
-            return Some(false);
-        }
-        if is_name(part) && free(&mut self.named) {
-            return Some(true);
-        }
-        None
-    }
-}
-
-/// What a computed part of a shorthand may be.
-#[derive(Clone, Copy)]
-enum Role {
-    Time,
-    Easing,
-    Count,
-    Direction,
-    Fill,
-    Play,
-    Name,
-}
-
+/// What a computed part of a shorthand may be: any part.
 const ROLES: [Role; 7] = [
     Role::Time,
     Role::Easing,
@@ -1105,19 +1044,16 @@ const ROLES: [Role; 7] = [
 fn literal_roles(tokens: &[(usize, &str)], hole: char) -> Vec<(bool, bool)> {
     use std::collections::HashSet;
     // What a computed part's own text settles: a quoted one is a name, a
-    // function's (`steps(${n}, …)`) an easing. Any other may be any kind of
-    // value — its literal text says nothing for certain (`${x}ms` may read
-    // `items`) — and one that is the value alone may also be empty.
+    // function's (`steps(${n}, …)`, in any case) an easing. Any other may be
+    // any kind of value — its literal text says nothing for certain (`${x}ms`
+    // may read `items`) — and one that is the value alone may also be empty.
     let known = |t: &str| {
         let quoted = t.len() >= 2
             && ((t.starts_with('"') && t.ends_with('"'))
                 || (t.starts_with('\'') && t.ends_with('\'')));
         if quoted {
             Some(Role::Name)
-        } else if ["cubic-bezier(", "steps(", "linear(", "-exact-spring("]
-            .iter()
-            .any(|f| t.starts_with(f))
-        {
+        } else if t.contains('(') && is_easing(t) {
             Some(Role::Easing)
         } else {
             None
@@ -1125,20 +1061,20 @@ fn literal_roles(tokens: &[(usize, &str)], hole: char) -> Vec<(bool, bool)> {
     };
     // The slots after `token` from `state`, each with whether it was the
     // name: one for a literal, one per kind for an unknown computed part.
-    let step = |state: &Shorthand, token: &str| -> Vec<(Shorthand, bool)> {
+    let step = |state: &Slots, token: &str| -> Vec<(Slots, bool)> {
         let mut out = Vec::new();
         if !token.contains(hole) {
             let mut next = state.clone();
-            if let Some(named) = next.take(token) {
-                out.push((next, named));
+            if let Some(role) = next.take(token) {
+                out.push((next, role == Role::Name));
             }
             return out;
         }
         match known(token) {
             Some(role) => {
                 let mut next = state.clone();
-                if let Some(named) = next.fill(role) {
-                    out.push((next, named));
+                if next.fill(role) {
+                    out.push((next, role == Role::Name));
                 }
             }
             None => {
@@ -1150,19 +1086,19 @@ fn literal_roles(tokens: &[(usize, &str)], hole: char) -> Vec<(bool, bool)> {
                 // next (`spin 1s ${sep} pulse 1s`); what it adds on either
                 // side is read as more of this kind of guess, so here it is
                 // a fresh animation's slots.
-                out.push((Shorthand::default(), false));
+                out.push((Slots::default(), false));
                 // …and what follows the comma in the same value fills the
                 // next animation's slots.
                 for role in ROLES {
-                    let mut next = Shorthand::default();
-                    if let Some(named) = next.fill(role) {
-                        out.push((next, named));
+                    let mut next = Slots::default();
+                    if next.fill(role) {
+                        out.push((next, role == Role::Name));
                     }
                 }
                 for role in ROLES {
                     let mut next = state.clone();
-                    if let Some(named) = next.fill(role) {
-                        out.push((next, named));
+                    if next.fill(role) {
+                        out.push((next, role == Role::Name));
                     }
                 }
             }
@@ -1170,10 +1106,10 @@ fn literal_roles(tokens: &[(usize, &str)], hole: char) -> Vec<(bool, bool)> {
         out
     };
     let n = tokens.len();
-    let mut forward: Vec<HashSet<Shorthand>> = vec![HashSet::new(); n + 1];
-    forward[0].insert(Shorthand::default());
+    let mut forward: Vec<HashSet<Slots>> = vec![HashSet::new(); n + 1];
+    forward[0].insert(Slots::default());
     for i in 0..n {
-        let next: HashSet<Shorthand> = forward[i]
+        let next: HashSet<Slots> = forward[i]
             .iter()
             .flat_map(|s| step(s, tokens[i].1).into_iter().map(|(t, _)| t))
             .collect();
@@ -1181,10 +1117,10 @@ fn literal_roles(tokens: &[(usize, &str)], hole: char) -> Vec<(bool, bool)> {
     }
     // Any slots at the end read: an animation with no name is dropped by
     // `motion`, not refused.
-    let mut alive: Vec<HashSet<Shorthand>> = vec![HashSet::new(); n + 1];
+    let mut alive: Vec<HashSet<Slots>> = vec![HashSet::new(); n + 1];
     alive[n] = forward[n].clone();
     for i in (0..n).rev() {
-        let keep: HashSet<Shorthand> = forward[i]
+        let keep: HashSet<Slots> = forward[i]
             .iter()
             .filter(|s| {
                 step(s, tokens[i].1)
@@ -1212,31 +1148,6 @@ fn literal_roles(tokens: &[(usize, &str)], hole: char) -> Vec<(bool, bool)> {
             roles
         })
         .collect()
-}
-
-/// `motion`'s `is_name`: a CSS custom-ident or a quoted string, not a
-/// CSS-wide keyword.
-fn is_name(part: &str) -> bool {
-    if part.len() >= 2
-        && ((part.starts_with('"') && part.ends_with('"'))
-            || (part.starts_with('\'') && part.ends_with('\'')))
-    {
-        return true;
-    }
-    let Some(first) = part.chars().next() else {
-        return false;
-    };
-    let starts = first.is_ascii_alphabetic()
-        || first == '_'
-        || (first == '-' && part.len() > 1 && !part[1..].starts_with(|c: char| c.is_ascii_digit()));
-    starts
-        && part
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        && !matches!(
-            part,
-            "initial" | "inherit" | "unset" | "revert" | "revert-layer" | "default"
-        )
 }
 
 /// `s` split at `sep` outside parentheses, each piece with its byte offset

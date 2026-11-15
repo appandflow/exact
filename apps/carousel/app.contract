@@ -1,7 +1,7 @@
-// Carousel — a horizontal virtualized list written as
+// Carousel — the LLP 1070 fixture: a horizontal virtualized list written as
 // a web page writes a carousel, a flex row that scrolls on x. 25,000 cards of
 // five widths, estimated at 128, so first measurements replace estimates
-// left of what shows (anchored, so what shows stays put) and an authored `scrollLeft`
+// left of what shows (Q3 (a) anchors them) and an authored `scrollLeft`
 // builds its cards before it moves.
 //
 // "Eager" swaps in the unvirtualized strip of the first 2,000 of the same
@@ -17,7 +17,7 @@ shape Card
   width: number
   color: string
 
-// A feed row: every fifth holds a strip, every seventh an
+// A feed row (LLP 1070 stage 4): every fifth holds a strip, every seventh an
 // inbox, each its own virtualized list inside the feed's row.
 shape Post
   id: string

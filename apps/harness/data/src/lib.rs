@@ -1,4 +1,4 @@
-//! The coding-agent harness's data module: one `session()`
+//! The coding-agent harness's data module (LLP 1101): one `session()`
 //! snapshot the screen draws, the sends that change it, and pure
 //! `animation(...)` frames. Its values are exactly `../shapes.contract`.
 //!
@@ -9,12 +9,17 @@
 //! answer, which bake calls too — only from sends.
 //!
 //! Sources:
-//! - `session(mode)` → `Session` (topic "session"); inline answers a
-//!   prefix until the host prints and retires it, fullscreen answers all.
+//! - `session(mode, update)` → `Session` (topic "session"); inline answers
+//!   a prefix until the host prints and retires it, fullscreen answers all.
+//!   `update` is `exactViewport().update`: under `none` (a run from the
+//!   command line) a tool that needs approval is refused, not awaited.
 //! - `workspace()` → `Workspace` (startup Git metadata, on the host worker)
 //! - `animation(name, tick, cols, rows)` → `Frame`
-//! - `submit(text)`, `approve(id, choice)`, `interrupt()`, `setModel(id)`,
-//!   `setKey(provider, key)`, `retire(id)` → `Ack`
+//! - `submit(text)`, `submitPrompt(text)`, `approve(id, choice)`,
+//!   `interrupt()`, `setModel(id)`, `setKey(provider, key)`, `retire(id)`
+//!   → `Ack`
+//!
+//! @ref LLP 1101 (terminal apps)
 
 #![forbid(unsafe_code)]
 
@@ -241,7 +246,10 @@ impl Harness {
             "session" => {
                 // Before the host publishes its first record, mode is
                 // empty and the Contract view already chooses inline.
-                let state = self.shared.lock();
+                let mut state = self.shared.lock();
+                // A fact about the host the answer only records: whether
+                // anyone can answer an approval (LLP 1101.003 D8).
+                state.unattended = args.get(1).and_then(Value::as_str) == Some("none");
                 let entries = if matches!(args.first().and_then(Value::as_str), Some("" | "inline"))
                 {
                     // Nothing after the unfinished banner can reach scrollback
@@ -267,6 +275,7 @@ impl Harness {
                 return Ok(value::frame(&title, lines));
             }
             "submit" => commands::submit(&self.shared, text(0)?),
+            "submitPrompt" => commands::submit_prompt(&self.shared, text(0)?),
             "approve" => commands::approve(&self.shared, text(0)?, text(1)?),
             "interrupt" => agent::interrupt(&self.shared),
             "retire" => {

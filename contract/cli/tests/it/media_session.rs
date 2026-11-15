@@ -1,7 +1,7 @@
-//! `metadata=MediaMetadata(…)` claims the media session on `audio` and `video`,
-//! the six actions are the element's events with an optional
-//! `MediaSessionActionDetails`, the offsets are checked, and the two test steps
-//! parse and reach the driver.
+//! LLP 1098 §5: `metadata=MediaMetadata(…)` claims the media session on
+//! `audio` and `video`, the six actions are the element's events with an
+//! optional `MediaSessionActionDetails`, the offsets are checked, and the two
+//! test steps parse and reach the driver.
 
 use exact_kernel::{Kernel, PropId, PropValue};
 use exact_plan::EventKind;

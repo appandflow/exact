@@ -1,7 +1,7 @@
 //! Text written straight into a `String`, byte for byte as `{}` writes it,
 //! without `core::fmt`: `fmt::write`, `Formatter::pad` and the integer
 //! printers are then not on the paths that use these, so the first module
-//! of a split page need not carry them (the core diet).
+//! of a split page need not carry them (LLP 1047 §10, the core diet).
 
 use crate::text::ascii;
 use crate::{Shortest, Shortest32};

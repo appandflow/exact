@@ -1,4 +1,4 @@
-// What a held fling reads of its scroller each turn: the
+// @ref LLP 1144 D1 — what a held fling reads of its scroller each turn: the
 // offset UIKit or AppKit committed, and whether a finger or momentum moves it.
 #if canImport(UIKit)
 import UIKit

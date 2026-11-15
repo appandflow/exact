@@ -17,6 +17,7 @@ import { closeFilesystemReader, filesystemLock } from '../scripts/filesystem.mjs
 import { publicFileCards } from '../host/web/serve.mjs';
 import { takeWarmGame } from '../host/web-js/module.mjs';
 import { webInputDigests } from '../scripts/agent-launch.mjs';
+import { webSourceRoots } from '../host/web/build.mjs';
 import { decodePng } from '../scripts/png.mjs';
 
 /** Some runtime-created stacks omit the informative Error message. */
@@ -37,7 +38,7 @@ export function proofFailureRow(session, method, args, clock, error) {
   return {session, method, args, clock, error:error.message, steps:error.steps, ...(context ? {cdp:context} : {})};
 }
 
-// Offline diagnostics over existing state reads.
+// Offline diagnostics over existing state reads (LLP 1012; LLP 1046.001 D2/D5).
 // These are inspection captures, not EXSIM saves or a second simulation codec.
 export async function captureWorld(session, name = 'world') {
   const snapshot = await session.world(name).snapshot({all:true});
@@ -86,7 +87,7 @@ function validateWorldCapture(capture) {
 }
 
 /** Exact JSON-value comparison, with stable entity names and positional array indices. */
-/** The accessible names the platform exposes (`tree --ax`), for
+/** The accessible names the platform exposes (LLP 1080.002 `tree --ax`), for
  * a proof's name checks: `{unavailable: true}` where the host exposes no
  * accessibility tree (Linux), else `name(testId)` (the view's own element first)
  * and `all`, every element's name. A check reads `ax.unavailable || ax.name(id) === X`. */
@@ -617,7 +618,7 @@ export async function paranoidRuns(run, restore = async () => 0, host = 'web') {
   return failed;
 }
 
-// The look oracle's tells (game/render/src/tells.rs), by the
+// The look oracle's tells (LLP 1127.000 D1; game/render/src/tells.rs), by the
 // words of their `look:` lines, and the ones a game's app.json silences.
 export const TELLS = {'near-black':/near black$/, 'near-white':/near white$/, 'clipped':/% of pixels clipped$/,
   'particles-uncovered':/particles live, 0 pixels covered \(.*\)$/, 'no-shadow-casters':/sun shadow maps hold no texel nearer than their clear depth$/};
@@ -653,7 +654,7 @@ export function frameTells(reply) {
   return {frames:frames.map(lines => lines.map(tellOf).filter(Boolean)),
     gaps:[...own?.gaps ?? [], ...reply?.lookGaps ?? [], ...reply?.lookFailed ?? []]};
 }
-// The look result beside the simulation result. `worlds` is
+// The look result beside the simulation result (LLP 1127.000 D5). `worlds` is
 // each world every session showed at its close, with its picture or why it has
 // none; `tells` one entry a judged frame told; `gaps` what a judged frame could
 // not measure. A tell no silence names fails it; it passes only when every
@@ -672,7 +673,7 @@ export function lookResult({worlds, tells, gaps = []}, silence) {
     : `${quiet.length} tells${quiet.length ? ' silenced' : ''}`;
   return {status, detail, loud, quiet, missing};
 }
-// One proof's look accounting: the pictures and judged
+// One proof's look accounting (LLP 1127.000 D5): the pictures and judged
 // frames, every world a session showed (by session and canvas id), and the
 // ones a closing look frame, a judged settle or screenshot, or an explicit
 // look(…) looked at. `idOf(session)` names a session; `out` the artifacts.
@@ -1072,7 +1073,9 @@ async function runProof(meta, script) {
       if (host === 'web' && takeWarmGame(appInfo, dist, {...process.env, EXACT_GAME_PROOF_PROFILE:profile})) {
         const marker = resolve(dist, '.exact-build.json');
         const built = JSON.parse(readFileSync(marker, 'utf8'));
-        built.inputs = webInputDigests(appInfo, false);
+        built.inputsAt = Date.now();
+        built.inputRoots = webSourceRoots(appInfo, false);
+        built.inputs = webInputDigests(appInfo, false, built.inputRoots);
         built.files = await publicFileCards(dist).finally(closeFilesystemReader);
         writeFileSync(marker, JSON.stringify(built) + '\n');
         return;

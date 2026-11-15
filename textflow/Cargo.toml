@@ -1,5 +1,5 @@
 # Shapes, exclusion bands, and a line walker over caller-owned shaping.
-# A leaf below the kernel and hosts.
+# @ref LLP 1043.000 §3 D1, D5, D6 — a leaf below the kernel and hosts.
 # Its one exact2 dependency is the leaf `exact-num`; builds for wasm32-unknown-unknown.
 [package]
 name = "exact-textflow"

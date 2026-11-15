@@ -1,4 +1,4 @@
-//! Through the Hermes executor: ECDSA P-256 with the web's
+//! LLP 1069.005 D1b through the Hermes executor: ECDSA P-256 with the web's
 //! names and errors, checked against `exact_data::crypto` (RustCrypto's
 //! P-256) as the reference, both ways. Signatures are randomized, so a test
 //! verifies them, never compares them. `js/web/tests/it/browser.rs` holds the

@@ -1,27 +1,28 @@
-// @exact/recording on the web: the browser's
+// @exact/recording on the web (LLP 1133.009 D1, D6, §10): the browser's
 // `MediaRecorder` over a track `@exact/media-capture` opened, reached through
 // the session's track table, and a level computed from an `AnalyserNode`.
 //
 // - A recorder is a consumer of its stream's audio track, so it holds the
-//   track's lease while it is not `inactive`; its start is a start, which
+//   track's lease while it is not `inactive`; its start is a start (D6), which
 //   reopens an idle track. A level reader is a consumer too, and never a start.
 // - A recording is a file at the admitted `app:/` path, in the store
 //   `storage.fs` reads (`context.files`): each slice the browser delivers,
 //   asked every second, is appended as it arrives, and at `pagehide` the rest
-//   is asked for ("the web promises less").
-// - A recorder's state is a value, sticky once `inactive`; an
-//   interruption pauses it, and a track that ends stops it.
-// - `audioLevel`: `audioLevel` is the RMS of the last `interval`, linear
+//   is asked for (D6, "the web promises less").
+// - A recorder's state is a value, sticky once `inactive` (D1); an
+//   interruption pauses it (D8), and a track that ends stops it.
+// - `audioLevel` (D1): `audioLevel` is the RMS of the last `interval`, linear
 //   from 0 to 1; `totalAudioEnergy` and `totalSamplesDuration` integrate it;
 //   `levels` holds the last `history` intervals, one entry per interval since
 //   the last answer, however many polls were skipped.
-// - `<audio-waveform>` draws a track's level each animation frame from
-//   a meter of its own, so no level crosses into Contract.
-// - Under the agent no browser API is used: the level is the synthetic
+// - `<audio-waveform>` (D13) draws a track's level each animation frame from
+//   a meter of its own, so no level crosses into Contract. A bar's height is
+//   the level in decibels, as a recorder's meter shows it (`WaveformBars`).
+// - Under the agent (§10) no browser API is used: the level is the synthetic
 //   signal on the session clock, and a stopped recorder's file is WAV, 16-bit
 //   PCM, of a tone that follows the signal, answered as `audio/wav`.
 
-/** The synthetic signal at step `i` (one step a 50 ms of the session clock): the recorder's formula. */
+/** The synthetic signal at step `i` (one step a 50 ms of the session clock): the recorder's formula (§10). */
 export const synthetic = i => Math.min(1, 0.12 + 0.75 * Math.abs(Math.sin(i * 0.37)) * (0.55 + 0.45 * Math.sin(i * 0.05)));
 const STEP = 50;
 // What a read of no handle (`""`) answers: an app reads before it holds one, and a poll does not ask it again.
@@ -77,16 +78,24 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
     if (r.media?.state === 'paused') r.media.resume();
     announce();
   };
-  /** Write what the browser delivers (bytes, or a Blob), in order; the first slice replaces any file there. */
+  /** Write what the browser delivers (bytes, or a Blob), in order; the first slice replaces any file there. The first
+   * failure stops the recorder, and nothing after it is written: the file would have a hole. */
   const write = (r, data) => {
     r.writing = r.writing.then(async () => {
+      if (r.failure) return;
       const bytes = data instanceof ArrayBuffer ? data : await data.arrayBuffer();
       await (r.size ? files.append(r.path, bytes) : files.write(r.path, bytes));
       r.size += bytes.byteLength;
-    }).catch(e => { if (!r.failed) { r.failed = true; say(`${r.path}: not written: ${e.message}`); } });
+    }).catch(e => {
+      if (r.failure) return;
+      const name = typeof e?.name === 'string' && /.Error$/.test(e.name) ? e.name : 'UnknownError';
+      r.failure = { error: name, message: `${r.path} was not written: ${e?.message ?? e}` };
+      say(r.failure.message);
+      finish(r, 'error', r.failure.message);
+    });
     return r.writing;
   };
-  /** Stop `r` for `reason` and finish its file; its result is sticky. */
+  /** Stop `r` for `reason` and finish its file; its result is sticky (D1). */
   function finish(r, reason, error = null) {
     if (r.done) return r.done;
     r.recorded = elapsed(r); r.since = null;
@@ -101,6 +110,13 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
       }
       await r.writing;
       r.unsubscribe?.();
+      // A take whose file was not all written is no result: the stop answers the failure, and the state says it.
+      if (r.failure) {
+        r.reason = 'error'; r.error = r.failure.message;
+        say(`${r.id}: stopped (error), ${r.path} incomplete`);
+        announce();
+        return r.failure;
+      }
       r.result = { path: r.path, mimeType: r.mimeType, duration: r.recorded, size: r.size };
       say(`${r.id}: stopped (${reason}), ${r.path}, ${r.size} bytes`);
       announce();
@@ -122,7 +138,7 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
     r.media.start(1000);
     if (r.state === 'paused') r.media.pause();
   }
-  // The rest of every recording, asked for as the page goes: what the store receives is kept.
+  // The rest of every recording, asked for as the page goes (D6): what the store receives is kept.
   if (!agent && typeof addEventListener === 'function') addEventListener('pagehide', () => { for (const r of recorders.values()) if (r.media?.state === 'recording') r.media.requestData(); });
 
   /** The type to write: the written one if the browser writes it, else MP4, WebM or Ogg, the first it writes. */
@@ -131,7 +147,7 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
     if (typeof MediaRecorder !== 'function') return { error: 'NotSupportedError' };
     if (asked) return MediaRecorder.isTypeSupported(asked) ? { type: asked } : { error: 'NotSupportedError' };
     // MP4 first where the browser writes it: its duration is in the file, where Chrome's WebM has none until played
-    // through. Unwritten, the browser's own order would be WebM or Ogg; a declared deviation.
+    // through. Unwritten, the browser's own order would be WebM or Ogg (D2); a declared deviation.
     for (const t of ['audio/mp4', 'audio/webm', 'audio/ogg']) if (MediaRecorder.isTypeSupported(t)) return { type: t };
     return { error: 'NotSupportedError' };
   }
@@ -188,24 +204,37 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
     meters.set(key, m);
     return m;
   }
-  /** Every interval since the last answer, as levels. */
+  /** Every interval since the last answer, as levels (D1). */
   function read(m) {
+    advance(m);
+    return { audioLevel: m.last, totalAudioEnergy: m.energy, totalSamplesDuration: m.duration, levels: m.levels.slice() };
+  }
+  /** The levels of the intervals since the meter last advanced, kept in its history. */
+  function advance(m) {
     const t = now(), steps = Math.floor((t - m.at) / m.interval);
     let fresh = [];
     if (steps > 0) {
-      if (!m.running || m.muted) fresh = new Array(steps).fill(0);
-      else if (agent) for (let k = 1; k <= steps; k++) fresh.push(synthetic(Math.floor((m.at + k * m.interval) / STEP)));
-      else fresh = m.pending.splice(0).slice(-steps);
+      if (!m.running || m.muted) {
+        // Silence adds no energy: its time is counted, and only the levels the history keeps are made, so a meter
+        // left unread for hours (a hidden tab) answers at once rather than building one entry per interval.
+        m.duration += steps * m.interval / 1000;
+        m.last = 0;
+        fresh = new Array(Math.min(steps, m.history)).fill(0);
+      } else {
+        if (agent) for (let k = 1; k <= steps; k++) fresh.push(synthetic(Math.floor((m.at + k * m.interval) / STEP)));
+        else fresh = m.pending.splice(0).slice(-steps);
+        for (const level of fresh) {
+          m.energy += level * level * m.interval / 1000;
+          m.duration += m.interval / 1000;
+          m.last = level;
+        }
+      }
       m.at += steps * m.interval;
     }
-    for (const level of fresh) {
-      m.energy += level * level * m.interval / 1000;
-      m.duration += m.interval / 1000;
-      m.last = level;
-    }
-    m.levels.push(...fresh);
+    // Appended without a spread, which passes each level as an argument and fails past the engine's limit.
+    m.levels = m.levels.concat(fresh.slice(-m.history));
     if (m.levels.length > m.history) m.levels.splice(0, m.levels.length - m.history);
-    return { audioLevel: m.last, totalAudioEnergy: m.energy, totalSamplesDuration: m.duration, levels: m.levels.slice() };
+    return fresh;
   }
 
   return {
@@ -270,13 +299,14 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
       const m = meter({ track: args.track, interval: args.interval ?? null, history: args.history ?? null });
       return m.error ? m : read(m);
     },
-    /** The waveform view's own meter of `track`: its levels, the last `fit`, at each frame. */
+    /** The waveform view's own meter of `track` (D13): its bars, advanced to the session's time at each frame. */
     waveform(track) {
-      const m = meter({ track, interval: STEP, history: 1000, view: ++views });
-      if (m.error) return { error: m.error, levels: () => [], stop() {} };
-      return { levels: fit => read(m).levels.slice(-fit), stop: () => { m.stop(); meters.delete(m.key); } };
+      const m = meter({ track, interval: STEP, history: HISTORY, view: ++views });
+      if (m.error) return { error: m.error, stop() {} };
+      const bars = new WaveformBars(now());
+      return { bars: () => bars.advance(now(), advance(m)), stop: () => { m.stop(); meters.delete(m.key); } };
     },
-    /** A level's argument group has no reader left: its meter goes. */
+    /** A level's argument group has no reader left: its meter goes (D10 item 12). */
     releaseArgs(name, args) {
       if (name !== 'audioLevel') return;
       const key = JSON.stringify({ track: args.track, interval: args.interval ?? null, history: args.history ?? null });
@@ -288,14 +318,48 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
       // A waveform view's meter is the view's, not a reader's.
       for (const [key, m] of meters) if (!key.includes('"view":')) { m.stop(); meters.delete(key); }
     },
-    /** A recorder whose reply was dropped: stopped, its file finished, never the app's. */
+    /** A recorder whose reply was dropped: stopped, its file finished, never the app's (D6). */
     dispose(ids) {
       for (const id of ids) { const r = recorders.get(id); if (r) finish(r, 'requested'); }
     },
   };
 }
 
-// ---------------------------------------------------------------- the waveform
+// ---------------------------------------------------------------- the waveform (D13)
+/** A bar's height, 0 to 1, for a level (an interval's RMS, 0 to 1): its decibels over the last `FLOOR` dB below full
+ * scale, as a recorder's meter reads (AVAudioRecorder's `averagePower` is in dBFS). Speech at an RMS near 0.03 is
+ * −30 dBFS, two fifths of the height, where the linear level drew it a thirtieth. */
+export const waveformHeight = level => level > 0 ? Math.min(1, Math.max(0, (20 * Math.log10(level) - FLOOR) / -FLOOR)) : 0;
+/** A meter's ballistics: a bar rises to a louder level within the step and falls back over a few, so a syllable's end
+ * tapers rather than flickering. Each the share of the way a step of `STEP` ms goes, from its time constant. */
+const ATTACK = 1 - Math.exp(-STEP / 20), RELEASE = 1 - Math.exp(-STEP / 120);
+/** Levels at most this many steps behind the time are drawn at once rather than kept in step. */
+const LAG = 4;
+
+/** What `<audio-waveform>` draws: one bar a `STEP` of the session's time, newest last, each the height of a level as
+ * the meter's ballistics carry it, and how far the newest bar has moved on from its place (`phase`, 0 to 1), so the
+ * bars scroll with time between steps. Levels that arrive together (a native tap delivers 100 ms of audio at once) are
+ * queued and drawn a step apart; when none has arrived by its step the bars wait at a full step. The same on every
+ * host, so the agent's synthetic signal draws the same bars. */
+export class WaveformBars {
+  constructor(start) { this.at = start; this.bars = []; this.queue = []; this.shown = 0; this.phase = 0; }
+  /** Take `levels`, the meter's since the last frame, and move to `now`. */
+  advance(now, levels) {
+    for (const level of levels) this.queue.push(waveformHeight(level));
+    while (now - this.at >= STEP && this.queue.length) { this.take(); this.at += STEP; }
+    while (this.queue.length > LAG) this.take();
+    if (now - this.at > STEP) this.at = now - STEP;
+    this.phase = Math.min(1, Math.max(0, (now - this.at) / STEP));
+    return this;
+  }
+  take() {
+    const target = this.queue.shift();
+    this.shown += (target - this.shown) * (target > this.shown ? ATTACK : RELEASE);
+    this.bars.push(this.shown);
+    if (this.bars.length > HISTORY) this.bars.splice(0, this.bars.length - HISTORY);
+  }
+}
+
 /** `<audio-waveform track=…>`: the track's levels as bars, newest at the right, drawn each animation frame from a
  * meter of its own below the runner, so no level crosses into Contract. A reader of the track, never a start: an idle
  * track draws silence. Its colour is `tint=`, else the element's `color`. */
@@ -308,7 +372,8 @@ class Waveform {
     this.element = element;
     this.bars = [];
     this.setProps(props);
-    const frame = () => { if (!this.gone) { this.draw(); this.raf = requestAnimationFrame(frame); } };
+    // The next frame is asked for first, so one that throws does not leave the view frozen.
+    const frame = () => { if (!this.gone) { this.raf = requestAnimationFrame(frame); this.draw(); } };
     this.raf = requestAnimationFrame(frame);
   }
   setProps(props) {
@@ -318,23 +383,25 @@ class Waveform {
     this.track = props.track ?? '';
     this.meter = this.track ? this.implementation.waveform(this.track) : null;
     this.bars = [];
+    this.phase = 0;
   }
   draw() {
     const c = this.canvas, scale = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
     if (!w || !h) return;
     if (c.width !== Math.round(w * scale) || c.height !== Math.round(h * scale)) { c.width = Math.round(w * scale); c.height = Math.round(h * scale); }
-    const fit = Math.max(0, Math.floor((w + GAP) / (BAR + GAP)));
-    if (this.meter && !this.meter.error) this.bars = this.meter.levels(fit);
+    // One bar more than fits: the oldest slides out at the left as the bars scroll.
+    const fit = Math.max(0, Math.floor((w + GAP) / (BAR + GAP))) + 1;
+    if (this.meter && !this.meter.error) ({ bars: this.bars, phase: this.phase } = this.meter.bars());
     const g = c.getContext('2d');
     g.setTransform(scale, 0, 0, scale, 0, 0);
     g.clearRect(0, 0, w, h);
     g.fillStyle = this.color || getComputedStyle(this.element).color;
     this.bars.slice(-fit).forEach((level, i, shown) => {
-      const x = w - (shown.length - i) * (BAR + GAP) + GAP, half = Math.max(1, level * (h / 2 - 2));
+      const x = w - (shown.length - i + this.phase) * (BAR + GAP) + GAP, half = Math.max(1, level * (h / 2 - 2));
       g.fillRect(x, h / 2 - half, BAR, half * 2);
     });
   }
   destroy() { this.gone = true; cancelAnimationFrame(this.raf); this.meter?.stop(); this.canvas.remove(); }
 }
-const BAR = 3, GAP = 2;
+const BAR = 3, GAP = 2, FLOOR = -50, HISTORY = 1000;
 export const roster = { 'audio-waveform': { view: Waveform } };

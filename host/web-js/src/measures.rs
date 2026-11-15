@@ -1,4 +1,4 @@
-//! Length and number tokens on the JS
+//! @ref LLP 1121 D3, D7 (stage 6 B) — length and number tokens on the JS
 //! target. A token that varies by an app axis, and in a development build
 //! every one, is a custom property as a colour is (`modes.rs`): its value per
 //! tuple is the CSS the target writes for the literal (a `rem` stays `rem`,
@@ -20,7 +20,7 @@ pub fn kind(row: &exact_plan::ThemeRow) -> Option<Kind> {
 /// literal on a row: a length's text, a text style as its `rem`, the
 /// hairline as the sheet's property; a number's text.
 pub fn css(kind: Kind, value: &str) -> String {
-    // A shadow over base names: each such length its
+    // A shadow over base names (stage 12 B3): each such length its
     // property's, the browser folding it.
     if let Some(css) = crate::base_scale::shadow(kind, value) {
         return css;
@@ -38,12 +38,12 @@ pub fn css(kind: Kind, value: &str) -> String {
         Kind::Length => {}
         _ => return value.trim().to_string(),
     }
-    // An alias to a base name the design leaves unset:
+    // An alias to a base name the design leaves unset (LLP 1121 stage 11 B):
     // the base's property, which the sheet declares (`base_scale`).
     if base(value) {
         return format!("var({})", crate::base_scale::property(value.trim()));
     }
-    // An expression over base names: each its property, the
+    // An expression over base names (stage 12 B2): each its property, the
     // browser's `calc()` folding it.
     if let Some(css) = crate::base_scale::expression(value) {
         return css;
@@ -53,7 +53,9 @@ pub fn css(kind: Kind, value: &str) -> String {
             let medium = relative::MEDIUM;
             format!(
                 "{}rem",
-                exact_web::css::num(n * unit.basis(medium, medium, 1.0) / medium)
+                exact_web::css::num(
+                    n * unit.basis(medium, medium, 1.0, &exact_kernel::Env::default()) / medium
+                )
             )
         }
         Some((unit @ Unit::TextStyleAtMost(_), n)) => unit.capped_css(n),
@@ -138,7 +140,7 @@ pub fn inline_tokens(plan: &Plan) -> Vec<(String, String)> {
             // holds each token of one value it may name as its CSS (an
             // attribute reads no property): a constant, an alias to a base
             // name as its length. Each is written inline too, so an edit of
-            // it builds.
+            // it builds (B2 round 2, Astra 3, widened by the lead).
             let Some(literal) = crate::style::literal(plan, plan.code(b.expr)) else {
                 let id = StyleId::from_bit(u32::from(b.id));
                 if writer.contains("SVG") {
@@ -185,7 +187,7 @@ pub fn refuse_inline(plan: &Plan) -> Result<(), String> {
             .iter()
             .any(|r| plan.str(r.name) == name && r.slices.len > 0);
         if varies {
-            return Err(format!("`{name}` varies by an app axis, and {writer} reads no design property on the JS target: give it one value, or write the row from state"));
+            return Err(format!("`{name}` varies by an app axis, and {writer} reads no design property on the JS target (LLP 1121 D7): give it one value, or write the row from state"));
         }
     }
     Ok(())
@@ -210,7 +212,7 @@ pub fn value_at<'a>(plan: &'a Plan, row: &exact_plan::ThemeRow, tuple: u32) -> &
 }
 
 /// Row `id`'s part of type or family token text `value` as a page's rule
-/// declares it (as properties): what the template writes
+/// declares it (LLP 1121 stage 6 C, as properties): what the template writes
 /// for the literal's part, a size or a line height that is a length as its
 /// CSS (a text style its `rem`), a family its plan stack's.
 pub fn part_css(plan: &Plan, kind: Kind, id: StyleId, value: &str) -> Option<String> {
@@ -223,11 +225,11 @@ pub fn part_css(plan: &Plan, kind: Kind, id: StyleId, value: &str) -> Option<Str
 }
 
 /// Each type or family token the page declares as properties, one a row it
-/// writes: a token that varies by an app
+/// writes (LLP 1121 stage 6 C's follow-up): a token that varies by an app
 /// axis, and in a development build every one; `(name, row, property)`. A
 /// family token's one row is its name's property, `--x-<name>`; a type
 /// token's `--x-<name>-<part>`. Every tuple writes the same rows
-/// (`tamber-type-longhands`), so the default tuple's say which.
+/// (`forma-type-longhands`), so the default tuple's say which.
 pub fn type_properties(plan: &Plan, every: bool) -> Vec<(String, StyleId, String)> {
     let mut out: Vec<(String, StyleId, String)> = Vec::new();
     let taken = crate::modes::properties(plan);
@@ -323,15 +325,15 @@ pub fn sentinel(kind: Kind, k: u32, i: usize) -> Vec<String> {
     }
 }
 
-/// The name of row `id`'s bound map ([`map`]): one per mix of the kinds it
-/// takes, and an attribute row's of its own.
+/// The name of row `id`'s bound map ([`map`]): token kinds, inheritance,
+/// SVG attributes and the type and base-scale rules distinguish its contents.
 pub fn map_name(id: StyleId, attribute: bool, container: bool, bases: bool) -> String {
     use exact_kernel::style::theme::admits;
     format!(
         "$t{}{}{}{}{}{}{}",
         // A keyword row the kernel lets name a length token holds no base
         // names (`base_scale::reads_length`): where the plan declares them
-        // (`bases`) its map is its own, or a length row's
+        // (`bases`) its map is its own (round 2, Astra 1), or a length row's
         // could reuse one without them; else the maps are alike, and named
         // as before.
         match (
@@ -349,13 +351,19 @@ pub fn map_name(id: StyleId, attribute: bool, container: bool, bases: bool) -> S
         } else {
             ""
         },
-        // A type token's part is the row's own.
+        // A type token's part is the row's own (stage 6 C).
         if admits(Kind::Type, id) {
             format!("y{}", id as u16)
         } else {
             String::new()
         },
-        if attribute { "a" } else { "" },
+        if attribute {
+            "a"
+        } else if id.inherited() {
+            "i"
+        } else {
+            ""
+        },
         // A node with children: its varying type tokens stand (`map`).
         if container && admits(Kind::Type, id) {
             "c"
@@ -388,10 +396,10 @@ pub fn map(
             // An SVG attribute reads no property, and no tuple's rule reaches
             // it: a varying token's name stands there (the JS target does not
             // read one computed into an attribute). Nor does an inherited row
-            // read one, as the kernel reads none.
+            // read one, as the kernel reads none (LLP 1121 D7).
             let name = plan.str(r.name);
             // A type or family token's part the page declares: its property
-            // (a text with no element children reads it); on a
+            // (a text with no element children reads it, stage 6 C); on a
             // node with children one that varies is no value, as the runner
             // refuses it: the row is cleared (an undotted family's name
             // would be a font name to the browser).
@@ -411,7 +419,7 @@ pub fn map(
                 return None;
             }
             // A type token's part for this row, a family's stack, as the
-            // template writes the literal's; a part it does not
+            // template writes the literal's (stage 6 C); a part it does not
             // write stands, for the browser to refuse, as the kernel leaves it.
             if matches!(kind, Kind::Type | Kind::Family) {
                 let css = font_part(plan, kind, id, plan.str(r.value))?;
@@ -425,12 +433,13 @@ pub fn map(
                 Some((_, prop)) => serde_json::to_string(&format!("var({prop})")).unwrap(),
                 None if kind == Kind::Number => css(kind, plan.str(r.value)),
                 // An alias to a base name in an SVG attribute, which reads no
-                // property: the base's length in this build's column.
+                // property: the base's length in this build's column (B2
+                // round 1, Astra 1).
                 None if attribute && kind == Kind::Length && base(plan.str(r.value)) => {
                     serde_json::to_string(&crate::base_scale::value(plan.str(r.value).trim()))
                         .unwrap()
                 }
-                // And an expression over base names, folded there.
+                // And an expression over base names, folded there (stage 12 B2).
                 None if attribute && kind == Kind::Length => {
                     match crate::base_scale::folded(plan.str(r.value)) {
                         Some(px) => serde_json::to_string(&px).unwrap(),
@@ -443,7 +452,7 @@ pub fn map(
             Some(format!("{}:{value}", serde_json::to_string(name).unwrap()))
         })
         .collect();
-    // The base scale's names the plan names, in a row
+    // The base scale's names the plan names (LLP 1121 stage 11 B2), in a row
     // that takes a length: their properties (`base_scale`).
     let mut pairs = pairs;
     // (A row whose codec reads no length, a keyword row the kernel's

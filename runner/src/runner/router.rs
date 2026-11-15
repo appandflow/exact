@@ -1,6 +1,6 @@
-//! The plan/value boundary of the router.
+//! @ref LLP 1038 D2–D5, D7, D9 — the plan/value boundary of the router.
 //!
-//! The compiler declares these positional records, in this exact order:
+//! Chunk (c)'s compiler declares these positional records, in this exact order:
 //! Router { tab: string, tabs: Tab[], next: number },
 //! Tab { name: string, stack: Entry[] },
 //! Entry { id: number, name: string, url: string, tab: string, params: Params, fragment: string },
@@ -9,9 +9,9 @@
 //! The compiler checks the route table; its types are checked once at boot.
 //! No host interprets slots.
 
-use super::{Carried, CommitReceipt, DataSource, Runner, RunnerError};
-use exact_kernel::SortedSet;
-use exact_plan::{Plan, SlotsId, Stdlib, TypeKind, TypesId, Value};
+use super::{Carried, CommitReceipt, DataSource, Event, Runner, RunnerError};
+use exact_kernel::{SortedSet, ViewId};
+use exact_plan::{EventKind, Plan, SlotsId, Stdlib, TypeKind, TypesId, Value};
 use exact_route::{Entry, Router, Tab, Table};
 use std::cell::RefCell;
 
@@ -22,7 +22,7 @@ pub struct RouterChange {
     pub top: u64,
     /// Its canonical location.
     pub url: String,
-    /// Its fragment, `""` when it has none.
+    /// Its fragment, `""` when it has none (LLP 1153 D5).
     pub fragment: String,
     /// Whether the host scrolls to that fragment once the route's content
     /// has arrived: the top is a new visit with a fragment, its fragment
@@ -56,10 +56,10 @@ impl RouterChange {
     }
 }
 
-/// The router seam: what the runner and its VM ask of a plan's
+/// The router seam (LLP 1047 D4): what the runner and its VM ask of a plan's
 /// router. [`RouterContext`] is the one implementation, built by
 /// [`routing`]; a host that links no router passes none, and a plan that
-/// declares routes is refused before it boots.
+/// declares routes is refused before it boots (LLP 1047 D6).
 pub trait Routing {
     /// The root slot the router value lives in.
     fn slot(&self) -> SlotsId;
@@ -74,7 +74,10 @@ pub trait Routing {
     fn read(&self, value: &Value) -> Option<Router>;
     /// Return to an earlier visit in the selected stack, only from its current top.
     fn back_to(&self, value: &Value, source: u64, destination: u64) -> Option<Value>;
-    /// What changed since the last commit, for the host.
+    /// `location`'s screen as the only visit ([`exact_route::root`]); `None`
+    /// when no route matches it.
+    fn root(&self, value: &Value, location: &str) -> Option<Value>;
+    /// What changed since the last commit, for the host (LLP 1038 D7).
     fn change(&self, value: &Value) -> Result<Option<RouterChange>, RunnerError>;
     /// Remember `value` as committed, and keep `change` for the host.
     fn commit(&mut self, value: Value, change: Option<RouterChange>);
@@ -83,17 +86,22 @@ pub trait Routing {
     /// The pending change, once.
     fn take_change(&mut self) -> Option<RouterChange>;
     /// The location a native host's Forward goes to, the nearest of the
-    /// visits Back left (`history.rs`).
+    /// visits Back left (`history.rs`; LLP 1115.000 D5.5).
     fn ahead(&self) -> Option<&str>;
-    /// Whether `location` names a declared route pattern.
+    /// Mark the current delivery as native Forward, even if its `go` pops visits.
+    fn set_forward(&mut self, forward: bool);
+    /// Whether `location` names a declared route pattern (LLP 1038 §7).
     fn matches_pattern(&self, location: &str) -> bool;
-    /// Set what `sharedFiles` answers for a share's token;
+    /// Whether the table declares one location: a single route besides
+    /// `notfound`, which is then the root `/` (`Table::check`).
+    fn one_location(&self) -> bool;
+    /// Set what `sharedFiles` answers for a share's token (LLP 1133.024 D3);
     /// false when it already answers that.
     fn share(&self, token: &str, files: Value) -> bool;
-    /// This launch's claims, drawn from `seed` the first time.
+    /// This launch's claims (D3), drawn from `seed` the first time.
     fn claims(&self, seed: f64) -> std::cell::RefMut<'_, crate::share_in::Claims>;
     /// Whether a committed change asked for a scroll to its top's fragment
-    /// that no host has been told to make yet.
+    /// that no host has been told to make yet (LLP 1153 D5).
     fn fragment_due(&self) -> bool;
     /// That visit's id, fragment and activation, once.
     fn take_fragment(&mut self) -> Option<(u64, String, u64)>;
@@ -104,10 +112,23 @@ pub trait Routing {
     fn forget_activation(&self);
 }
 
-/// The plan's router, if it declares one: what a host that
+/// The plan's router, if it declares one (LLP 1038 D2): what a host that
 /// links the router passes as `RunnerLinks.router`.
 pub fn routing(plan: &Plan) -> Result<Option<Box<dyn Routing>>, RunnerError> {
     Ok(RouterContext::from_plan(plan)?.map(|r| Box::new(r) as Box<dyn Routing>))
+}
+
+/// Whether a launch at `location` lands on a route, asked before boot so a
+/// command line refuses a location before anything starts (LLP 1101.003
+/// D3): a declared pattern matches it, or the table declares `notfound`.
+/// A plan with no router has one location, `/`, with any query.
+pub fn launch_matches(plan: &Plan, location: &str) -> Result<bool, RunnerError> {
+    match RouterContext::from_plan(plan)? {
+        Some(router) => {
+            Ok(router.matches_pattern(location) || router.table.routes.iter().any(|r| r.notfound))
+        }
+        None => Ok(exact_route::canonical(location).split(['?', '#']).next() == Some("/")),
+    }
 }
 
 /// The checked table and shape metadata shared by the runner's VM evaluations.
@@ -128,13 +149,14 @@ pub struct RouterContext {
     /// The locations of the visits Back left, the nearest last: where a
     /// native host's Forward goes (`history.rs`).
     ahead: Vec<String>,
+    forward: bool,
     /// What each `open`, `push`, `replace` or `go` to a location with a
     /// fragment returned in the commit being made, with the visit and
     /// fragment it left on top: an explicit navigation, which scrolls even
     /// to a fragment the visit already shows, where a return by `back` or
     /// `select` does not. It counts only when the router is assigned that
     /// very value (`compare::same`), never for a value merely computed
-    /// (the router's verbs stay pure).
+    /// (LLP 1153 D5; LLP 1038's verbs stay pure).
     navigations: RefCell<Vec<(Value, u64, String)>>,
     refusals: RefCell<Vec<String>>,
     /// The last router value a call read, checked and converted once, with
@@ -145,6 +167,9 @@ pub struct RouterContext {
     shared: RefCell<std::collections::BTreeMap<String, Value>>,
     /// The counters this launch's shares draw tokens and names from.
     claims: RefCell<Option<crate::share_in::Claims>>,
+    /// The launch was rooted (LLP 1030.004 D2): a stack may start at a
+    /// screen other than its tab's, and only the tabs selected are retained.
+    rooted: bool,
 }
 
 /// One router value, validated, and what has been read of it.
@@ -238,6 +263,7 @@ impl RouterContext {
             fragment: None,
             activations: 0,
             ahead: Vec::new(),
+            forward: false,
             navigations: RefCell::new(Vec::new()),
             refusals: RefCell::new(Vec::new()),
             reads: RefCell::new(None),
@@ -249,6 +275,7 @@ impl RouterContext {
                     .collect(),
             ),
             claims: RefCell::new(crate::time::launch_claims()),
+            rooted: crate::time::launch_rooted(),
         }))
     }
 
@@ -277,6 +304,8 @@ impl RouterContext {
     }
 
     fn router(&self, value: &Value) -> Option<Router> {
+        #[cfg(test)]
+        tests::DECODES.set(tests::DECODES.get() + 1);
         let v = record(value)?;
         if v.len() != 3 {
             return None;
@@ -309,7 +338,9 @@ impl RouterContext {
         if exact_route::top(&r).is_none()
             || r.tabs.iter().any(|t| {
                 !tabs.insert(&t.name)
-                    || t.stack.first().is_none_or(|e| e.name != t.name)
+                    || t.stack
+                        .first()
+                        .is_none_or(|e| e.name != t.name && !self.rooted)
                     || t.stack.iter().any(|e| {
                         e.tab != t.name
                             || e.id >= r.next
@@ -361,8 +392,20 @@ impl RouterContext {
         ])
     }
 
+    /// Whether a carried router's tabs are the table's: every declared tab
+    /// in order, or, launched rooted, some of them in order.
+    fn carries_tabs(&self, old: &Router) -> bool {
+        let declared = self.table.tab_names();
+        let carried = old.tabs.iter().map(|t| t.name.as_str());
+        if !self.rooted {
+            return carried.eq(declared);
+        }
+        let mut rest = declared.into_iter();
+        !old.tabs.is_empty() && carried.into_iter().all(|name| rest.any(|d| d == name))
+    }
+
     fn refuse_once(&self, intent: &str, message: &str) {
-        // Settlement may retry a read;
+        // @ref LLP 1035.001 D6 / LLP 1038 D4 — settlement may retry a read;
         // each distinct refused intent is journaled once in this commit.
         let line = format!("router {intent} refused: {message}");
         let mut lines = self.refusals.borrow_mut();
@@ -372,12 +415,17 @@ impl RouterContext {
     }
 
     fn launch(&self, location: &str) -> Result<Router, RunnerError> {
-        let (r, refusal) = Router::launch(&self.table, location);
+        let launch = if self.rooted {
+            Router::launch_rooted
+        } else {
+            Router::launch
+        };
+        let (r, refusal) = launch(&self.table, location);
         match refusal {
             None => Ok(r),
             Some(reason) => {
                 self.refuse_once("launch", &reason.message);
-                let (r, refusal) = Router::launch(&self.table, "/");
+                let (r, refusal) = launch(&self.table, "/");
                 if let Some(reason) = refusal {
                     return Err(invalid(reason.message));
                 }
@@ -589,11 +637,7 @@ impl Routing for RouterContext {
         let (r, was_carried) =
             match carried {
                 Some(old)
-                    if old
-                        .tabs
-                        .iter()
-                        .map(|t| t.name.as_str())
-                        .eq(self.table.tab_names())
+                    if self.carries_tabs(old)
                         && old.tabs.iter().flat_map(|t| &t.stack).all(|e| {
                             self.table.matches(&e.url).is_some_and(|m| m.name == e.name)
                         }) =>
@@ -649,6 +693,16 @@ impl Routing for RouterContext {
         Some(self.value(&router))
     }
 
+    fn root(&self, value: &Value, location: &str) -> Option<Value> {
+        match exact_route::root(&self.table, self.router(value)?, location) {
+            (r, None) => Some(self.value(&r)),
+            (_, Some(refusal)) => {
+                self.refuse_once("root", &refusal.message);
+                None
+            }
+        }
+    }
+
     fn change(&self, value: &Value) -> Result<Option<RouterChange>, RunnerError> {
         // A committed value was validated, so it holds no NaN: the same
         // object is an equal one.
@@ -682,7 +736,7 @@ impl Routing for RouterContext {
             .flat_map(|r| r.tabs)
             .flat_map(|t| t.stack)
             .collect();
-        // A new visit with a fragment, a fragment that
+        // @ref LLP 1153 D5 — a new visit with a fragment, a fragment that
         // changed, or a navigation to the top's fragment scrolls; a visit
         // returned to keeps its place.
         let scroll = self.activates(value, top)
@@ -715,6 +769,18 @@ impl Routing for RouterContext {
     }
 
     fn commit(&mut self, value: Value, change: Option<RouterChange>) {
+        // A fresh but equal value can still consume Forward or activate a
+        // fragment. Only the already committed object needs no work.
+        if change.is_none()
+            && self.navigations.borrow().is_empty()
+            && self
+                .committed
+                .as_ref()
+                .is_some_and(|old| crate::compare::same(old, &value))
+        {
+            self.forward = false;
+            return;
+        }
         // A navigation to the fragment the top already shows changes no
         // value, and scrolls again, as a browser's link to it does: it is
         // published as a change of its own, so a host arms it as any other.
@@ -739,7 +805,14 @@ impl Routing for RouterContext {
         self.navigations.borrow_mut().clear();
         if let Some(after) = self.router(&value) {
             let before = self.committed.as_ref().and_then(|v| self.router(v));
-            super::history::step(before.as_ref(), &after, &mut self.ahead);
+            // A successful verb returns a fresh value, even `go` to the
+            // current location. An ignored handler leaves the same object.
+            let forward = std::mem::take(&mut self.forward)
+                && self
+                    .committed
+                    .as_ref()
+                    .is_some_and(|old| !crate::compare::same(old, &value));
+            super::history::step(before.as_ref(), &after, &mut self.ahead, forward);
         }
         self.committed = Some(value);
         if let Some(mut change) = change {
@@ -804,12 +877,20 @@ impl Routing for RouterContext {
         self.ahead.last().map(String::as_str)
     }
 
+    fn set_forward(&mut self, forward: bool) {
+        self.forward = forward;
+    }
+
     fn take_change(&mut self) -> Option<RouterChange> {
         self.pending.take()
     }
 
     fn matches_pattern(&self, location: &str) -> bool {
         self.table.matches_pattern(location).is_some()
+    }
+
+    fn one_location(&self) -> bool {
+        self.table.routes.iter().filter(|r| !r.notfound).count() == 1
     }
 }
 
@@ -830,22 +911,32 @@ impl<D: DataSource> Runner<D> {
                 .map(|(_, old)| old);
             self.slots[slot.0 as usize] = context.initial(old, launch)?;
         }
-        // The locale slot is the last one lowered, and an
+        // @ref LLP 1060 D4 — the locale slot is the last one lowered, and an
         // initializer may call `t`: it is filled first.
+        // The format slot reads it, and is filled next (LLP 1054.000.003 D6).
         let locale = self.plan.locale.map(|s| s.0 as usize);
-        let rest = (0..self.plan.slots.len()).filter(|i| Some(*i) != locale);
-        for i in locale.into_iter().chain(rest) {
+        let format = self.plan.format.map(|s| s.0 as usize);
+        let rest = (0..self.plan.slots.len()).filter(|i| Some(*i) != locale && Some(*i) != format);
+        for i in locale.into_iter().chain(format).chain(rest) {
             let row = &self.plan.slots[i];
             if row.owner.is_some() || row.late || self.plan.router == Some(SlotsId(i as u32)) {
                 continue;
             }
             self.init_slot(i, carried)?;
-            // Where the viewer is, known at launch (`launching_with`): the
-            // locale `set_place` writes, before any initializer calls `t`.
-            if Some(i) == locale && crate::time::launch_place().is_some() {
-                if let Some(resolved) = self.plan.resolve_locale(&self.place.locale) {
-                    self.slots[i] = Value::str(resolved);
+            // The language the app chose (`setLocale`), else where the
+            // viewer is, known at launch (`launching_with`): the locale
+            // `set_place` writes, before any initializer calls `t`.
+            if Some(i) == locale {
+                let chosen = self.chosen_locale();
+                if chosen.is_some() || crate::time::launch_place().is_some() {
+                    let requested = chosen.unwrap_or_else(|| self.place.locale.clone());
+                    if let Some(resolved) = self.plan.resolve_locale(&requested) {
+                        self.slots[i] = Value::str(resolved);
+                    }
                 }
+            }
+            if let (Some(i), Some(locale)) = (format.filter(|f| *f == i), locale) {
+                self.slots[i] = Value::str(&self.format_locale_of(locale));
             }
         }
         Ok(())
@@ -853,7 +944,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The root slots of children used outside every region, initialized
     /// as the root instance first renders: after boot settlement, so an
-    /// initializer may read derives and resources. A carried
+    /// initializer may read derives and resources (LLP 1017 P4c). A carried
     /// value still wins, as for any root slot.
     pub(super) fn init_late_slots(&mut self, carried: Option<&Carried>) -> Result<(), RunnerError> {
         for i in 0..self.plan.slots.len() {
@@ -874,13 +965,15 @@ impl<D: DataSource> Runner<D> {
         let carried = kept.is_some();
         let v = match kept {
             Some(v) => v,
-            None => self.eval(row.init, &[], &[])?,
+            None => self
+                .eval(row.init, &[], &[])
+                .map_err(|e| e.evaluated(|| format!("state {name:?} initializer")))?,
         };
         if !v.conforms(&self.plan, row.ty) {
             return Err(RunnerError::slot_type(&self.plan, &v, row.ty, name));
         }
-        // A persisted slot takes the store's value over its initializer's;
-        // a carried value is this session's and wins.
+        // A persisted slot takes the store's value over its initializer's
+        // (LLP 1116 D5); a carried value is this session's and wins.
         self.slots[i] = if carried {
             v
         } else {
@@ -916,8 +1009,8 @@ impl<D: DataSource> Runner<D> {
     /// The host's scroll to the selected visit's fragment, as the command
     /// `scrollToFragment(visit, fragment, activation)`, once the content it
     /// waits for has arrived: the data source is ready and no request is in
-    /// flight, a mutation's included and a held one not (`has_pending`).
-    /// The host finds the element in that visit's route
+    /// flight, a mutation's included and a held one not (`has_pending`; LLP
+    /// 1153 D5, LLP 1113). The host finds the element in that visit's route
     /// and holds it in place while pictures load. An author's own
     /// `scrollIntoView` before then wins.
     pub(super) fn fragment_command(&mut self) {
@@ -950,7 +1043,7 @@ impl<D: DataSource> Runner<D> {
         });
     }
 
-    /// A refused commit's navigation intent goes with it.
+    /// A refused commit's navigation intent goes with it (LLP 1153 D5).
     pub(super) fn conclude_router(&self, refused: bool) {
         if let Some(router) = self.router.as_deref().filter(|_| refused) {
             router.forget_activation();
@@ -969,7 +1062,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Take the navigation change published by successful commits, including boot.
-    /// Drained beside commands; kernel receipts stay unchanged.
+    /// @ref LLP 1038 D7 — drained beside commands; kernel receipts stay unchanged.
     /// Multiple commits before a take retain the latest top/url and every removed
     /// id in first-removal order. Unchanged or refused commits leave it alone.
     /// Returns `None` after a take until navigation changes again, or without a router.
@@ -978,16 +1071,26 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether `location` names a pattern the plan's route table declares —
-    /// never only its notfound fallback. `false` without a router.
+    /// never only its notfound fallback (LLP 1038 §7). `false` without a router.
     pub fn route_matches(&self, location: &str) -> bool {
         self.router
             .as_ref()
             .is_some_and(|r| r.matches_pattern(location))
     }
 
+    /// Whether the route table declares one location besides `notfound`
+    /// (which the compiler writes for most apps, LLP 1116.009 D2). A push of
+    /// the location on top is no new visit (LLP 1038), so only a push of it
+    /// with another query, or of a location nothing matches, puts a route
+    /// above the root. `false` without a router. The Mac's toolbar shows no
+    /// Back for such an app until one does (LLP 1115.000 D5.1).
+    pub fn route_one_location(&self) -> bool {
+        self.router.as_ref().is_some_and(|r| r.one_location())
+    }
+
     /// The canonical location of a retained visit, or `None` when it is
     /// absent. Without its fragment: a `go` there returns to the visit as it
-    /// was, where a fragment would scroll it again.
+    /// was, where a fragment would scroll it again (LLP 1153 D5).
     pub fn visit_location(&self, id: u64) -> Option<String> {
         let (_, router) = self.carry_router()?;
         router
@@ -1001,7 +1104,8 @@ impl<D: DataSource> Runner<D> {
     /// The location of the visit beneath visit `id` on the stack that holds
     /// it, or `None` (no router, no such visit, or a stack's root). A host's
     /// own Back for a route with no authored Back control delivers it to the
-    /// navigation root's `navigate`, as the web's history Back does.
+    /// navigation root's `navigate`, as the web's history Back does (LLP
+    /// 1115 D5; LLP 1038 D11 as amended 2026-10-03).
     pub fn location_beneath(&self, id: u64) -> Option<String> {
         let (_, router) = self.carry_router()?;
         router.tabs.iter().find_map(|tab| {
@@ -1015,7 +1119,8 @@ impl<D: DataSource> Runner<D> {
     /// beneath the selected stack's top, without its fragment, as
     /// [`Runner::location_beneath`] gives it. A host asks it for a
     /// navigation root with no routes that hears `navigate`, whose Back
-    /// steps the router's visits as a browser steps session history.
+    /// steps the router's visits as a browser steps session history (LLP
+    /// 1115.000 D5.5).
     pub fn location_behind(&self) -> Option<String> {
         let (_, router) = self.carry_router()?;
         let stack = exact_route::stack(&router);
@@ -1028,15 +1133,33 @@ impl<D: DataSource> Runner<D> {
     /// Where the platform's own Forward goes, or `None` (no router, or
     /// nothing ahead): the nearest location Back left on the selected
     /// stack, as a browser's session history keeps it. A native host
-    /// delivers it as the web host delivers a Forward: to the
-    /// navigation root's `navigate`, else by [`Runner::host_go`].
+    /// delivers it with [`Runner::host_forward`] so the commit retains its
+    /// direction even when `go` shortens the stack (LLP 1115.000 D5.5).
     pub fn location_ahead(&self) -> Option<String> {
         self.router.as_deref()?.ahead().map(String::from)
     }
 
+    /// Deliver native Forward to the root's `navigate`, or the runner's
+    /// own `go` when it has no handler. The direction belongs to this
+    /// delivery alone, including when the handler refuses the commit.
+    pub fn host_forward(&mut self, root: ViewId) -> Result<Option<CommitReceipt>, RunnerError> {
+        let Some(location) = self.location_ahead() else {
+            return Ok(None);
+        };
+        self.find(root).ok_or(RunnerError::UnknownView(root))?;
+        self.router.as_mut().unwrap().set_forward(true);
+        let result = if self.handlers_of(root).contains(&EventKind::Navigate) {
+            self.dispatch(root, Event::Navigate(location)).map(Some)
+        } else {
+            self.host_navigate(&location, true)
+        };
+        self.router.as_mut().unwrap().set_forward(false);
+        result
+    }
+
     /// The platform's own Back from the selected visit `id`, for a route
     /// with no authored Back control under a navigation root with no
-    /// `navigate` handler: the router's `back`, written by the
+    /// `navigate` handler (LLP 1115 D5): the router's `back`, written by the
     /// runner as one commit of its own, as the app's `nav = back(nav)`
     /// would be — journaled as `host back`, refused like any commit. `None`
     /// (nothing done) without a router, or when `id` is not the selected
@@ -1078,15 +1201,42 @@ impl<D: DataSource> Runner<D> {
         self.host_commit(slot, next, "host back to")
     }
 
+    /// A link that targets this window from elsewhere at another location
+    /// (LLP 1030.004 D2): the location's screen becomes the window's only
+    /// visit, as a navigation of the whole document replaces it on the web,
+    /// in one commit journaled as `host root`. The host has asked the page's
+    /// `beforeunload` first. `None` (nothing done) without a router, or
+    /// when no route matches `location`.
+    pub fn host_root(&mut self, location: &str) -> Result<Option<CommitReceipt>, RunnerError> {
+        let Some(context) = self.router.as_deref() else {
+            return Ok(None);
+        };
+        let slot = context.slot().0 as usize;
+        let next = context.root(&self.slots[slot], location);
+        self.log_router_refusals();
+        match next {
+            Some(next) => self.host_commit(slot, next, "host root"),
+            None => Ok(None),
+        }
+    }
+
     /// The platform's own navigation to `location` under a navigation root
-    /// with no `navigate` handler: the browser's Forward, or a same-origin
-    /// link to a declared route. It is the router's
-    /// `go`, written by the runner as one commit of its own, as the app's
+    /// with no `navigate` handler, such as a same-origin link to a declared
+    /// route (LLP 1115.000 D4.3). Native Forward uses [`Runner::host_forward`].
+    /// It is the router's `go`, written as one commit, as the app's
     /// `nav = go(nav, location)` would be — journaled as `host go`, refused
     /// like any commit. `None` (nothing done) without a router, or when
     /// `go` leaves the router as it is: no route matches `location`, or it
     /// is already the selected top.
     pub fn host_go(&mut self, location: &str) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.host_navigate(location, false)
+    }
+
+    fn host_navigate(
+        &mut self,
+        location: &str,
+        forward: bool,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         let Some(context) = self.router.as_deref() else {
             return Ok(None);
         };
@@ -1096,8 +1246,17 @@ impl<D: DataSource> Runner<D> {
             return Ok(None);
         };
         let next = context
-            .call(&self.plan, Stdlib::Go, &[current, Value::str(location)])
-            .filter(|next| context.read(next).is_some_and(|r| r != router) || context.activated());
+            .call(
+                &self.plan,
+                Stdlib::Go,
+                &[current.clone(), Value::str(location)],
+            )
+            .filter(|next| {
+                context.read(next).is_some_and(|r| r != router)
+                    || context.activated()
+                    // Forward must commit even when only its history changes.
+                    || (forward && !crate::compare::same(&current, next))
+            });
         self.log_router_refusals();
         match next {
             Some(next) => self.host_commit(slot, next, "host go"),
@@ -1113,7 +1272,7 @@ impl<D: DataSource> Runner<D> {
         what: &str,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         let was_poisoned = self.poisoned;
-        let checkpoint = self.checkpoint(false);
+        let checkpoint = self.checkpoint();
         let result = if self.poisoned {
             Err(RunnerError::Poisoned)
         } else {
@@ -1131,24 +1290,95 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The evaluated arguments of a settled resource (the bake's cache key).
-    /// Written beside `resources.initial`.
+    /// @ref LLP 1038 D5 — written beside `resources.initial`.
     pub fn resource_args(&self, name: &str) -> Option<&[Value]> {
         let i = self
-            .plan
-            .resources
-            .iter()
+            .resource_rows()
             .position(|r| self.plan.str(r.name) == name)?;
-        self.resources[i].as_ref().map(|r| r.args.as_slice())
+        self.resources[i].state.as_ref().map(|r| r.args.as_slice())
     }
 
-    /// Whether resource `name` shows a placeholder, not an answer:
-    /// the bake compiles no value for it.
+    /// Whether resource `name` shows a placeholder, not an answer (LLP
+    /// 1054.000.002 D4): the bake compiles no value for it.
     pub fn resource_is_placeholder(&self, name: &str) -> bool {
-        self.plan
-            .resources
-            .iter()
+        self.resource_rows()
             .position(|r| self.plan.str(r.name) == name)
-            .and_then(|i| self.resources[i].as_ref())
+            .and_then(|i| self.resources[i].state.as_ref())
             .is_some_and(|r| r.placeholder)
+    }
+}
+
+#[cfg(test)]
+#[path = "../../tests/it/support/router.rs"]
+mod test_fixture;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    thread_local! {
+        pub(super) static DECODES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    #[test]
+    fn unrelated_commits_do_not_decode_the_router_at_any_stack_depth() {
+        let table = Table {
+            routes: [
+                ("home", "/", None, true),
+                ("thread", "/t/:thread", Some(0), false),
+            ]
+            .into_iter()
+            .map(|(name, pattern, parent, tab)| exact_route::Route {
+                name: name.into(),
+                pattern: pattern.into(),
+                parent,
+                tab,
+                notfound: false,
+            })
+            .collect(),
+        };
+        let mut decodes = Vec::new();
+        for depth in [1, 4, 16] {
+            let mut runner = Runner::boot(
+                test_fixture::plan(&table),
+                (),
+                exact_kernel::Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+            .unwrap();
+            for visit in 1..=depth {
+                runner
+                    .act("push", vec![Value::str(&format!("/t/{visit}"))])
+                    .unwrap();
+            }
+            runner.take_router_change();
+            runner.act("back", vec![]).unwrap();
+            let value = runner.slot("nav").unwrap().clone();
+            assert_eq!(runner.derive("depth"), Some(&Value::Number(depth as f64)));
+            let before = DECODES.get();
+            for edit in 0..100 {
+                runner
+                    .act("encode", vec![Value::str(&format!("edit {edit}"))])
+                    .unwrap();
+            }
+            decodes.push(DECODES.get() - before);
+            assert_eq!(runner.slot("encoded"), Some(&Value::str("edit%2099")));
+            assert!(crate::compare::same(runner.slot("nav").unwrap(), &value));
+            assert_eq!(runner.location_ahead(), Some(format!("/t/{depth}")));
+            let pending = runner.take_router_change().unwrap();
+            assert_eq!(pending.visits.len(), depth);
+            assert_eq!(pending.removed.len(), 1);
+            runner
+                .act("encode", vec![Value::str("after drain")])
+                .unwrap();
+            assert!(runner.take_router_change().is_none());
+        }
+        assert_eq!(
+            decodes,
+            [0, 0, 0],
+            "100 unrelated commits at depths 1, 4 and 16"
+        );
     }
 }

@@ -1,4 +1,4 @@
-// The roles the app's theme replaces, for the surfaces
+// @ref LLP 1095 D4 — the roles the app's theme replaces, for the surfaces
 // the platform draws itself: a grouped list's ground, a bar's title, a
 // sheet, a field. A row naming a role already crosses as what replaces it;
 // these surfaces read no row, so they ask here, and keep the platform's
@@ -11,7 +11,7 @@ import UIKit
 #endif
 
 package enum ThemeRoles {
-    /// A presenter's table (a session's own, not the
+    /// A presenter's table (LLP 1121 stage 5: a session's own, not the
     /// process's), shared by the views it hangs off.
     private final class Table { var style: NodeStyle = [:] }
     private struct Owner { weak var view: PlatformView?; let table: Table }
@@ -114,13 +114,13 @@ package enum ThemeRoles {
 
 extension Presenter {
     /// The theme's `AccentColor` as the app's tint here, as a hand-built app
-    /// sets its root's: rows that name the tint resolve by it,
+    /// sets its root's (LLP 1095 D4): rows that name the tint resolve by it,
     /// and an authored `accent-color` below still sets its subtree's.
     func applyThemeTint() {
         #if os(iOS) || os(tvOS)
         root.tintColor = ThemeRoles.color("AccentColor", in: root)
         // Its sheets sit outside the root, and its bars' titles were set
-        // once: a live edit sets them again.
+        // once: a live edit sets them again (LLP 1121 stage 5).
         for sheet in ThemeRoles.adopted(by: root) {
             sheet.tintColor = root.tintColor
             #if os(iOS)
@@ -132,11 +132,11 @@ extension Presenter {
         }
         navigation.retheme()
         #else
-        // The page's ground where the app sets none.
-        viewport.backgroundColor = ThemeRoles.color("background", in: root) ?? ThemeRoles.color("Canvas", in: root, or: .windowBackgroundColor)
+        // The page's ground where the app sets none (LLP 1115 D2).
+        paintCanvas(canvasColor())
         // AppKit has no tint: what names it, here and in what the presenter
         // shows outside its root, resolves the theme's `AccentColor` again
-        // (a live edit).
+        // (a live edit, LLP 1121 stage 5).
         for view in [root] + ThemeRoles.adopted(by: root) {
             for case let node as NodeView in view.subviews {
                 node.retint(changed: true)
@@ -146,7 +146,7 @@ extension Presenter {
         #endif
         // What resolved a role into a surface it keeps (a field's placeholder
         // or ground) sets it again: no style op says so, as the rows did not
-        // change (a live edit).
+        // change (a live edit, LLP 1121 stage 5).
         func retheme(_ view: PlatformView) {
             (view as? NodeView)?.rethemeSurfaces()
             view.subviews.forEach(retheme)

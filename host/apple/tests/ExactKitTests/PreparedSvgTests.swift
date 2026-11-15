@@ -1,9 +1,9 @@
 import XCTest
 @testable import ExactKit
 
-/// A batch's SVG scene, prepared on the owner, draws as
+/// A batch's SVG scene, prepared on the owner (LLP 1072 stage 4), draws as
 /// the raw one does: a shape whose path changes is redrawn, and one that
-/// did not change is left alone.
+/// did not change is left alone (LLP 1055.000 D14).
 class PreparedSvgTests: XCTestCase {
     private func scene(_ path: [Double], prepared: Bool) -> [String: Any] {
         let shape: [String: Any] = ["id": 1, "n": 7, "o": 1, "p": path.map { NSNumber(value: $0) }, "f": [255, 0, 0, 255].map { NSNumber(value: $0) }]

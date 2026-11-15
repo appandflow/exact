@@ -1,4 +1,4 @@
-// One Codable contract for every app and state shape.
+// @ref LLP 1126.001 WP8 — one Codable contract for every app and state shape.
 import Foundation
 #if os(iOS)
 import ActivityKit

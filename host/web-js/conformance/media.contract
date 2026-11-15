@@ -1,11 +1,11 @@
 // data: video-player
-// Synthetic conformance plan: a `video` with every media property bound
-// and every media event heard. The counts are what an
+// Synthetic conformance plan: a `video` with every LLP 1042 property bound
+// and every media event heard (jukebox F1, F5, F6). The counts are what an
 // engine reports the same way each run; the time is the one a seek
 // reports, not where playing reached. A missing source's `error` is a code,
 // never the engine's text. (No slot shares a name with Video Player's: the
 // wasm page carries its first world into this plan by slot name.) An
-// `audio` beside it is hidden and plays from the play press.
+// `audio` beside it (LLP 1042 §8) is hidden and plays from the play press.
 component Media
   state held = true
   state muted = false
@@ -40,7 +40,7 @@ component Media
     seek = 1.5
   action back
     seek = 0.5
-  // The commands by HTML's method names: a seek to the
+  // The commands by HTML's method names (podcast F8, F18): a seek to the
   // time `back` holds seeks again; a load starts the source over.
   action again
     fastSeek("video", 0.5)

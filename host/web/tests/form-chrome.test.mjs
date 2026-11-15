@@ -1,4 +1,5 @@
-// In a real browser, the form chrome a well-made web form has, as a default build's stylesheet
+import { hostFixtureFile as readFileSync } from './glue-fixture.mjs';
+// LLP 1116.005 D8 in a real browser: the form chrome a well-made web form has, as a default build's stylesheet
 // (index.html and the neutral look's sheet after it, look.mjs; both web targets) and the JS target's runtime
 // (rt.js) draw it. focus-timer lost partly on its
 // form: a disabled Save that still drew the accent's fill under grey ink, no outline on the invalid field,
@@ -7,7 +8,6 @@
 // outlined in the system red, its focus ring red, unless its border is authored. Enter in a single-line
 // field with a `submit` submits once. The nodes are as the hosts write them.
 import { test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
@@ -15,8 +15,9 @@ import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
 import { standIns } from './stand-ins.mjs';
+import { fileURLToPath } from 'node:url';
 
-const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const WEB_JS = resolve(WEB, '../web-js');
 const { unavailable } = chromium();
 const check = need('chrome', unavailable);
@@ -60,7 +61,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
 </script>`;
 
 // rt.js beside the modules it imports: the real ones it binds with, stand-ins for the rest (as js-link-press.test.mjs).
-const REAL = ['rt.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js'];
+const REAL = ['rt.js', 'clock.js', 'resources.js', 'tree.js', 'events.js', 'pieces.js', 'mount.js', 'strings.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js'];
 const STUBS = standIns(REAL);
 const module = name => ['navigation.js', 'input-glue.js', 'prompt-glue.js', 'alert-message.js'].includes(name) ? readFileSync(resolve(WEB, name))
   : REAL.includes(name) ? readFileSync(resolve(WEB_JS, name))
@@ -107,7 +108,7 @@ check('a disabled button looks disabled in every style and scheme, whatever its 
       const [on, off] = [await look(evaluate, `${s}-${style}-on`), await look(evaluate, `${s}-${style}-off`)];
       expect([s, style, off.color]).toEqual([s, style, gray]); // the look's disabled ink, never the accent's
       expect(off.color).not.toBe(on.color);
-      // The unsaid button's ink is the label's (`ButtonText`, as iOS 27 draws `.gray()` and
+      // LLP 1116.007 D3.10: the unsaid button's ink is the label's (`ButtonText`, as iOS 27 draws `.gray()` and
       // `.bordered()`), never the accent's: a light system accent was 1.3:1 to 2.5:1 on its grey fill.
       if (style === 'gray' || style === 'bordered') expect([s, style, on.color]).toEqual([s, style, s === 'light' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)']);
       // Where the style fills with the accent, the neutral fill instead; a neutral or glass style keeps its own.
@@ -140,7 +141,7 @@ check('a disabled button looks disabled in every style and scheme, whatever its 
   await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
 }), 60000);
 
-// A destructive button passes `check` as the platform draws it (a control's label at 3:1 on its
+// LLP 1116.008 D7: a destructive button passes `check` as the platform draws it (a control's label at 3:1 on its
 // own fill, over the card a row of buttons sits on), in every style and both schemes: team-kanban's Delete was
 // #ff383c at 2.7:1 on the grey fill over -exact-secondary-background, so its builder removed `destructive=true`.
 // The card is the look's own -exact-secondary-background.

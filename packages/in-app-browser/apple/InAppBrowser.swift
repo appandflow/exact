@@ -1,8 +1,8 @@
-// @exact/in-app-browser on iOS and macOS: Safari's
+// @exact/in-app-browser on iOS and macOS (LLP 1133.024 D11–D13): Safari's
 // view over the app on iOS, the default browser on the Mac, where AppKit has
 // no in-app browser and a sheet with a web view would be the tell.
 //
-// - The embedder decides first (`context.leave`): a refusal
+// - The embedder decides first (`context.leave`, D22 item 7): a refusal
 //   answers `NotAllowedError`, and nothing opens.
 // - iOS: one `SFSafariViewController` at a time, presented from the session's
 //   window; its delegate's `safariViewControllerDidFinish` answers
@@ -26,7 +26,7 @@ import AppKit
 
 public final class InAppBrowserModule: NSObject, ExactPackage {
     #if os(iOS)
-    /// The app's hatch: each view, configured, before it is presented.
+    /// The app's hatch (D13): each view, configured, before it is presented.
     public static var safariViewController: ((SFSafariViewController) -> Void)?
     private var shown: (view: SFSafariViewController, request: Int?, reply: ([String: Any]) -> Void)?
     #endif
@@ -58,7 +58,7 @@ public final class InAppBrowserModule: NSObject, ExactPackage {
 
     static let status: [String: Any] = ["available": true, "overApp": overApp]
 
-    /// An absolute http or https URL, or nil (anything else is the app's `openURL`).
+    /// An absolute http or https URL, or nil (D11: anything else is the app's `openURL`).
     static func web(_ text: String?) -> URL? {
         guard let text, let url = URL(string: text), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme), url.host != nil else { return nil }
         return url

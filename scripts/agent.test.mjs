@@ -2,15 +2,245 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { open, jsonLines, MalformedOperation, main, webFrame } from './agent.mjs';
-import { chromium, launchFacts, noteDefaultStore } from './agent-launch.mjs';
-import { need } from './coverage.mjs';
+import { chromium, launchFacts, noteDefaultStore, suiteBrowser, withEpoch } from './agent-launch.mjs';
+import { browserMissing, reloadPlaywrightPage } from './agent-playwright.mjs';
+import { need, notApplicable } from './coverage.mjs';
 import { typeCommand } from './agent-keys.mjs';
 import { render, stateOp } from './agent-inspect.mjs';
+import { parseStep } from '../host/web-js/conform-steps.mjs';
+
+test('an iOS AX drive requests its accessibility runtime before opening the carrier', async () => {
+  const say = console.log;
+  console.log = () => {};
+  try {
+    for (const op of ['tree --ax', 'tree']) {
+      let launched;
+      await main(['ios', '--json', '--storage', 'ax-test', op], {
+        open: async options => { launched = options; return { tree: async () => ({}), close() {} }; },
+        driveServer: async () => null,
+        resolveDevice: () => 'our simulator', exclusiveNativeStore: async (_, launch) => launch(),
+      });
+      assert.equal(launched.ax, op === 'tree --ax');
+    }
+  } finally { console.log = say; }
+});
+
+for (const engine of ['chromium', 'firefox', 'webkit']) {
+  need(engine, await browserMissing(engine))(`a Playwright reload keeps the current entry and its Back and Forward entries (${engine})`, async () => {
+    let loads = 0;
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(
+      `<!doctype html><body data-load="${++loads}">History</body>`,
+      { headers: { 'content-type': 'text/html' } },
+    ) });
+    const browser = await suiteBrowser(engine), page = await browser.newPage();
+    const historySnapshot = () => page.evaluate(() => ({ length: history.length,
+      ...(globalThis.navigation ? { keys: navigation.entries().map(e => e.key) } : {}),
+    }));
+    try {
+      await page.goto(server.url.href);
+      await page.evaluate(() => {
+        history.replaceState({ id: 'home' }, '', '/');
+        history.pushState({ id: 'one' }, '', '/item/one#moves');
+        history.pushState({ id: 'two' }, '', '/item/two');
+      });
+      const entries = await historySnapshot();
+      await page.goBack();
+      const load = await page.locator('body').getAttribute('data-load');
+      await reloadPlaywrightPage(page, withEpoch(page.url(), 60000));
+      assert.notEqual(await page.locator('body').getAttribute('data-load'), load);
+      assert.equal(new URL(page.url()).searchParams.get('epoch'), '60000');
+      assert.equal(new URL(page.url()).hash, '#moves');
+      assert.deepEqual(await historySnapshot(), entries);
+      assert.deepEqual(await page.evaluate(() => history.state), { id: 'one' });
+      await page.goForward();
+      assert.equal(new URL(page.url()).pathname, '/item/two');
+      await page.goBack();
+      await page.goBack();
+      assert.equal(new URL(page.url()).pathname, '/');
+    } finally { await browser.close(); await server.stop(true); }
+  }, 30000);
+
+  need(engine, await browserMissing(engine))(`keys keep browser ownership and ordinary focus delivery (${engine})`, async () => {
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(`<!doctype html>
+      <div id="exact-root" data-boot-ms="1">
+        <button id="button">Press</button><input id="field" value="abc">
+        <iframe id="guest" srcdoc="<input id='inside'>"></iframe>
+        <canvas id="world" tabindex="0" width="10" height="10"></canvas>
+      </div><script>
+        const elements = ['button', 'field', 'guest', 'world'].map(id => document.getElementById(id));
+        globalThis.requests = []; globalThis.presses = []; globalThis.keys = [];
+        elements[0].onclick = e => presses.push(e.isTrusted);
+        elements[1].onkeydown = e => keys.push([e.key, e.isTrusted]);
+        globalThis.exact = { ready: Promise.resolve(), views: new Map(elements.map((el, i) => [i + 1, el])),
+          gpu: { wantsInput: id => id === 4 },
+          async agentSettled(req) {
+            requests.push(req);
+            if (req.op === 'layout') return { nodes: elements.map((el, i) => {
+              const b = el.getBoundingClientRect(); return { id: i + 1, x: b.x, y: b.y, w: i === 3 ? 0 : b.width, h: i === 3 ? 0 : b.height };
+            }) };
+            if (req.op === 'type') return req.id === 2 ? {} : { guest: true };
+            if (req.op === 'focus') { const el = this.views.get(req.id); el.focus(); return { ok: document.activeElement === el }; }
+            return {};
+          }
+        };
+      </script>`, { headers: { 'content-type': 'text/html' } }) });
+    let s;
+    try {
+      s = await open({ host: 'web', browser: engine === 'chromium' ? 'chrome' : engine, url: server.url.href });
+      const c = s.carrier;
+      await c.input(1, 'key', { key: 'Enter' });
+      await c.input(2, 'key', { key: 'ArrowRight' });
+      let world;
+      try { world = (await c.input(4, 'key', { key: 'ArrowLeft' })).delivery; }
+      catch (e) { world = e.message; }
+      const held = await c.input(3, 'key', { key: 'Shift', phase: 'down' });
+      await held.release?.();
+      // An ordinary iframe key still belongs to its guest bridge.
+      const guest = await c.input(3, 'key', { key: 'Enter' });
+      const observed = await c.evaluate(`JSON.parse(JSON.stringify({ presses, keys, requests: requests.filter(r => ['type', 'focus'].includes(r.op)) }))`);
+      assert.deepEqual({ ...observed, world, guest: guest.guest }, {
+        presses: [true], keys: [['ArrowRight', true]], world: 'platform', guest: true,
+        requests: [{ op: 'type', id: 2, key: 'ArrowRight' }, { op: 'focus', id: 2, select: false },
+          { op: 'focus', id: 4, world: true }, { op: 'type', id: 3, key: 'Enter' }],
+      });
+    } finally { await s?.close(); await server.stop(true); }
+  }, 30000);
+
+  need(engine, await browserMissing(engine))(`a wheel reports its pointer move and honours its point (${engine})`, async () => {
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(`<!doctype html>
+      <div id="exact-root" data-boot-ms="1"><div id="port" style="position:fixed;left:20px;top:200px;width:220px;height:160px;overflow:auto"><div style="height:1000px">Scroll</div></div></div>
+      <script>
+        const port = document.getElementById('port'); globalThis.wheels = []; globalThis.enters = 0; globalThis.moves = 0; globalThis.reveals = 0;
+        port.onpointerenter = () => enters++;
+        port.onpointermove = () => moves++;
+        port.addEventListener('wheel', e => { wheels.push([e.clientX, e.clientY, e.deltaX, e.deltaY, e.isTrusted]); e.preventDefault(); }, { passive: false });
+        globalThis.exact = { ready: Promise.resolve(), views: new Map([[1, port]]), async agentSettled(req) {
+          if (req.op === 'tree') return { nodes: [{ id: 1, type: 'View', depth: 0, props: { testId: 'port' }, children: [] }] };
+          if (req.op === 'reveal') { reveals++; return { scrolled: false }; }
+          const b = port.getBoundingClientRect(); return req.op === 'layout' ? { nodes: [{ id: 1, x: b.x, y: b.y, w: b.width, h: b.height }] } : {};
+        } };
+      </script>`, { headers: { 'content-type': 'text/html' } }) });
+    let s;
+    try {
+      s = await open({ host: 'web', browser: engine === 'chromium' ? 'chrome' : engine, url: server.url.href });
+      const reply = await s.tap('port', { wheel: [3, 12], at: [30, 40] });
+      assert.deepEqual(await s.carrier.evaluate('wheels'), [[50, 240, 3, 12, true]]);
+      assert.deepEqual(reply.at, [50, 240]);
+      assert.deepEqual(reply.hovered, engine === 'chromium' ? undefined : [50, 240]);
+      assert.equal(await s.carrier.evaluate('enters'), engine === 'chromium' ? 0 : 1);
+      await s.carrier.evaluate('wheels.length = 0; moves = 0');
+      await parseStep('wheel port 12 3', { hoverWheel: true }).run(s);
+      assert.deepEqual(await s.carrier.evaluate('({ moves, wheels })'), { moves: 1, wheels: [[130, 280, 3, 12, true]] });
+      await s.carrier.evaluate(`
+        wheels.length = 0; moves = 0;
+        port.style.width = '100px';
+        port.onpointermove = () => { moves++; port.style.width = '120px'; };
+      `);
+      await parseStep('wheel port 12 3', { hoverWheel: true }).run(s);
+      assert.deepEqual(await s.carrier.evaluate('({ moves, wheels })'), { moves: 1, wheels: [[70, 280, 3, 12, true]] });
+      assert.equal(await s.carrier.evaluate('port.getBoundingClientRect().width'), 120);
+      assert.equal(await s.carrier.evaluate('reveals'), 2);
+      await s.carrier.evaluate(`wheels.length = 0; port.onwheel = e => { globalThis.controlWheel = e.ctrlKey; };`);
+      await s.tap('port', { hover: true, wheel: [0, -20], at: [30, 40], modifiers: 'Control' });
+      assert.deepEqual(await s.carrier.evaluate('wheels'), [[50, 240, 0, -20, true]]);
+      assert.equal(await s.carrier.evaluate('controlWheel'), true);
+    } finally { await s?.close(); await server.stop(true); }
+  }, 30000);
+
+  need(engine, await browserMissing(engine))(`a hover wheel outside the viewport moves the pointer off a hovered control (${engine})`, async () => {
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(`<!doctype html>
+      <style>body { margin: 0; height: 3000px; }</style>
+      <div id="exact-root" data-boot-ms="1"><button id="control" style="position:fixed;left:20px;top:20px;width:120px;height:40px">Hover</button>
+        <div id="low" style="position:fixed;left:20px;top:880px;width:200px;height:100px"></div></div>
+      <script>
+        const control = document.getElementById('control'), low = document.getElementById('low');
+        globalThis.leaves = 0; control.onpointerleave = () => leaves++;
+        globalThis.exact = { ready: Promise.resolve(), views: new Map([[1, control], [2, low]]), async agentSettled(req) {
+          if (req.op === 'tree') return { nodes: [{ id: 1, type: 'View', depth: 0, props: { testId: 'control' }, children: [] },
+            { id: 2, type: 'View', depth: 0, props: { testId: 'low' }, children: [] }] };
+          if (req.op === 'reveal') return { scrolled: false };
+          return req.op === 'layout' ? { viewport: { w: innerWidth, h: innerHeight }, nodes: [control, low].map((el, i) => {
+            const b = el.getBoundingClientRect(); return { id: i + 1, x: b.x, y: b.y, w: b.width, h: b.height };
+          }) } : {};
+        } };
+      </script>`, { headers: { 'content-type': 'text/html' } }) });
+    let s;
+    try {
+      s = await open({ host: 'web', browser: engine === 'chromium' ? 'chrome' : engine, url: server.url.href });
+      await s.tap('control', { hover: true });
+      assert.equal(await s.carrier.evaluate('control.matches(":hover")'), true);
+      const reply = await s.tap('low', { hover: true, wheel: [0, 40] });
+      assert.ok(reply.at[1] >= 900);
+      assert.deepEqual(reply.hovered, engine === 'chromium' ? undefined : reply.at);
+      assert.deepEqual(await s.carrier.evaluate('({ hover: control.matches(":hover"), leaves, scrolled: scrollY })'),
+        { hover: false, leaves: 1, scrolled: 40 });
+    } finally { await s?.close(); await server.stop(true); }
+  }, 30000);
+
+  need(engine, await browserMissing(engine))(`a hover wheel reaches a wrapped inline fragment (${engine})`, async () => {
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(`<!doctype html>
+      <div id="exact-root" data-boot-ms="1"><p style="font:20px/60px monospace"><span id="wrapped">first fragment<br>second fragment</span></p></div>
+      <script>
+        const wrapped = document.getElementById('wrapped'); globalThis.events = [];
+        for (const type of ['pointermove', 'wheel']) document.addEventListener(type, e => {
+          events.push([type, e.target.id, Math.floor(e.clientX), Math.floor(e.clientY), e.isTrusted]);
+          if (type === 'wheel') e.preventDefault();
+        }, { passive: false });
+        globalThis.exact = { ready: Promise.resolve(), views: new Map([[1, wrapped]]), async agentSettled(req) {
+          if (req.op === 'tree') return { nodes: [{ id: 1, type: 'Text', depth: 0, props: { testId: 'wrapped' }, children: [] }] };
+          const b = wrapped.getBoundingClientRect(); return req.op === 'layout' ? { nodes: [{ id: 1, x: b.x, y: b.y, w: b.width, h: b.height }] } : {};
+        } };
+      </script>`, { headers: { 'content-type': 'text/html' } }) });
+    let s;
+    try {
+      s = await open({ host: 'web', browser: engine === 'chromium' ? 'chrome' : engine, url: server.url.href });
+      const { middleHits, fragment } = await s.carrier.evaluate(`(() => {
+        const b = wrapped.getBoundingClientRect(), c = wrapped.getClientRects()[0];
+        return { middleHits: document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2) === wrapped,
+          fragment: [c.x + c.width / 2, c.y + c.height / 2] };
+      })()`);
+      assert.equal(middleHits, false);
+      const reply = await s.tap('wrapped', { hover: true, wheel: [0, 40] });
+      assert.deepEqual(reply.at, fragment);
+      assert.deepEqual(await s.carrier.evaluate('events'), ['pointermove', 'wheel'].map(type =>
+        [type, 'wrapped', ...fragment.map(Math.floor), true]));
+    } finally { await s?.close(); await server.stop(true); }
+  }, 30000);
+}
+
+test('state world.0.perf prints numeric counters while requested draw lists retain their formatter', async () => {
+  const say = console.log, lines = [];
+  console.log = text => lines.push(text);
+  try {
+    for (const draws of [0, 15]) {
+      const calls = [], perf = { draws, instances: 11, triangles: 5425 };
+      const list = draws ? [{ pass: 'main', draw: 'mesh', writes: 'color' }] : [];
+      const session = {
+        async state(target, under, pose, busy, page = {}) {
+          calls.push([target, page]);
+          if (page.draws) return { tick: 2, hash: 'abc', draws: list };
+          if (target) throw new Error(`no view matches ${target}`);
+          return { slots: {}, world: [{ perf }] };
+        },
+        close() {},
+      };
+      assert.equal(await main(['web', 'state world.0.perf', 'state world draws'], {
+        open: async () => session, driveServer: async () => null,
+      }), 0);
+      assert.deepEqual(calls.filter(([target]) => target !== undefined), [['world.0.perf', {}], ['world', { draws: true, world: true }]]);
+      assert.equal(lines.shift(), `draws ${draws}\ninstances 11\ntriangles 5425`);
+      const look = lines.shift();
+      if (draws) assert.match(look, /^tick 2 · hash abc\nmain\s+ · mesh · writes color$/);
+      else assert.equal(look, 'tick 2 · hash abc');
+      assert.equal(lines.length, 0);
+    }
+  } finally { console.log = say; }
+});
 
 test('a web frame fallback settles its evaluate request when two RAFs do not complete', async () => {
   for (const completed of [0, 1, 2]) {
@@ -96,6 +326,183 @@ need('chrome', chromium().unavailable)('the web agent keeps desktop input facts 
   }
 }, 30_000);
 
+async function playwrightScreenshot(ask, frame, page) {
+  const {glueNode} = await import('../host/web/tests/glue-fixture.mjs');
+  const method = glueNode(readFileSync(new URL('./agent-playwright.mjs', import.meta.url), 'utf8'),
+    node => node.type === 'Property' && node.key?.name === 'screenshot' && node.value?.type === 'FunctionExpression' && node);
+  return new Function('ask', 'frame', 'page', `return ({${method}}).screenshot;`)(ask, frame, page);
+}
+
+for (const browser of ['chrome', 'firefox', 'webkit']) {
+  const run = need(browser, await browserMissing(browser === 'chrome' ? 'chromium' : browser));
+  run(`web screenshots settle GPU work started during frame and image waits (${browser})`, async () => {
+    const html = `<!doctype html><main id="exact-root" data-boot-ms="0"></main><script>
+      let stage, wait, pending = false, first = true, release, observed;
+      globalThis.arm = (at, held) => {
+        stage = at; wait = held; pending = false; first = true;
+        globalThis.gate = new Promise(resolve => release = resolve);
+        globalThis.settling = new Promise(resolve => observed = resolve);
+        globalThis.release = () => { pending = false; release(); };
+      };
+      globalThis.exact = {ready:Promise.resolve(),
+        imageFrames:async () => {
+          if (stage === 'image') pending = true;
+          if (stage === 'last frame') requestAnimationFrame(() => { pending = true; });
+        },
+        agentSettled:async () => {
+          if (first) {
+            first = false;
+            if (stage === 'first frame') requestAnimationFrame(() => { pending = true; });
+          }
+          if (pending) {
+            observed();
+            if (wait) await gate;
+            else return {error:'GPU is not settled: controlled work'};
+          }
+          return {clock:0, epoch:1, incarnation:1};
+        }};
+    </script>`;
+    const server = Bun.serve({hostname:'127.0.0.1', port:0,
+      fetch:() => new Response(html, {headers:{'content-type':'text/html'}})});
+    const dir = mkdtempSync(resolve(tmpdir(), 'exact-screenshot-settle-'));
+    let session;
+    try {
+      session = await open({host:'web', browser, url:server.url.href});
+      const {evaluate, screenshot} = session.carrier;
+      for (const film of [false, true]) for (const stage of ['first frame', 'image', 'last frame']) {
+        await evaluate(`arm(${JSON.stringify(stage)}, false)`);
+        const path = resolve(dir, `${stage}-${film}.png`);
+        await assert.rejects(screenshot(path, false, film), /GPU is not settled: controlled work/);
+        assert.equal(existsSync(path), false);
+      }
+      await evaluate("arm('image', true)");
+      const path = resolve(dir, 'waited.png');
+      const capture = screenshot(path);
+      try {
+        assert.equal(await Promise.race([
+          capture.then(() => 'captured'), evaluate('settling').then(() => 'settling'),
+        ]), 'settling');
+        assert.equal(existsSync(path), false);
+      } finally { await evaluate('release()'); await capture; }
+      assert.equal(existsSync(path), true);
+    } finally {
+      try { await session?.close(); }
+      finally { server.stop(true); rmSync(dir, {recursive:true, force:true}); }
+    }
+  }, 30000);
+  run(`web screenshots preserve the JS animation adapter's picture hold (${browser})`, async () => {
+    const html = `<!doctype html><main id="exact-root"><div id="moving" style="opacity:0;transition:opacity 1000ms linear">Moving</div></main><script>
+      globalThis.exact = {clock:{now:0, epoch:0}, After:[], views:new Map()};
+      exact.ready = import('/host/web-js/agent.js').then(({install}) => {
+        install(exact);
+        globalThis.arm = () => {
+          delete exact.gpu; delete exact.imageFrames;
+          moving.style.transition = 'none'; moving.style.opacity = '0'; getComputedStyle(moving).opacity;
+          moving.style.transition = 'opacity 1000ms linear'; getComputedStyle(moving).opacity;
+          moving.style.opacity = '1';
+          return exact.agentSettled({op:'tags'});
+        };
+        document.getElementById('exact-root').dataset.bootMs = '0';
+      });
+    </script>`;
+    const server = Bun.serve({hostname:'127.0.0.1', port:0, fetch(request) {
+      const path = new URL(request.url).pathname;
+      if (path === '/') return new Response(html, {headers:{'content-type':'text/html'}});
+      if (path === '/favicon.ico') return new Response(null, {status:204});
+      if (path.endsWith('/names.js')) return new Response('export default [[],[],[]]; export const types=[[],[],[]], sourceTypes={};', {headers:{'content-type':'text/javascript'}});
+      const local = new URL('..' + path, import.meta.url);
+      const file = existsSync(local) ? local : new URL('..' + path.replace('/host/web-js/', '/host/web/'), import.meta.url);
+      return new Response(readFileSync(file), {headers:{'content-type':'text/javascript'}});
+    }});
+    const dir = mkdtempSync(resolve(tmpdir(), 'exact-screenshot-hold-'));
+    let session;
+    try {
+      session = await open({host:'web', browser, url:server.url.href});
+      const {evaluate, screenshot} = session.carrier;
+      const captures = [screenshot];
+      // Chromium also exercises Playwright's capture method against the real animation adapter.
+      if (browser === 'chrome') captures.push(await playwrightScreenshot(session.carrier.ask, () => webFrame(evaluate), {
+        evaluate,
+        screenshot: async ({path}) => {
+          const {data} = await session.carrier.call('Page.captureScreenshot', {format:'png'});
+          writeFileSync(path, Buffer.from(data, 'base64'));
+        },
+        viewportSize: () => ({width:100, height:100}),
+      }));
+      for (const capture of captures) {
+        for (const film of [false, true]) {
+          await evaluate('arm()');
+          assert.equal(await evaluate('moving.getAnimations()[0].currentTime'), 0);
+          await capture(resolve(dir, `${film}.png`), false, film);
+          assert.equal(await evaluate('moving.getAnimations()[0].currentTime'), film ? 0 : 999.5);
+          assert.equal(await evaluate('exact.clock.now'), 0);
+        }
+        await evaluate(`arm().then(() => {
+          let pending = false;
+          exact.imageFrames = async () => { pending = true; };
+          exact.gpu = {settled:async () => {
+            if (!pending) return [];
+            pending = false;
+            return [{name:'controlled transient work'}];
+          }};
+        })`);
+        const refused = resolve(dir, 'transient.png');
+        await assert.rejects(capture(refused), /GPU is not settled: controlled transient work/);
+        assert.equal(existsSync(refused), false);
+        assert.equal(await evaluate('moving.getAnimations()[0].currentTime'), 999.5);
+        assert.equal(await evaluate('exact.clock.now'), 0);
+      }
+    } finally {
+      try { await session?.close(); }
+      finally { server.stop(true); rmSync(dir, {recursive:true, force:true}); }
+    }
+  }, 30000);
+}
+
+test('Playwright screenshots settle work from each wait before capture', async () => {
+  for (const film of [false, true]) for (const stage of ['first frame', 'image', 'last frame']) for (const mode of ['refuse', 'transient', 'wait']) {
+    const wait = mode === 'wait';
+    let pending = false, frames = 0, captured = false, lastOp;
+    const gate = Promise.withResolvers(), observed = Promise.withResolvers();
+    const screenshot = await playwrightScreenshot(async ({op}) => {
+      lastOp = op;
+      if (pending) {
+        observed.resolve();
+        if (mode === 'transient') pending = false;
+        if (!wait) return {error:'GPU is not settled: controlled work'};
+        await gate.promise;
+      }
+      return {};
+    }, async () => {
+      if (++frames === (stage === 'first frame' ? 1 : stage === 'last frame' ? 2 : 0)) pending = true;
+    }, {
+      evaluate: async () => { if (stage === 'image') pending = true; return 0; },
+      screenshot: async () => { captured = true; },
+      viewportSize: () => ({width:100, height:100}),
+    });
+    const capture = screenshot('unused.png', false, film);
+    if (wait) {
+      try { await observed.promise; assert.equal(captured, false); }
+      finally { pending = false; gate.resolve(); await capture; }
+      assert.equal(captured, true);
+    } else {
+      await assert.rejects(capture, /GPU is not settled: controlled work/);
+      assert.equal(captured, false);
+    }
+    assert.equal(lastOp, film ? 'tags' : 'picture');
+  }
+  const ops = [];
+  const screenshot = await playwrightScreenshot(async ({op}) => {
+    ops.push(op);
+    return op === 'picture' ? {error:'unknown op: picture'} : {};
+  }, async () => {}, {
+    evaluate: async () => 0, screenshot: async () => {},
+    viewportSize: () => ({width:100, height:100}),
+  });
+  await screenshot('unused.png');
+  assert.deepEqual(ops, ['picture', 'tags', 'picture', 'tags']);
+});
+
 test('malformed input is labelled before delivery; a state refusal is not', async () => {
   const carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
     ask() { throw new Error('unexpected delivery'); } };
@@ -121,7 +528,7 @@ test('malformed input is labelled before delivery; a state refusal is not', asyn
   carrier.ask = async () => ({ error: 'timer refused the advance' });
   await assert.rejects(() => s.clock('+100'), e => e.message.includes('timer refused') && e.malformed === undefined);
   await assert.rejects(() => main(['web', 'resize banana'], { open: async () => ({ close() {} }) }), e => e.malformed === true);
-  // A deep link is `type` on the navigation root: the refusal names that form.
+  // A deep link is `type` on the navigation root (euxy FRICTION 11): the refusal names that form.
   await assert.rejects(() => main(['web', 'open euxy://p/1'], { open: async () => ({ close() {} }) }), e => e.malformed === true && e.message.includes('`type <root> euxy://p/1`'));
   // A drive's flag inside the step was read as a form ("screenshot: unknown form 3"): the refusal names where it goes.
   await assert.rejects(() => main(['web', 'screenshot x.png --scale 3 window'], { open: async () => ({ close() {} }) }),
@@ -130,6 +537,20 @@ test('malformed input is labelled before delivery; a state refusal is not', asyn
   // `state thread --json` printed the capped summary again, the flag unread; `--full` is the step's own.
   await assert.rejects(() => main(['web', 'state thread --json'], { open: async () => ({ close() {} }) }),
     e => e.malformed === true && e.message.endsWith('state: --json is a flag of the drive, not of the step: write it before the steps, as `web --json "state thread"`'));
+});
+
+test('a move the carrier refuses partway keeps the contact where its delivered samples left it', async () => {
+  const carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {}, async ask() { return {}; },
+    async input() { return reply; } };
+  let reply = { error: 'surface refused pointer', at: [10, 30] };
+  const s = await open({ reuse: carrier });
+  s.landed = async r => r;
+  s.contact = { x: 10, y: 50 };
+  assert.equal((await s.pointer('move', { dx: 0, dy: -40, ms: 200 })).error, 'surface refused pointer');
+  assert.deepEqual(s.contact, { x: 10, y: 30 });
+  reply = { error: 'surface refused pointer' };
+  assert.equal((await s.pointer('move', { dx: 0, dy: -40 })).error, 'surface refused pointer');
+  assert.deepEqual(s.contact, { x: 10, y: 30 });
 });
 
 test('accepted pointer, wheel, media and zero-time forms still reach the carrier', async () => {
@@ -153,7 +574,7 @@ test('accepted pointer, wheel, media and zero-time forms still reach the carrier
     await s.tap('a', media);
     assert.deepEqual(calls.at(-1), [1, 'mediasession', media]);
   }
-  // Exact's picture-in-picture window is the Mac's: the web carrier is given no input.
+  // Exact's picture-in-picture window is the Mac's: the web carrier is given no input (LLP 1042 §9.1).
   const before = calls.length, pip = await s.tap('a', { pictureInPicture: 'close' });
   assert.equal(pip.delivery, 'unsupported');
   assert.ok(!calls.slice(before).some(Array.isArray));
@@ -186,7 +607,7 @@ test('Android relative clocks start where the reader hands its live clock to the
   assert.deepEqual(calls, [{ op: 'tags' }, { op: 'clock', to: 63.5 }]);
 });
 
-// A hold is the clock's (a charge that runs while held must move): the carrier is told it is virtual, no
+// A hold is the clock's (euxy FRICTION §2: a dice charge did nothing while held): the carrier is told it is virtual, no
 // wall time passes, and the app's clock moves by it; under --timing platform it stays real time.
 test('a held contact\'s hold moves the app\'s clock by its length', async () => {
   for (const timing of ['agent', 'platform']) {
@@ -291,7 +712,7 @@ test('stdio preserves malformed replies and leaves state refusals unlabelled', a
   readable.destroy(); writable.destroy();
 });
 
-// A suspended app answers nothing, so its pushed "background" fails what waits at once, and later ops
+// LLP 1143 D1: a suspended app answers nothing, so its pushed "background" fails what waits at once, and later ops
 // until it is back; the reply owed to the failed op is dropped when it comes, never taken as the next op's.
 test('an app that leaves the foreground fails the pending op and later ones until it is back', async () => {
   const readable = new PassThrough(), writable = new PassThrough(), host = [];
@@ -319,14 +740,14 @@ test('the driver grammar names an unquoted mediasession action beside pinch', ()
   assert.ok(usage.stderr.includes(form), usage.stderr);
 }, 60_000);
 
-test('rendered tree keeps focus; an accessible name is tree --ax\'s', async () => {
+test('rendered tree keeps focus; an accessible name is tree --ax\'s (LLP 1080.002)', async () => {
   const { render } = await import('./agent.mjs');
   const line = render('tree', {nodes:[{id:1, depth:0, type:'View', props:{testId:'play'}, focused:true}]});
   assert.match(line, /\[focused\]/);
   assert.doesNotMatch(line, /name=/);
 });
 
-// A route the host does not show reads `[hidden]` to its last node, so a stack's lower screens are
+// LLP 1153 D8: a route the host does not show reads `[hidden]` to its last node, so a stack's lower screens are
 // not taken for shown beside its top; a screen a sheet covers is shown beneath it and reads `[inactive]`.
 test('rendered tree marks a hidden route hidden and a covered one inactive', async () => {
   const { render } = await import('./agent.mjs');
@@ -348,6 +769,8 @@ test('a native hangup names how the app ended, its crash reports, and only its l
   assert.match(hangup({ what: 'clock did not answer', pid: process.pid }), /^clock did not answer \(pid \d+ still running\)$/);
   assert.match(hangup({ what: 'the app hung up', pid: 999999 }), /\(pid 999999 gone\)$/);
   assert.match(hangup({ what: 'the app exited', exit: { code: 3, signal: null } }), /\(exit code 3\)$/);
+  // simctl's 0 for an app that crashed is not said as a clean exit (LLP 1156.001 D4).
+  assert.match(hangup({ what: 'the app ended', exit: { code: 0, signal: null } }), /^the app ended \(it ended without a close being asked for; simctl reports exit 0, which a crash also gives\)$/);
 });
 
 
@@ -431,7 +854,7 @@ test('compare: the two pictures side by side at half size, each region outlined 
 
 test('compare: an edge\'s anti-aliasing is no colour of the picture it is in', async () => {
   // The reference's box has a soft left edge (three grey columns), the screen's a hard one 7 pt further left: the
-  // reference's differing cells are white and that edge's greys, which are no ink of its own ("#bbb").
+  // reference's differing cells are white and that edge's greys, which are no ink of its own (euxy port: "#bbb").
   const soft = [[24, 60, 1, 40, [200, 200, 200]], [25, 60, 1, 40, [140, 140, 140]], [26, 60, 1, 40, [80, 80, 80]], [27, 60, 40, 40, [0, 0, 0]]];
   const { result } = await compared(soft, [[20, 60, 47, 40, [0, 0, 0]]]);
   const { reference, screen } = result.regions[0].colours;
@@ -556,7 +979,7 @@ test('compare: the CLI form and the reference are checked before any comparison'
   assert.match(helpText('agent'), /\(a select, date or checkbox: its value\)/);
 });
 
-// A library an earlier plain drive stored, where compare drives start empty.
+// The euxy port's "BPM +5 per tap": a library an earlier plain drive stored, where compare drives start empty.
 test('the first drive from an app directory that keeps the store `default` says so, once per directory and device', () => {
   const root = mkdtempSync(resolve(tmpdir(), 'exact-store-note-')), said = [], error = console.error;
   console.error = (line) => said.push(line);
@@ -574,7 +997,7 @@ test('a native named store is kept unless the drive resets it, under its lock; a
   try {
     for (const [host, flags, fresh, locked] of [['ios', [], false, true], ['ios', ['--reset-storage'], true, true], ['android', ['--reset-storage'], true, true],
       ['macos', [], false, true], ['mac', [], false, true], ['linux', ['--reset-storage'], true, true], ['web', [], true, false], ['web', ['--keep-storage'], false, false],
-      // A drive that compares starts empty everywhere unless kept (dice rolls an earlier drive stored).
+      // A drive that compares starts empty everywhere unless kept (euxy port: dice rolls an earlier drive stored).
       ['ios', ['screenshot a.png compare ref.png'], true, true], ['ios', ['--keep-storage', 'screenshot a.png compare ref.png'], false, true]]) {
       let env = 'unopened', lock = null;
       const fakeOpen = async (o) => { env = o.env; return { state: async () => ({}), close: async () => {} }; };
@@ -593,13 +1016,34 @@ test('a native named store is kept unless the drive resets it, under its lock; a
     let env = null, lock = null;
     const injected = { open: async (o) => { env = o.env; return { state: async () => ({}), close: async () => {} }; }, driveServer: async () => null,
       exclusiveNativeStore: async (key, launch) => { lock = key; return launch(); }, resolveDevice: () => 'a device' };
-    assert.equal(await main(['ios', '--reset-storage', 'state'], injected), 0);
-    assert.deepEqual([lock?.storage, env?.EXACT_AGENT_STORAGE_FRESH], ['default', '1']);
+    for (const host of ['ios', 'macos', 'linux', 'android', 'windows']) {
+      lock = env = null;
+      assert.equal(await main([host, '--reset-storage', 'state'], injected), 0);
+      assert.deepEqual([lock?.storage, env?.EXACT_AGENT_STORAGE_FRESH], ['default', '1'], host);
+    }
     await assert.rejects(main(['web', '--reset-storage', 'state'], injected), /need --storage <name>/);
   } finally { [console.log, console.error] = quiet; }
 });
 
-// A `tap` that misses on a mode an earlier drive persisted would read like a broken view.
+// `--reader` and `--headless` reach the Android carrier as `open`'s `reader` (LLP 1107 D1), never through the
+// environment of the driver's process.
+test('main hands --reader and --headless to open', async () => {
+  const quiet = [console.log, console.error], before = process.env.EXACT_ANDROID_READER, said = [];
+  console.log = console.error = () => {};
+  delete process.env.EXACT_ANDROID_READER;
+  try {
+    const injected = { driveServer: async () => null, exclusiveNativeStore: async (key, launch) => launch(), resolveDevice: () => 'a device',
+      open: async (o) => { said.push(o.reader); return { state: async () => ({}), close: async () => {} }; } };
+    for (const flags of [[], ['--reader'], ['--headless']]) assert.equal(await main(['android', ...flags, 'state'], injected), 0);
+    assert.deepEqual(said, [undefined, true, false]);
+    assert.equal(process.env.EXACT_ANDROID_READER, undefined);
+  } finally {
+    [console.log, console.error] = quiet;
+    if (before !== undefined) process.env.EXACT_ANDROID_READER = before;
+  }
+});
+
+// The euxy port's `tap play` missed on a mode an earlier drive persisted, and the miss read like a broken view.
 test('a miss on a drive that kept its store says so, and how to start empty', async () => {
   const quiet = console.error;
   console.error = () => {};
@@ -767,7 +1211,7 @@ test('a screenshot with a system sheet held says it is not drawn, and where the 
   } finally { console.error = quiet; }
 });
 
-// A menu painted in the page by the agent reads as an app bug.
+// The euxy port's pattern menu: painted in the page by the agent, it read as an app bug.
 test('a tap that opens a menu the agent paints says UIKit presents it, under --touch platform, once', async () => {
   const { driveNotes } = await import('./agent-test.mjs');
   const said = [], quiet = console.error;
@@ -831,6 +1275,36 @@ test('a native store is one drive\'s at a time: a second is refused until the fi
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+notApplicable(process.platform === 'win32' ? 'POSIX executable permissions' : null)('a native launch failure returns its error and releases the store for another drive', () => {
+  const root = mkdtempSync(resolve(import.meta.dir, '.native-launch-'));
+  try {
+    writeFileSync(resolve(root, 'not-executable'), '#!/bin/sh\necho hi\n', { mode: 0o644 });
+    // A subprocess bounds a regression that hangs during cleanup, even after the ready deadline.
+    const ran = spawnSync(process.execPath, ['--eval', `
+      import assert from 'node:assert/strict';
+      import { resolve } from 'node:path';
+      import { openStdio } from './scripts/agent-stdio.mjs';
+      import { exclusiveNativeStore } from './scripts/agent-launch.mjs';
+      const root = process.argv[1];
+      for (const host of ['linux', 'windows']) {
+        const key = { host, device: 'machine', appId: 'native-launch-test', storage: 'default' };
+        for (const bin of [resolve(root, 'not-executable'), root]) {
+          process.env[host === 'linux' ? 'EXACT_LINUX_BIN' : 'EXACT_WINDOWS_BIN'] = bin;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            await assert.rejects(
+              exclusiveNativeStore(key, () => openStdio({ host, app: 'hello' }), root),
+              /launch failed: EACCES:/,
+            );
+          }
+        }
+      }
+    `, root], { cwd: resolve(import.meta.dir, '..'), encoding: 'utf8', timeout: 10000, killSignal: 'SIGKILL',
+      env: { ...process.env, EXACT_APP_DIR: '', EXACT_PROOF_PRODUCTS: '' } });
+    assert.equal(ran.error, undefined, ran.stderr);
+    assert.equal(ran.status, 0, ran.stderr);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 15000);
+
 test('compare on a capture: nodes where the window has them, its safe area not scored, a scaled viewport refused, its notes said', async () => {
   const { compareOp } = await import('./agent-compare.mjs');
   const { encodePng } = await import('./png.mjs');
@@ -851,7 +1325,7 @@ test('compare on a capture: nodes where the window has them, its safe area not s
     const r = await compareOp(ios({ viewport: { x: 0, y: 0, w: 60, h: 200 }, window: { x: 678, y: 0, w: 60, h: 200 } }), resolve(dir, 'ref.png'), async () => ({ ...shot }));
     assert.match(r.text, /under card \[10,40 60×30\]/);
     assert.doesNotMatch(r.text, /draws at|painted by the agent/);
-    // A menu the agent painted is said on the score's line, which a reader filtering for `compare` keeps.
+    // A menu the agent painted is said on the score's line, which a reader filtering for `compare` keeps (euxy port).
     const painted = await compareOp(ios({ viewport: { x: 0, y: 0, w: 60, h: 200 }, window: { x: 678, y: 0, w: 60, h: 200 } }), resolve(dir, 'ref.png'), async () => ({ ...shot, paintedNote: 'the agent painted it' }));
     assert.match(painted.text.split('\n')[0], /^compare .* matches \(.*\), with the open menu or popover painted by the agent, not UIKit's \(--touch platform shows UIKit's\); diff /);
     // A floating sheet the platform draws scaled is said, in compare's report and in `layout`'s.

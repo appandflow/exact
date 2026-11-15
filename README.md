@@ -3,6 +3,16 @@
 **Write an app once. It runs natively on the web, macOS, iOS, and Linux, and an AI
 agent can build it, run it, see it, and test it on every one of them.**
 
+Android and Windows are early and in progress: an app builds and runs on both, and
+what each still lacks is under [Not yet, or not at all](#not-yet-or-not-at-all).
+
+**Building an app?** With the tools installed ([Quick start, step 1](#1-install-the-tools)),
+run `bun scripts/exact.mjs setup` once, make the app with `bun scripts/exact.mjs new <path>`,
+and read [`docs/start-here.md`](docs/start-here.md) (for a website,
+[`docs/start-here-site.md`](docs/start-here-site.md)): that guide is the only required
+reading. The rest of this page describes Exact for people deciding whether to use it
+or working on it.
+
 > [!TIP]
 > **Try it with a coding agent.** On a Mac with Xcode, Rust, Bun, and Chrome installed,
 > give Claude Code this prompt:
@@ -16,7 +26,7 @@ agent can build it, run it, see it, and test it on every one of them.**
 > `scripts/agent.mjs`, then open the app for me on all three.
 > ```
 >
-> A fresh agent given an earlier version of this prompt on a clean clone (Hermes already in the
+> A fresh agent given the earlier version of this prompt on a clean clone (2026-10-04, Hermes already in the
 > machine cache, Cargo's cache warm) finished in about 57 minutes, and its tests passed
 > on all three platforms. About 25 of those minutes were the first macOS and iOS builds,
 > roughly 13 minutes each; later builds take a minute or two. On a machine that has
@@ -45,7 +55,8 @@ agent can build it, run it, see it, and test it on every one of them.**
 
 Exact is a cross-platform application runtime. You describe your interface in
 **Contract**, a small declarative language, and you write your data logic in
-**TypeScript or Rust**. The Contract compiler turns the interface into a compact
+**TypeScript or Rust**; a plain HTTP read needs neither, as it can be declared in
+Contract. The Contract compiler turns the interface into a compact
 *plan*. On the web, that plan becomes one ES module over a ~20 KB runtime that drives
 the real DOM. On macOS, iOS, and Linux, a Rust runner executes the same plan, a Rust
 layout kernel computes every box with CSS rules, and each platform draws with its own
@@ -54,12 +65,18 @@ in the UI, and no app JavaScript runs before the first pixel.
 
 > [!NOTE]
 > Exact is pre-1.0 and changes daily. There is no API stability, no backwards
-> compatibility, and no migration guide, by design.
+> compatibility, and no migration guide, by design (`rules/DEFERRED.md`). This
+> repository, `exact2`, is a rebuild of an earlier one ("exact1"), whose design
+> documents are research, never authority.
 
-Upgrade note: Snapback mutation replies with `ok: false` now throw
-`refused(why)` and expose `failure(slot)`; the
-[snapback4 package's README](https://www.npmjs.com/package/snapback4)
-has the before/after and inherited-app commands.
+The design record is a separate, private repository of numbered documents (LLPs),
+`expo/exact-llp`, which those with access clone into `llp/` (git ignores it). This
+README and the guides cite it by number (`LLP 1115 D7`). The guides under [`docs/`](docs)
+are the public documentation.
+
+Upgrade note (2026-10-16): Snapback mutation replies with `ok: false` now throw
+`refused(why)` and expose `failure(slot)`; see the
+[before/after and inherited-app commands](snapback4/README.md#updating-an-inherited-app).
 
 ## Contents
 
@@ -82,7 +99,8 @@ run it, look at it, operate it, and prove it works without a person in the loop.
 - **Ten operations, the same on every host.** `tree · screenshot · tap · type · state
   · layout · logs · clock · prefer · perf` drive the web, macOS, iOS (Simulator or a real
   iPhone), and Linux through one script, `scripts/agent.mjs`. There are ten on purpose:
-  an agent API grows one reasonable addition at a time until no one can hold it in mind.
+  the predecessor's agent API grew to eighty wire names, one reasonable addition at a
+  time.
 - **The clock belongs to the agent.** Between two operations nothing moves. Instead of
   sleeping until an animation finishes, the agent says `clock +60000` or
   `clock settle` and reads the result. No timing flakes, no waits.
@@ -104,7 +122,7 @@ bun scripts/agent.mjs web tree "tap change-station" "type station-search Palo" \
 ### 2. Speed is king
 
 Speed of the app and speed of the loop. Each budget in `rules/RULES.md` is tracked on
-every commit, and a regression is a P0 with a name on it.
+each hour, and a regression is a P0 with a name on it.
 
 | Budget | Target |
 |---|---|
@@ -112,7 +130,7 @@ every commit, and a regression is a P0 with a name on it.
 | Dev restart, edit to present | 100 ms p50 |
 | App JavaScript executed before first pixel | none |
 | Touch one line, rebuild that crate | 30 s |
-| The whole blocking check suite | 65 s |
+| The blocking gate, warm after a one-crate edit | 30 s |
 
 How the design keeps those numbers:
 
@@ -124,7 +142,8 @@ How the design keeps those numbers:
   on a core crate.
 - **The web gets its own small runtime.** On the RealWorld ("Conduit") benchmark,
   Exact's runtime was up about 300 ms before the React SSR build had hydrated. It used
-  26 KB of code against React's 81 KB (the RealWorld benchmark in `apps/realworld`).
+  26 KB of code against React's 81 KB
+  (LLP 1071).
 - **Edits land in about a tenth of a second.** On a fresh app made by `exact new`, a
   saved Contract or TypeScript edit was rebuilt and in the page in 99 ms.
 
@@ -135,7 +154,7 @@ leave unsaid is the platform's: controls, colour, type, motion, gestures, the ke
 and accessibility come out as an app built by hand with UIKit or AppKit would have them,
 and on the web as a carefully built web app would. What you write wins. The order is
 author, then platform, then CSS's default, and one test settles a dispute: would someone
-who knows the platform notice?
+who knows the platform notice? (LLP 1115)
 
 - Layout is CSS's, because a person can't see a layout default, only its result. A bare
   node is `display: block`, `box-sizing: content-box`, `flex-direction: row`,
@@ -152,8 +171,8 @@ who knows the platform notice?
   against what Chrome draws.
 - The web is also the development loop. You work on the seconds-long web loop, and the
   native hosts are swept behind you.
-- Any unavoidable deviation in layout is declared, with its reason. For example, Taffy
-  has no `position: static`.
+- Any unavoidable deviation in layout is declared, with its reason, in LLP 1001. For
+  example, Taffy has no `position: static`.
 
 Writing the web doesn't mean the lowest common denominator. Where a platform can do
 more (real HTML in an SVG `foreignObject` on the web, MapKit through a native module on
@@ -200,8 +219,8 @@ flowchart LR
 
 ## Quick start
 
-These steps were run on macOS on Apple Silicon. Linux works for the web loop and the
-Linux host.
+These steps were run on macOS on Apple Silicon. Linux also runs the web loop, the
+Linux host, and the iOS cross compiler. On Windows, use WSL 2 with Ubuntu 24.04 for iOS builds.
 
 ### 1. Install the tools
 
@@ -211,7 +230,38 @@ Linux host.
   not needed.
 - **Google Chrome.** The agent drives the web through headless Chrome. Set `CHROME` to
   use another Chromium.
-- **Xcode**, for the macOS and iOS hosts.
+- **Xcode 27.1 or later**, for Apple builds on macOS (`exact setup --check` checks it). For iOS builds on Linux/WSL, install
+  [Swift 6.4.2](https://www.swift.org/install/linux/),
+  [xtool 1.24.0](https://github.com/xtool-org/xtool/releases/tag/1.24.0),
+  [LLVM 23](https://apt.llvm.org/), and
+  [apple-codesign 0.29.0](https://github.com/indygreg/apple-platform-rs/releases/tag/apple-codesign%2F0.29.0).
+  Download Xcode 27.1 from [Apple](https://developer.apple.com/download/all/?q=Xcode%2027.1),
+  then run `APPIMAGE_EXTRACT_AND_RUN=1 xtool sdk install --slim /path/to/Xcode_27.1.xip` on Linux. This extracts the SDK;
+  it does not run Xcode. The environment variable lets xtool's AppImage run without FUSE.
+  In WSL 2, keep the checkout and SDK in Ubuntu's Linux filesystem. Put LLVM's `bin` directory on `PATH` and set
+  `EXACT_APPLE_LLVM_BIN` to that directory (on Ubuntu, `/usr/lib/llvm-23/bin`).
+  Swift and `rcodesign` must also be on `PATH`; IPA archives also need `zip`.
+  For a signed device archive, set `EXACT_IDENTITY` to an absolute PKCS#12 file path,
+  `EXACT_APPLE_SIGN_PASSWORD_FILE` to its password file, and `EXACT_PROFILE` to the
+  app’s provisioning profile. Set `EXACT_PROFILE_DIR` to a directory containing
+  companion extension profiles. Profile decoding needs `openssl`.
+  On macOS, `EXACT_IDENTITY` continues to name a Keychain identity.
+  `EXACT_APPLE_SDK` can select a Darwin
+  SDK bundle outside xtool's default `~/.swiftpm/swift-sdks/darwin.artifactbundle`.
+  Watch simulator companions require `xtool sdk install /path/to/Xcode_27.1.xip`
+  without `--slim`, so Exact can install the retained watch SDK on the first watch build.
+  Icon Composer projects retain their live SVG layers on iOS 26 and newer; Linux
+  uses the manifest’s PNG `icons` entry as artwork for older iOS versions. The
+  portable compiler supports the checked-in projects’ default SVG group and
+  opaque sRGB background; other Composer settings are refused explicitly.
+  For the SVG filter kernels and Canvas 2D GPU module on x86-64 Linux/WSL,
+  install Wine 9 or newer and download [Metal Developer Tools for Windows](https://developer.apple.com/metal/tools/).
+  Extract the installer with `7z x -o/path/to/metal-tools Metal_Developer_Tools6.2Windows.exe`,
+  then set `EXACT_APPLE_METAL_TOOLS=/path/to/metal-tools` (the directory containing `bin/metal.exe`).
+  The qualified compiler is Metal 32023.850 from the 6.2 Windows installer.
+  `EXACT_APPLE_WINE` can select Wine's executable; otherwise Exact uses Ubuntu's
+  `/usr/lib/wine/wine64` when present, then `wine` on PATH. Wine runs only at build
+  time. Its prefix defaults to `~/.cache/exact/windows-metal`; `WINEPREFIX` overrides it.
 - **Hermes**, only for TypeScript apps on native hosts. Exact consumes Ibex's
   pinned, attested `260318099.0.4` release bundle; ordinary Cargo builds are
   offline and never download or compile an engine. Install it once for each
@@ -235,13 +285,30 @@ Use `~/.bun-1.4.2/bin/bun` for the commands below if it is not on your PATH.
 `bun scripts/exact.mjs setup` installs the declared stable and web nightly Rust
 toolchains, their components/targets (the nightly's clippy lints a game's web bake),
 matching wasm-bindgen, pinned Binaryen and Bun dependencies, installs the pinned
-Hermes host bundle and the iOS/tvOS bundles this Mac builds, and fetches the crates
+Hermes host bundle and the iOS/tvOS bundles this machine builds, and fetches the crates
 of exact2's lock and the game SDK's (`game/app/shells.lock`), since every bake
 resolves offline. It keeps Binaryen in `~/.cache/exact/binaryen`; builds find it
 automatically. `setup --check` invokes Ibex's installer in its offline check mode for
 that same target set. The resolver authenticates the canonical receipts, archives,
 compiler and host/target HBC pairing without installing anything; its exit status and
 diagnostic are the check's result.
+
+With the Linux cross SDK installed, `setup` also installs the iOS Rust targets.
+Build a simulator bundle with `bun host/apple/build.mjs --ios --no-install hello-apple`.
+In an app made with `exact new`, `bun exact.mjs ios` builds without installing on Linux/WSL;
+`ios --prebuild` runs the same build in the background.
+Linux defaults to an ARM64 simulator target; `EXACT_IOS_SIM_ARCH=x86_64` selects an
+Intel simulator. Execution needs an iOS simulator on macOS or an iPhone; compilation,
+asset catalog generation, App Intents metadata and ad-hoc signing run on Linux.
+
+Production builds with custom native views also validate the compiled factory roster.
+Linux can import a simulator qualification with `EXACT_NATIVE_ROSTERS=/path/to/qualification.json`.
+It contains `{ "version": 1, "probes": [{ "probeSha256": "…", "roster": "<JSON object>" }] }`.
+The build writes `native-probes.json` beside its link products to identify the probe to
+execute on an iOS simulator. Qualifications match the probe's SHA-256; changing its
+compiled bytes requires a new simulator run. Without a matching qualification, a
+production build refuses rather than accepting an absent factory or omitting its
+first-frame declaration. Development builds retain the existing manifest fallback.
 
 ### 2. Run Caltrain in the browser
 
@@ -257,7 +324,7 @@ The first run compiles the toolchain, which takes a few minutes. After that, ope
 The page rebuilds and reloads in about a tenth of a second. Add `--lan` to open the
 same page from a phone on your network. The server answers only to the names it
 prints (a DNS-rebinding guard; any other `Host` gets 421); to share it through a
-tunnel, name the tunnel's host with `--allow-host <name>`
+tunnel such as `tuft host`, name the tunnel's host with `--allow-host <name>`
 (repeatable; `name:port` pins a port). An allowed name reaches the page and its
 reload stream, never the local installer's token.
 
@@ -301,20 +368,22 @@ bun scripts/exact.mjs new ../hello          # or run `bun link` once, then `exac
 cd ../hello
 bun exact.mjs contract types app.contract -o app.contract.d.ts   # first run builds the compiler
 bun exact.mjs web                           # the dev loop, at http://127.0.0.1:8765/
-bun exact.mjs test web tests/*.test.contract # the app's *.test.contract, or the files named
+bun exact.mjs test web                      # the app's *.test.contract, or the files named
 bun exact.mjs mac --run                     # this Mac
 bun exact.mjs ios --run                     # an iOS Simulator
 ```
 
 `exact new` creates a standalone app: `app.contract` (the view), `app.ts` (its data),
-`app.json` (the manifest: name, bundle id, hosts, deploy policy), and small `web/` and
-`apple/` host crates. Its `AGENTS.md` (and `CLAUDE.md`) points a coding agent at
+`app.json` (the manifest: name, bundle id, hosts, deploy policy) and `app.test.contract`
+(its test). Its `AGENTS.md` (and `CLAUDE.md`) points a coding agent at
 [`docs/start-here.md`](docs/start-here.md), the one guide it must read, and at `bun
 exact.mjs help` for the commands, including `bun exact.mjs contract …` for the compiler
 and `contract vocab` for the card of what an app writes (`--all`: every tag and property Contract accepts). Before any of
 it, run `bun scripts/exact.mjs setup` once; `setup --check` names everything this machine
-is missing without changing it. It has its own Cargo workspace, which uses your exact2 checkout
-by path. To drive it from exact2, point `EXACT_APP_DIR` at it:
+is missing without changing it. The app holds no crate: a native verb (`mac`, `ios`,
+`linux`, `android`, `windows`) builds in a Cargo workspace it generates under
+`.exact/shells/`, which uses your exact2 checkout by path. To drive it from exact2,
+point `EXACT_APP_DIR` at it:
 
 ```sh
 EXACT_APP_DIR=../hello bun host/web/build.mjs hello-web
@@ -354,9 +423,8 @@ files, or run arbitrary code. That's what data sources are for. Here is a comple
 app: a Contract file, a TypeScript file, and a test. This exact app was built for web,
 macOS, and the iOS Simulator, and its test passed on all three.
 
-To try it in an app created with `exact new`, replace `app.contract` and
-`app.test.contract` with the examples below. In `app.ts`, keep the generated
-`export const appId = …` line and replace the rest with the TypeScript below.
+To try it in an app created with `exact new`, replace `app.contract`, `app.ts` and
+`app.test.contract` with the examples below.
 
 ```contract
 // app.contract: the view, its state, and what each action changes. It names no colour,
@@ -397,7 +465,7 @@ component Todos
             text "Add"
       section
         for t in todos key=t.id
-          row testId=`todo-${t.id}`
+          row delete=remove(t.id) testId=`todo-${t.id}`
             input type="checkbox" checked=t.done change=toggle(t.id) aria-label=t.title testId=`toggle-${t.id}`
             text t.title flex=1
             button press=remove(t.id) destructive=true testId=`remove-${t.id}`
@@ -516,14 +584,15 @@ the same on every host and looks at home on each.
 ```sh
 $ cargo run -q -p contract -- build app.contract
 app.contract:4:5 [type-assign] `count` is `number`, cannot assign `string`
-app.contract:7:23 [lower-unknown-attr] `text` has no attribute `size`; `size` is spelled `font-size` here, the web's name
+app.contract:7:23 [lower-unknown-attr] `text` has no attribute `size`; `size` is spelled `font-size` here, the web's name (LLP 1017 §8.1)
 ```
 
 One run reports up to twenty independent errors, not just the first. Other subcommands:
 `--json` for tools, `symbols` (definitions and references as JSON), `fmt`
 (source-preserving), `types` (generates `app.contract.d.ts` for TypeScript sources),
-and `rust` (shapes for a Rust data crate). The full language is specified in
-[`docs/contract-grammar.md`](docs/contract-grammar.md).
+and `rust` (shapes for a Rust data crate). The full language is in
+[the grammar reference](docs/contract-grammar.md); its design is LLP 1006, LLP 1017.000
+(v1.1), LLP 1017.003 and, for data sources, LLP 1027.
 
 ## Example apps
 
@@ -535,7 +604,7 @@ these screenshots come from the web host, taken by `scripts/agent.mjs`.
 To learn from, start with [Shelf](apps/shelf), the recipe app. It names no colour and no
 font size, and `scripts/no-tells.mjs` holds it to that, so it shows what an app that
 leaves presentation to the platform looks like on each host. Then read these four for
-what each teaches. They were written before Exact left presentation to the platform
+what each teaches. They were written before LLP 1115
 and paint their own colours and sizes, so take their structure, not their style:
 
 | App | What it teaches |
@@ -594,7 +663,7 @@ and paint their own colours and sizes, so take their structure, not their style:
     <td><img src="docs/screenshots/realworld.webp" width="420" alt="Conduit, the RealWorld app"></td>
   </tr>
   <tr valign="top">
-    <td><a href="apps/markdown"><b>Markdown</b></a><br>A Markdown reader that opens files from Finder or the command line (<code>mdview README.md</code>). Its sibling <a href="apps/llp"><b>LLP</b></a> (<code>llpview</code>) reads a folder of numbered design documents.</td>
+    <td><a href="apps/markdown"><b>Markdown</b></a><br>A Markdown reader that opens files from Finder or the command line (<code>mdview README.md</code>). Its sibling <a href="apps/llp"><b>LLP</b></a> (<code>llpview</code>) reads a directory of numbered design documents (LLPs).</td>
     <td><a href="apps/realworld"><b>Conduit</b> (RealWorld)</a><br>The RealWorld Medium clone against its hosted API. It's the benchmark that compared Exact's web build with React 19. Web only.</td>
   </tr>
 </table>
@@ -617,13 +686,13 @@ and paint their own colours and sizes, so take their structure, not their style:
 | [Carousel](apps/carousel) | A horizontal virtualized list of 25,000 cards | |
 | [Motion Gallery](apps/motion-gallery) | Animated GIF and WebP images and CSS keyframes, compared across hosts | |
 | [Update Lab](apps/update-lab) | Live replacement of Contract, TypeScript, and Rust in a running app | Hand-testing lab |
-| [Messages Stress](apps/messages-stress), [Completion Storm](apps/completion-storm), [Markdown Stress](apps/markdown-stress) | 100k-message histories, 128 parallel requests, and 4 MiB documents, under load | Opt-in workloads |
+| [Messages Stress](apps/messages-stress), [Completion Storm](apps/completion-storm), [Markdown Stress](apps/markdown-stress) | 100k-message histories, 128 parallel requests, and 4 MiB documents, under load | Opt-in workloads (LLP 1041) |
 | [Native Fixture](apps/native-fixture), [Auth Fixture](apps/auth-fixture) | The native-module interface; OAuth with PAR, DPoP, and PKCE against a local server | Test fixtures |
 | [Beacons, Tennis, …](game/games) | Games on the optional [engine add-on](game/README.md): Rust gameplay, Contract menus | `bun game/dev.mjs beacons` |
 
 ## What works today, and what doesn't yet
 
-The v1 bar: *one real application, not a demo, runs from a
+The v1 bar, from `rules/DEFERRED.md`: *one real application, not a demo, runs from a
 single Contract source on web, macOS, iOS, and Linux, within the time budgets in
 `rules/RULES.md`.* Caltrain is that application, and it runs on all four. Everything
 else here was admitted because a real app needed it.
@@ -632,33 +701,60 @@ else here was admitted because a real app needed it.
 
 - **Four hosts.** Web, macOS (AppKit, no SwiftUI), iOS (UIKit, on the Simulator and
   on devices), and Linux (GPU or CPU painting, DRM/KMS or headless). Existing Swift apps
-  can embed Exact sessions through ExactKit.
+  can embed Exact sessions through ExactKit
+  (LLP 1031).
 - **Layout and text.** CSS block, flex, and grid; `position: static` and containing
-  blocks; `aspect-ratio`; declared fonts; text around shapes.
-- **Paint.** Gradients, shadows, `backdrop-filter`, glass materials, complete SVG,
-  Canvas 2D on every host, and a wgpu GPU canvas loaded after first pixel.
+  blocks; `aspect-ratio`; declared fonts; text around shapes
+  (LLP 1043.000).
+- **Paint.** Gradients, shadows, `backdrop-filter`, glass materials, complete SVG
+  (LLP 1055), Canvas 2D on every host
+  (LLP 1056), and a wgpu GPU canvas loaded after first
+  pixel.
 - **Motion.** CSS transitions, springs, `@keyframes`, follow-and-release gestures (pan,
   swipe, pinch) with release velocity, layout transitions, exit animations, and
-  scroll- or drag-linked timelines.
-- **Lists.** Virtualized lists, vertical or horizontal, one level deep. The rows of a
-  vertical `list` are its platform's: UIKit's separators and highlight, a table on the Mac, one
-  line between rows on the web, with nothing drawn by the app.
+  drag-linked timelines (LLP 1002,
+  LLP 1063,
+  LLP 1057.003); a scroller is not yet a
+  timeline's source.
+- **Lists.** Virtualized lists, vertical or horizontal, one level deep
+  (LLP 1070). The rows of a vertical
+  `list` are its platform's: UIKit's separators and highlight, a table on the Mac, one
+  line between rows on the web, with nothing drawn by the app
+  (LLP 1115.000, D16).
 - **Controls and media.** Inputs, `select`, a WYSIWYG Markdown editor on the web, macOS,
-  and iOS, images including animated ones, video, pickers for an app's declared file
+  and iOS (LLP 1045), images including animated
+  ones, video (LLP 1042), pickers for an app's declared file
   types, and share.
-- **Data.** TypeScript or Rust sources, optionally on a worker. Grant-checked `fetch` and
+- **Camera.** [`@exact/camera`](packages/camera/exact.json) shows a live viewfinder
+  (`exact-camera srcObject=`) and takes still photos (`takePhoto`) on the web, iOS,
+  macOS, and Android, behind the `device.camera` grant (LLP 1133.008).
+  `takePhotoWithCameraApp` takes one in the system camera UI instead: Android's camera
+  app, iOS's camera picker, and on the web a file input with `capture`. It needs no grant
+  on Android; iOS shows the `device.camera` line's purpose. It does not record video
+  from the camera or hand its frames to code, and it has no Windows, Linux, tvOS, or
+  watchOS implementation.
+- **Data.** TypeScript or Rust sources, optionally on a worker, and sources declared in
+  Contract: an HTTP request whose JSON answer is read field by field. An app whose
+  sources are all declared has no data module, and its native build links no JavaScript
+  engine (LLP 1162.001). Grant-checked `fetch` and
   streams, files and SQLite (native and in the browser), Keychain secrets, and OAuth
-  sign-in. A router keeps a stack per tab.
-- **Native modules.** Platform widgets as hyphenated tags.
+  sign-in. A router keeps a stack per tab (LLP 1038).
+- **Native modules.** Platform widgets as hyphenated tags
+  (LLP 1024).
 - **The web, server side.** Pages pre-rendered at build time or per request by a Rust
-  renderer, then adopted in place instead of hydrated.
+  renderer, then adopted in place instead of hydrated
+  (LLP 1048).
 - **Delivery.** `scripts/deploy.mjs` publishes the web root and signed update bundles,
-  which installed apps fetch after first pixel. Apple apps check every fifteen
+  which installed apps fetch after first pixel. Existing streams use their signed
+  cohort receipts: Linux can publish compatible Contract and TypeScript updates
+  to iOS without an Apple bake. Candidates the cohort cannot run are reported as
+  needing a binary. Apple apps check every fifteen
   minutes while active under every activation policy; `deploy.check.interval`
   overrides the interval in seconds. Checks stage a candidate; `deploy.activate`
   controls when it applies. TypeScript and Rust logic can be
   replaced live in development. Every web build gets an install page, and
-  `exact release` signs and notarizes a Mac app.
+  `exact release` signs and notarizes a Mac app
+  (LLP 1030).
 - **Agents and tests.** The ten operations on every host, including a physical
   iPhone; Contract tests; source maps; filmed screenshots.
 
@@ -668,29 +764,36 @@ else here was admitted because a real app needed it.
   or CPU when the manifest declares `game`. `host.windows.painter: "ink"`
   or `"cpu"` selects either painter, and `EXACT_PAINTER` overrides both.
   Skirmish is a standalone game built with Exact's optional game engine;
-  the CPU default preserves its module-owned window presentation.
+  the CPU default preserves its module-owned window presentation (LLP 1149 D12).
   [Windows Desk](apps/windows-desk/README.md) demonstrates
   native controls over Contract and the kernel with an app-local Win32 presenter;
   general Windows control parity and delivery remain unfinished.
-- **Android.** Early. An app builds for Android and runs on an emulator or a phone:
-  `bun exact.mjs android` builds it, `bun exact.mjs test android` runs its tests, and
-  `bun exact.mjs agent android …` drives it. It needs the Android SDK, the Rust target `aarch64-linux-android`, and the Hermes Android bundle
-  (`bun scripts/hermes-android.mjs build`) until an Ibex release ships one. Delivery and
-  store packaging don't exist yet.
+  Notification-area icons are not built: `-exact-menu="status"` stays an
+  ordinary button in the window (LLP 1133.025 §14).
+- **Android.** Admitted (2026-10-07) and early. An app builds for Android and runs
+  on an emulator or a phone: `bun exact.mjs android` builds it, `bun exact.mjs test
+  android` runs its tests, and `bun exact.mjs agent android …` drives it
+  (LLP 1107). It needs the Android SDK,
+  the Rust target `aarch64-linux-android`, and the Hermes Android bundle, which
+  `exact setup` installs with the target. `bun exact.mjs android --bundle`
+  produces a signed release App Bundle; the [phone release recipe](docs/recipes/mobile-build.md)
+  names the upload-key and version inputs. Play upload and store submission
+  remain the publisher's work.
 - **No JSX or React tier.** Nothing runs JavaScript above the data seam. The door stays
   open, but no one is building it.
-- **TypeScript can't import npm packages' code yet.** `app.ts` imports its own local
-  files; from a package it imports only types (`import type`), which the build checks
-  and never runs.
-- **Code updates in production.** Signed delivery covers plans and assets. Signed
-  delivery of TypeScript or Rust modules isn't implemented, and app-store rules limit
-  it anyway.
+- **Code updates in production.** Signed delivery covers plans, assets and one
+  module pair: Apple accepts TypeScript or an enabled Rust module, Linux a Rust
+  module only, and Windows has no update store. The installed binary's runtime,
+  app identity, grants and Rust policy still bind. Delivering TypeScript and Rust
+  modules together is not implemented.
 - **Linux editing.** The web and Apple hosts edit; Linux reads. Linux also has no
   word segmenter, so flowed Thai, Lao, Khmer, and Myanmar text breaks only at spaces.
-- **Out on purpose for v1.** Camera access, a gesture arena, general layout animation,
-  grid or masonry virtualization, a general webview beyond `iframe`, and a devtools UI.
+- **Out on purpose for v1.** A gesture arena, general layout animation, grid or
+  masonry virtualization, a general webview beyond `iframe`, and a devtools UI.
 - **No packaged CLI.** You work from a source checkout. `exact new` apps refer to it by
   path.
+
+[`QUEUE.md`](QUEUE.md) lists what would make sense to do next.
 
 ## Repository map
 
@@ -706,46 +809,39 @@ else here was admitted because a real app needed it.
 | [`route/`](route), [`update/`](update), [`bake/`](bake), [`filesystem/`](filesystem) | The router, the signed update store, delivery baking, and app-owned files |
 | [`apps/`](apps), [`examples/`](examples), [`game/`](game) | The apps above, the Calendar example, and the optional game engine |
 | [`scripts/`](scripts) | `exact.mjs`, `agent.mjs`, `smoke.mjs`, `metrics.mjs`, `deploy.mjs`, and the checks |
-| [`docs/`](docs) | Guides for app authors: start here, the Contract grammar, recipes, and pitfalls |
-| [`rules/`](rules) | [`RULES.md`](rules/RULES.md), how work on Exact happens |
+| [`rules/`](rules) | [`RULES.md`](rules/RULES.md) and [`DEFERRED.md`](rules/DEFERRED.md), the two binding documents |
 | [`vendor/taffy/`](vendor/taffy) | Taffy, plus Exact's patches |
 
 ## Working on Exact
 
-Start with [`rules/RULES.md`](rules/RULES.md), one page on how work happens here. Agents
-should also read [`AGENTS.md`](AGENTS.md). In short:
+Start with [`rules/RULES.md`](rules/RULES.md), one page on how work happens here, and
+[`rules/DEFERRED.md`](rules/DEFERRED.md), what v1 deliberately leaves out. Agents should
+also read [`AGENTS.md`](AGENTS.md). In short:
 
-- **Six blocking checks, 65 seconds in total.** Anything slower runs asynchronously,
-  per commit.
-
-  ```sh
-  cargo build --all-targets --keep-going
-  cargo test --tests --no-fail-fast
-  cargo clippy --all-targets --keep-going -- -D warnings && cargo fmt --all -- --check
-  bun scripts/caps.mjs     # budgets: 1,500 lines per source file, document caps
-  bun scripts/boot.mjs     # counts the module graph before first pixel
-  cargo check --workspace --all-targets --keep-going   # every crate compiles
-  ```
-
-  The first three build and test Cargo's `default-members`. The last compiles every
-  other crate too, so a host or an app outside them cannot stop compiling unseen. It
-  needs the pinned Bun (`package.json`) first on `PATH`: app crates' build scripts run it.
-
-- **Verify by running, not by reading.** Build the app a change touches and drive it:
-  `bun scripts/smoke.mjs <web|macos|ios|linux>` drives the whole app on that host.
+- **One blocking gate, 30 seconds warm:** `bun scripts/gate.mjs`.
+  Stage your files, run it, push, and fix what the hourly lane attributes to you.
+  It reports every failure and each part's time. Full checks, affected tests,
+  semantic difftests, app drives, XCTests and platform builds run hourly through
+  `bun scripts/async.mjs`; new failures are bisected through the hour's commits.
+- **Verify by running.** The hourly lane builds and drives affected apps.
+  To investigate, `bun scripts/smoke.mjs <web|macos|ios|linux>` drives the app.
 - **Delete; don't deprecate.** Before 1.0 there are no compatibility shims. Generated
   files are built, never committed.
 - **Agents remove apparatus freely and add none** (checks, scripts, registries, design
   documents) without a person saying so.
-- **A spec gets written only when it has an implementer and a date.**
+- **Design happens in LLPs.** These are the numbered documents of the design record. A spec gets
+  written only when it has an implementer and a date.
 
 Detailed operational notes cover toolchains, the Contract CLI's JSON formats, source
 maps, TypeScript and Rust data modules, storage, live replacement, delivery trust, the
 install page, and the stress harnesses. They're in
-[`docs/reference.md`](docs/reference.md).
+[`docs/reference.md`](docs/reference.md). Open issues are files under
+[`issues/`](issues) ([how that works](docs/issues.md)).
 
 The workspace is MIT-licensed (`Cargo.toml`).
 
-Exact’s Snapback4 adapter uses published **0.4.33** with the matching immutable
-Rust source revision `3653cae823145170df3e720f5e321bd1b5b4d79d`.
-See [the snapback4 package's README](https://www.npmjs.com/package/snapback4) for wiring and device rebuilds.
+The Snapback client (`snapback4/`) is not in this repository, and Exact works without it:
+in a checkout without it, `exact new --snapback` and `bun exact.mjs snapback` refuse,
+naming the missing client. A checkout that has it there uses published **0.4.33** with
+the matching immutable Rust source revision `3653cae823145170df3e720f5e321bd1b5b4d79d`,
+and [its guide](snapback4/README.md) covers wiring and device rebuilds.

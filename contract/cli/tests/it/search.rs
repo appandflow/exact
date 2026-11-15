@@ -155,9 +155,9 @@ fn a_free_spelling_of_the_webs_method_names_the_method_form() {
     }
 }
 
-/// A calendar's end-after-start and calc's Backspace in the view — two strings
-/// compare in code-unit order, and `slice`, `replaceAll`, `toLowerCase` and
-/// `toUpperCase` are the web's (`end` may be left out).
+/// LLP 1088 D1, D2: calendar's end-after-start and calc's Backspace in the
+/// view — two strings compare in code-unit order, and `slice`,
+/// `replaceAll`, `toLowerCase` and `toUpperCase` are the web's (`end` may be left out).
 #[test]
 fn strings_compare_and_cut_as_the_web_does() {
     let plan = contract::compile(&corpus("strings.contract")).unwrap();
@@ -188,7 +188,7 @@ fn strings_compare_and_cut_as_the_web_does() {
 /// Two strings or two numbers: mixed operands and bools stay refused, and
 /// `slice` takes two or three arguments; an action named `slice` keeps its
 /// own arity (a scoped action is found before the roster), and `slice` of a
-/// list is a list.
+/// list is a list (LLP 1088 §9.1).
 #[test]
 fn string_order_and_slice_are_typed() {
     let src = corpus("strings.contract");

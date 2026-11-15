@@ -8,10 +8,10 @@
 | `MeshStandardMaterial` | `Standard` shader | `StandardMaterial3D` | `Material` |
 | `CSS2DObject` | world-space UI | `Label3D` | `Placed::child` (a Contract child) |
 | `requestAnimationFrame` | `Update()` | `_physics_process` | `Game::tick` (fixed simulation ticks) |
-| — | `ScriptableObject` | `.tres` | A table; table authoring support is not built yet |
-| — | prefab | scene instance | A `Bundle` row; tuples work today, an authored bundle derive is not built yet |
+| — | `ScriptableObject` | `.tres` | A table; authoring support awaits LLP 1127.001 D3 |
+| — | prefab | scene instance | A `Bundle` row; tuples work today, authored bundle derive awaits LLP 1127.001 D4 |
 | — | Input System action | `InputMap` | `Actions` |
-| `renderer.info` | Frame Debugger | — | `state world draws` (draw diagnostics are not built yet) |
+| `renderer.info` | Frame Debugger | — | `state world draws` (draw diagnostics depend on LLP 1127.000 D4) |
 | Yuka `SeekBehavior`, `ArriveBehavior`, `FleeBehavior`, `WanderBehavior` | `Vector3.RotateTowards` | `Vector3.move_toward` | `steer::seek`, `steer::arrive`, `steer::flee`, `steer::wander`: this tick's `steer::Steer { velocity, facing }` |
 | Yuka `SeparationBehavior`, `AlignmentBehavior`, `CohesionBehavior` | boids | boids | `steer::school(&pose, w.near_xz::<Fish>(e, radius).limit(7), separation, alignment, cohesion, …)` |
 | Yuka `vehicle.neighbors` | `Physics.OverlapSphere` | `Area3D.get_overlapping_bodies` | `w.near_xz::<C>(e, radius)`; `.limit(n)` keeps the `n` nearest, in entity order |

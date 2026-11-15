@@ -1,9 +1,9 @@
-//! `@exact/local-auth`'s `authenticate` under its declared substitute: Face
-//! ID's permission first while it is `prompt`, then the person's check as a
-//! `presence` ticket; a denial that the passcode still answers; a device with
-//! nothing to check; and presence never delegated: a tool's call fails
-//! `person-required` before anything is asked, in every state. The interface is
-//! the package's own `exact.json`.
+//! `@exact/local-auth`'s `authenticate` under its declared substitute (LLP
+//! 1133.010 §7, D12): Face ID's permission first while it is `prompt`, then
+//! the person's check as a `presence` ticket; a denial that the passcode
+//! still answers; a device with nothing to check; and presence never
+//! delegated: a tool's call fails `person-required` before anything is
+//! asked, in every state. The interface is the package's own `exact.json`.
 
 use exact_runner::{CallOrigin, Dispatch, HoldAnswer, Outcome, Reply, Runner, Work};
 use std::path::PathBuf;

@@ -1,4 +1,4 @@
-// DOM's `beforeunload` on the Mac: the app that owns a
+// DOM's `beforeunload` on the Mac (studio diary R17): the app that owns a
 // window asks its session before the window closes or the app quits.
 // Every mounted node that hears `beforeunload` does, as every listener on
 // the web's window does; one that calls `preventDefault()` keeps the window

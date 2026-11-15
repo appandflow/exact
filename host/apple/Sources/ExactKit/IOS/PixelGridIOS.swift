@@ -1,5 +1,5 @@
 // Boxes on the device's pixel grid, as a browser paints them. Layout's frames
-// are fractional. Drawn where they fall, UIKit blends a text
+// are fractional (LLP 1001 §6). Drawn where they fall, UIKit blends a text
 // raster or an edge across two device pixels: text blurs, and a 0.5 pt line
 // covers two rows. A browser rounds every painted rectangle to device pixels
 // at its absolute position (Chromium's `PhysicalRect::PixelSnappedIntRect`,

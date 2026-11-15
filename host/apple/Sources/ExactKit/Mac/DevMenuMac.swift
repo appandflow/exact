@@ -1,23 +1,23 @@
 // The standalone Mac menu bar: standard application and window commands,
 // with app-declared shortcuts in File, Edit, View, Go and Settings by their
-// chords (ShortcutsMac.swift). Go — Back ⌘[ from a pushed
-// route (BackMac.swift). File — New Window ⌘N
-// exists under `launch_handler` `navigate-new`, Open… ⌘O
-// when the app declares documents it opens;
+// chords (ShortcutsMac.swift; studio diary R16). Go — Back ⌘[ from a pushed
+// route (LLP 1115.000 D5.1, BackMac.swift). File — New Window ⌘N
+// exists under `launch_handler` `navigate-new` (LLP 1069.010 D4), Open… ⌘O
+// when the app declares documents it opens (LLP 1033);
 // Edit always (the field editor's command keys — ⌘A/X/C/V/Z — are menu
 // equivalents, not key bindings; without this they are dead), with Paste
 // and Match Style, Find, Spelling and Grammar, Substitutions,
 // Transformations and Speech as AppKit's template has them; View, with
 // Actual Size and Zoom In and Out (ZoomMac.swift); Help, with
-// AppKit's search field; Develop —
+// AppKit's search field (LLP 1115 D8); Develop —
 // Reload ⌘R, Open Project… ⇧⌘O behind a document app, App Info… ⌘D —
-// in a development build only (a release build has no
+// in a development build only (LLP 1115.000 D7.8: a release build has no
 // such menu and takes none of its chords; EXACT_DEV_MENU=0 or =1, at build
 // or launch, says otherwise for either). Native AppKit above the presenter, so it is
 // alive even when the plan is broken; reload re-fetches a live connection,
 // else restarts from the dev loop's plan when one is named (the watcher's
 // own path, state carried), else from the baked plan, fresh. Host
-// apparatus for the standalone adapter: an embedder installs
+// apparatus for the standalone adapter (LLP 1031 D11): an embedder installs
 // none of this.
 #if os(macOS)
 import AppKit
@@ -57,15 +57,15 @@ final class EditMenuTarget: NSObject {
     }
 }
 
-/// File ▸ Open Recent without `NSDocument`: the list is
+/// File ▸ Open Recent without `NSDocument` (LLP 1069.010 D5): the list is
 /// `NSDocumentController`'s own — what `noteNewRecentDocumentURL` adds to,
 /// what the Dock's menu shows, what "Clear Menu" empties — drawn here with
 /// public API. AppKit fills its own recent menu only for one a nib names
 /// (or one named through a private selector, which the Mac App Store
-/// refuses; nothing here may make that harder; the one exception is
-/// the web arm's `openDevTools`). Choosing an entry is
-/// one more route in, to the same router as Launch Services'.
-final class RecentMenu: NSObject, NSMenuDelegate {
+/// refuses; ruled: nothing here may make that harder; the one exception is
+/// the web arm's `openDevTools`, LLP 1020.002 D11). Choosing an entry is
+/// one more route in, to the same router as Launch Services' (LLP 1033 D3).
+final class RecentMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         let urls = NSDocumentController.shared.recentDocumentURLs
@@ -82,11 +82,17 @@ final class RecentMenu: NSObject, NSMenuDelegate {
             item.image = icon
         }
         if !urls.isEmpty { menu.addItem(.separator()) }
-        // Clearing ends what each app keeps too.
+        // Clearing ends what each app keeps too (LLP 1069.010.000 D6).
         menu.addItem(withTitle: "Clear Menu", action: #selector(clear(_:)), keyEquivalent: "").target = self
     }
 
     @objc func clear(_ sender: Any?) { KeptDocuments.clear() }
+
+    /// Clear Menu while there is something to clear, a clear on its way
+    /// counted, as `NSDocumentController` refuses `clearRecentDocuments:`.
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        item.action != #selector(clear(_:)) || !KeptDocuments.recent.isEmpty
+    }
 
     @objc func open(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
@@ -102,7 +108,7 @@ public enum DevMenu {
     static let goTarget = GoMenuTarget()
     static let zoomTarget = ZoomMenuTarget()
     /// The identifiers `-exact-menu-remove` finds the host's own submenus
-    /// and its Develop menu by, whatever their titles.
+    /// and its Develop menu by (LLP 1021 §5.3), whatever their titles.
     static let removable: [String: NSUserInterfaceItemIdentifier] = [
         "find": .init("exact.menu.find"), "spelling-and-grammar": .init("exact.menu.spelling-and-grammar"),
         "substitutions": .init("exact.menu.substitutions"), "transformations": .init("exact.menu.transformations"),
@@ -113,8 +119,8 @@ public enum DevMenu {
     /// View's hidden ⌘= Zoom In beside the ⌘+ one, and the zoom group's separator.
     static let zoomAlternate = NSUserInterfaceItemIdentifier("exact.menu.zoom-in-equals")
     static let zoomSeparator = NSUserInterfaceItemIdentifier("exact.menu.zoom-separator")
-    /// Whether a build has the Develop menu and its chords: a development
-    /// build does, a release build does not, as a
+    /// Whether a build has the Develop menu and its chords (LLP 1115.000
+    /// D7.8): a development build does, a release build does not, as a
     /// shipped Mac app has no such menu. A release build is one baked with
     /// production trust (`ExactEnv.productionBake`) or stamped `release` or
     /// `archive` by `build.mjs` (`ExactBuildKind`: `--release`,
@@ -191,14 +197,14 @@ public enum DevMenu {
         let file = ShortcutMenu(title: "File")
         fileItem.submenu = file
         // ⌘N and the tab bar's + open an empty window with a session of its
-        // own, whether or not the app opens documents:
+        // own (LLP 1069.010 D4), whether or not the app opens documents:
         // `newWindowForTab:` goes up the responder chain to the adapter that
         // owns the windows.
         if ExactDocuments.launchMode == "navigate-new" {
             file.addItem(withTitle: "New Window", action: #selector(NSResponder.newWindowForTab(_:)), keyEquivalent: "n")
         }
         // ⌘O belongs to the app's own documents when it declares any
-        // (`file_handlers`) — that is what ⌘O means on this
+        // (`file_handlers`, LLP 1033) — that is what ⌘O means on this
         // platform, and Develop ▸ Open Project… takes ⇧⌘O behind it.
         if documents {
             file.addItem(withTitle: "Open…", action: #selector(DevMenuTarget.openDocument(_:)), keyEquivalent: "o").target = target
@@ -225,7 +231,7 @@ public enum DevMenu {
         let selectAll = edit.addItem(withTitle: "Select All", action: #selector(EditMenuTarget.selectAll(_:)), keyEquivalent: "a")
         selectAll.target = editTarget
         // Find, Spelling and Grammar, Substitutions and Transformations, as
-        // Xcode's macOS app template has them: the responder
+        // Xcode's macOS app template has them (LLP 1115 D8): the responder
         // chain's own actions, which a field's `NSTextView` answers and
         // validates, disabled where nothing does.
         edit.addItem(.separator())
@@ -235,7 +241,7 @@ public enum DevMenu {
             item.submenu = submenu
             item.identifier = removable[id]
         }
-        // Speech, as Apple's HIG and every AppKit text app have it:
+        // Speech, as Apple's HIG and every AppKit text app have it (#141):
         // the responder chain's own actions, a field's `NSTextView` reading
         // its selection or its text, the session's view the selected text.
         let speech = NSMenu(title: "Speech")
@@ -247,7 +253,7 @@ public enum DevMenu {
         editItem.submenu = edit
         let view = ShortcutMenu(title: "View")
         // Actual Size, Zoom In and Zoom Out, as Safari's and Preview's View
-        // has them (ZoomMac.swift). A keyboard's ⌘= reaches
+        // has them (LLP 1021 §5.3, ZoomMac.swift). A keyboard's ⌘= reaches
         // the ⌘+ item, but an event without the layout's (the agent's) does
         // not: a hidden ⌘= item takes that one.
         for (title, action, key) in [("Actual Size", #selector(ZoomMenuTarget.actualSize(_:)), "0"),
@@ -261,7 +267,7 @@ public enum DevMenu {
         let zoomEnd = NSMenuItem.separator()
         zoomEnd.identifier = zoomSeparator
         view.addItem(zoomEnd)
-        // Show Sidebar ⌃⌘S: the split view controller's
+        // Show Sidebar ⌃⌘S (LLP 1115.002 D3): the split view controller's
         // own action, which names the item for what it will do. There only
         // while the window's sidebar is the app's root tab bar (`ShortcutHost.sync`).
         let sidebar = view.addItem(withTitle: "Show Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
@@ -271,12 +277,12 @@ public enum DevMenu {
         fullScreen.keyEquivalentModifierMask = [.command, .control]
         bar.addItem(withTitle: "View", action: nil, keyEquivalent: "").submenu = view
         let go = ShortcutMenu(title: "Go")
-        // Back ⌘[, first, as Finder's and Safari's is:
+        // Back ⌘[, first, as Finder's and Safari's is (LLP 1115.000 D5.1):
         // the way back from a pushed route in the key window. The app's own
         // ⌘[ command stands in for it, and an app with no navigation has
         // no Go menu (`ShortcutHost.sync`).
         go.addItem(withTitle: "Back", action: #selector(GoMenuTarget.back(_:)), keyEquivalent: "[").target = goTarget
-        // Forward ⌘], where Back left.
+        // Forward ⌘], where Back left (D5.5).
         go.addItem(withTitle: "Forward", action: #selector(GoMenuTarget.forward(_:)), keyEquivalent: "]").target = goTarget
         bar.addItem(withTitle: "Go", action: nil, keyEquivalent: "").submenu = go
         let window = ShortcutMenu(title: "Window")
@@ -300,13 +306,13 @@ public enum DevMenu {
             if WidgetGallery.available { dev.addItem(withTitle: "Widgets…", action: #selector(DevMenuTarget.widgets(_:)), keyEquivalent: "").target = target }
             #endif
             dev.addItem(withTitle: "Frame Health", action: #selector(ExactView.toggleFrameHealth(_:)), keyEquivalent: "")
-            // The session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
+            // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
             let trace = dev.addItem(withTitle: "Save Trace", action: #selector(DevMenuTarget.saveTrace(_:)), keyEquivalent: "t")
             trace.keyEquivalentModifierMask = [.command, .option]
             trace.target = target
             devItem.submenu = dev
         }
-        // Help last, after Develop: AppKit puts its search
+        // Help last, after Develop (LLP 1115 D8): AppKit puts its search
         // field at the top of the menu it is told is Help, and `showHelp:`
         // opens the app's help book, or says there is none.
         let help = ShortcutMenu(title: "Help")
@@ -369,7 +375,7 @@ public enum DevMenu {
         return menu
     }
 
-    /// File ▸ Open Recent: `NSDocumentController`'s
+    /// File ▸ Open Recent (LLP 1069.010 D5): `NSDocumentController`'s
     /// list, drawn by `RecentMenu` each time the menu opens.
     static let recent = RecentMenu()
     static func recentMenu() -> NSMenu {
@@ -380,7 +386,7 @@ public enum DevMenu {
     }
 
     /// What File ▸ Open Recent shows now, drawn as it is when the menu
-    /// opens: its items' titles (the agent's `state`).
+    /// opens: its items' titles (the agent's `state`, LLP 1069.010).
     public static var openRecentTitles: [String] {
         guard let menu = NSApp.mainMenu?.items.lazy.compactMap({ $0.submenu?.item(withTitle: "Open Recent")?.submenu }).first
         else { return [] }
@@ -388,7 +394,7 @@ public enum DevMenu {
         return menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
     }
 
-    /// The menu bar as drawn, for the agent's `state`:
+    /// The menu bar as drawn, for the agent's `state` (studio diary R16):
     /// each shown menu's shown items, the app menu's first, with the chord
     /// each answers (`⇧⌘Z`).
     public static var menuBar: [[String: Any]] {
@@ -404,8 +410,8 @@ public enum DevMenu {
         }
     }
 
-    /// The typed URL — the affordance a physical device actually uses:
-    /// seeded with the last value, kept in defaults.
+    /// The typed URL — the affordance a physical device actually uses
+    /// (LLP 1023 Stage 1): seeded with the last value, kept in defaults.
     static func openProject() {
         let alert = NSAlert()
         alert.messageText = "Open Project"
@@ -424,7 +430,7 @@ public enum DevMenu {
         ExactApp.shared.connect(url)
     }
 
-    /// File ▸ Open… — the app's own documents, not a project.
+    /// File ▸ Open… — the app's own documents (LLP 1033), not a project.
     static func openDocument() {
         ExactDocuments.open(into: session)
     }
@@ -461,7 +467,7 @@ public enum DevMenu {
             let size = session.presenter.viewportSize
             lines.append("session: \(session.label) · viewport: \(Int(size.width))×\(Int(size.height)) · \(session.viewCount) views")
             lines.append("boot: \(String(format: "%.1f", session.bootMs)) ms")
-            // A resource whose answers are refused keeps showing its last value.
+            // A resource whose answers are refused keeps showing its last value (LLP 1142 D4).
             if let state = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any],
                let failed = state["failed"] as? [String: String] {
                 let counts = state["failures"] as? [String: [String: Any]] ?? [:]
@@ -502,7 +508,7 @@ public enum DevMenu {
         }
     }
 
-    /// Save Trace, ⌥⌘T: where it went, or why not.
+    /// Save Trace (LLP 1079 D5), ⌥⌘T: where it went, or why not.
     static func saveTrace() {
         guard let session else { return }
         let alert = NSAlert()

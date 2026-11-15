@@ -1,6 +1,6 @@
 // data: caltrain
-// Synthetic conformance plan: edits made before the runtime runs.
-// The page is rendered at build and loads its script at the
+// Synthetic conformance plan: edits made before the runtime runs (LLP
+// 1048.001 D5). The page is rendered at build and loads its script at the
 // first edit (`activate=interaction`, which a text field's `input` handler
 // would make eager: the render host allows only discrete events there); the
 // capture script queues each edit

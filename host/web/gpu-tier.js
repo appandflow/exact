@@ -1,4 +1,4 @@
-// The device's GPU tier on the web, chosen once by
+// The device's GPU tier on the web (LLP 1139.003 D2), chosen once by
 // gpu-glue.js before the GPU module makes its device: from GPUAdapterInfo's
 // `vendor` and `architecture`, else the screen's class (navigation.js
 // `handheld`). Never from a clock. Under the agent it is the drive's (`high`

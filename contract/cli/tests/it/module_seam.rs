@@ -1,6 +1,7 @@
 //! The module seam's general pieces, through an interface no module ships:
 //! `@fixture/sensor`, written beside the app as an installed package, whose
-//! implementation the test plays as the host's native slot.
+//! implementation the test plays as the host's native slot (LLP 1133.002
+//! D14; LLP 1133.008 D8; LLP 1133.009 D10).
 
 use exact_runner::{CallOrigin, Dispatch, Outcome, Reply, Response, Runner, Work};
 use serde_json::{json, Value as Json};
@@ -55,7 +56,7 @@ component App
       text meter.id
 "#;
 
-/// `@fixture/listener`, a recognizer's shape: two
+/// `@fixture/listener`, a recognizer's shape (LLP 1133.012 D12): two
 /// permissions, the second the microphone's, asked only by the calls that
 /// name a line they cover; a `"*"` line every call needs; an app origin only
 /// for a call on a track; and a word the agent prefers for the
@@ -167,6 +168,206 @@ impl exact_runner::DataSource for Granted {
 
 type Calls = Arc<Mutex<Vec<Json>>>;
 
+struct Wrapped;
+impl exact_runner::DataSource for Wrapped {
+    fn query(
+        &mut self,
+        source: &str,
+        _: &[exact_runner::Value],
+    ) -> Result<exact_runner::Value, exact_runner::DataError> {
+        Err(exact_runner::DataError::UnknownSource(source.into()))
+    }
+    fn answer(
+        &mut self,
+        _: &mut exact_runner::Store,
+        source: &str,
+        args: &[exact_runner::Value],
+    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
+        if source != "wrapped" {
+            return self.query(source, args).map(exact_runner::Answer::Now);
+        }
+        let track = args[0].as_str().expect("a track");
+        Ok(exact_runner::Answer::Later(exact_runner::Request::native(
+            json!({ "extension": "sensor", "owner": "@fixture/sensor/own", "source": "reading", "args": { "track": track } }).to_string().into_bytes(),
+        )))
+    }
+    fn parse(
+        &mut self,
+        _: &mut exact_runner::Store,
+        _: &str,
+        _: &[exact_runner::Value],
+        outcome: Outcome,
+    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
+        let Outcome::Response(response) = outcome else {
+            panic!("a response")
+        };
+        let value: f64 = serde_json::from_slice(&response.body).unwrap();
+        Ok(exact_runner::Answer::Now(exact_runner::Value::Number(
+            value,
+        )))
+    }
+}
+
+fn owned_runner(wrapper: bool) -> (App, Runner<Wrapped>, Calls) {
+    let app = App::new(
+        "owned",
+        &Fixture {
+            package: "@fixture/sensor",
+            grants: "",
+            interface: r#"{"kind":"interface","name":"@fixture/sensor","names":[
+          {"source":"reading","live":true,"options":{"track":"string"},"answers":"number","substitute":{"default":0}}]}"#,
+            app: r#"use reading as common from "@fixture/sensor"
+use reading as own from "@fixture/sensor/own"
+component App
+  state ownOn = true
+  state commonOn = true
+  state track = "a"
+  resource shared = common(track="a") when commonOn as shape number else empty()
+  resource owned = own(track=track) when ownOn as shape number else empty()
+  action move
+    track = "b"
+  action closeOwn
+    ownOn = false
+  action closeCommon
+    commonOn = false
+  view
+    text `${owned} ${shared}`
+"#,
+        },
+    );
+    let package = app.0.join("node_modules/@fixture/sensor");
+    std::fs::write(package.join("package.json"), r#"{"name":"@fixture/sensor","version":"1.0.0","exports":{".":"./exact.json","./own":"./own/exact.json"}}"#).unwrap();
+    std::fs::create_dir(package.join("own")).unwrap();
+    std::fs::write(package.join("own/exact.json"), r#"{"kind":"implementation","implements":"@fixture/sensor@^1.0","targets":["linux"],"names":[
+      {"source":"reading","live":true,"options":{"track":"string"},"answers":"number","substitute":{"default":0}}]}"#).unwrap();
+    if wrapper {
+        let path = app.0.join("app.contract");
+        let source = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(path, source.replace("own(track=track)", "wrapped(track)")).unwrap();
+        std::fs::write(
+            app.0.join("app.ts"),
+            "import { reading } from '@fixture/sensor/own';",
+        )
+        .unwrap();
+    }
+    let (plan, _) = contract::compile_path_all(&app.0.join("app.contract"), false).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Wrapped,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.set_module_target("linux");
+    let calls: Calls = Arc::default();
+    let seen = calls.clone();
+    r.native_slot().host(Some(Arc::new(move |body, reply| {
+        let body: Json = serde_json::from_slice(&body).unwrap();
+        let mut calls = seen.lock().unwrap();
+        calls.push(body.clone());
+        let count = calls
+            .iter()
+            .filter(|c| c["source"] == "reading" && c["owner"] == body["owner"])
+            .count();
+        reply.send(Outcome::Response(Response {
+            status: 200,
+            headers: Vec::new(),
+            body: count.to_string().into_bytes(),
+        }));
+    })));
+    r.listen(Arc::new(|| {}));
+    r.bind_extensions(&["sensor"], &[]);
+    pump(&mut r, &mut Vec::new());
+    (app, r, calls)
+}
+
+#[test]
+fn implementation_sources_refresh_directly_and_through_data_code() {
+    for wrapper in [false, true] {
+        let (_app, mut r, _) = owned_runner(wrapper);
+        let before = r.resource("owned").unwrap().clone();
+        let exact_runner::Value::Number(before) = before else {
+            panic!("a reading")
+        };
+        r.native_slot().changed("sensor.reading");
+        pump(&mut r, &mut Vec::new());
+        assert_eq!(
+            r.resource("owned"),
+            Some(&exact_runner::Value::Number(before + 1.0)),
+            "wrapper={wrapper}"
+        );
+    }
+}
+
+#[test]
+fn declarations_share_live_source_and_argument_group_lifetimes() {
+    let (_app, mut r, calls) = owned_runner(false);
+    r.act("move", Vec::new()).unwrap();
+    pump(&mut r, &mut Vec::new());
+    assert!(
+        !calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c["release"] == "reading"),
+        "the interface still reads a: {:?}",
+        calls.lock().unwrap()
+    );
+    r.act("closeOwn", Vec::new()).unwrap();
+    pump(&mut r, &mut Vec::new());
+    let released: Vec<_> = calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c["release"] == "reading")
+        .cloned()
+        .collect();
+    assert_eq!(released.len(), 1, "{released:?}");
+    assert_eq!(released[0]["args"], json!({"track":"b"}));
+    r.act("closeCommon", Vec::new()).unwrap();
+    pump(&mut r, &mut Vec::new());
+    assert_eq!(
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|c| c["release"] == "reading" && c.get("args").is_none())
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn an_owned_request_keeps_its_argument_group_until_its_reply_lands() {
+    let (_app, mut r, calls) = owned_runner(false);
+    r.act("move", Vec::new()).unwrap();
+    let pending = r.take_requests();
+    assert_eq!(pending.len(), 1);
+    r.act("closeCommon", Vec::new()).unwrap();
+    assert!(
+        !calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c["release"] == "reading"),
+        "the owned request is still in flight"
+    );
+    for out in pending {
+        let dispatch = match out.request.continuation {
+            Some(token) => r.dispatch_work(token),
+            None => r.native_work(&out.request),
+        };
+        run(&mut r, out.ticket, dispatch);
+    }
+    pump(&mut r, &mut Vec::new());
+    assert!(calls
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|c| c["release"] == "reading" && c["args"]["track"] == "a"));
+}
+
 fn boot(name: &str) -> (App, Runner<Granted>, Calls) {
     boot_with(name, &SENSOR, SENSOR.grants)
 }
@@ -217,7 +418,7 @@ fn boot_with(name: &str, fixture: &Fixture, grants: &'static str) -> (App, Runne
 
 /// The host's part: each request dispatched (a held one parked), released
 /// work run, each outcome fulfilled, until nothing is left to do.
-fn pump(r: &mut Runner<Granted>, parked: &mut Vec<(u64, u64)>) {
+fn pump<D: exact_runner::DataSource>(r: &mut Runner<D>, parked: &mut Vec<(u64, u64)>) {
     for _ in 0..8 {
         let outs = r.take_requests();
         let released = r.release_work();
@@ -241,7 +442,7 @@ fn pump(r: &mut Runner<Granted>, parked: &mut Vec<(u64, u64)>) {
     }
 }
 
-fn run(r: &mut Runner<Granted>, ticket: u64, dispatch: Dispatch) {
+fn run<D: exact_runner::DataSource>(r: &mut Runner<D>, ticket: u64, dispatch: Dispatch) {
     let outcome = match dispatch {
         Dispatch::Run(Work::Now(work)) => work(),
         Dispatch::Run(Work::Later(work)) => {
@@ -288,10 +489,11 @@ fn data_call(r: &mut Runner<Granted>, body: Json) -> Json {
     serde_json::from_slice(&body).unwrap()
 }
 
-/// A bound implementation answers only what admission lets through, from
-/// Contract and from data code alike: an argument whose grant line the app
-/// lacks, a capture start while the app is in the background, and one a tool
-/// invocation makes are each refused before the implementation hears of it.
+/// LLP 1133.002 D14, LLP 1133.009 D10 items 3, 8, 9: a bound implementation
+/// answers only what admission lets through, from Contract and from data
+/// code alike: an argument whose grant line the app lacks, a capture start
+/// while the app is in the background, and one a tool invocation makes are
+/// each refused before the implementation hears of it.
 #[test]
 fn a_bound_call_is_admitted_before_its_implementation_answers() {
     let (_app, mut r, calls) = boot("admitted");
@@ -363,7 +565,7 @@ fn a_bound_call_is_admitted_before_its_implementation_answers() {
     assert_eq!(sent(&calls, "open"), 2);
 }
 
-/// A path option is admitted against the app's
+/// LLP 1133.009 D10 item 4: a path option is admitted against the app's
 /// `fs.write` lines before the implementation hears of the call; a path
 /// outside them, or one that is not a plain `app:/` file, is refused.
 #[test]
@@ -392,12 +594,13 @@ fn a_path_to_write_is_admitted_against_the_app_s_fs_write_lines() {
     assert_eq!(sent(&calls, "save"), 1, "no refused path reaches it");
 }
 
-/// Under the agent an interface that is its own substitute is answered by its
-/// implementation, told so, behind the runner's permission: a request while
-/// `prompt` waits on a ticket the agent answers before the call reaches the
-/// implementation; a tool's call raises no ticket; the agent's preferred value
-/// reaches the implementation and is laid over its answer, checked field by
-/// field.
+/// LLP 1133.008 D8 item 9, LLP 1133.009 D10 item 11: under the agent an
+/// interface that is its own substitute is answered by its implementation,
+/// told so, behind the runner's permission: a request while `prompt` waits
+/// on a ticket the agent answers before the call reaches the
+/// implementation; a tool's call raises no ticket; the agent's preferred
+/// value reaches the implementation and is laid over its answer, checked
+/// field by field.
 #[test]
 fn an_implementation_that_is_its_own_substitute_answers_behind_the_agent_s_ticket() {
     let (_app, mut r, calls) = boot("agent");
@@ -465,7 +668,7 @@ fn an_implementation_that_is_its_own_substitute_answers_behind_the_agent_s_ticke
     );
 }
 
-/// A reader asked again with new arguments hands
+/// LLP 1133.009 D10 item 12: a reader asked again with new arguments hands
 /// its implementation the new group before the old one is released, and
 /// only the old group is released; the whole name is released when its last
 /// reader goes.
@@ -503,7 +706,7 @@ fn an_argument_group_with_no_reader_is_released_after_its_successor_is_asked() {
     );
 }
 
-/// A reply carrying handles is provisional
+/// LLP 1133.009 D6, D10 item 10: a reply carrying handles is provisional
 /// until delivered; the reply to a send superseded before it landed is
 /// dropped, and its implementation told to dispose of its handles, while
 /// the delivered one's stay the session's.
@@ -534,7 +737,7 @@ fn a_dropped_reply_s_handles_are_disposed_of() {
     );
 }
 
-/// A polled source is asked again once after an
+/// LLP 1133.009 D10 item 7: a polled source is asked again once after an
 /// advance that crossed its period, however many periods it crossed; never
 /// before its period, never while its last ask is in flight, and its poll
 /// is no timer that would stop the agent's jump. The agent's `polls` says
@@ -604,7 +807,7 @@ fn prefer(r: &mut Runner<Granted>, request: &str) -> Result<String, String> {
     r.extension_agent(request).expect("a prefer").1
 }
 
-/// Under the agent, a tool may start a
+/// LLP 1133.012 D12 item 5, §10 drive 4: under the agent, a tool may start a
 /// recognition of a file while its permission is granted, never one on the
 /// microphone; while `prompt` a tool raises no ticket, and the app's call on
 /// a track waits on the speech permission's.
@@ -643,7 +846,7 @@ fn a_tool_may_recognise_a_file_but_never_the_microphone() {
     assert_eq!(sent(&calls, "listen"), 1, "held under the ticket");
 }
 
-/// A `"*"` grant line holds every call of the name,
+/// LLP 1133.012 D12 item 3: a `"*"` grant line holds every call of the name,
 /// whatever its arguments.
 #[test]
 fn a_star_grant_line_holds_every_call() {
@@ -661,7 +864,7 @@ fn a_star_grant_line_holds_every_call() {
     );
 }
 
-/// A word the interface declares for its implementation's
+/// LLP 1133.012 §9: a word the interface declares for its implementation's
 /// agent path is preferred by its type and told to the implementation; a
 /// name neither a source nor a word is refused. The permission is asked only
 /// by the names whose lines it covers: while it is denied, a source with no
@@ -710,4 +913,62 @@ fn an_agent_word_is_preferred_by_its_type() {
     r.act("file", Vec::new()).unwrap();
     pump(&mut r, &mut parked);
     assert_eq!(sent(&calls, "listen"), 1, "refused while denied");
+}
+
+const GATED: Fixture = Fixture {
+    app: r#"use level, Reading from "@fixture/sensor"
+
+component App
+  state a = true
+  state b = true
+  resource first = level(track="a", interval=50) when a as shape Reading else empty()
+  resource second = level(track="b", interval=50) when b as shape Reading else empty()
+  action showA(on: bool)
+    a = on
+  action showB(on: bool)
+    b = on
+  view
+    column
+      text first.id
+      text second.id
+"#,
+    ..SENSOR
+};
+
+/// LLP 1161.002 D2, LLP 1133.009 D10 item 12: a reader whose gate closed is
+/// idle and reads nothing. Its argument group is released while another
+/// reader stays, the whole name with the last one, and opening the gate
+/// asks again.
+#[test]
+fn a_reader_whose_gate_closed_releases_its_live_source() {
+    let (_app, mut r, calls) = boot_with("gated", &GATED, GATED.grants);
+    r.bind_extensions(&["sensor"], &[]);
+    let mut parked = Vec::new();
+    pump(&mut r, &mut parked);
+    let group = |track: &str| json!({ "track": track, "interval": 50.0 });
+    let asked =
+        |track: &str| json!({ "extension": "sensor", "source": "level", "args": group(track) });
+    let released =
+        |track: &str| json!({ "extension": "sensor", "release": "level", "args": group(track) });
+    let whole = json!({ "extension": "sensor", "release": "level" });
+    let count = |want: &Json| calls.lock().unwrap().iter().filter(|c| *c == want).count();
+    assert_eq!((count(&asked("a")), count(&asked("b"))), (1, 1));
+
+    let (on, off) = (
+        exact_runner::Value::Bool(true),
+        exact_runner::Value::Bool(false),
+    );
+    r.act("showA", vec![off.clone()]).unwrap();
+    pump(&mut r, &mut parked);
+    assert_eq!(count(&released("a")), 1, "{:?}", calls.lock().unwrap());
+    assert_eq!((count(&released("b")), count(&whole)), (0, 0));
+
+    r.act("showA", vec![on]).unwrap();
+    pump(&mut r, &mut parked);
+    assert_eq!(count(&asked("a")), 2, "opening the gate asks again");
+
+    r.act("showA", vec![off.clone()]).unwrap();
+    r.act("showB", vec![off]).unwrap();
+    pump(&mut r, &mut parked);
+    assert_eq!(count(&whole), 1, "{:?}", calls.lock().unwrap());
 }

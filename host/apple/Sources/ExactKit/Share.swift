@@ -1,12 +1,12 @@
-// `share(title=, text=, url=, files=)`: the system share
-// sheet, in ExactKit so an embedder gets it with the session. The
+// `share(title=, text=, url=, files=)` (LLP 1069.003): the system share
+// sheet, in ExactKit so an embedder (LLP 1031) gets it with the session. The
 // runner rules first — bad data refused, and under the agent the request
-// held for `tap @t shared|cancel`, never a sheet, unless
-// `EXACT_DEVICE=real` asks for the real one — then iOS opens a
+// held for `tap @t shared|cancel`, never a sheet (D6), unless
+// `EXACT_DEVICE=real` asks for the real one (LLP 1069.007 D8) — then iOS opens a
 // UIActivityViewController and macOS an NSSharingServicePicker, anchored to
-// the node whose input ran the action. The outcome is a journal line
-// only. Native hosts share from any action: a timer's share opens
-// at the window's centre. `files=`: an `app:/` file goes as
+// the node whose input ran the action (D3). The outcome is a journal line
+// only (D2). Native hosts share from any action (Q2): a timer's share opens
+// at the window's centre. `files=` (LLP 1125 D12): an `app:/` file goes as
 // a copy read as `readFile` reads it; an `"#id"` as a PNG of that node's view as it is drawn now,
 // at the display's scale, written to a scratch directory removed when the
 // sheet closes. Under the agent nothing is drawn: the hold records the
@@ -91,7 +91,7 @@ extension ExactSession {
 }
 
 extension Presenter {
-    /// The pressed node's view; a menu row's popover invoker when the
+    /// D3: the pressed node's view; a menu row's popover invoker when the
     /// row itself is not on screen (a menu item); else the window's content,
     /// centred (a timer, an answer, a menu-bar command).
     func shareAnchor(_ source: UInt32?) -> (ShareAnchorView?, CGRect) {
@@ -121,7 +121,7 @@ extension Presenter {
 
 enum ShareSheet {
     /// A shown sheet's hold: tickets are each session's runner's, and a
-    /// process can hold two sessions (the sample host).
+    /// process can hold two sessions (the sample host, LLP 1031).
     struct Key: Hashable {
         let session: ObjectIdentifier, ticket: UInt64
         init(_ session: ExactSession, _ ticket: UInt64) { self.session = ObjectIdentifier(session); self.ticket = ticket }

@@ -858,7 +858,7 @@ fn material_overrides_recolour_one_material_and_keep_instances_together() {
 /// Which side a unit fights for: simulation state, saved and hashed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Component)]
 struct Team(u8);
-/// Team colour as `game/README.md` ("Team
+/// Team colour as LLP 1046.011 §8 rules it and `game/README.md` ("Team
 /// colours") shows it: appearance derived from the saved `Team` in `present`,
 /// one model for every team, no second model per tint.
 struct Teams;

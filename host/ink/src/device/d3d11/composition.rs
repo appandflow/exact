@@ -1,4 +1,5 @@
 //! A premultiplied composition surface over the system backdrop.
+//! @ref LLP 1149 D7; LLP 1115.004 D4.3.
 use super::*;
 use std::any::Any;
 use std::cell::RefCell;
@@ -96,7 +97,7 @@ impl Window {
     }
 
     /// The host's resolved window colour, including its scheme and contrast palette.
-    /// Used only when DWM refuses Mica.
+    /// Used only when DWM refuses Mica. @ref LLP 1095 D1; LLP 1149 S2.7.
     pub fn set_background(&self, color: [u8; 4]) {
         self.background.set(opaque_background(color));
     }
@@ -236,7 +237,7 @@ impl Composition {
                 None => {
                     // No rendering device: the visual must not retain WARP after
                     // its swap chain retires. DCompositionCreateDevice2 permits
-                    // this for swap-chain content.
+                    // this for swap-chain content. @ref LLP 1149 D11.
                     let device: IDCompositionDevice =
                         DCompositionCreateDevice2(None::<&windows::core::IUnknown>)?;
                     let target = device.CreateTargetForHwnd(window.hwnd, true)?;
@@ -323,7 +324,7 @@ impl Composition {
             return Ok(());
         }
         // Change content only after the new swap chain has its first picture.
-        // The old chain stays visible until this commit.
+        // The old chain stays visible until this commit. @ref LLP 1149 D7.
         unsafe {
             let hwnd = self._window.hwnd;
             let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;

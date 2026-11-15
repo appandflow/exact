@@ -1,4 +1,4 @@
-//! Mac benchmark carrier.
+//! Mac benchmark carrier. @ref LLP 1149 S1.1, D12.
 #![deny(unsafe_code)]
 
 #[cfg(target_os = "macos")]
@@ -20,7 +20,7 @@ pub fn run<D: exact_runner::DataSource + Default + 'static>(
 ) -> i32 {
     if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
         println!(
-            "{name} — benchmark carrier\n\
+            "{name} — benchmark carrier (LLP 1149 S1.1)\n\
             Ink in a macOS CAMetalLayer; not a shipping Apple presenter.\n\
             EXACT_INK_DEVICE=metal|wgpu (default: metal)\n\
             EXACT_WINDOW_WIDTH / EXACT_WINDOW_HEIGHT: content size in points\n\

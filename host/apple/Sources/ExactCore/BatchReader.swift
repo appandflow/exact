@@ -1,4 +1,4 @@
-// The unchanged Apple JSON wire, read as UTF-8.
+// @ref LLP 1044.000 §6 S8 — the unchanged Apple JSON wire, read as UTF-8.
 // One cursor, no Foundation containers or speculative type decoding. Errors
 // leave only through the batch boundary. Strings own their bytes before return.
 import Foundation

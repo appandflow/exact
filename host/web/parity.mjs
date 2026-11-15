@@ -7,14 +7,19 @@
 // `cargo test -p exact-web` (tests/parity.rs) with no browser at all.
 // --presence drives the corpus's Contract fixture on web, macOS and Linux.
 // --hosts selects hosts; --record-presence <host> deliberately replaces the
-// shared recording. It is an observation, not a judgment that that host is right.
-// --geometry drives the geometry fixture on each host over the
+// shared recording. It is an observation, not a ruling that that host is right.
+// --geometry drives LLP 1051.000's geometry fixture on each host over the
 // interaction gallery's artifacts, which link geometry because its sheet reads
 // it (build them first: its web dist, its Linux host, its macOS app), and
 // holds every answer to the fixture's own.
 // --paint compares nested sibling z-index, SVG blend backdrops, and colours
 // and a fade the hosts once disagreed on, on web and macOS, sampling flat
 // fills rather than font or antialiasing pixels.
+// --timelines records Chrome's own scroll and view timelines on the
+// timelines fixture (LLP 1057.003 D5) over the interaction gallery's web
+// artifact, which links timelines (build its web dist first), and holds the
+// kernel's placement and the engine to the recording; `--wasm <dist>` also
+// holds that app's wasm build to it.
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, mkdirSync } from 'node:fs';
@@ -22,12 +27,14 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng } from '../../scripts/png.mjs';
 import { chromium } from '../../scripts/agent-launch.mjs';
+import { HOST_DEV } from '../../scripts/app.mjs';
+import { fileURLToPath } from 'node:url';
 
-const here = resolve(new URL('.', import.meta.url).pathname);
+const here = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const root = resolve(here, '../..');
-const run = (args) => spawnSync('cargo', ['run', '-q', '--release', '-p', 'exact-web', '--bin', 'parity', '--', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' } });
+const run = (args) => spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'exact-web', '--bin', 'parity', '--', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' } });
 
-// These are recordings of one script, not a browser oracle. Boxes
+// LLP 1063: these are recordings of one script, not a browser oracle. Boxes
 // use CSS pixels/points; 0.1 tolerates native layout rounding, opacity 0.005
 // tolerates serialization. Missing ghosts and non-finite numbers always fail.
 export function comparePresence(reference, actual) {
@@ -154,6 +161,71 @@ async function geometryParity() {
   process.exitCode = failures.length ? 1 : 0;
 }
 
+// LLP 1057.003 D5: the browser runs every scroll and view timeline of the
+// timelines fixture itself (the web build writes CSS's own rows). Each
+// scroller is scrolled to each of its offsets and every consumer's computed
+// opacity is read after two frames, since a scroll timeline moves on
+// rendered frames. The recording is the fixture `cargo test -p exact-web`
+// holds the kernel's placement and the engine to.
+async function timelinesParity() {
+  process.env.EXACT_APP_DIR ??= resolve(root, 'apps/interaction-gallery');
+  const { open } = await import('../../scripts/agent.mjs');
+  const args = process.argv.slice(2), wasm = args.includes('--wasm') ? resolve(args[args.indexOf('--wasm') + 1]) : null;
+  const dir = resolve(root, 'target/timelines-parity');
+  mkdirSync(dir, { recursive: true });
+  const plan = resolve(dir, 'timelines.plan'), c = run(['timelines', plan]);
+  if (c.status !== 0) throw new Error(c.stderr);
+  const steps = JSON.parse(c.stdout);
+  // Every consumer's computed opacity at every offset, in one build of the fixture.
+  const record = async (webDist) => {
+    const s = await open({ host: 'web', plan, size: [420, 900], app: 'interaction-gallery', webDist });
+    const samples = [];
+    try {
+      const tree = await s.tree(), id = (name) => {
+        const node = tree.nodes.find((n) => n.props.testId === name);
+        if (!node) throw new Error(`the timelines fixture has no ${name}`);
+        return node.id;
+      };
+      for (const step of steps) {
+        const read = JSON.stringify(step.read.map((name) => [name, id(name)]));
+        const offset = step.axis === 'x' ? 'scrollLeft' : 'scrollTop';
+        for (const at of step.at) {
+          const got = JSON.parse(await s.carrier.evaluate(`(async () => {
+            const el = exact.views.get(${id(step.scroller)});
+            el.${offset} = ${at};
+            await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+            const values = Object.fromEntries(${read}.map(([name, view]) => [name, +getComputedStyle(exact.views.get(view)).opacity]));
+            return JSON.stringify({ at: el.${offset}, values });
+          })()`));
+          if (got.at !== at) throw new Error(`${step.scroller} scrolled to ${got.at}, not ${at}`);
+          samples.push({ scroller: step.scroller, at, values: got.values });
+        }
+      }
+      const browser = await s.carrier.evaluate('navigator.userAgent.match(/(Chrome|Firefox|Version)\\/[\\d.]+/)?.[0] ?? navigator.userAgent');
+      return { browser, samples };
+    } finally { await s.close(); }
+  };
+  const { browser, samples } = await record(undefined);
+  const fixture = resolve(here, 'tests/fixtures/browser-timelines.json');
+  writeFileSync(fixture, JSON.stringify({ browser, samples }, null, 1) + '\n');
+  console.log(`recorded ${samples.length} samples from ${browser} → host/web/tests/fixtures/browser-timelines.json`);
+  // `--wasm <dist>`: the wasm target's build (`build.mjs interaction-gallery --wasm`) shows the same.
+  if (wasm) {
+    const other = (await record(wasm)).samples, wrong = [];
+    for (const [i, sample] of samples.entries()) {
+      for (const [name, value] of Object.entries(sample.values)) {
+        const got = other[i]?.values?.[name];
+        if (!(Math.abs(got - value) <= 1e-3)) wrong.push(`${sample.scroller}@${sample.at} ${name}: wasm ${got}, js ${value}`);
+      }
+    }
+    for (const w of wrong) console.error(`  ${w}`);
+    console.log(`timelines: the wasm target ${wrong.length ? `disagrees on ${wrong.length} samples` : 'shows every sample the JS target does'}`);
+    if (wrong.length) process.exit(1);
+  }
+  const check = spawnSync('cargo', ['test', '-q', '-p', 'exact-web', '--lib', 'parity::timelines'], { cwd: root, stdio: 'inherit' });
+  process.exit(check.status ?? 1);
+}
+
 export async function samplePaint(session, expected, path, tolerance = 8) {
   const layout = await session.layout();
   await session.screenshot(path, true);
@@ -182,12 +254,12 @@ async function paintParity() {
     let session;
     try {
       session = await open({ host, plan, size: [240, 240] });
-      // Core Animation blends in the display's colour
+      // LLP 1055.000 §10c: Core Animation blends in the display's colour
       // space. This tests which backdrop participates, not colour fidelity;
       // 64 still distinguishes every red, blue and black outcome here.
       const tolerance = host === 'macos' ? 64 : 8;
       const samples = await samplePaint(session, expected.filter(p => !p.after), resolve(dir, `${host}.png`), tolerance);
-      // Then a press and half a fade on the agent's clock.
+      // Then a press and half a fade on the agent's clock (feed F20, trivia F6).
       await session.tap('flip');
       await session.clock('+500');
       samples.push(...await samplePaint(session, expected.filter(p => p.after), resolve(dir, `${host}-after.png`), tolerance));
@@ -257,5 +329,6 @@ if (import.meta.main) {
   if (process.argv.includes("--presence")) await presenceParity();
   else if (process.argv.includes("--geometry")) await geometryParity();
   else if (process.argv.includes("--paint")) await paintParity();
+  else if (process.argv.includes("--timelines")) await timelinesParity();
   else await browserParity();
 }

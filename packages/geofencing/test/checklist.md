@@ -2,14 +2,14 @@
 
 What the agent cannot drive: a fence crossed with the app terminated, the
 second ("Change to Always Allow") prompt, fences after a reboot, and
-anything on an Android phone. The
+anything on an Android phone (LLP 1133.021 §14 stages 2 and 3). The
 geofencing fixture (`apps/geofence-fixture`) watches Palo Alto station
 (37.4434, −122.1649, 200 m) and posts a notification on arrival; Caltrain's
-own switch waits for `@exact/notifications`. Use a test phone, never a
-personal one, and move it by simulated location where the steps say so:
-Xcode's Debug ▸ Simulate Location with a GPX file, or walking to the
-station. Record the date, the OS version, the device and what happened
-beside each step.
+own switch waits for `@exact/notifications`. Use a test phone (LLP
+1133.020), never a personal one, and move it by simulated location where
+the steps say so: Xcode's Debug ▸ Simulate Location with a GPX file, or
+walking to the station. Record the date, the OS version, the device and
+what happened beside each step.
 
 A GPX file for Xcode, `paloalto.gpx`, with a point 2 km away then the
 station:
@@ -49,7 +49,7 @@ station:
 
 `bun host/apple/build.mjs --run geofence-fixture-apple`. Turn it on; macOS
 asks for location once. A crossing is heard only while the app runs and
-the Mac is awake; a Mac rarely moves 200 m, so this step is the
+the Mac is awake (D14); a Mac rarely moves 200 m, so this step is the
 prompt and the status only.
 
 ## Android phone with Google Play services (Android 11 or later)
@@ -65,7 +65,7 @@ fixture's Android build is that script's.
    minutes, "entered station:pa".
 3. **Arrive, closed.** Close the app (swipe it away), move away and back.
    Open the app: the arrival is delivered then, with its original time
-   (Android's headless session is not built).
+   (Android's headless session is not built, D14 step 3).
 4. **Location off and on.** Turn location off, then on, with the app
    closed; move away and back: nothing (Play services dropped the fence).
    Open the app (it re-arms), move away and back: heard.

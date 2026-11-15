@@ -1,11 +1,11 @@
-//! A native button as a grouped list's row:
+//! A native button as a grouped list's row (LLP 1069.011, LLP 1084 D7):
 //! the platform's control at the row's inset, no wider than the card less
 //! that inset.
 
 use super::{m, metric, s, split};
 use contract_syntax::{Attr, Expr, Span};
 
-/// The sheet rows a native button takes, for a row whose
+/// The sheet rows a native button takes (LLP 1069.011 D6), for a row whose
 /// class made it one: its inset and height, and nothing it refuses.
 /// `margins` says whether its author wrote a horizontal margin.
 pub(crate) fn native_rows(sheet: &mut Vec<Attr>, margins: bool) {
@@ -67,14 +67,14 @@ fn widest(inset: &Expr) -> Expr {
     }
 }
 
-/// A native button row's sheet: the platform's control, at
+/// A native button row's sheet (LLP 1069.011): the platform's control, at
 /// the row's inset, no wider than the card less its insets, and the height a
 /// row's button has. Where a platform's
-/// form shows a button at its own size (the Mac's), its
+/// form shows a button at its own size (the Mac's, LLP 1115.002 D6), its
 /// margins and its place are metrics too, and are no row elsewhere.
 pub(super) fn native_row(span: Span, margins: bool) -> Vec<Attr> {
     // No wider than the card less its inset, so a native button its author
-    // makes as wide as the row stays in the card; stretched
+    // makes as wide as the row stays in the card (LLP 1084 D7); stretched
     // or at its own size, it is as wide as before. Where its author placed
     // it with a margin, the author's.
     let widest = if margins {

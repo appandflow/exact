@@ -1,5 +1,5 @@
 //! The agent's verbs, run as the agent runs them: the binary, headless, on
-//! an entry compiled with the terminal profile.
+//! an entry compiled with the terminal profile (LLP 1101.002 §0 P1, P7).
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -359,114 +359,6 @@ component App
 }
 
 #[cfg(unix)]
-#[test]
-fn normal_exit_waits_for_room_to_restore_screen() {
-    use std::fs::File;
-    use std::io::{Read, Write};
-    use std::os::fd::{AsRawFd, FromRawFd};
-    use std::time::{Duration, Instant};
-
-    let (mut master_fd, mut slave_fd) = (-1, -1);
-    assert_eq!(
-        unsafe {
-            libc::openpty(
-                &mut master_fd,
-                &mut slave_fd,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-            )
-        },
-        0
-    );
-    let mut master = unsafe { File::from_raw_fd(master_fd) };
-    let slave = unsafe { File::from_raw_fd(slave_fd) };
-    let path = entry("restore-backpressure");
-    std::fs::write(&path, "component App\n  view\n    text \"Ready\"\n").unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
-        .arg(path)
-        .args(["--size", "20x6", "--fullscreen"])
-        .stdin(slave.try_clone().unwrap())
-        .stdout(slave.try_clone().unwrap())
-        .stderr(slave.try_clone().unwrap())
-        .spawn()
-        .unwrap();
-    assert_eq!(
-        unsafe { libc::fcntl(master.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK) },
-        0
-    );
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let mut output = Vec::new();
-    while !output.windows(5).any(|part| part == b"Ready") {
-        let mut chunk = [0; 4096];
-        if let Ok(n) = master.read(&mut chunk) {
-            output.extend_from_slice(&chunk[..n]);
-        }
-        if Instant::now() >= deadline {
-            child.kill().unwrap();
-            child.wait().unwrap();
-            panic!("terminal did not draw Ready");
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    // A running Linux PTY can make room after EAGAIN without a master read.
-    // Stop transmission, then fill even single-byte room in the output queue.
-    assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOOFF) }, 0);
-    let filler = b"X";
-    loop {
-        let n = unsafe { libc::write(slave.as_raw_fd(), filler.as_ptr().cast(), filler.len()) };
-        if n < 0 {
-            assert_eq!(
-                std::io::Error::last_os_error().kind(),
-                std::io::ErrorKind::WouldBlock
-            );
-            break;
-        }
-        assert!(n > 0);
-    }
-    master.write_all(&[3]).unwrap();
-    // The old leave path timed out after two seconds even on a normal quit.
-    let blocked_until = Instant::now() + Duration::from_millis(2300);
-    while Instant::now() < blocked_until {
-        assert!(
-            child.try_wait().unwrap().is_none(),
-            "quit abandoned a blocked leave"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOON) }, 0);
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let mut chunk = [0; 4096];
-        if let Ok(n) = master.read(&mut chunk) {
-            output.extend_from_slice(&chunk[..n]);
-        }
-        if let Some(status) = child.try_wait().unwrap() {
-            assert!(status.success(), "{status}");
-            break;
-        }
-        if Instant::now() >= deadline {
-            child.kill().unwrap();
-            child.wait().unwrap();
-            panic!("terminal did not exit after output drained");
-        }
-    }
-    let mut chunk = [0; 4096];
-    while let Ok(n) = master.read(&mut chunk) {
-        if n == 0 {
-            break;
-        }
-        output.extend_from_slice(&chunk[..n]);
-    }
-    assert!(
-        output
-            .windows(b"\x1b[?25h\x1b[?1049l".len())
-            .any(|part| part == b"\x1b[?25h\x1b[?1049l"),
-        "leave sequence was truncated"
-    );
-}
-
-#[cfg(unix)]
 fn write_readiness(
     mut output: impl std::io::Write + std::os::fd::AsFd,
     mut bytes: &[u8],
@@ -759,7 +651,7 @@ fn cli_color_detection_and_explicit_overrides_agree_with_the_app() {
     ] {
         let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
             .arg(&path)
-            .args(["--color", flag, "print"])
+            .args(["--color", flag, "--drive", "print"])
             .env("TERM", term)
             .env("NO_COLOR", no_color)
             .env_remove("COLORTERM")
@@ -815,7 +707,7 @@ fn inline_paint_carries_colours_decorations_and_links_without_crossing_siblings(
         let grid = &painted.grid;
         assert!(grid.text().starts_with("ABCDE"), "{}", grid.text());
         // B is a run with an `href` in its paragraph and no colour of its
-        // own: the link role's, not its parent's. C says
+        // own: the link role's, not its parent's (LLP 1115 §3). C says
         // `inherit`, and the paragraph's own link keeps inheriting.
         let link = exact_kernel::ColorValue::parse_light_dark("LinkText")
             .unwrap()
@@ -876,7 +768,7 @@ fn run(name: &str, ops: &[&str]) -> (bool, String, String) {
 fn run_in(mode: &str, name: &str, ops: &[&str]) -> (bool, String, String) {
     let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
         .arg(entry(name))
-        .args(["--size", "40x12", mode])
+        .args(["--size", "40x12", mode, "--drive"])
         .args(ops)
         .output()
         .expect("runs");
@@ -897,7 +789,7 @@ fn nonbreaking_space_does_not_add_a_terminal_row() {
     .unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
         .arg(path)
-        .args(["--size", "4x6", "tree", "document"])
+        .args(["--size", "4x6", "--drive", "tree", "document"])
         .output()
         .unwrap();
     assert!(
@@ -936,7 +828,7 @@ fn a_verb_that_cannot_do_its_work_fails() {
 }
 
 /// A native field in a terminal entry is one row with a host-painted fill,
-/// no border, and a disabled one is faint.
+/// no border (LLP 1104 D7), and a disabled one is faint.
 #[test]
 fn a_terminal_field_is_a_filled_row() {
     let (ok, out, err) = run("field", &["print"]);
@@ -950,12 +842,17 @@ fn a_terminal_field_is_a_filled_row() {
     );
     let shot = entry("field").with_file_name("field.ans");
     // Full screen, the screenshot is the grid, faint included.
-    let (ok, _, err) = run_in(
-        "--fullscreen",
-        "field",
-        &["--color", "truecolor", "screenshot", shot.to_str().unwrap()],
+    let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
+        .arg(entry("field"))
+        .args(["--size", "40x12", "--fullscreen", "--color", "truecolor"])
+        .args(["--drive", "screenshot", shot.to_str().unwrap()])
+        .output()
+        .expect("runs");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
     );
-    assert!(ok, "{err}");
     let ans = std::fs::read_to_string(&shot).unwrap();
     // The host's fill: #303030 behind the placeholder, without compiled rows.
     assert!(ans.contains("48;2;48;48;48"), "{ans:?}");
@@ -1040,7 +937,7 @@ fn native_cell_look_keeps_bare_fields_and_authored_ink() {
     }
 }
 
-/// A determinate `progress` is a row of blocks, `█` to its
+/// LLP 1116 D8: a determinate `progress` is a row of blocks, `█` to its
 /// value and `░` after, across its box (HTML's 10em).
 #[test]
 fn a_progress_bar_is_a_row_of_blocks() {
@@ -1054,7 +951,7 @@ fn a_progress_bar_is_a_row_of_blocks() {
     .unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
         .arg(&path)
-        .args(["--size", "40x6", "--inline", "print"])
+        .args(["--size", "40x6", "--inline", "--drive", "print"])
         .output()
         .expect("runs");
     let text = String::from_utf8_lossy(&out.stdout);
@@ -1074,7 +971,7 @@ fn headless_time_uses_agent_facts_and_survives_an_invalid_place() {
     for (locale, clock) in [("en-US", "7:00 PM"), ("invalid@locale", "7:00 PM")] {
         let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
             .arg(&path)
-            .args(["--size", "80x6", "print"])
+            .args(["--size", "80x6", "--drive", "print"])
             .env("EXACT_AGENT_EPOCH", "1767225600000")
             .env("EXACT_AGENT_TIME_ZONE", "America/Toronto")
             .env("EXACT_AGENT_LOCALE", locale)
@@ -1094,8 +991,8 @@ fn headless_time_uses_agent_facts_and_survives_an_invalid_place() {
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
 
-/// The terminal carrier's own `layout` and `plan` verbs (for
-/// scripts/scale-check.mjs): each node's kernel frame, its cells, its
+/// The terminal carrier's own `layout` and `plan` verbs (LLP 1121 stage 11 C,
+/// for scripts/scale-check.mjs): each node's kernel frame, its cells, its
 /// testId and its corners' resolved radii; the running plan's SHA-256.
 #[test]
 fn layout_and_plan_answer_as_json() {
@@ -1107,7 +1004,7 @@ fn layout_and_plan_answer_as_json() {
     .unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
         .arg(&path)
-        .args(["--size", "40x10", "plan", "layout"])
+        .args(["--size", "40x10", "--drive", "plan", "layout"])
         .output()
         .unwrap();
     assert!(
@@ -1134,7 +1031,7 @@ fn layout_and_plan_answer_as_json() {
         "{layout}"
     );
     // A ch of padding is a column across and, half a row, none down (the
-    // terminal's space rule): the box is its child's
+    // terminal's space rule, LLP 1121 stage 11 (c)): the box is its child's
     // two rows; its corners resolved.
     assert!(
         layout.contains("\"x\":0,\"y\":0,\"w\":176,\"h\":32,\"cells\":{\"x\":0,\"y\":0,\"w\":22,\"h\":2},\"radius\":[8,8,8,8],\"testId\":\"box\""),
@@ -1163,7 +1060,9 @@ fn type_distinguishes_offscreen_fields_from_ineligible_fields() {
     std::fs::write(&path, APP.replace("button press=pick(v) commandfor=\"d\" command=\"close\" text-align=\"start\" testId=v\n              text v", "input value=v testId=v")).unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
         .arg(path)
-        .args(["--size", "40x12", "tap", "open", "type", "epsilon", "hello"])
+        .args([
+            "--size", "40x12", "--drive", "tap", "open", "type", "epsilon", "hello",
+        ])
         .output()
         .unwrap();
     assert!(!out.status.success());
@@ -1217,7 +1116,15 @@ fn modal_with_popover_refuses_background_tap_type_and_focus_command() {
     ] {
         let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
             .arg(&path)
-            .args(["--size", "60x20", "tap", "open", "tap", "open-popover"])
+            .args([
+                "--size",
+                "60x20",
+                "--drive",
+                "tap",
+                "open",
+                "tap",
+                "open-popover",
+            ])
             .args(ops)
             .output()
             .unwrap();

@@ -1,9 +1,9 @@
-//! `openAuthSession` through the runner, as every host's arm
+//! `openAuthSession` (LLP 1069.006) through the runner, as every host's arm
 //! asks it: the grants refuse (403), Linux has no browser (501), the agent
 //! holds the request by its own ticket and answers it with a checked
 //! callback URL or `cancel`, a second target's sheet is 409, and a
 //! superseded session is forgotten for the host to cancel. Loopback
-//! sessions wait side by side, one per address, and take
+//! sessions (LLP 1133.005 D9) wait side by side, one per address, and take
 //! only a callback with exactly one `code` or `error`.
 
 use exact_kernel::Kernel;
@@ -12,7 +12,7 @@ use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::{agent, Answer, DataError, DataSource, Event, Outcome, Runner, Store};
 
 const GRANTS: &str =
-    "auth.session https://as.test\nauth.callback app.test:/cb\nauth.callback http://127.0.0.1/cb\nauth.callback http://[::1]/cb";
+    "auth.session https://as.test\nauth.callback app.test:/cb\nauth.callback app.test://host/cb\nauth.callback http://127.0.0.1/cb\nauth.callback http://[::1]/cb";
 
 struct Signer;
 
@@ -31,7 +31,10 @@ impl DataSource for Signer {
             "https://as.test/a?client_id=c&request_uri=r&login_hint=h"
         };
         Ok(Answer::Later(exact_data::auth::open_auth_session(
-            url, callback, "s1", false,
+            url,
+            callback,
+            args.get(1).and_then(|v| v.as_str()).unwrap_or("s1"),
+            false,
         )))
     }
     fn parse(
@@ -106,7 +109,7 @@ fn grants_and_hosts_refuse_before_anything_opens() {
         Arm::Settled
     );
     assert_eq!(deliver(&mut r), "501 no system browser on this host");
-    // Under the agent a host with no browser holds it too.
+    // Under the agent a host with no browser holds it too (LLP 1146 D4).
     let out = press(&mut r, "go");
     assert_eq!(
         auth::arm(&mut r, &out, true, Browser::None, None),
@@ -201,7 +204,7 @@ fn settled(r: &mut Runner<Signer>) -> (u64, u16) {
 /// Loopback sign-ins wait at once, each on its own host and port, and
 /// complete independently; a callback with the right `state` and no `code`
 /// or `error` is refused and the hold stays; another on an address in use
-/// is 502; a sheet beside a loopback sign-in opens.
+/// is 502; a sheet beside a loopback sign-in opens (LLP 1133.005 D9).
 #[test]
 fn loopback_sessions_wait_side_by_side_and_take_only_a_code_or_an_error() {
     let mut r = boot();
@@ -273,7 +276,7 @@ fn loopback_sessions_wait_side_by_side_and_take_only_a_code_or_an_error() {
     assert_eq!(settled(&mut r), (a.ticket, 501));
 }
 
-/// A resource over a list: one
+/// A resource over a list (LLP 1017.000 P4c, amended 2026-11-04): one
 /// loopback sign-in for each port, each held on its own address. A port
 /// that joins asks; one that leaves lets only its own session go; the
 /// others take their callbacks independently.
@@ -331,7 +334,7 @@ fn a_resource_over_a_list_holds_a_loopback_sign_in_for_each_element() {
 
 /// `authorize` and `authorize cancel` parse as test steps and reach the driver
 /// as its `authorize` operation; anything else after the word is refused
-///.
+/// (LLP 1146 D4).
 #[test]
 fn authorize_steps_parse_and_reach_the_driver() {
     let tests = contract::tests("test \"sign in\"\n  authorize\n  authorize cancel\n").unwrap();
@@ -347,4 +350,181 @@ fn authorize_steps_parse_and_reach_the_driver() {
         format!("{refused:?}").contains("takes nothing or `cancel`"),
         "{refused:?}"
     );
+}
+
+#[test]
+fn android_leaves_other_endpoints_for_navigation() {
+    let mut r = boot();
+    for url in [
+        "other.test:/page",
+        "app.test:/elsewhere",
+        "app.test://elsewhere/cb",
+        "app.test:/cb/",
+        "app.test:/%63b",
+    ] {
+        assert!(!auth::receive_callback(&mut r, url), "{url}");
+    }
+    assert!(auth::receive_callback(
+        &mut r,
+        "app.test:/cb?code=secret&state=s1"
+    ));
+    assert!(
+        r.take_request_refusal(true).is_none(),
+        "cold callbacks are dropped"
+    );
+    let out = press(&mut r, "go");
+    auth::arm(&mut r, &out, false, Browser::Android, None);
+    assert!(auth::receive_callback(
+        &mut r,
+        "app.test://host/cb?state=wrong"
+    ));
+    assert!(
+        r.take_request_refusal(true).is_none(),
+        "another declared endpoint has no live session"
+    );
+    assert!(auth::receive_callback(&mut r, "app.test:/cb?state=s1"));
+    assert_eq!(settled(&mut r), (out.ticket, 200));
+}
+
+#[test]
+fn android_settles_a_rejected_callback_with_502() {
+    let mut r = boot();
+    for query in [
+        "state=s1&state=s1",
+        "state=wrong&state=s1",
+        "state=s1&code=bad code",
+    ] {
+        let out = press(&mut r, "go");
+        assert!(matches!(
+            auth::arm(&mut r, &out, false, Browser::Android, None),
+            Arm::Present(_)
+        ));
+        assert!(auth::receive_callback(
+            &mut r,
+            &format!("app.test:/cb?{query}")
+        ));
+        assert_eq!(settled(&mut r), (out.ticket, 502));
+        assert!(auth::receive_callback(
+            &mut r,
+            "app.test:/cb?code=secret&state=s1"
+        ));
+        assert!(
+            r.take_request_refusal(true).is_none(),
+            "a replay is dropped"
+        );
+    }
+    let out = press(&mut r, "go");
+    auth::arm(&mut r, &out, false, Browser::Android, None);
+    assert!(auth::receive_callback(
+        &mut r,
+        "app.test:/cb?code=secret&state=s1"
+    ));
+    assert_eq!(settled(&mut r), (out.ticket, 200));
+    assert!(r.journal().all(|line| !line.contains("secret")));
+}
+
+#[test]
+fn android_rejects_userinfo_on_the_live_callback_endpoint() {
+    let mut r = boot();
+    let mut out = press(&mut r, "go");
+    out.request =
+        exact_data::auth::open_auth_session("https://as.test/a", "app.test://host/cb", "s1", false);
+    assert!(matches!(
+        auth::arm(&mut r, &out, false, Browser::Android, None),
+        Arm::Present(_)
+    ));
+    assert!(auth::receive_callback(
+        &mut r,
+        "app.test://secret@host/cb?state=s1"
+    ));
+    assert_eq!(settled(&mut r), (out.ticket, 502));
+    assert!(r.journal().all(|line| !line.contains("secret")));
+}
+
+#[test]
+fn android_a_stale_callback_keeps_the_retry_until_its_own_callback() {
+    let mut r = boot();
+    let first = press(&mut r, "go");
+    auth::arm(&mut r, &first, false, Browser::Android, None);
+    auth::complete(&mut r, first.ticket, Err((499, "cancelled")));
+    assert_eq!(deliver(&mut r), "499 cancelled");
+    let mut next = press(&mut r, "go");
+    next.request =
+        exact_data::auth::open_auth_session("https://as.test/a", "app.test:/cb", "s2", false);
+    auth::arm(&mut r, &next, false, Browser::Android, None);
+    assert!(auth::receive_callback(
+        &mut r,
+        "app.test:/cb?code=old&state=s1"
+    ));
+    assert!(
+        r.take_request_refusal(true).is_none(),
+        "a stale callback leaves the retry pending"
+    );
+    for query in ["state=wrong", "code=secret", "state=bad state"] {
+        assert!(auth::receive_callback(
+            &mut r,
+            &format!("app.test:/cb?{query}")
+        ));
+        assert!(r.take_request_refusal(true).is_none());
+    }
+    assert!(auth::receive_callback(
+        &mut r,
+        "app.test:/cb?code=new&state=s2"
+    ));
+    assert_eq!(settled(&mut r), (next.ticket, 200));
+}
+
+#[test]
+fn android_keeps_the_substitute_refuses_loopback_and_drops_forgotten_requests() {
+    let mut r = boot();
+    let out = press(&mut r, "go");
+    assert_eq!(
+        auth::arm(&mut r, &out, true, Browser::Android, None),
+        Arm::Held
+    );
+    let out = press(&mut r, "loop-a");
+    assert_eq!(
+        auth::arm(&mut r, &out, false, Browser::Android, None),
+        Arm::Settled
+    );
+    assert_eq!(settled(&mut r), (out.ticket, 501));
+    let out = press(&mut r, "go");
+    auth::arm(&mut r, &out, false, Browser::Android, None);
+    let replacement = press(&mut r, "go");
+    assert!(auth::receive_callback(
+        &mut r,
+        "app.test:/cb?code=secret&state=s1"
+    ));
+    assert!(
+        r.take_request_refusal(true).is_none(),
+        "a forgotten request cannot complete"
+    );
+    auth::arm(&mut r, &replacement, false, Browser::Android, None);
+    auth::complete(&mut r, replacement.ticket, Err((499, "cancelled")));
+    assert_eq!(deliver(&mut r), "499 cancelled");
+}
+
+#[test]
+fn android_same_target_sessions_deliver_by_state() {
+    let mut r = Runner::boot(
+        contract::compile("shape R\n  text: string\ncomponent App\n  resource signed = signIn(\"app.test:/cb\", s) for s in [\"s1\", \"s2\"] as shape R\n  view\n    text signed.map(s => s.text).join(\",\")\n").unwrap(),
+        Signer, Kernel::with_monospace(), Default::default(), "/",
+    ).unwrap();
+    let requests = r.take_requests();
+    assert_eq!(requests.len(), 2);
+    for out in &requests {
+        assert!(matches!(
+            auth::arm(&mut r, out, false, Browser::Android, None),
+            Arm::Present(_)
+        ));
+    }
+    for out in requests.iter().rev() {
+        let session =
+            auth::Session::from_json(std::str::from_utf8(&out.request.body).unwrap()).unwrap();
+        assert!(auth::receive_callback(
+            &mut r,
+            &format!("app.test:/cb?code=c&state={}", session.state)
+        ));
+        assert_eq!(settled(&mut r), (out.ticket, 200));
+    }
 }

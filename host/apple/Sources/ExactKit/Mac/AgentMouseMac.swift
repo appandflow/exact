@@ -1,4 +1,4 @@
-// The agent's mouse buttons and wheel on AppKit. Each
+// The agent's mouse buttons and wheel on AppKit (LLP 1012 §1; #107). Each
 // event goes through `NSApplication.sendEvent`, as a hand's comes from the
 // window server, so the app's local monitors see it before its window does.
 // A right or middle button and a wheel are made as the window server makes
@@ -33,7 +33,7 @@ extension Agent {
     /// Whether this build makes the events below. Each takes private API (an
     /// undocumented event field, a CoreGraphics setter outside its headers, a
     /// gesture event's raw fields), which only a development build compiles
-    /// (`EXACT_INSPECT`, Package.swift). A production build
+    /// (`EXACT_INSPECT`, Package.swift; LLP 1035.003 §3). A production build
     /// makes none, and an op that needs one answers `developmentOnly`.
     #if EXACT_INSPECT
     static let privateEvents = true

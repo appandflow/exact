@@ -1,5 +1,5 @@
-//! Every shader this module runs, compiled here to Metal AIR: the GPU
-//! compiles no shaders at runtime.
+//! Every shader this module runs, compiled here to Metal AIR (`rules/
+//! DEFERRED.md`: the GPU "compiles no shaders at runtime").
 //!
 //! vello's WGSL (from `vello_shaders`, with the fine stage patched: a
 //! backdrop it starts from and premultiplied output) and this crate's own
@@ -20,6 +20,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use vello_shaders::compile::ShaderInfo;
 use vello_shaders::BindType;
+
+mod metal;
 
 /// The kernels the module creates pipelines for, by `vello_shaders` name.
 const VELLO: &[&str] = &[
@@ -49,7 +51,9 @@ fn main() {
     let out = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=metal.rs");
     println!("cargo:rerun-if-changed=shaders");
+    println!("cargo:rerun-if-env-changed=EXACT_APPLE_METAL_REQUIRED");
     println!("cargo:rustc-check-cfg=cfg(exact_no_metal_toolchain)");
     let target = std::env::var("TARGET").unwrap();
     // Off Apple the crate is empty (`src/lib.rs`): nothing to compile.
@@ -61,39 +65,35 @@ fn main() {
     // dyld refuses ("mis-aligned LINKEDIT string pool"), so host/apple/
     // build.mjs builds this crate with strip off.
     println!("cargo:rustc-cdylib-link-arg=-Wl,-x");
+    let Some((sdk, min)) = metal::sdk(&target) else {
+        println!(
+            "cargo:warning=exact-canvas-vello: no Metal SDK for {target}; the module is a stub"
+        );
+        stub(&out);
+        return;
+    };
     // Without Xcode's Metal toolchain the module is a stub whose `ecg_abi`
     // answers 0, so the host draws with Core Graphics; host/apple/build.mjs
     // checks for the toolchain and says how to install it before it embeds
     // a module. This keeps `cargo build --workspace` working on a Mac
     // without it.
     if !Command::new("xcrun")
-        .args(["-sdk", "macosx", "-f", "metal"])
+        .args(["-sdk", sdk, "-f", "metal"])
         .output()
         .is_ok_and(|o| o.status.success())
         || !Command::new("xcrun")
-            .args(["-sdk", "macosx", "metal", "--version"])
+            .args(["-sdk", sdk, "metal", "--version"])
             .output()
             .is_ok_and(|o| o.status.success())
     {
+        // A build service sets EXACT_APPLE_METAL_REQUIRED=1 (host/apple/build.mjs): a stub there is a broken app.
+        if std::env::var("EXACT_APPLE_METAL_REQUIRED").as_deref() == Ok("1") {
+            panic!("exact-canvas-vello: no Metal toolchain, and EXACT_APPLE_METAL_REQUIRED=1");
+        }
         println!("cargo:warning=exact-canvas-vello: no Metal toolchain (`xcodebuild -downloadComponent MetalToolchain`); the module is a stub");
-        println!("cargo:rustc-cfg=exact_no_metal_toolchain");
-        std::fs::write(out.join("kernels.bin"), []).unwrap();
-        std::fs::write(
-            out.join("kernels.rs"),
-            "pub static KERNELS: &[Kernel] = &[];\n",
-        )
-        .unwrap();
+        stub(&out);
         return;
     }
-    let sdk = if target.ends_with("apple-ios-sim") {
-        Some(("iphonesimulator", "-mios-simulator-version-min=17.0"))
-    } else if target.ends_with("apple-ios") {
-        Some(("iphoneos", "-mios-version-min=17.0"))
-    } else if target.ends_with("apple-darwin") {
-        Some(("macosx", "-mmacosx-version-min=14.0"))
-    } else {
-        None
-    };
 
     // vello's shader directory, copied so the fine stage can be patched.
     let dir = out.join("shader");
@@ -155,12 +155,7 @@ fn main() {
             .iter()
             .map(|(name, _, _, _, path)| {
                 let out = &out;
-                s.spawn(move || match sdk {
-                    Some((sdk, min)) => {
-                        metallib(sdk, min, path, &out.join(format!("{name}.metallib")))
-                    }
-                    None => Vec::new(),
-                })
+                s.spawn(move || metallib(sdk, min, path, &out.join(format!("{name}.metallib"))))
             })
             .collect();
         handles.into_iter().map(|h| h.join().unwrap()).collect()
@@ -190,6 +185,16 @@ fn main() {
     std::fs::write(out.join("kernels.rs"), index).unwrap();
 }
 
+fn stub(out: &Path) {
+    println!("cargo:rustc-cfg=exact_no_metal_toolchain");
+    std::fs::write(out.join("kernels.bin"), []).unwrap();
+    std::fs::write(
+        out.join("kernels.rs"),
+        "pub static KERNELS: &[Kernel] = &[];\n",
+    )
+    .unwrap();
+}
+
 /// The fine stage, patched: each pixel starts from `backdrop` (the canvas's
 /// kept pixels, premultiplied; a 1×1 transparent texture when there are
 /// none) instead of the base colour, and is written premultiplied (the
@@ -203,17 +208,17 @@ fn patch_fine(src: &str) -> String {
     once(
         &mut s,
         "var image_atlas: texture_2d<f32>;\n",
-        "var image_atlas: texture_2d<f32>;\n\n#ifndef msaa\n@group(0) @binding(8)\nvar backdrop: texture_2d<f32>;\n#endif\n",
+        "var image_atlas: texture_2d<f32>;\n\n#ifndef msaa\n@group(0) @binding(8)\nvar backdrop: texture_2d<f32>;\n@group(0) @binding(9)\nvar<storage, read> clip_masks: array<f32>;\n#endif\n",
     );
     once(
         &mut s,
         "    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {\n        rgba[i] = base_color;\n    }\n",
-        "#ifdef msaa\n    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {\n        rgba[i] = base_color;\n    }\n#else\n    let backdrop_max = vec2<i32>(textureDimensions(backdrop)) - vec2(1);\n    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {\n        let at = min(vec2<i32>(i32(xy.x) + i32(i), i32(xy.y)), backdrop_max);\n        let bd = textureLoad(backdrop, at, 0);\n        rgba[i] = bd + base_color * (1.0 - bd.a);\n    }\n#endif\n",
+        "#ifdef msaa\n    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {\n        rgba[i] = base_color;\n    }\n#else\n    let packed_mask = config.base_color == 0xffff00ffu;\n    let backdrop_max = vec2<i32>(textureDimensions(backdrop)) - vec2(1);\n    for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {\n        let at = min(vec2<i32>(i32(xy.x) + i32(i), i32(xy.y)), backdrop_max);\n        let bd = textureLoad(backdrop, at, 0);\n        rgba[i] = select(bd + base_color * (1.0 - bd.a), vec4(0.0), packed_mask);\n    }\n#endif\n",
     );
     once(
         &mut s,
         "            let rgba_sep = vec4(fg.rgb * a_inv, fg.a);\n            textureStore(output, vec2<i32>(coords), rgba_sep);\n",
-        "#ifdef msaa\n            let rgba_sep = vec4(fg.rgb * a_inv, fg.a);\n            textureStore(output, vec2<i32>(coords), rgba_sep);\n#else\n            textureStore(output, vec2<i32>(coords), vec4(min(fg.rgb, vec3(fg.a)), fg.a));\n#endif\n",
+        "#ifdef msaa\n            let rgba_sep = vec4(fg.rgb * a_inv, fg.a);\n            textureStore(output, vec2<i32>(coords), rgba_sep);\n#else\n            var pixel = vec4(min(fg.rgb, vec3(fg.a)), fg.a);\n            if packed_mask {\n                pixel = unpack4x8unorm(bitcast<u32>(clamp(fg.a, 0.0, 1.0)));\n            }\n            textureStore(output, vec2<i32>(coords), pixel);\n#endif\n",
     );
     // Canvas clips (see `patch_coarse`).
     let begin = s
@@ -230,7 +235,22 @@ fn patch_fine(src: &str) -> String {
     once(
         &mut s,
         "                    if end_clip.blend == LUMINANCE_MASK_LAYER {",
-        "                    if end_clip.blend == ((128u << 8u) | 3u) {\n                        rgba[i] = mix(bg, rgba[i], area[i] * end_clip.alpha);\n                        continue;\n                    }\n                    if end_clip.blend == LUMINANCE_MASK_LAYER {",
+        r#"#ifndef msaa
+                    if end_clip.blend == 0x20000u {
+                        let coords = vec2<u32>(xy) + vec2(i, 0u);
+                        if coords.x < config.target_width && coords.y < config.target_height {
+                            let stride = ((config.target_width + 63u) / 64u) * 64u;
+                            let at = u32(end_clip.alpha) * stride * config.target_height + coords.y * stride + coords.x;
+                            rgba[i] = mix(bg, rgba[i], clip_masks[at]);
+                        }
+                        continue;
+                    }
+#endif
+                    if end_clip.blend == ((128u << 8u) | 3u) {
+                        rgba[i] = mix(bg, rgba[i], area[i] * end_clip.alpha);
+                        continue;
+                    }
+                    if end_clip.blend == LUMINANCE_MASK_LAYER {"#,
     );
     s
 }
@@ -259,7 +279,7 @@ fn patch_coarse(src: &str) -> String {
     once(
         &mut s,
         "                            write_begin_clip();",
-        "                            write_begin_clip(scene[dd] == ((128u << 8u) | 3u));",
+        "                            write_begin_clip(scene[dd] == ((128u << 8u) | 3u) || scene[dd] == 0x20000u);",
     );
     s
 }

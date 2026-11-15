@@ -1,10 +1,10 @@
-// A template-path icon on AppKit: an image node whose
+// A template-path icon on AppKit (LLP 1121 stage 14 C1): an image node whose
 // source is an icon path (no SF Symbol, a `symbolPath`) draws that path, each
 // `;` path its own shape layer filled by the icon's rule (nonzero, or even-odd
-// by `symbolFillRule`), at the node's own fractional
+// by `symbolFillRule`, stage 14 C2), at the node's own fractional
 // frame in its tint. An NSImageView showing the path as a template NSImage
-// resamples it off a whole pixel, lighter and offset; SF Symbols and
-// bitmaps keep their NSImageView (NodeSymbolMac.swift).
+// resamples it off a whole pixel, lighter and offset (theme2's 07:01 ruling,
+// case 3b); SF Symbols and bitmaps keep their NSImageView (NodeSymbolMac.swift).
 #if os(macOS)
 import AppKit
 import ExactCore

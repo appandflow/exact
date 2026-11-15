@@ -1,9 +1,9 @@
-// Recognized deltas commit ordinary application state.
+// @ref LLP 1043.000 §3 D8 — recognized deltas commit ordinary application state.
 // No motion token, release animation or second geometry owner. Cancellation keeps
 // the last committed position. Coordinates are viewport CSS pixels on every host.
-// A pan that began ends once with `panrelease(vx, vy)`, after
-// its last delta: UIKit's velocity on iOS, the engine's tracker on AppKit. A
-// cancelled contact releases at rest; one that never began, nothing.
+// @ref LLP 1057 §10.6 — a pan that began ends once with `panrelease(vx, vy)`, after
+// its last delta: UIKit's velocity on iOS, the engine's tracker on AppKit (LLP
+// 1057.001 §3). A cancelled contact releases at rest; one that never began, nothing.
 #if os(macOS)
 import AppKit
 final class MouseLayoutPan {
@@ -45,7 +45,7 @@ final class MouseLayoutPan {
                 // An editor keeps the contact; a press between keeps it only
                 // within the slop — the pan that begins takes the press (the
                 // chain clears it), as a draggable element hears a drag that
-                // starts on a button inside it.
+                // starts on a button inside it (LLP 1057.001 rule 3; kanban F6).
                 if view.field != nil || view.textArea != nil { return false }
             }
             at = current.superview
@@ -143,14 +143,14 @@ extension NodeView {
             layoutPanOrigin = p
             if dx != 0 || dy != 0 { presenter.pan(id, Double(dx), Double(dy)) }
         }
-        // UIKit measures the release; its action sees
+        // UIKit measures the release (LLP 1057.001 §3); its action sees
         // .cancelled or .failed only after .began.
         if gesture.state == .ended {
             let v = gesture.velocity(in: port)
             presenter.panRelease(id, Double(v.x), Double(v.y))
         } else if [.cancelled, .failed].contains(gesture.state) {
             // UIKit took the contact (a system gesture, a scroll view's pan):
-            // the journal says so, as the web's does.
+            // the journal says so, as the web's does (files diary F10).
             if gesture.state == .cancelled { presenter.session?.log("pan cancelled: UIKit took the contact (a system gesture or a scroll view's pan)") }
             presenter.panRelease(id, 0, 0)
         }

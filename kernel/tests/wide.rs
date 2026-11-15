@@ -1,4 +1,4 @@
-//! The wide colour table reclaims its slots (as built:
+//! The wide colour table reclaims its slots (LLP 1121 §5 stage 4, as built:
 //! mark and sweep). One test, in its own process: the table is the
 //! process's, and parallel tests would share it.
 

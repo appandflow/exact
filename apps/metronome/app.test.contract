@@ -1,4 +1,4 @@
-// The metronome's tests: a sequence's steps are voices in the
+// The metronome's tests (LLP 1125 D5): a sequence's steps are voices in the
 // runner's record, so `clock +N` then `expect sound … at N` checks every hit
 // with no audio, and `exactTransport()` is `transport`. Run on any host with
 // `bun scripts/agent.mjs <host> --test apps/metronome/app.test.contract`.
@@ -113,6 +113,9 @@ test "following an input's clock, it waits for Start and plays at the device's t
   expect text "beat" == "Waiting for clock"
   tap midi "OP-XY" clock 125 1000
   expect text "bpm" == "125"
+  // The number is the clock's: the stepper waits until the transport stops.
+  expect disabled "faster"
+  expect disabled "slower"
   tap midi "OP-XY" fa
   tap midi "OP-XY" clock 125 1000
   expect state transport.state == "playing"

@@ -1,4 +1,4 @@
-// @exact/age-range's agent path: the sheet's answer is
+// @exact/age-range's agent path (LLP 1133.028 §7): the sheet's answer is
 // the `age-range` ticket's, as the call's `preferred`. `type @t <age>`
 // answers the range that age falls in among the app's gates, as Apple's
 // sheet does; `tap @t decline` answers `declined`; `tap @t unavailable`

@@ -1,5 +1,5 @@
 //! `openURL(url[, id])`: the URL, and the element whose `change` hears
-//! whether it opened.
+//! whether it opened (LLP 1133.000 §2).
 
 use super::{err, infer, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};

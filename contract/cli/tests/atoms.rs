@@ -1,4 +1,4 @@
-//! Inline atoms in Contract: the `atom` declaration,
+//! Inline atoms in Contract (LLP 1045.000 D3, D7): the `atom` declaration,
 //! a Markdown node's `atoms` and `atomFaces`, and the `atompress` event.
 use exact_kernel::{Kernel, PropId, StyleId};
 use exact_runner::{DataError, DataSource, Event, Runner, Value};
@@ -93,9 +93,9 @@ fn a_markdown_field_carries_its_kinds_paint_and_faces() {
     assert_eq!(prop(&runner, "reader", PropId::AtomFaces), None);
 }
 
-/// A face's colours are read as a bound colour row's: a
+/// A face's colours are read as a bound colour row's (LLP 1045.000 D2): a
 /// theme entry's name as its colour, a platform colour only as one of the
-/// plan's literals, and anything else that is no colour
+/// plan's literals (LLP 1095 D3, D4), and anything else that is no colour
 /// as nothing, so its kind's paint stands, with a journal line. A host gets
 /// the wire's text.
 #[test]
@@ -137,14 +137,14 @@ component App
 
 /// A design with a token whose slice the `dark-style` axis picks, and one
 /// that does not vary.
-const MODES: &str = "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = light-dark(#111111, #eeeeee)\n    when dark-style=dim: light-dark(#111111, #cccccc)\n  brand = #c8102e\n";
+const MODES: &str = "forma t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = light-dark(#111111, #eeeeee)\n    when dark-style=dim: light-dark(#111111, #cccccc)\n  brand = #c8102e\n";
 
 /// An app beside its design, booted from its baked plan.
 fn designed(name: &str, contract: &str) -> Runner<NoData> {
     let dir = std::env::temp_dir().join(format!("exact2-atoms-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("app.tamber"), MODES).unwrap();
+    std::fs::write(dir.join("app.forma"), MODES).unwrap();
     std::fs::write(dir.join("app.contract"), contract).unwrap();
     let plan = contract::bake(
         contract::compile_path(&dir.join("app.contract")).unwrap(),
@@ -162,8 +162,9 @@ fn designed(name: &str, contract: &str) -> Runner<NoData> {
     .unwrap()
 }
 
-/// A face's colour that names a token, here from state, is read again when the
-/// app's mode or the token changes, as a bound `color` is: the pill recolours.
+/// A face's colour that names a token, here from state, is read again when
+/// the app's mode or the token changes, as a bound `color` is (LLP 1045.000
+/// D2): the pill recolours.
 #[test]
 fn a_faces_token_colour_follows_set_mode_and_set_token() {
     let mut r = designed(
@@ -196,11 +197,11 @@ fn a_faces_token_colour_follows_set_mode_and_set_token() {
 }
 
 /// A colour in a standard space the platforms ship, or in a wide one, is
-/// read as a bound `color` reads it, and the wire's text
+/// read as a bound `color` reads it (LLP 1100 D1, D2), and the wire's text
 /// names it, as Apple draws it. One in a profile the app declares is
 /// refused, with one journal line, though a bound `color` given the same
 /// text from state takes it: a host draws a face from its text alone,
-/// which names no ICC file.
+/// which names no ICC file (LLP 1045.000 D2).
 #[test]
 fn a_faces_profile_colour_is_a_standard_spaces_only() {
     let runner = boot(
@@ -238,7 +239,7 @@ fn a_faces_profile_colour_is_a_standard_spaces_only() {
 fn the_bridge_reads_atom_face_in_the_compilers_order() {
     use contract_types::Ty;
     let file = contract_syntax::parse("component G\n  view\n    column\n").unwrap();
-    let shapes = contract_types::check_declarations(&file).unwrap();
+    let shapes = contract_types::check_declarations(&file, None).unwrap();
     let read: Vec<(String, Ty)> = exact_runner::decorations::ATOM_FACE_FIELDS
         .iter()
         .map(|&f| {
@@ -294,7 +295,7 @@ fn a_malformed_atom_press_is_refused_before_it_runs() {
     }
 }
 
-/// An atom's own style and its states': what moves
+/// An atom's own style and its states' (LLP 1045.000 D3, D4): what moves
 /// the text in its kind's row, the paint by state as kernel rows, which the
 /// decorations table reads as it reads a kind's colours.
 #[test]

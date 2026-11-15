@@ -1,4 +1,4 @@
-//! `glassGroup="auto"`, resolved here from the kernel's
+//! LLP 1053.000.000.000: `glassGroup="auto"`, resolved here from the kernel's
 //! style — the main axis's gap, the grid's smaller gap, `0` for a block —
 //! and sent both as props (`glassGroup`, `glassGroupAuto`) and in the style
 //! dictionary (`glass_group_spacing`), so a gap or direction change, which

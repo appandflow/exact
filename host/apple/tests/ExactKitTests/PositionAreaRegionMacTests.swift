@@ -1,5 +1,5 @@
-// A painted popover sized in its position-area option's region,
-// as Chrome sizes the box (host/web/tests/position-area-region.test.mjs,
+// A painted popover sized in its position-area option's region (LLP 1021
+// D2), as Chrome sizes the box (host/web/tests/position-area-region.test.mjs,
 // whose table this is): in a 400×600 window, a 40×20 invoker and a popover of
 // twelve 50×18 boxes in a wrapping row. Each option measures the popover in
 // its region (`Kernel::measure_block`), the first that fits is chosen, and
@@ -74,8 +74,8 @@ final class PositionAreaRegionMacTests: XCTestCase {
     }
 
     /// An authored `none` is no area: the popover keeps the viewport the top
-    /// layer implies, one row, at the default placement held in the window,
-    /// not the region below and right of its invoker.
+    /// layer implies, one row, at D2's default placement held in the window,
+    /// not the region below and right of its invoker (Astra round 1).
     func testAnAuthoredNoneKeepsTheViewport() throws {
         let f = try SheetFixture(page: Self.sixBoxes(area: "none", flips: #"some("flip-inline")"#), size: CGSize(width: 420, height: 600))
         fixture = f
@@ -92,7 +92,7 @@ final class PositionAreaRegionMacTests: XCTestCase {
 
     /// AppKit's popover gives the box its own block and takes it back: painted
     /// again, the region is told again, and the boxes wrap in it, two a row,
-    /// as the first time.
+    /// as the first time (Astra round 1).
     func testARegionIsToldAgainAfterAppKitsPopover() throws {
         let f = try SheetFixture(page: Self.sixBoxes(area: "bottom span-right", flips: #"some("flip-inline")"#), size: CGSize(width: 420, height: 600))
         fixture = f

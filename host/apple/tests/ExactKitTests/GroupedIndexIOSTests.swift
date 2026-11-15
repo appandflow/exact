@@ -6,7 +6,7 @@ import XCTest
 
 /// A list whose sections are each headed by one letter (Contacts' A to Z)
 /// has UIKit's section index, as a hand-built list of them does; any other
-/// list has none.
+/// list has none (contacts, round 29).
 final class GroupedIndexIOSTests: GroupedListFixture {
     func lettered(_ headers: [String?]) -> GroupedListModel {
         var m = model()
@@ -28,7 +28,7 @@ final class GroupedIndexIOSTests: GroupedListFixture {
                        "a jump lands on the section's first row")
     }
 
-    /// Favorites above the letters (a contacts list): the letters keep
+    /// Favorites above the letters (bake-off r28's contacts): the letters keep
     /// their index, and a jump to one lands past the sections above them.
     func testSectionsAboveTheLettersAreLeftOutOfTheIndex() throws {
         let p = presenter {

@@ -1,4 +1,4 @@
-// @exact/background-transfer on Apple: Background
+// @exact/background-transfer on Apple (LLP 1133.017 D3, D4, D10, D17): Background
 // Fetch's names over the host's transfer carrier (`context.transfers`,
 // ExactKit's Transfers.swift), whose background `URLSession`s finish a
 // transfer while the app is suspended or terminated and whose records
@@ -15,7 +15,7 @@
 // - An ending the host offers (a wake of kind `transfer`) raises
 //   `backgroundfetchsuccess`, `backgroundfetchfail` or `backgroundfetchabort`
 //   with the registration. The app retires it; until then the host offers it
-//   again.
+//   again (D10).
 // - Under the agent the carrier runs as in production, against whatever
 //   server the drive names: the interface is its own substitute.
 import ExactPackage
@@ -81,7 +81,9 @@ public final class BackgroundTransferModule: NSObject, ExactPackage {
                 out["bodyFrom"] = file.path
             }
             if let to = r["saveTo"] as? String {
-                guard context.file(to) != nil else { return ["error": "NotAllowedError"] }
+                guard let file = context.file(to) else { return ["error": "NotAllowedError"] }
+                // A body replaces a file, never a folder (`place`).
+                guard !Self.isFolder(file) else { return ["error": "TypeError"] }
                 out["saveTo"] = to
             }
             requests.append(out)
@@ -116,20 +118,43 @@ public final class BackgroundTransferModule: NSObject, ExactPackage {
     }
 
     /// Move a record's body from the carrier to its app file: the request's
-    /// `saveTo`, else the registration's folder. Nil when it has none.
+    /// `saveTo`, else the registration's folder. Nil when it has none. A
+    /// folder there, which may have been made since `start`, is kept and the
+    /// body left with the carrier; a file there is replaced, and kept if
+    /// that fails. A move is remembered by a mark in the registration's
+    /// folder, so a later read names the file the body went to, and a
+    /// record that never had a body names none, though a file is there.
     private func place(_ id: String, _ x: [String: Any]) -> String? {
-        let target = x["saveTo"] as? String ?? "\(Self.kept(id))/\(x["index"] ?? 0)"
-        guard let dest = context.file(target) else { return nil }
+        let index = x["index"] ?? 0
+        let target = x["saveTo"] as? String ?? "\(Self.kept(id))/\(index)"
+        guard let dest = context.file(target), let mark = context.file("\(Self.kept(id))/\(index).placed") else { return nil }
         let fm = FileManager.default
         if let from = x["path"] as? String, fm.fileExists(atPath: from) {
-            try? fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? fm.removeItem(at: dest)
-            do { try fm.moveItem(at: URL(fileURLWithPath: from), to: dest) } catch {
+            guard !Self.isFolder(dest) else {
+                context.log("background-transfer: \(id): the body was not moved to \(target), a folder")
+                return nil
+            }
+            let body = URL(fileURLWithPath: from)
+            do {
+                if fm.fileExists(atPath: dest.path) {
+                    _ = try fm.replaceItemAt(dest, withItemAt: body)
+                } else {
+                    try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try fm.moveItem(at: body, to: dest)
+                }
+                try fm.createDirectory(at: mark.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data().write(to: mark)
+            } catch {
                 context.log("background-transfer: \(id): the body was not moved to \(target): \(error.localizedDescription)")
                 return nil
             }
         }
-        return fm.fileExists(atPath: dest.path) ? target : nil
+        return fm.fileExists(atPath: mark.path) && fm.fileExists(atPath: dest.path) && !Self.isFolder(dest) ? target : nil
+    }
+
+    private static func isFolder(_ url: URL) -> Bool {
+        var folder: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &folder) && folder.boolValue
     }
 
     /// The host offers registrations that have ended: each raises its event.

@@ -1,4 +1,4 @@
-// A gated frame task: its virtual frames start again
+// A gated frame task (LLP 1092 D8, D10): its virtual frames start again
 // from the commit that arms it, a frame every 1000/60 ms after it.
 component App
   state on = false

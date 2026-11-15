@@ -1,4 +1,4 @@
-// The card stack: each direct child of the canvas — a card
+// The card stack (LLP 1014 D5): each direct child of the canvas — a card
 // laid out by the kernel and captured by the host on its own — drawn as a
 // textured quad through its own placement, in perspective, back to front.
 // The placement's columns come from the surface, which also hands the same

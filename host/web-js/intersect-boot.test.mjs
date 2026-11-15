@@ -1,8 +1,8 @@
 // A view's first intersection entry (`intersect=`) is the page's to settle, as its first size is
 // (resize-boot.test.mjs): an IntersectionObserver always delivers one, a frame or more after the
 // observer is attached (observers.js, loaded after first paint), and on a loaded machine later still.
-// conform's boot step could read the state before it (`synthetic-intersect`'s
-// `slots.calls: wasm 1 js 0`, `seen: wasm "row:false:0" js "none"`). An agent's settle waits for
+// conform's boot step once read the state before it (QUEUE 2026-10-21: `synthetic-intersect`'s
+// `slots.calls: wasm 1 js 0`, `seen: wasm "row:false:0" js "none"`). An agent's settle now waits for
 // each observation's first entry (2 s at most). The entry is held back here, as a loaded machine holds it.
 import { test, expect } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';

@@ -1,19 +1,19 @@
 #!/usr/bin/env bun
-// Deploys the auth fixture's public origin, https://exact-auth-fixture.expo.app, on EAS Hosting,
-// and checks it. It serves:
+// Deploys the auth fixture's public origin, https://exact-auth-fixture.expo.app, on EAS Hosting (LLP 1133.011
+// §13 question 4; the domain named and approved by Charlie, 2026-10-26), and checks it. It serves:
 //
 //   /.well-known/apple-app-site-association  `webcredentials` for <host.ios.team>.<app id>, and for
-//                                            SIMULATORX.<app id>, a simulator build's prefix
-//   /.well-known/assetlinks.json             `get_login_creds` for the package and `host.android.certificates`
+//                                            SIMULATORX.<app id>, a simulator build's prefix (D14)
+//   /.well-known/assetlinks.json             `get_login_creds` for the package and `host.android.certificates` (D6)
 //   POST /passkey/…                          the relying party: relying-party.mjs through origin-routes.mjs
 //
-// `scripts/origin.mjs` has no EAS Hosting adapter, so this drives `eas` itself, on an export it
+// `scripts/origin.mjs` has no EAS Hosting adapter (LLP 1030.003 D7), so this drives `eas` itself, on an export it
 // writes by hand in the layout `expo export` makes for a server output: `client/` static files, and `server/`
 // with `_expo/routes.json` and the API route bundles.
 //
 // usage: bun apps/auth-fixture/origin.mjs [--owner <account>] [--stage <dir>] [--check]
 //   Deploys with `eas` (`EAS` names another binary), logged in or given EXPO_TOKEN, as an account with access to
-//   <account> (default $EXPO_OWNER), then checks the live origin. `--stage <dir>` writes the export there and stops;
+//   <account> (default ccheever), then checks the live origin. `--stage <dir>` writes the export there and stops;
 //   `--check` checks the live origin and deploys nothing.
 //
 // The first deploy makes the project @<account>/exact-auth-fixture, claims the subdomain, and sets
@@ -26,6 +26,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { respond } from '../../packages/passkeys/test/authenticator.mjs';
 import { androidOrigin } from './relying-party.mjs';
+import { androidAssociation } from '../../host/web/association.mjs';
 
 export const DOMAIN = 'exact-auth-fixture.expo.app';
 const SLUG = 'exact-auth-fixture';
@@ -34,18 +35,20 @@ const SIMULATOR_PREFIX = 'SIMULATORX';
 export const ROUTES = ['/passkey/register/options', '/passkey/register', '/passkey/sign-in/options', '/passkey/sign-in', '/passkey/accepted'];
 
 const args = process.argv.slice(2), flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
-const owner = flag('--owner') ?? process.env.EXPO_OWNER;
-if (!owner && !args.includes('--check')) throw new Error('give --owner <account> or set EXPO_OWNER');
+const owner = flag('--owner') ?? 'ccheever';
 const app = JSON.parse(readFileSync(new URL('./app.json', import.meta.url), 'utf8'));
 const team = app.host?.ios?.team, certificates = app.host?.android?.certificates ?? [];
 if (!team || !certificates.length) throw new Error('app.json needs host.ios.team and host.android.certificates');
 
-/** The two association files' contents, and the origins the relying party accepts for the domain. */
-export const files = {
-  'apple-app-site-association': { webcredentials: { apps: [`${team}.${app.id}`, `${SIMULATOR_PREFIX}.${app.id}`] } },
-  'assetlinks.json': [{ relation: ['delegate_permission/common.get_login_creds'],
-    target: { namespace: 'android_app', package_name: app.id, sha256_cert_fingerprints: certificates } }],
-};
+/** The domain's Apple and Android passkey association files (D6). */
+export function associationFiles(manifest) {
+  const team = manifest.host?.ios?.team;
+  return {
+    'apple-app-site-association': { webcredentials: { apps: [`${team}.${manifest.app.id}`, `${SIMULATOR_PREFIX}.${manifest.app.id}`] } },
+    'assetlinks.json': [androidAssociation(manifest)],
+  };
+}
+export const files = associationFiles(app);
 const rps = { [DOMAIN]: [`https://${DOMAIN}`, ...certificates.map(androidOrigin)] };
 
 async function stage(dir) {
@@ -57,7 +60,7 @@ async function stage(dir) {
   writeFileSync(join(dir, 'app.json'), JSON.stringify({ expo: { name: SLUG, slug: SLUG, owner, web: { output: 'server' } } }, null, 2));
   for (const [name, body] of Object.entries(files)) writeFileSync(join(client, '.well-known', name), JSON.stringify(body) + '\n');
   writeFileSync(join(client, 'index.html'), `<!doctype html><meta charset="utf-8"><title>Auth fixture relying party</title>
-<p>The exact2 auth fixture's passkey relying party. It holds test credentials only.</p>\n`);
+<p>The exact2 auth fixture's passkey relying party (LLP 1133.011). It holds test credentials only.</p>\n`);
   const built = await Bun.build({ entrypoints: [resolve(import.meta.dir, 'origin-routes.mjs')], format: 'cjs', target: 'browser',
     define: { ORIGIN_RPS: JSON.stringify(rps) } });
   if (!built.success) throw new AggregateError(built.logs, 'bundling origin-routes.mjs');

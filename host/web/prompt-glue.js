@@ -7,7 +7,9 @@
 // leaving it), then the first action that is not destructive is pressed;
 // while that action is disabled nothing is, never the next one. Both web
 // targets load this module with their input piece (input-glue.js), and the
-// JS target with its commands (commands.js), so it listens once a page shows.
+// JS target's page imports it when its plan has a dialog, an alertdialog, a
+// menu or a popover (host/web-js/build.mjs `dialogs.flag`), so it listens
+// once a page shows.
 addEventListener("keydown", ev => {
   const field = ev.target;
   if (ev.key !== "Enter" || ev.isComposing || ev.keyCode === 229 || ev.defaultPrevented || ev.$submit || ev.exactSubmit || field?.localName !== "input") return;

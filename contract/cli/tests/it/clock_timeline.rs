@@ -1,4 +1,4 @@
-//! `timeline Name` and `animation-timeline=Name`: the
+//! `timeline Name` and `animation-timeline=Name` (LLP 1055.002 D1, D2): the
 //! row reads `-exact-clock(Name)`, its animations stay on the clock, and two
 //! declarations of one name meet as a refusal, never as one shared phase.
 
@@ -112,7 +112,7 @@ fn a_timeline_is_imported_by_name_and_two_files_of_one_name_are_two_timelines() 
     assert!(!plan.contains("Pending__"), "{plan}");
     // The app's own `Pending` and `p` are not the spinner's: each file's
     // names mean its own declarations, and the spinner's are renamed where
-    // they are written.
+    // they are written (LLP 1091 D4/D5).
     let two = app.write(
         "two.contract",
         "use Spinner from \"./lib/spinner.contract\"\ntimeline Pending\nkeyframes p\n  to opacity=1\ncomponent App\n  view\n    column\n      Spinner()\n      text \"x\" animation=\"p 1s\" animation-timeline=Pending\n",

@@ -1,9 +1,11 @@
 //! Resource and submission boundary. Presentation joins this in `present.rs`.
-//! Retirement follows GPU completion, never frame age.
+//! @ref LLP 1149 D5, D11: retirement follows GPU completion, never frame age.
 
 use crate::instance::{Frame, TextureId};
 use std::fmt;
 
+#[cfg(any(windows, test))]
+mod composing;
 #[cfg(windows)]
 pub mod d3d11;
 #[cfg(windows)]
@@ -116,13 +118,12 @@ pub struct TextureUpload {
     pub data: Vec<u8>,
 }
 
-/// The headless operations used by the qualification harness. Buffer uploads
-/// and draws are ordered on one queue. Each device orders mutations after the
-/// resource's last use, waits, or chooses fresh storage. Submissions include
-/// uploads; a larger completed value covers all earlier submissions. Retire
-/// keeps storage alive until its last use completes. Readback is synchronous on
-/// native devices; browser callers must use the device's asynchronous readback
-/// instead of blocking its event loop.
+/// The headless operations used by S0. Buffer uploads and draws are ordered on
+/// one queue. Each device orders mutations after the resource's last use, waits,
+/// or chooses fresh storage. Submissions include uploads; a larger completed value
+/// covers all earlier submissions. Retire keeps storage alive until its last use completes.
+/// Readback is synchronous on native devices; browser callers must
+/// use the device's asynchronous readback instead of blocking its event loop.
 pub trait Device {
     type Buffer;
     fn info(&self) -> &Info;
@@ -183,12 +184,14 @@ pub trait Device {
     fn trim(&mut self) -> Result<()>;
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod coverage_tests;
 #[cfg(test)]
 mod tests;
 
-/// Process counters for the qualification harness without spawning a child in the worker.
+/// Process counters for the S0 harness without spawning a child in the worker.
 /// CPU milliseconds, resident bytes, peak resident bytes, footprint bytes and
-/// peak footprint bytes.
+/// peak footprint bytes. @ref LLP 1149 D15.
 #[cfg(target_os = "macos")]
 pub fn process_usage() -> std::io::Result<[f64; 5]> {
     let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v4>::zeroed();
@@ -278,7 +281,7 @@ pub fn process_ms() -> Result<f64> {
     }
 }
 
-/// Windows process CPU and working set, in the same units as the Mac probe.
+/// Windows process CPU and working set, in the same units as the S0 Mac probe.
 #[cfg(windows)]
 pub fn process_usage() -> std::io::Result<[f64; 5]> {
     use windows::Win32::{

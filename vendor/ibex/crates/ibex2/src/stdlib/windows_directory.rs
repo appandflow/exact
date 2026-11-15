@@ -1,4 +1,4 @@
-// Names stay under owned handles.
+// @ref LLP 0068#windows-app-storage-qualification — names stay under owned handles.
 pub struct Kind {
     pub directory: bool,
     pub regular: bool,
