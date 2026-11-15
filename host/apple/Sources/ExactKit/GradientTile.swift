@@ -110,17 +110,19 @@ extension Gradient.Period {
     }
 
     /// Tiles over a layer's `bounds` for a gradient box `box`.
-    struct Layout: Equatable {
+    struct Layout {
         /// One tile's device pixels.
         let width: Int, height: Int
         /// The first tile's top left, from the bounds' top left: at most a
         /// tile up and left of it, in whole device pixels.
         let origin: CGPoint
         let columns: Int, rows: Int
-        /// How far along the line the first tile's top left is past where
-        /// a period begins, and how much further each column and row is,
-        /// in points.
-        let phase: CGFloat, column: CGFloat, row: CGFloat
+        /// The tile at the start corner, and how far along the line its
+        /// top left is past where a period begins, in points.
+        let anchor: (column: Int, row: Int)
+        let phase: CGFloat
+        /// How much further along the line each column and row is, in points.
+        let column: CGFloat, row: CGFloat
     }
 
     /// The tiles start from the device pixel of the corner the line starts
@@ -131,27 +133,32 @@ extension Gradient.Period {
     func layout(box: CGRect, bounds: CGRect, scale: CGFloat) -> Layout? {
         guard bounds.width > 0, bounds.height > 0 else { return nil }
         let (w, h) = tile(scale: scale), (tw, th) = (CGFloat(w), CGFloat(h)), u = direction
-        let anchor = Gradient.startCorner(of: box, direction: u)
-        let ax = ((anchor.x - bounds.minX) * scale).rounded(), ay = ((anchor.y - bounds.minY) * scale).rounded()
-        let gx = ax - tw * (ax / tw).rounded(.up), gy = ay - th * (ay / th).rounded(.up)
-        let along = (bounds.minX + gx / scale - anchor.x) * u.x + (bounds.minY + gy / scale - anchor.y) * u.y - offset
+        let corner = Gradient.startCorner(of: box, direction: u)
+        let ax = ((corner.x - bounds.minX) * scale).rounded(), ay = ((corner.y - bounds.minY) * scale).rounded()
+        let (jx, jy) = ((ax / tw).rounded(.up), (ay / th).rounded(.up))
+        let gx = ax - tw * jx, gy = ay - th * jy
+        // The tile inside the box at the corner: right of and below it, or left of and above it.
+        let (column, row) = (Int(jx) - (u.x > 0 ? 0 : 1), Int(jy) - (u.y > 0 ? 0 : 1))
+        let top = CGPoint(x: bounds.minX + (gx + CGFloat(column) * tw) / scale, y: bounds.minY + (gy + CGFloat(row) * th) / scale)
+        let along = (top.x - corner.x) * u.x + (top.y - corner.y) * u.y - offset
         return Layout(width: w, height: h, origin: CGPoint(x: gx / scale, y: gy / scale),
                       columns: Int(((bounds.width * scale - gx) / tw).rounded(.up)), rows: Int(((bounds.height * scale - gy) / th).rounded(.up)),
-                      phase: along, column: tw / scale * u.x, row: th / scale * u.y)
+                      anchor: (column, row), phase: along - (along / length).rounded(.down) * length, column: tw / scale * u.x, row: th / scale * u.y)
     }
 
-    /// The picture for the tile at `column`, `row`: its phase in
-    /// thirty-seconds of a device pixel, which tiles that fall at the same
-    /// place in a period share.
+    /// The picture for the tile at `column`, `row`: how far its phase is
+    /// from the corner tile's, less whole periods, in thirty-seconds of a
+    /// device pixel. Tiles at the corner tile's phase share its exact
+    /// picture.
     func key(_ layout: Layout, column: Int, row: Int, scale: CGFloat) -> Int {
-        let along = layout.phase + layout.column * CGFloat(column) + layout.row * CGFloat(row)
-        let phase = along - (along / length).rounded(.down) * length
-        return Int((phase * scale * 32).rounded())
+        let along = layout.column * CGFloat(column - layout.anchor.column) + layout.row * CGFloat(row - layout.anchor.row)
+        return Int(((along - (along / length).rounded() * length) * scale * 32).rounded())
     }
 
     /// The tile picture for `key` (`key(_:column:row:scale:)`).
     func image(_ layout: Layout, key: Int, scale: CGFloat) -> CGImage? {
-        image(width: layout.width, height: layout.height, scale: scale, phase: CGFloat(key) / (scale * 32))
+        let along = layout.phase + CGFloat(key) / (scale * 32)
+        return image(width: layout.width, height: layout.height, scale: scale, phase: along - (along / length).rounded(.down) * length)
     }
 
     /// A tile `width` × `height` device pixels at `scale` whose top left

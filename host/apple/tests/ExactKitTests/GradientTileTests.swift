@@ -12,6 +12,8 @@ final class GradientTileTests: XCTestCase {
                        "repeating-linear-gradient(90deg, #dfe7f1 0px 1px, transparent 1px 14px)"]
     /// Opaque stripes, where a stripe out of place shows most.
     static let contrast = "repeating-linear-gradient(30deg, #000 0px 3px, #fff 3px 7px)"
+    /// The Chrome parity page's hatch (`GradientParity`).
+    static let parityHatch = "repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)"
 
     static func gradient(_ css: String) -> Gradient { Gradient(["css": .string(css)] as BatchValue)! }
 
@@ -65,9 +67,8 @@ final class GradientTileTests: XCTestCase {
     /// A phone-sized box takes few tiles and fewer pictures, including
     /// for a period a hair off a whole number of pixels.
     func testAPhoneSizedBoxTakesFewTiles() {
-        let hatch = "repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)"
         for scale: CGFloat in [1, 2, 3] {
-            for css in Self.hatch + Self.grid + [Self.contrast, hatch] {
+            for css in Self.hatch + Self.grid + [Self.contrast, Self.parityHatch] {
                 let period = Self.gradient(css).period(dark: false)!, rect = CGRect(x: 0, y: 0, width: 402, height: 874)
                 let at = period.layout(box: rect, bounds: rect, scale: scale)!, pictures = Self.keys(period, size: rect.size, scale: scale).count
                 print("tiles \(css) at \(scale)x: \(at.width)×\(at.height) px, \(at.columns * at.rows) tiles, \(pictures) pictures")
@@ -89,10 +90,10 @@ final class GradientTileTests: XCTestCase {
     /// Two heights a whole number of pixels apart, neither a whole number
     /// of periods, as a sheet's page has while it is dragged.
     func testTilesPaintWhatTheBoxDraws() {
-        for scale: CGFloat in [2, 3] {
-            for css in Self.hatch + Self.grid + [Self.contrast] {
+        for scale: CGFloat in [1, 2, 3] {
+            for css in Self.hatch + Self.grid + [Self.contrast, Self.parityHatch] {
                 let gradient = Self.gradient(css), period = gradient.period(dark: false)!
-                for size in [CGSize(width: 190, height: 150), CGSize(width: 190, height: 150 + 37 / scale)] {
+                for size in [CGSize(width: 100, height: 70), CGSize(width: 190, height: 150), CGSize(width: 190, height: 150 + 37 / scale)] {
                     let drawn = Self.pixels(gradient.image(size: size, scale: scale, dark: false)!)
                     let tiled = Self.pixels(Self.tiled(period, size: size, scale: scale))
                     let (mean, beyond) = Self.difference(drawn, tiled, by: 2)
@@ -113,10 +114,12 @@ final class GradientTileTests: XCTestCase {
         for scale: CGFloat in [2, 3] {
             for css in Self.hatch {
                 let period = Self.gradient(css).period(dark: false)!, tall = CGSize(width: 402, height: 700)
-                let before = Self.keys(period, size: tall, scale: scale)
+                let before = Self.keys(period, size: tall, scale: scale), rect = CGRect(origin: .zero, size: tall)
+                let phase = period.layout(box: rect, bounds: rect, scale: scale)!.phase
                 for pixels in 1...300 {
-                    let after = Self.keys(period, size: CGSize(width: 402, height: 700 - CGFloat(pixels) / scale), scale: scale)
-                    XCTAssert(after.isSubset(of: before), "\(css) -\(pixels) px at \(scale)x")
+                    let size = CGSize(width: 402, height: 700 - CGFloat(pixels) / scale), shorter = CGRect(origin: .zero, size: size)
+                    XCTAssertEqual(period.layout(box: shorter, bounds: shorter, scale: scale)!.phase, phase, accuracy: 1 / (256 * scale))
+                    XCTAssert(Self.keys(period, size: size, scale: scale).isSubset(of: before), "\(css) -\(pixels) px at \(scale)x")
                 }
             }
         }

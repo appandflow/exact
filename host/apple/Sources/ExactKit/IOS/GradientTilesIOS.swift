@@ -16,8 +16,8 @@ final class GradientTiles {
     /// layer of tiles for each gradient, the last first.
     var layer: CALayer?
     /// Each gradient's tile pictures by key (`Gradient.Period.key`), at a
-    /// scale and tile size.
-    var pictures: [(scale: CGFloat, width: Int, height: Int, images: [Int: CGImage])] = []
+    /// scale, tile size and start corner phase.
+    var pictures: [(scale: CGFloat, width: Int, height: Int, phase: CGFloat, images: [Int: CGImage])] = []
 
     init(source: BatchValue, dark: Bool, periods: [Gradient.Period]?) {
         self.source = source; self.dark = dark; self.periods = periods
@@ -78,12 +78,14 @@ extension NodeView {
         var holders = container.sublayers ?? []
         while holders.count < periods.count { let h = CALayer(); container.addSublayer(h); holders.append(h) }
         while holders.count > periods.count { holders.removeLast().removeFromSuperlayer() }
-        if tiles.pictures.count != periods.count { tiles.pictures = Array(repeating: (0, 0, 0, [:]), count: periods.count) }
+        if tiles.pictures.count != periods.count { tiles.pictures = Array(repeating: (0, 0, 0, 0, [:]), count: periods.count) }
         let box = gradientBox
         for (i, period) in periods.reversed().enumerated() {
             guard let at = period.layout(box: box, bounds: bounds, scale: scale) else { continue }
             var cache = tiles.pictures[i]
-            if cache.scale != scale || cache.width != at.width || cache.height != at.height { cache = (scale, at.width, at.height, [:]) }
+            if cache.scale != scale || cache.width != at.width || cache.height != at.height || abs(cache.phase - at.phase) * scale >= 1.0 / 256 {
+                cache = (scale, at.width, at.height, at.phase, [:])
+            }
             let (tw, th) = (CGFloat(at.width) / scale, CGFloat(at.height) / scale)
             let holder = holders[i]
             let frame = CGRect(x: at.origin.x, y: at.origin.y, width: CGFloat(at.columns) * tw, height: CGFloat(at.rows) * th)
