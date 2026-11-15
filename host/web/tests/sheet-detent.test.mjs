@@ -138,17 +138,20 @@ check('on a touch screen a field with the focus raises the sheet to the tallest,
   expect(await evaluate(`document.getElementById('field').focus(); box('sheet')`)).toEqual([12, 832]);
 }), 60000);
 
-check("a finger's tap on a control in a sheet a field's focus raised reaches the control, and the field keeps the focus", () => inChrome(async (evaluate, size, call) => {
+check("a press on a control in a sheet a field's focus raised reaches the control, and the field keeps the focus", () => inChrome(async (evaluate, size, call) => {
   // The case this guards: a route pushed inside a sheet whose field has the focus (an autofocused one).
   expect(await open(evaluate, 'medium large')).toEqual([428, 416]);
   await call('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
   await size(390, 844);
   expect(await evaluate(`select('3'); document.getElementById('pushedField').focus(); box('pushed')`)).toEqual([12, 832]);
   const [x, y] = await evaluate(`(b => [b.x + b.width / 2, b.y + b.height / 2])(document.getElementById('pushedGo').getBoundingClientRect())`);
+  const settled = `new Promise(r => setTimeout(r, 300)).then(() => [clicks.splice(0), document.activeElement.id, box('pushed')])`;
   await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
   await call('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  expect(await evaluate(`new Promise(r => setTimeout(r, 300)).then(() => [clicks.splice(0), document.activeElement.id, box('pushed')])`))
-    .toEqual([['pushedGo'], 'pushedField', [12, 832]]);
+  expect(await evaluate(settled)).toEqual([['pushedGo'], 'pushedField', [12, 832]]);
+  // A mouse on the same touch screen: the sheet is raised all the same.
+  for (const type of ['mousePressed', 'mouseReleased']) await call('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1 });
+  expect(await evaluate(settled)).toEqual([['pushedGo'], 'pushedField', [12, 832]]);
 }), 60000);
 
 check('a bound value keeps the detents UIKit keeps: a word it cannot read or one out of order is dropped', () => inChrome(async (evaluate) => {
