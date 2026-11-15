@@ -445,6 +445,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // Initial content draws before a presentation covers it.
         if parts.count > 1, let session = presenter.session, session.firstDrawMs == nil { return }
         guard !changing, !presenter.modals.inTransition else {
+            if !pendingSync { presenter.modals.traceLayers("sync deferred (changing=\(changing))") }
             pendingSync = true
             owePress()
             reportCovers()

@@ -377,7 +377,12 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     }
     #endif
 
-    init(presenter: Presenter) { self.presenter = presenter }
+    private var traceObservers: [NSObjectProtocol] = []
+    init(presenter: Presenter) {
+        self.presenter = presenter
+        super.init()
+        traceObservers = SheetTrace.watch(self)
+    }
 
     #if os(iOS)
     /// Why a word of a bound `navigationDetent` is dropped.
@@ -532,7 +537,9 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
 
     func updatePermissions() {
         for layer in layers {
-            layer.controller.isModalInPresentation = refusesDismissal(of: layer.route)
+            let refuses = refusesDismissal(of: layer.route)
+            if refuses != layer.controller.isModalInPresentation { SheetTrace.note("updatePermissions modal \(layer.controller.isModalInPresentation)->\(refuses) \(traceState(layer))") }
+            layer.controller.isModalInPresentation = refuses
             layer.controller.updateSheet(detent: layer.route.props["navigationDetent"], cornerRadius: ModalController.cornerRadius(of: layer.route), grabber: layer.route.props["navigationGrabber"])
             #if os(iOS)
             layer.controller.paintSurface()
@@ -690,6 +697,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         }
         layers.append(layer)
         controller.isModalInPresentation = refusesDismissal(of: route)
+        SheetTrace.note("present \(traceState(layer))")
         controller.loadViewIfNeeded()
         // What it inherits, from its first frame: a sheet a deferred sync
         // presents (the second of two, after the first is up) waits for the next batch otherwise.
@@ -753,6 +761,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
 
     func closeTop(animated: Bool = !ExactEnv.agentFreezes, refit: Bool = true) {
         guard let layer = layers.last else { return }
+        SheetTrace.note("closeTop route=#\(layer.route.id) key=\(layer.route.props["navigationKey"] ?? "?") alreadyDismissed=\(layer.alreadyDismissed)")
         closing = true
         if !layer.alreadyDismissed { presenter.cancelPendingFocus() }
         presenter.elementScrolls.cancel(inside: layer.controller.view)
@@ -826,11 +835,34 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     }
 
     func presentationControllerShouldDismiss(_ presentationController: UIPresentationController) -> Bool {
-        guard let layer = layers.last, layer.controller === presentationController.presentedViewController else { return false }
-        return !refusesDismissal(of: layer.route)
+        guard let layer = layers.last, layer.controller === presentationController.presentedViewController else {
+            SheetTrace.note("shouldDismiss false: not the top layer (layers \(layers.count), retiring \(retiring.count))")
+            return false
+        }
+        let refuses = refusesDismissal(of: layer.route)
+        // UIKit asks every frame of a drag: a line only when the answer or what it read changes.
+        let line = "shouldDismiss \(!refuses) \(traceState(layer))"
+        if line != lastAsked { SheetTrace.note(line) }
+        lastAsked = line
+        return !refuses
+    }
+    private var lastAsked: String?
+
+    private func traceState(_ layer: Presentation) -> String {
+        let route = layer.route, nav = presenter.navigation
+        let replaced = presenter.views[route.id] !== route
+        let inactive = nav.isInactiveRoute(containing: route)
+        let dismissal = nav.sheetDismissal(route) != nil
+        return "route=#\(route.id) key=\(route.props["navigationKey"] ?? "?") modal=\(layer.controller.isModalInPresentation) refuses=\(refusesDismissal(of: route)) replaced=\(replaced) closedby=\(route.props["closedby"] ?? "-") inactive=\(inactive) sheetDismissal=\(dismissal) canBack=\(nav.canInvokeBack) \(nav.traceBack) presenting=\(layer.presenting) closing=\(closing) layers=\(layers.count) retiring=\(retiring.count) dismissing=\(dismissing != nil) inTransition=\(inTransition) beingPresented=\(layer.controller.isBeingPresented) beingDismissed=\(layer.controller.isBeingDismissed) pendingSync=\(nav.pendingSync) changing=\(nav.changing) app=\(UIApplication.shared.applicationState.rawValue)"
+    }
+
+    func traceLayers(_ edge: String) {
+        guard !layers.isEmpty || !retiring.isEmpty else { return }
+        SheetTrace.note("\(edge): " + (layers.map(traceState).joined(separator: " | ")) + (retiring.isEmpty ? "" : " retiring=\(retiring.count)"))
     }
 
     func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
+        SheetTrace.note("didAttemptToDismiss top=\(layers.last?.controller === presentationController.presentedViewController) \(layers.last.map(traceState) ?? "no layer")")
         guard layers.last?.controller === presentationController.presentedViewController,
               !presenter.navigation.canInvokeBack else { return }
         presenter.session?.log("modal dismissal refused: \(presenter.navigation.backRefusal)")
@@ -840,6 +872,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     /// dismissal's first frame, not when the app hears of it after (Observe's
     /// render mark); a swipe let go cancels it.
     func presentationControllerWillDismiss(_ presentationController: UIPresentationController) {
+        SheetTrace.note("willDismiss")
         guard let layer = layers.last, layer.controller === presentationController.presentedViewController else { return }
         NavigationMarks.shared.platformBeganShowing()
         presentationController.presentedViewController.transitionCoordinator?.animate(alongsideTransition: nil) { context in
@@ -848,6 +881,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     }
 
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        SheetTrace.note("didDismiss top=\(layers.last?.controller === presentationController.presentedViewController)")
         guard let layer = layers.last, layer.controller === presentationController.presentedViewController else { return }
         HostLog.note(presenter.session, "presentation: the person dismissed the \(layer.kind) \(layer.route.props["navigationKey"] ?? "?")")
         closing = true
