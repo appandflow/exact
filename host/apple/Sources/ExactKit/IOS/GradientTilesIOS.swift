@@ -9,6 +9,8 @@ import UIKit
 final class GradientTiles {
     let source: BatchValue
     let dark: Bool
+    /// The view's tint, which a gradient's `AccentColor` stop takes.
+    let tint: UIColor?
     /// Each gradient's period, first on top; nil when one is not a repeating
     /// linear gradient a tile can paint.
     let periods: [Gradient.Period]?
@@ -19,8 +21,8 @@ final class GradientTiles {
     /// scale, tile size and start corner phase.
     var pictures: [(scale: CGFloat, width: Int, height: Int, phase: CGFloat, images: [Int: CGImage])] = []
 
-    init(source: BatchValue, dark: Bool, periods: [Gradient.Period]?) {
-        self.source = source; self.dark = dark; self.periods = periods
+    init(source: BatchValue, dark: Bool, tint: UIColor?, periods: [Gradient.Period]?) {
+        self.source = source; self.dark = dark; self.tint = tint; self.periods = periods
     }
 }
 
@@ -29,10 +31,10 @@ extension NodeView {
     /// gradient whose period is the same at every size.
     private var gradientPeriods: [Gradient.Period]? {
         guard let source = style["background_image"] else { return nil }
-        let dark = drawsDark
-        if let tiles = gradientTiles, tiles.source == source, tiles.dark == dark { return tiles.periods }
-        let layers = Gradient.layers(source), periods = layers.compactMap { $0.period(dark: dark) }
-        let made = GradientTiles(source: source, dark: dark, periods: !layers.isEmpty && periods.count == layers.count ? periods : nil)
+        let dark = drawsDark, tint = source.namesTint ? gradientTint : nil
+        if let tiles = gradientTiles, tiles.source == source, tiles.dark == dark, tiles.tint == tint { return tiles.periods }
+        let layers = Gradient.layers(source, tint: tint), periods = layers.compactMap { $0.period(dark: dark) }
+        let made = GradientTiles(source: source, dark: dark, tint: tint, periods: !layers.isEmpty && periods.count == layers.count ? periods : nil)
         made.layer = gradientTiles?.layer
         gradientTiles = made
         return made.periods

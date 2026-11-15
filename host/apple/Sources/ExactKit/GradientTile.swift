@@ -33,7 +33,7 @@ extension Gradient {
     /// both sizes is free at a larger one, so any percentage is refused
     /// first: the kernel writes colours as hex, so a `%` is a stop.
     func period(dark: Bool) -> Period? {
-        guard let css, css.hasPrefix("repeating-linear-gradient("), !css.contains("%") else { return nil }
+        guard let css = dark ? darkCss ?? css : css, css.hasPrefix("repeating-linear-gradient("), !css.contains("%") else { return nil }
         let boxes = [CGRect(x: 0, y: 0, width: 1000, height: 1000), CGRect(x: 0, y: 0, width: 1037, height: 1291)]
         let periods = boxes.compactMap { box in resolved(in: box, dark: dark)?.cycle(in: box, dark: dark) }
         guard periods.count == 2, periods[0].matches(periods[1]) else { return nil }
