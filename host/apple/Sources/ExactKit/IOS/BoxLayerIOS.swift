@@ -230,6 +230,7 @@ extension NodeView {
     /// `draw(_:)` paints the gradient there instead, in the same place —
     /// unless it is `background-attachment: fixed` (`gradientLayered`).
     func applyGradientLayer() {
+        applyGradientTiles()
         let fixed = gradientLayered
         guard !cssVisibilityHidden, !drawsPaint || fixed, surface == nil, let gradient = Gradient(style["background_image"], tint: gradientTint), !gradient.needsDrawing else {
             boxGradient?.removeFromSuperlayer(); boxGradient = nil
@@ -355,7 +356,7 @@ extension NodeView {
         // content painted there, or it covers the image or text.
         let paintsContent = (kind == "image" && symbolView == nil && raster != nil) || (isParagraph && !canRasterText)
             || (Capture.capturing && (kind == "canvas" || Capture.web[id] != nil))
-        boxDrawn = !away && ((shapedRadii && paintsContent) || patterned || !((oneBorder || edges) && (oneRadius || shapedRadii) && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 })
+        boxDrawn = !away && ((shapedRadii && paintsContent) || patterned || !((oneBorder || edges) && (oneRadius || shapedRadii) && (shape == nil || continuous)) || (gradientDraws && !gradientTiled) || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 })
         let onLayer = !boxDrawn
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
@@ -436,10 +437,10 @@ extension NodeView {
 }
 extension NodeView {
     /// The box's sublayers keep CSS's paint order, all under the children:
-    /// shadow, gradient, inset shadow, image, border, text — whichever of
+    /// shadow, gradient, its tiles, inset shadow, image, border, text — whichever of
     /// them joins first (as `Mac/BoxLayerMac.swift`).
     func insertBoxSublayer(_ l: CALayer) {
-        let order: [CALayer?] = [shadowCaster, boxFill, boxGradient, insetCaster, imageLayer, boxBorder, textBoxLayer]
+        let order: [CALayer?] = [shadowCaster, boxFill, boxGradient, gradientTiles?.layer, insetCaster, imageLayer, boxBorder, textBoxLayer]
         guard let rank = order.firstIndex(where: { $0 === l }) else { return }
         if let below = order[..<rank].reversed().compactMap({ $0 }).first(where: { $0.superlayer === layer }) {
             layer.insertSublayer(l, above: below)
