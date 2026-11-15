@@ -72,6 +72,8 @@ final class NodePaintExtras {
     var boxGradient: CAGradientLayer?
     /// What a fixed gradient was last aimed with (`reaimFixedGradient`).
     var aimedGradient: AimedGradient?
+    /// Repeating gradients painted as tiles (`GradientTilesIOS.swift`).
+    var gradientTiles: GradientTiles?
     /// `box-shadow` and the clip it casts outside (`BoxShadow.swift`).
     var shadowCaster: ShadowCaster?
     /// Inset `box-shadow`s (LLP 1077 D4).
@@ -304,6 +306,7 @@ extension NodeView {
     var boxFill: CALayer? { get { paintExtras?.boxFill } set { if newValue != nil || paintExtras != nil { paintMore.boxFill = newValue } } }
     var boxGradient: CAGradientLayer? { get { paintExtras?.boxGradient } set { if newValue != nil || paintExtras != nil { paintMore.boxGradient = newValue } } }
     var aimedGradient: AimedGradient? { get { paintExtras?.aimedGradient } set { if newValue != nil || paintExtras != nil { paintMore.aimedGradient = newValue } } }
+    var gradientTiles: GradientTiles? { get { paintExtras?.gradientTiles } set { if newValue != nil || paintExtras != nil { paintMore.gradientTiles = newValue } } }
     var shadowCaster: ShadowCaster? { get { paintExtras?.shadowCaster } set { if newValue != nil || paintExtras != nil { paintMore.shadowCaster = newValue } } }
     var insetCaster: InsetShadowCaster? { get { paintExtras?.insetCaster } set { if newValue != nil || paintExtras != nil { paintMore.insetCaster = newValue } } }
     var clipBox: PlainView? { get { extras?.clipBox } set { if newValue != nil || extras != nil { more.clipBox = newValue } } }

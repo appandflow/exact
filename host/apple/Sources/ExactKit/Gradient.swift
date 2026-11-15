@@ -28,9 +28,9 @@ struct Gradient {
         case conic(CGPoint, CGFloat)
     }
 
-    private let css: String?
+    let css: String?
     /// The dark scheme's `css` where it interpolates otherwise.
-    private let darkCss: String?
+    let darkCss: String?
     /// The view's tint, light then dark: extended sRGB, unclipped, and alpha 0–1.
     private let tint: [[Float]]?
     private let resolvedPlacement: Placement?
@@ -41,7 +41,7 @@ struct Gradient {
     /// extended linear sRGB with alpha 0–1.
     private let lightLinear: Bool
     private let darkLinear: Bool
-    private func linear(dark: Bool) -> Bool { dark && self.dark != nil ? darkLinear : lightLinear }
+    func linear(dark: Bool) -> Bool { dark && self.dark != nil ? darkLinear : lightLinear }
 
     init?(_ value: BatchValue?, tint: PlatformColor? = nil) {
         guard case .object(let o)? = value else { return nil }
@@ -82,7 +82,7 @@ struct Gradient {
     }
 
     /// Resolve in the kernel after the presenter knows the gradient box.
-    private func resolved(in box: CGRect, dark: Bool) -> Gradient? {
+    func resolved(in box: CGRect, dark: Bool) -> Gradient? {
         guard let css = dark ? darkCss ?? css : css else { return nil }
         return Owner.shared.sync {
             let input = Array(css.utf8), w = Float(box.width), h = Float(box.height)
@@ -235,24 +235,27 @@ struct Gradient {
         }
         let (locations, colors) = stops(dark: dark)
         if case .axial(let a, let b) = place {
-            let cuts = locations.indices.dropFirst().filter {
-                locations[$0] == locations[$0 - 1] && locations[$0] > locations[0] && locations[$0] < locations.last!
-            }
-            if !cuts.isEmpty {
-                paintAxialRuns(ctx, start: a, end: b, locations: locations, colors: colors, cuts: Array(cuts), dark: dark)
-                return
-            }
+            paintAxial(ctx, start: a, end: b, locations: locations, colors: colors, dark: dark)
+            return
+        }
+        guard case .radial(let c, let r) = place,
+              let g = CGGradient(colorsSpace: CGColorSpace(name: linear(dark: dark) ? CGColorSpace.extendedLinearSRGB : CGColorSpace.sRGB), colors: colors as CFArray, locations: locations) else { return }
+        ctx.translateBy(x: c.x, y: c.y); ctx.scaleBy(x: r.width, y: r.height)
+        ctx.drawRadialGradient(g, startCenter: .zero, startRadius: 0, endCenter: .zero, endRadius: 1, options: [.drawsAfterEndLocation])
+    }
+
+    /// A linear ramp from `start` to `end` over the clip, its stops
+    /// `locations` along that line.
+    func paintAxial(_ ctx: CGContext, start a: CGPoint, end b: CGPoint, locations: [CGFloat], colors: [CGColor], dark: Bool) {
+        let cuts = locations.indices.dropFirst().filter {
+            locations[$0] == locations[$0 - 1] && locations[$0] > locations[0] && locations[$0] < locations.last!
+        }
+        if !cuts.isEmpty {
+            paintAxialRuns(ctx, start: a, end: b, locations: locations, colors: colors, cuts: Array(cuts), dark: dark)
+            return
         }
         guard let g = CGGradient(colorsSpace: CGColorSpace(name: linear(dark: dark) ? CGColorSpace.extendedLinearSRGB : CGColorSpace.sRGB), colors: colors as CFArray, locations: locations) else { return }
-        switch place {
-        case .axial(let a, let b):
-            ctx.drawLinearGradient(g, start: a, end: b, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-        case .radial(let c, let r):
-            ctx.translateBy(x: c.x, y: c.y); ctx.scaleBy(x: r.width, y: r.height)
-            ctx.drawRadialGradient(g, startCenter: .zero, startRadius: 0, endCenter: .zero, endRadius: 1, options: [.drawsAfterEndLocation])
-        case .conic:
-            break
-        }
+        ctx.drawLinearGradient(g, start: a, end: b, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
     }
 
     /// Core Graphics quantizes hard stops inside a ramp: an expanded hatch
@@ -429,6 +432,10 @@ extension NodeView {
         #if os(iOS)
         // A fixed gradient is the layer's (LLP 1066 D7).
         if gradientLayered && boxGradient != nil { return }
+        #endif
+        #if os(iOS) || os(tvOS)
+        // Tiles are their layers' (`GradientTilesIOS.swift`).
+        if gradientTiles?.layer != nil { return }
         #endif
         // The last layer first, so the first is on top (LLP 1077 D5).
         for g in Gradient.layers(style["background_image"], tint: gradientTint).reversed() {
