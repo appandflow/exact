@@ -120,6 +120,8 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   contract([resolve(root, 'host/apple/tests/fixtures/untitled-bar.contract'), '-o', env[`${prefix}_UNTITLED_BAR_PLAN`] = resolve(dir, 'untitled-bar.plan')]);
   // NavigationBarIOSTests': a header whose controls share and add a control.
   contract([resolve(root, 'host/apple/tests/fixtures/bar-share.contract'), '-o', env[`${prefix}_BAR_SHARE_PLAN`] = resolve(dir, 'bar-share.plan')]);
+  // NavigationBarIOSTests': a header title drawn as a face, in an ink per scheme.
+  contract([resolve(root, 'host/apple/tests/fixtures/bar-face-scheme.contract'), '-o', env[`${prefix}_BAR_FACE_SCHEME_PLAN`] = resolve(dir, 'bar-face-scheme.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/dialog-sheet-reads.contract'), '-o', env[`${prefix}_DIALOG_SHEET_READS_PLAN`] = resolve(dir, 'dialog-sheet-reads.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/route-backdrop.contract'), '-o', env[`${prefix}_ROUTE_BACKDROP_PLAN`] = resolve(dir, 'route-backdrop.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/trailing-time.contract'), '-o', env[`${prefix}_TRAILING_TIME_PLAN`] = resolve(dir, 'trailing-time.plan')]);
