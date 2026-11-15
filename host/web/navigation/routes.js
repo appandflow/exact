@@ -131,6 +131,9 @@ const WIDE_WIDTH = 900, WIDE = `(min-width: ${WIDE_WIDTH}px)`, wide = () => {
 let splitLists = new WeakMap(), rowOf = new WeakMap(), actionRows = new WeakMap(), visits = new Map();
 const activationRequired = new WeakSet(), activated = new WeakSet();
 const sheet = (route) => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation"));
+// The fields whose focus raises a narrow sheet on a touch screen, and where it does (neutral.css).
+const FIELD = 'textarea, input:not([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"], [type="reset"], [type="color"], [type="file"], [type="image"]), [contenteditable]:not([contenteditable="false"])';
+const RAISES = "(width < 900px) and (min-height: 480px) and (any-pointer: coarse)";
 // A sheet's frame (`sheetFrame`, below), which the projection writes once a host hands it over: the wasm host's glue
 // for every plan, the JS target's compiler only for a plan that can present a sheet (LLP 1047.002 D1). A plan that
 // cannot has no route in a sheet, so there is nothing to write.
@@ -832,6 +835,20 @@ export const navigation = {
     hostGo = goTo;
     routeMatches = matchesRoute;
     canonicalOf = canonical;
+    // On a touch screen a field with the focus raises its narrow sheet to the tallest (neutral.css, as the keyboard does
+    // on iOS). A finger's tap on a control in that sheet leaves the focus in the field, as a UIKit control leaves the
+    // first responder: a mousedown's focus would blur the field and drop the sheet to its detent before the click,
+    // which would then land beside the control.
+    let finger = false;
+    addEventListener("pointerdown", (e) => {
+      finger = e.pointerType === "touch";
+    }, { capture: true, passive: true });
+    addEventListener("mousedown", (e) => {
+      const field = document.activeElement, raised = field?.closest?.("[data-exact-detent]");
+      if (finger && raised?.contains(e.target) && field.matches(FIELD) && !e.target.closest?.(`${FIELD}, select, label`) && globalThis.matchMedia?.(RAISES).matches) {
+        e.preventDefault();
+      }
+    }, true);
     for (const type of [
       "wheel",
       "touchmove",

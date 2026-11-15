@@ -26,7 +26,7 @@ const abs = 'position:absolute;inset:0;display:flex;flex-direction:column';
 const page = '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' + style + `<div id="exact-root"><main id="nav" navigationKey="1" navigationBack="back" style="width:100%;height:100%;position:relative">
   <div navigationKey="1" id="home" style="${abs}"><header><h1>Home</h1></header></div>
   <div navigationKey="2" id="sheet" navigationPresentation="modal" style="${abs}"><header><h2>Sheet</h2></header><div id="rows" style="height:120px"></div><input id="field"></div>
-  <div navigationKey="3" id="pushed" style="${abs}"><header><h2>Pushed</h2></header></div>
+  <div navigationKey="3" id="pushed" style="${abs}"><header><h2>Pushed</h2></header><input id="pushedField"><button id="pushedGo">Go</button></div>
   <div navigationKey="4" id="over" navigationPresentation="modal" style="${abs}"><header><h2>Over</h2></header></div>
   <div navigationKey="5" id="full" navigationPresentation="fullscreen" style="${abs};background:black"><header><h2>Full</h2></header></div>
   <div navigationKey="6" id="top" navigationPresentation="modal" style="${abs}"><header><h2>Top</h2></header></div>
@@ -43,6 +43,8 @@ const page = '<meta name="viewport" content="width=device-width, initial-scale=1
     said == null ? e.removeAttribute('data-navigationdetent') : e.setAttribute('data-navigationdetent', said);
     initial == null ? e.removeAttribute('data-navigationinitialdetent') : e.setAttribute('data-navigationinitialdetent', initial);
   };
+  window.clicks = [];
+  document.addEventListener('click', e => clicks.push(e.target.id), true);
   window.shown = id => getComputedStyle(document.getElementById(id)).visibility === 'visible';
   window.box = id => { const e = document.getElementById(id); e.getAnimations().forEach(a => a.finish()); const b = e.getBoundingClientRect(); return [b.y, b.height].map(v => Math.round(v * 10) / 10); };
   select('1');
@@ -134,6 +136,19 @@ check('on a touch screen a field with the focus raises the sheet to the tallest,
   expect(await evaluate(`matchMedia('(pointer: coarse)').matches`)).toBe(true);
   expect(await evaluate(`box('sheet')`)).toEqual([428, 416]);
   expect(await evaluate(`document.getElementById('field').focus(); box('sheet')`)).toEqual([12, 832]);
+}), 60000);
+
+check("a finger's tap on a control in a sheet a field's focus raised reaches the control, and the field keeps the focus", () => inChrome(async (evaluate, size, call) => {
+  // The case this guards: a route pushed inside a sheet whose field has the focus (an autofocused one).
+  expect(await open(evaluate, 'medium large')).toEqual([428, 416]);
+  await call('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+  await size(390, 844);
+  expect(await evaluate(`select('3'); document.getElementById('pushedField').focus(); box('pushed')`)).toEqual([12, 832]);
+  const [x, y] = await evaluate(`(b => [b.x + b.width / 2, b.y + b.height / 2])(document.getElementById('pushedGo').getBoundingClientRect())`);
+  await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+  await call('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  expect(await evaluate(`new Promise(r => setTimeout(r, 300)).then(() => [clicks.splice(0), document.activeElement.id, box('pushed')])`))
+    .toEqual([['pushedGo'], 'pushedField', [12, 832]]);
 }), 60000);
 
 check('a bound value keeps the detents UIKit keeps: a word it cannot read or one out of order is dropped', () => inChrome(async (evaluate) => {
